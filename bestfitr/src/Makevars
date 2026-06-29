@@ -1,0 +1,4 @@
+# Build the cpp11 glue against the vendored header-only C++ core.
+# No -O3/-march/-Werror etc.: let R drive optimization flags (CRAN portability).
+CXX_STD = CXX17
+PKG_CPPFLAGS = -I./bestfit_core/include
