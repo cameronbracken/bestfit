@@ -1,0 +1,30 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.dylib
+*.dll
+*.out
+
+# R
+bestfitr/src/*.o
+bestfitr/src/*.so
+*.Rcheck/
+*.tar.gz
+
+# Python
+__pycache__/
+*.egg-info/
+dist/
+wheelhouse/
+.venv/
+
+# OS / editor / AI tooling (never commit)
+.DS_Store
+._*
+.vscode/
+.positron/
+.idea/
+CLAUDE.md
+AGENTS.md
+.claude/
