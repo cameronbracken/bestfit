@@ -16,6 +16,7 @@ target_include_directories(bestfit_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/in
 set(BF_TESTS
   test_mersenne_twister
   test_generalized_extreme_value
+  test_gev_estimation
 )
 
 foreach(t ${BF_TESTS})
