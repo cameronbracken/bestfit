@@ -90,7 +90,7 @@ class GeneralizedExtremeValue {
         double k = solve_for_kappa(moments[2]);
         double a, x;
         if (std::fabs(k) <= kNearZero) {
-            a = std::sqrt(6.0) / M_PI * moments[1];
+            a = std::sqrt(6.0) / kPi * moments[1];
             x = moments[0] - a * kEuler;
         } else {
             double U1 = g::function(1.0 + k);
@@ -176,7 +176,7 @@ class GeneralizedExtremeValue {
         double d2du2 = N / (a * a) * p;
         double d2da2 = N / (a * a * k * k) * (1.0 - 2.0 * (1.0 - k) * g::function(1.0 - k) + p);
         double d2dk2 = N / (k * k) *
-                       (M_PI * M_PI / 6.0 + std::pow(1.0 - gg - 1.0 / k, 2.0) + 2.0 * q / k +
+                       (kPi * kPi / 6.0 + std::pow(1.0 - gg - 1.0 / k, 2.0) + 2.0 * q / k +
                         p / (k * k));
         double d2duda = N / (a * a * k) * (p - (1.0 - k) * g::function(1.0 - k));
         double d2dudk = -N / (a * k) * (p / k + q);
@@ -231,7 +231,7 @@ class GeneralizedExtremeValue {
     double standard_deviation() const {
         namespace g = math::special;
         if (std::fabs(kappa_) <= kNearZero)
-            return std::sqrt(alpha_ * alpha_ * M_PI * M_PI / 6.0);
+            return std::sqrt(alpha_ * alpha_ * kPi * kPi / 6.0);
         if (std::fabs(kappa_) < 0.5) {
             double g1 = g::function(1.0 + kappa_);
             double g2 = g::function(1.0 + 2.0 * kappa_);

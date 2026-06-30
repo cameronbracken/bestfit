@@ -23,7 +23,9 @@ foreach(t ${BF_TESTS})
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE bestfit_core)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-  target_compile_options(${t} PRIVATE -Wall -Wextra)
+  target_compile_options(${t} PRIVATE
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra>)
   add_test(NAME ${t} COMMAND ${t})
 endforeach()
 

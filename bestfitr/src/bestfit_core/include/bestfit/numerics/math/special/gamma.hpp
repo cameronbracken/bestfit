@@ -81,10 +81,10 @@ inline double function(double x) {
                 p += 1.0;
                 z = q - p;
             }
-            z = q * std::sin(M_PI * z);
+            z = q * std::sin(kPi * z);
             if (z == 0.0) throw std::overflow_error("gamma overflow");
             z = std::fabs(z);
-            z = M_PI / (z * stirling(q));
+            z = kPi / (z * stirling(q));
             return -z;
         } else {
             return stirling(x);
@@ -118,7 +118,7 @@ inline double function(double x) {
 inline double lanczos(double x) {
     constexpr int g = 7;
     if (x < 0.5) {
-        return M_PI / (std::sin(M_PI * x) * function(1.0 - x));
+        return kPi / (std::sin(kPi * x) * function(1.0 - x));
     }
     x -= 1.0;
     double y = detail::kLanczosP[0];

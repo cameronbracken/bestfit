@@ -8,7 +8,7 @@ Description: R bindings to a shared C++ port of the USACE-RMC Numerics and
     early version exposes the Generalized Extreme Value distribution: density,
     distribution and quantile functions, moments, parameter estimation
     (method of moments, L-moments, maximum likelihood), and quantile uncertainty.
-License: 0BSD
+License: file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 LinkingTo: cpp11
