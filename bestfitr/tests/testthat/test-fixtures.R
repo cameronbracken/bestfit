@@ -2,7 +2,9 @@
 #
 # Reads the language-neutral oracle fixtures (the single source of truth shared with
 # the C++ core and the Python package) and checks every assertion. No oracle values
-# live here -- only the dispatch from fixture method names to the package's API.
+# live here -- only the dispatch from fixture method names to the package's API. The GEV
+# slice uses its bespoke bf_gev_* glue; every other distribution goes through the
+# polymorphic bf_dist_* glue (factory + UnivariateDistributionBase).
 
 parse_num <- function(v) {
   if (is.character(v)) {
@@ -12,17 +14,21 @@ parse_num <- function(v) {
   as.numeric(v)
 }
 
-build_params <- function(construct, datasets) {
+build_params <- function(target, construct, datasets) {
+  ns <- asNamespace("bestfitr")
   if (!is.null(construct$params)) {
     return(vapply(construct$params, parse_num, numeric(1)))
   }
   fit <- construct$fit
   data <- as.numeric(unlist(datasets[[fit$dataset]]))
-  f <- gev_fit(data, fit$method)
-  c(f[["location"]], f[["scale"]], f[["shape"]])
+  if (target == "GeneralizedExtremeValue") {
+    f <- gev_fit(data, fit$method)
+    return(c(f[["location"]], f[["scale"]], f[["shape"]]))
+  }
+  ns$bf_dist_fit_(target, data, fit$method)
 }
 
-dispatch <- function(p, method, args) {
+dispatch_gev <- function(p, method, args) {
   loc <- p[1]; scale <- p[2]; shape <- p[3]
   ns <- asNamespace("bestfitr")  # internal cpp11 functions are not exported
   moment_names <- c("mean", "median", "mode", "sd", "skewness", "kurtosis",
@@ -45,6 +51,24 @@ dispatch <- function(p, method, args) {
       as.integer(args[[2]])),
     quantile_se = sqrt(ns$bf_gev_quantile_variance_(as.double(args[[1]]), loc, scale, shape,
       as.integer(args[[2]]))),
+    stop(sprintf("unknown fixture method: %s", method))
+  )
+}
+
+dispatch_generic <- function(target, p, method, args) {
+  ns <- asNamespace("bestfitr")
+  moment_names <- c("mean", "median", "mode", "sd", "skewness", "kurtosis",
+                    "minimum", "maximum")
+  if (method %in% moment_names) {
+    return(unname(ns$bf_dist_moments_(target, p)[[method]]))
+  }
+  switch(method,
+    pdf = ns$bf_dist_pdf_(target, p, as.double(args[[1]])),
+    cdf = ns$bf_dist_cdf_(target, p, as.double(args[[1]])),
+    quantile = ns$bf_dist_quantile_(target, p, as.double(args[[1]])),
+    parameters_valid = ns$bf_dist_valid_(target, p),
+    param = p[[as.integer(args[[1]]) + 1L]],
+    linear_moment = ns$bf_dist_linear_moments_(target, p)[[as.integer(args[[1]]) + 1L]],
     stop(sprintf("unknown fixture method: %s", method))
   )
 }
@@ -72,11 +96,17 @@ test_that("oracle fixtures validate", {
   expect_gt(length(files), 0)
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
+    target <- spec$target
     datasets <- spec$datasets
     for (case in spec$cases) {
-      p <- build_params(case$construct, datasets)
+      p <- build_params(target, case$construct, datasets)
       for (a in case$assertions) {
-        actual <- dispatch(p, a$method, if (is.null(a$args)) list() else a$args)
+        args <- if (is.null(a$args)) list() else a$args
+        actual <- if (target == "GeneralizedExtremeValue") {
+          dispatch_gev(p, a$method, args)
+        } else {
+          dispatch_generic(target, p, a$method, args)
+        }
         check_assertion(actual, a)
       }
     }

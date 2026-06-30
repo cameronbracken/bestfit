@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bindings.hpp"
 
 namespace py = pybind11;
 namespace dist = bestfit::numerics::distributions;
@@ -58,4 +59,7 @@ PYBIND11_MODULE(_core, m) {
             return std::vector<double>{g.xi(), g.alpha(), g.kappa()};
         },
         py::arg("data"), py::arg("method"));
+
+    // Polymorphic distributions (Normal, Uniform, Exponential, ...).
+    register_distributions(m);
 }

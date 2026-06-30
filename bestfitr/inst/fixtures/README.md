@@ -7,9 +7,12 @@ these JSON files and applies every assertion; no oracle values are duplicated in
 test file. This is what makes "validate identically" structural rather than aspirational.
 
 Oracle values trace to the upstream C# unit tests (and through them to published
-references such as Rao & Hamed, *Flood Frequency Analysis*). They are currently
-authored by hand from those tests; a scripted extractor (`tools/extract_oracles.py`)
-will automate this for the bulk distribution port.
+references such as Rao & Hamed, *Flood Frequency Analysis*). They are curated from those
+tests and then **verified reproducible against the real Numerics library** by
+`tools/verify_oracles.py` (which runs the C# `tools/oracle_emitter` project). That gate is
+dev-only — it needs `dotnet` and the `upstream/Numerics` submodule — and confirms every
+expected value still reproduces to its stated tolerance. A scripted extractor to harvest
+the C# test literals *en masse* is planned for the bulk distribution port.
 
 `tools/sync_fixtures.py` copies this directory into each package
 (`bestfitr/inst/fixtures`, `bestfitpy/src/bestfitpy/fixtures`) so each ships its own
