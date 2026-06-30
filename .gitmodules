@@ -1,0 +1,8 @@
+[submodule "upstream/Numerics"]
+	path = upstream/Numerics
+	url = https://github.com/USACE-RMC/Numerics.git
+	branch = main
+[submodule "upstream/RMC-BestFit"]
+	path = upstream/RMC-BestFit
+	url = https://github.com/USACE-RMC/RMC-BestFit.git
+	branch = main
