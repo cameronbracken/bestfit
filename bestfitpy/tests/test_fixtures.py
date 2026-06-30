@@ -2,7 +2,9 @@
 
 Reads the language-neutral oracle fixtures (the single source of truth shared with
 the C++ core and the R package) and checks every assertion. No oracle values live
-in this file -- only the dispatch from fixture method names to the Python API.
+in this file -- only the dispatch from fixture method names to the Python API. The GEV
+slice uses its bespoke object API; every other distribution goes through the polymorphic
+``_core.dist_*`` functions (factory + UnivariateDistributionBase).
 """
 from __future__ import annotations
 
@@ -14,6 +16,9 @@ from pathlib import Path
 import pytest
 
 from bestfitpy import GeneralizedExtremeValue, gev_fit
+from bestfitpy import _core
+
+_MOMENTS = ("mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum")
 
 
 def _fixtures_dir() -> Path:
@@ -34,18 +39,18 @@ def _num(v):
     return float(v)
 
 
-def _build(target, construct, datasets):
-    if target != "GeneralizedExtremeValue":
-        pytest.skip(f"no Python builder for target {target}")
+# --- GEV slice (bespoke object API) ----------------------------------------------------
+
+
+def _build_gev(construct, datasets):
     if "params" in construct:
-        p = [_num(v) for v in construct["params"]]
-        return GeneralizedExtremeValue(*p)
+        return GeneralizedExtremeValue(*[_num(v) for v in construct["params"]])
     fit = construct["fit"]
     res = gev_fit(datasets[fit["dataset"]], fit["method"])
     return GeneralizedExtremeValue(res["location"], res["scale"], res["shape"])
 
 
-def _dispatch(g, method, args):
+def _dispatch_gev(g, method, args):
     simple = {
         "mean": g.mean, "median": g.median, "mode": g.mode, "skewness": g.skewness,
         "kurtosis": g.kurtosis, "minimum": g.minimum, "maximum": g.maximum,
@@ -70,6 +75,37 @@ def _dispatch(g, method, args):
     if method == "quantile_se":
         return math.sqrt(g.quantile_variance(args[0], int(args[1])))
     raise KeyError(f"unknown fixture method: {method}")
+
+
+# --- Generic polymorphic path ----------------------------------------------------------
+
+
+def _build_params(target, construct, datasets):
+    if "params" in construct:
+        return [_num(v) for v in construct["params"]]
+    fit = construct["fit"]
+    return list(_core.dist_fit(target, datasets[fit["dataset"]], fit["method"]))
+
+
+def _dispatch_generic(target, params, method, args):
+    if method in _MOMENTS:
+        return _core.dist_moments(target, params)[method]
+    if method == "pdf":
+        return _core.dist_pdf(target, params, args[0])
+    if method == "cdf":
+        return _core.dist_cdf(target, params, args[0])
+    if method == "quantile":
+        return _core.dist_quantile(target, params, args[0])
+    if method == "parameters_valid":
+        return _core.dist_valid(target, params)
+    if method == "param":
+        return params[int(args[0])]
+    if method == "linear_moment":
+        return _core.dist_linear_moments(target, params)[int(args[0])]
+    raise KeyError(f"unknown fixture method: {method}")
+
+
+# --- Shared assertion checking ---------------------------------------------------------
 
 
 def _check(actual, a):
@@ -106,7 +142,15 @@ CASES = _load_cases()
     "target,datasets,case", CASES, ids=[f"{t}:{c['name']}" for t, _, c in CASES]
 )
 def test_fixture_case(target, datasets, case):
-    g = _build(target, case["construct"], datasets)
+    is_gev = target == "GeneralizedExtremeValue"
+    if is_gev:
+        g = _build_gev(case["construct"], datasets)
+    else:
+        params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:
-        actual = _dispatch(g, a["method"], a.get("args", []))
+        args = a.get("args", [])
+        if is_gev:
+            actual = _dispatch_gev(g, a["method"], args)
+        else:
+            actual = _dispatch_generic(target, params, a["method"], args)
         _check(actual, a)

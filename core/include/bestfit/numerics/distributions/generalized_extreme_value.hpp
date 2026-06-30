@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
@@ -19,9 +20,11 @@
 
 namespace bestfit::numerics::distributions {
 
+// GEV-specific estimation-method enum (predates the shared ParameterEstimationMethod;
+// kept so the GEV bindings/fixtures continue to resolve "mom"/"lmom"/"mle" unchanged).
 enum class EstimationMethod { MethodOfMoments, MethodOfLinearMoments, MaximumLikelihood };
 
-class GeneralizedExtremeValue {
+class GeneralizedExtremeValue : public UnivariateDistributionBase {
    public:
     GeneralizedExtremeValue() { set_parameters(100.0, 10.0, 0.0); }
     GeneralizedExtremeValue(double location, double scale, double shape) {
@@ -31,7 +34,12 @@ class GeneralizedExtremeValue {
     double xi() const { return xi_; }
     double alpha() const { return alpha_; }
     double kappa() const { return kappa_; }
-    bool parameters_valid() const { return parameters_valid_; }
+
+    UnivariateDistributionType type() const override {
+        return UnivariateDistributionType::GeneralizedExtremeValue;
+    }
+    int number_of_parameters() const override { return 3; }
+    std::vector<double> get_parameters() const override { return {xi_, alpha_, kappa_}; }
 
     void set_parameters(double location, double scale, double shape) {
         xi_ = location;
@@ -40,7 +48,11 @@ class GeneralizedExtremeValue {
         parameters_valid_ = validate(location, scale, shape);
     }
 
-    void set_parameters(const std::vector<double>& p) { set_parameters(p[0], p[1], p[2]); }
+    void set_parameters(const std::vector<double>& p) override { set_parameters(p[0], p[1], p[2]); }
+
+    std::unique_ptr<UnivariateDistributionBase> clone() const override {
+        return std::make_unique<GeneralizedExtremeValue>(xi_, alpha_, kappa_);
+    }
 
     // --- Estimation ---
     void estimate(const std::vector<double>& sample, EstimationMethod method) {
@@ -211,24 +223,24 @@ class GeneralizedExtremeValue {
     }
 
     // --- Moments ---
-    double mean() const {
+    double mean() const override {
         namespace g = math::special;
         if (std::fabs(kappa_) <= kNearZero) return xi_ + alpha_ * kEuler;
         if (std::fabs(kappa_) < 1.0) return xi_ + (alpha_ / kappa_ * (1.0 - g::function(1.0 + kappa_)));
         return kNaN;
     }
 
-    double median() const {
+    double median() const override {
         if (std::fabs(kappa_) <= kNearZero) return xi_ - alpha_ * std::log(std::log(2.0));
         return xi_ + alpha_ * (std::pow(std::log(2.0), -kappa_) - 1.0) / kappa_;
     }
 
-    double mode() const {
+    double mode() const override {
         if (std::fabs(kappa_) <= kNearZero) return xi_;
         return xi_ + alpha_ * (std::pow(1.0 + kappa_, -kappa_) - 1.0) / kappa_;
     }
 
-    double standard_deviation() const {
+    double standard_deviation() const override {
         namespace g = math::special;
         if (std::fabs(kappa_) <= kNearZero)
             return std::sqrt(alpha_ * alpha_ * kPi * kPi / 6.0);
@@ -240,7 +252,7 @@ class GeneralizedExtremeValue {
         return kNaN;
     }
 
-    double skewness() const {
+    double skewness() const override {
         namespace g = math::special;
         if (std::fabs(kappa_) <= kNearZero) return 1.1396;
         if (std::fabs(kappa_) < 1.0 / 3.0) {
@@ -253,7 +265,7 @@ class GeneralizedExtremeValue {
         return kNaN;
     }
 
-    double kurtosis() const {
+    double kurtosis() const override {
         namespace g = math::special;
         if (std::fabs(kappa_) <= kNearZero) return 3.0 + 12.0 / 5.0;
         if (std::fabs(kappa_) < 0.25) {
@@ -269,24 +281,24 @@ class GeneralizedExtremeValue {
         return kNaN;
     }
 
-    double minimum() const {
+    double minimum() const override {
         if (kappa_ >= -kNearZero) return -kInf;
         return xi_ + alpha_ / kappa_;
     }
-    double maximum() const {
+    double maximum() const override {
         if (kappa_ <= kNearZero) return kInf;
         return xi_ + alpha_ / kappa_;
     }
 
     // --- Distribution functions ---
-    double pdf(double x) const {
+    double pdf(double x) const override {
         if (x < minimum() || x > maximum()) return 0.0;
         double y = (x - xi_) / alpha_;
         if (std::fabs(kappa_) > kNearZero) y = -std::log(1.0 - kappa_ * y) / kappa_;
         return std::exp(-(1.0 - kappa_) * y - std::exp(-y)) / alpha_;
     }
 
-    double cdf(double x) const {
+    double cdf(double x) const override {
         if (x <= minimum()) return 0.0;
         if (x >= maximum()) return 1.0;
         double y = (x - xi_) / alpha_;
@@ -294,7 +306,7 @@ class GeneralizedExtremeValue {
         return std::exp(-std::exp(-y));
     }
 
-    double inverse_cdf(double probability) const {
+    double inverse_cdf(double probability) const override {
         if (probability < 0.0 || probability > 1.0)
             throw std::out_of_range("probability must be between 0 and 1");
         if (probability == 0.0) return minimum();
@@ -304,7 +316,7 @@ class GeneralizedExtremeValue {
         return xi_ + alpha_ / kappa_ * (1.0 - std::pow(-std::log(probability), kappa_));
     }
 
-    double log_pdf(double x) const { return std::log(pdf(x)); }
+    double log_pdf(double x) const override { return std::log(pdf(x)); }
 
     double log_likelihood(const std::vector<double>& sample) const {
         double ll = 0.0;
@@ -314,10 +326,7 @@ class GeneralizedExtremeValue {
     }
 
    private:
-    static constexpr double kNearZero = 1E-4;  // UnivariateDistributionBase.NearZero
-    static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
-    static constexpr double kInf = std::numeric_limits<double>::infinity();
-
+    // kNearZero / kNaN / kInf are inherited (protected) from UnivariateDistributionBase.
     static double sign(double x) { return (x > 0) - (x < 0); }
 
     static bool validate(double location, double scale, double shape) {
@@ -330,7 +339,6 @@ class GeneralizedExtremeValue {
     double xi_ = 0.0;
     double alpha_ = 0.0;
     double kappa_ = 0.0;
-    bool parameters_valid_ = false;
 };
 
 }  // namespace bestfit::numerics::distributions
