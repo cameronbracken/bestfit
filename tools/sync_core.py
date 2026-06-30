@@ -46,7 +46,10 @@ def main() -> int:
     for dest_root in PACKAGES:
         for sub in SUBTREES:
             src = CORE / sub
-            if not src.exists():
+            # Skip a subtree that does not exist or contains no files (e.g. an empty
+            # data/ before the Sobol direction-number file is added). Shipping an empty
+            # directory triggers a spurious R CMD check NOTE.
+            if not src.exists() or not any(p.is_file() for p in src.rglob("*")):
                 continue
             dest = dest_root / sub
             if args.check:
