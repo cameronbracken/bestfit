@@ -31,4 +31,11 @@ tools/oracle_emitter/obj/
 .idea/
 CLAUDE.md
 AGENTS.md
-.claude/
+.claude/*
+
+# Exception: this project deliberately TRACKS its curated context files, because the
+# C++/R/Python-from-C# port is a complex, multi-surface process whose plan and porting
+# guidance need to travel with the repo. Everything else in .claude/ stays ignored.
+!.claude/CLAUDE.md
+!.claude/PLAN.md
+!upstream/CLAUDE.md

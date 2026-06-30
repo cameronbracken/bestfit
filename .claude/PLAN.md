@@ -1,0 +1,246 @@
+# Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
+
+> **Current status (kept in sync by hand):** Phase 0 is **complete**. **Phase 1 is underway** —
+> the first increment landed the polymorphic distribution layer (`UnivariateDistributionBase`,
+> `UnivariateDistributionType`, the factory, and the `IEstimation` / `ILinearMomentEstimation`
+> capability mixins) plus the first three pilot distributions (**Normal**, **Uniform**,
+> **Exponential**), with GEV refactored onto the base. Runners and bindings in all three languages
+> are now factory-driven and polymorphic, so a new distribution = one fixture file + a couple of
+> dispatch entries. The GEV slice keeps a bespoke path for its standard-error methods.
+>
+> Oracle workflow is now **hybrid**: fixtures are curated from the C# tests AND verified
+> reproducible against the real Numerics library by `tools/oracle_emitter` (C#) +
+> `tools/verify_oracles.py` (dev-only; needs `dotnet`, which is now installed). All three harnesses
+> + the dotnet gate are green; R and Python agree bit-for-bit.
+>
+> This increment is committed on branch `phase1-pilot-distributions` (PR #1, GPG-signed
+> `de86a8d`) with **CI green on the full matrix** — `sync-check`, `core`, `r-cmd-check`, and
+> `python` all pass on Linux/macOS/Windows. The dotnet oracle gate is intentionally not in CI
+> (CI checks out with `submodules: false` and has no `dotnet`); it stays a local dev gate.
+>
+> The `upstream/` submodules exist (`upstream/Numerics`, `upstream/RMC-BestFit` — official
+> USACE-RMC `main`, shallow, dev-only). Still pending: the remaining ~38 univariate distributions,
+> the rest of the math/RNG foundation, an auto-scraper for the bulk oracle extraction,
+> `PORTING_MANIFEST.toml`, `upstream_diff.py`, and the `core/src` source-manifest machinery.
+> The rest of this document is the originally approved architecture and phasing.
+
+## Context
+
+RMC.BestFit and its dependency Numerics are mature C# (.NET 10) libraries for Bayesian
+flood-frequency / extreme-value analysis (~140K LOC, ~3,877 oracle-validated tests). The goal
+is to make this capability available as idiomatic, **CRAN- and PyPI-publishable** R and Python
+packages that keep BestFit's speed and exact level of validation, while reusing as much of the
+existing work as possible.
+
+Key decisions already settled with the user:
+- **CRAN + PyPI publishing is a hard requirement.** This rules out a .NET-binding approach for R
+  (CRAN builds from source on its own machines and will not install the .NET SDK).
+- **Approach: one shared C++ core** (a mechanical-as-possible port of the C# computational
+  surface) wrapped by **cpp11** for R and **pybind11** for Python. Write the math once, bind
+  twice. C# → C++ is the lowest-friction compiled target that both registries bless.
+- **Scope: full parity ("Everything")** — all model families and all of Numerics — phased.
+- **Lead with R** (stricter packaging), Python in lockstep behind the same core.
+
+Why C++ and not .NET/Native-AOT: CRAN can't build it. Why not pure-native R/Python on
+scipy/stats: no code reuse, highest validation drift, MCMC can't be reproduced. A single
+self-contained C++ core preserves the C# algorithms (hence the oracle values hold to 1e-10–1e-12)
+and, because both bindings run the *same* compiled code, R and Python MCMC chains are **identical
+given the same seed**.
+
+What we deliberately do **not** port: the ~50–65% of BestFit that is WPF / `INotifyPropertyChanged`
+/ XML (`ToXElement`/`FromXElement`) / `[Browsable]` boilerplate, and the reflection-bearing
+serialization layer (`Enum.TryParse`, custom `JsonConverter`s). These are desktop-app concerns.
+`DataFrame`/`TimeSeries` become thin adapters over native `data.frame`/pandas at the binding edge.
+
+## Repository structure
+
+Monorepo with **one canonical C++ core** in `core/`, vendored (copied + committed) into each
+package's `src/` by a sync script. CRAN/PyPI sdists must be self-contained, so each package
+directory must independently be a valid source tree — submodules and symlinks do not survive
+`R CMD build`/sdist export. A CI `sync-check` job re-runs the sync and fails on `git diff`.
+
+```
+bestfit/
+├── upstream/                   # dev-only git submodules, pinned to a SHA/tag (NOT vendored into packages)
+│   ├── Numerics/               #   github.com/USACE-RMC/Numerics @ pinned commit
+│   └── RMC.BestFit/            #   the C# source we port from; the diff baseline
+├── core/                       # THE canonical C++17 core (all numerical dev happens here)
+│   ├── include/bestfit/{numerics/{distributions,math,sampling,data},models,estimation,analyses,diagnostics}/
+│   ├── src/                    # matching .cpp translation units; layout MIRRORS the C# tree
+│   ├── data/new-joe-kuo-6.21201   # Sobol direction numbers (was an embedded C# resource)
+│   ├── tests/                  # doctest/Catch2 suites driven by ../fixtures
+│   ├── PORTING_MANIFEST.toml   # provenance map: each .cs file → C++ file(s), status, last-ported SHA+hash
+│   └── CMakeLists.txt          # dev-only: builds core static lib + C++ tests
+├── fixtures/                   # canonical language-neutral oracle fixtures (JSON)
+├── bestfitr/                   # R package (cpp11) — self-contained for CRAN
+│   ├── DESCRIPTION             # LinkingTo: cpp11 ; SystemRequirements: C++17
+│   ├── src/{bestfit_core/,*.cpp(glue),Makevars,Makevars.win}   # bestfit_core/ is GENERATED+committed
+│   ├── R/  inst/fixtures/  inst/extdata/new-joe-kuo-6.21201  tests/testthat/  man/
+├── bestfitpy/                  # Python package (scikit-build-core + CMake + pybind11)
+│   ├── pyproject.toml  CMakeLists.txt
+│   ├── src/{bestfit_core/,bindings/,bestfitpy/}   # bestfit_core/ is GENERATED+committed
+│   └── tests/
+├── tools/{sync_core.py,sync_fixtures.py,extract_oracles.py,upstream_diff.py}
+└── .github/workflows/
+```
+
+`tools/sync_core.py` copies `core/{include,src,data}` into both packages **and** regenerates one
+source manifest in two forms — `core_sources.mk` (R `Makevars` `OBJECTS`) and `core_sources.cmake`
+(CMake `include()`). Adding a core file is picked up by both builds after one sync. Avoid build
+wildcards (CRAN dislikes them) — the manifest is explicit.
+
+## C++ core design
+
+- **Standard: C++17** (`CXX_STD = CXX17` in Makevars, `SystemRequirements: C++17` in DESCRIPTION).
+  Nothing in Numerics needs C++20; C++17 is the safe CRAN baseline.
+- **Structural mirroring (maintainability investment).** The C++ tree mirrors the C# tree
+  file-for-file and class-for-class, keeping method names and method order aligned with the source.
+  This is not cosmetic: when upstream ships a change, a C# diff then maps almost line-for-line onto
+  the corresponding C++ file, turning re-porting into a localized edit instead of an investigation.
+  Each C++ file opens with a provenance header (`// ported from: Numerics/.../GeneralizedExtremeValue.cs
+  @ <sha>`).
+- **Self-contained — port Numerics' own linear algebra and RNG; do NOT vendor Eigen.** Numerics has
+  zero runtime deps and its oracles were validated against *its own* Cholesky/LU/QR/SVD/Eigen and
+  `Matrix`/`Vector` (row-major `double[]` wrappers). Reusing the same algorithms maximizes bit-level
+  oracle fidelity and keeps the CRAN dependency surface empty. Eigen would risk last-ULP drift and a
+  hard `LinkingTo`/vendoring burden.
+- **Memory model:** value types for distributions/small math objects (C# `Clone()` → copy ctor);
+  factory returns `std::unique_ptr<UnivariateDistribution>`; polymorphic model containers hold
+  `std::vector<std::unique_ptr<...>>`. No raw `new`/`delete`; `shared_ptr` only where genuinely
+  co-owned.
+- **Interfaces:** `IUnivariateDistribution`/`UnivariateDistributionBase` → abstract base with pure
+  virtuals (`pdf`/`cdf`/`inverse_cdf`/`set_parameters`/...) plus promoted shared methods
+  (`log_likelihood`, `variance`, `generate_random_values`, `central_moments`). Capability mixins
+  (`IMaximumLikelihoodEstimation`, `ILinearMomentEstimation`, `IBootstrappable`, ...) → pure-virtual
+  interface classes via multiple inheritance; capability checks use `dynamic_cast` (RTTI on, CRAN-safe).
+  Enums → `enum class`; the `UnivariateDistributionFactory` `if/else` → `switch` (drop the `XElement`
+  overload). C# `ValidateParameters` nullable-exception pattern → `std::optional<std::string>` /
+  throw `std::invalid_argument`.
+- **RNG (the parity payoff):** port `MersenneTwister` as `std::array<uint32_t,624>` + `mti` with the
+  tempering constants verbatim; `next_double() == gen_rand_int32() * (1.0/4294967296.0)` to match C#
+  `GenRandReal2()`. Port Sobol; ship `new-joe-kuo-6.21201` as a data file located via
+  `system.file()` (R) / `importlib.resources` (Python) and passed into the core loader. Pin all three
+  languages with a C++ test asserting the canonical mt19937ar reference stream.
+
+Reference files for the port:
+`Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs`,
+`.../GeneralizedExtremeValue.cs`, `.../Base/UnivariateDistributionFactory.cs`,
+`Numerics/Sampling/MersenneTwister.cs`.
+
+## Build systems
+
+- **R (cpp11):** `src/Makevars`/`Makevars.win` with `CXX_STD = CXX17`, `PKG_CPPFLAGS` pointing at
+  vendored headers, `OBJECTS` from the generated `core_sources.mk`. **No** `-march=native`, `-O3`,
+  LTO, or `-Werror` (let R drive flags — the #1 CRAN portability rule). Glue exposes free functions
+  and `external_pointer` handles wrapped in R6/S4 classes.
+- **Python (scikit-build-core + CMake + pybind11):** `pyproject.toml` build-backend
+  `scikit_build_core.build`; `CMakeLists.txt` sets `CMAKE_CXX_STANDARD 17`, `include()`s
+  `core_sources.cmake`, `pybind11_add_module`. Wheels via **cibuildwheel** (manylinux/musllinux,
+  macOS universal2, Windows MSVC); Sobol data shipped as package data.
+
+## Test-fixture strategy (validate identically, DRY)
+
+Extract the ~3,877 hardcoded oracles **once** from the `.cs` tests into versioned language-neutral
+JSON under `fixtures/`. Three thin generic runners (C++ doctest, R testthat, Python pytest) read the
+*same* fixtures, so "validate identically" is structural, not aspirational.
+
+Fixture schema captures per-assertion **comparison mode** + **tolerance** (the C# tests mix absolute
+`Assert.AreEqual(exp,act,tol)` and relative `Assert.IsLessThan(0.01,(x-true)/true)`):
+each fixture = `{target, kind, source_test, cases:[{name, construct|input, estimate?, seed?,
+assertions:[{method,args,expected,tol,mode}]}]}` with modes `abs|rel|exact(NaN/Inf)|bool|vector|matrix`.
+RNG/MCMC fixtures add `seed` + expected first-N values / digest to prove identical streams across R/Python.
+
+`tools/extract_oracles.py` scrapes the regular RMC test patterns into **draft** fixtures + a coverage
+report; a human curates the residue (interdependent covariance/std-error asserts). Each language has a
+~40-entry method-dispatch table mapping fixture `"method"` strings to its API
+(`"mean" → Mean / $mean() / .mean()`) — the only per-language test code. `sync_fixtures.py` copies
+`fixtures/` into `bestfitr/inst/fixtures/` and bestfitpy package data.
+
+## Upstream synchronization (keeping the port current)
+
+RMC.BestFit/Numerics are updated frequently, so pulling upstream changes must be a guided,
+repeatable workflow — not a re-audit. Four mechanisms make this routine:
+
+1. **Pinned upstream submodules** (`upstream/Numerics`, `upstream/RMC.BestFit`) give a local diff
+   baseline at a known commit. Dev-only: never vendored into the shipped `core/` or package sdists.
+2. **Provenance manifest** (`core/PORTING_MANIFEST.toml`): one entry per upstream `.cs` file recording
+   its C++ counterpart(s), a **status** (`ported | adapter | skipped:boilerplate | skipped:test`), and
+   the **last-ported upstream SHA + content hash**. The `skipped:boilerplate` status is what lets us
+   ignore the high-churn WPF/XML/`INotifyPropertyChanged` files entirely — serialization churn
+   generates zero porting noise.
+3. **`tools/upstream_diff.py`**: bump the submodule to a new SHA/tag, then this tool walks the manifest
+   and, for every non-skipped `.cs` file whose hash changed since its last-ported SHA, emits a
+   **porting worklist** — the affected C++ file(s) plus the inline C# diff. New/removed upstream files
+   are flagged as manifest gaps. Output is a checklist a human (or an agent) works through.
+4. **Fixtures as the change detector / safety net.** Because `extract_oracles.py` reads upstream's own
+   `.cs` *test* files, re-running it regenerates `fixtures/`; `git diff fixtures/` shows every changed
+   expected value and every new test case. After porting the worklist, the fixtures that still **fail**
+   are exactly the behavior not yet ported — the test layer tracks upstream automatically.
+
+**Routine to absorb an upstream release:** (a) bump submodule to the new tag; (b) `upstream_diff.py`
+→ worklist; (c) `extract_oracles.py` → regenerate fixtures, review the diff; (d) port the C++ deltas
+guided by the worklist, update manifest SHAs/hashes; (e) run all three harnesses — failing fixtures
+pinpoint remaining work; (f) CI green → version bump recording "validated against BestFit `<tag>` /
+Numerics `<tag>`". A **scheduled CI `upstream-watch` job** runs `upstream_diff.py` against the latest
+upstream tag and opens an issue/PR with the worklist + fixture diff, so drift surfaces on its own.
+
+## CI/CD (GitHub Actions)
+
+Gated jobs after a fast **`sync-check`** (re-run sync scripts, `git diff --exit-code`):
+1. **core** — build + C++ tests (incl. MT19937 reference stream) on ubuntu/macOS/windows.
+2. **r-cmd-check** — {ubuntu, macOS, windows} × {R release, oldrel}, `R CMD check --as-cran`
+   WARNING/NOTE-clean; scheduled win-builder/rhub pre-submission.
+3. **python-wheels** — cibuildwheel matrix; run pytest inside each built wheel; build sdist.
+4. **release** — PyPI via Trusted Publishing (OIDC) on `v*` tags; CRAN tarball produced by CI,
+   submission human-gated (`devtools::release()`).
+5. **upstream-watch** (scheduled) — `upstream_diff.py` + `extract_oracles.py` against the latest
+   upstream tag; opens an issue/PR with the porting worklist + fixture diff when drift is detected.
+
+## Phasing (full parity, dependency-ordered)
+
+**Phase 0 — prove the whole toolchain end-to-end with ONE distribution before any mass porting.**
+[DONE] Port the minimum to make **GeneralizedExtremeValue** work fully (moments, L-moments,
+MLE via Nelder-Mead, Brent root-finding, Fisher-info matrix inverse, quantile variance): `Tools`
+constants, `SpecialFunctions::Gamma`, minimal `Matrix`/`Vector`, `MersenneTwister`,
+`RootFinding::Brent`, `Optimization::NelderMead`, `Statistics::{ProductMoments,LinearMoments}`, GEV.
+**Exit criterion (met):** the same `generalized_extreme_value.json` passes in C++, R, and Python;
+seeded RNG byte-identical between R and Python; all CI jobs green; sync + manifest proven. (Note:
+the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — see status header.)
+
+**Phases 1–7 — bulk port (tests ported alongside each chunk):**
+1. Numerics math + RNG foundation (all `Mathematics`, `Sampling` RNG, `Data/Statistics`).
+   [IN PROGRESS] The univariate base/factory/capability-mixin layer is built and the first
+   three distributions are ported (see pilot below); `std::erf`, Wichura AS241 inverse-normal,
+   and the shared statistics are in. Still to do: Sobol + RNG breadth, integration,
+   differentiation, fuller linear algebra and special functions, goodness-of-fit stats.
+2. All 42 univariate distributions (mechanical once the base exists; parallelizable).
+   [PILOT DONE] **Normal**, **Uniform**, **Exponential** ported, fixture-validated in
+   C++/R/Python and reproduced against C# (PR #1). ~38 remaining, dependency-ordered.
+3. Multivariate distributions + copulas.
+4. Sampling/MCMC (RWMH, ARWMH, DEMCz/zs, HMC, NUTS, Gibbs, SNIS) + Bootstrap — fixture digests prove
+   identical seeded chains across R/Python.
+5. BestFit `Estimation` (MaximumLikelihood, MAP, GMM, BayesianAnalysis, NumericalDiff, OptimizationMethod).
+6. BestFit `Models` (UnivariateDistribution, Bulletin17C, Mixture, CompetingRisks, PointProcess,
+   Bivariate, RatingCurve, TimeSeries, SpatialExtremes, Trend/Link functions) — boilerplate skipped,
+   DataFrame as adapter.
+7. BestFit `Analyses` + `Diagnostics` — the user-facing API (`univariate_analysis()` etc.).
+
+Each phase merges only when its fixtures pass in all three harnesses and all CI jobs are green.
+
+## Documentation
+
+- **R:** roxygen2 → `man/`, pkgdown site, vignettes mirroring the `examples/*.md` walkthroughs.
+- **Python:** numpydoc docstrings, Sphinx or mkdocs-material site, runnable example notebooks.
+- Shared: a porting/architecture doc and a "validated against C# BestFit vX" provenance note.
+
+## Verification
+
+- **C++:** `cmake --build core && ctest` — doctest suite green incl. RNG reference-stream test.
+- **R:** `R CMD build bestfitr && R CMD check --as-cran bestfitr` clean on all 3 platforms;
+  `testthat` reads `inst/fixtures` and passes.
+- **Python:** `cibuildwheel` builds wheels on all 3 platforms; `pytest` (reading packaged fixtures)
+  passes inside each wheel; `pip install` from sdist succeeds.
+- **Cross-language identity:** a harness script confirms (a) every fixture passes identically in
+  C++/R/Python to its stated tolerances, and (b) a seeded MCMC chain is byte-identical between R and
+  Python. Spot-check selected outputs against the original C# tests to confirm no oracle drift.
+- **Phase-0 gate** is the first real proof; no bulk porting begins until it is green.
