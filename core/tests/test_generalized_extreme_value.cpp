@@ -12,16 +12,16 @@
 
 using bestfit::numerics::kEuler;
 using bestfit::numerics::distributions::GeneralizedExtremeValue;
-namespace gamma = bestfit::numerics::math::special;
+namespace sf = bestfit::numerics::math::special;  // not "gamma": clashes with glibc gamma()
 
 static bool is_nan(double x) { return std::isnan(x); }
 constexpr double INF = std::numeric_limits<double>::infinity();
 
 int main() {
     // --- Gamma sanity (leaf dependency) ---
-    CHECK_NEAR(gamma::function(1.0), 1.0, 1e-12);
-    CHECK_NEAR(gamma::function(5.0), 24.0, 1e-10);
-    CHECK_NEAR(gamma::function(0.5), std::sqrt(M_PI), 1e-12);
+    CHECK_NEAR(sf::function(1.0), 1.0, 1e-12);
+    CHECK_NEAR(sf::function(5.0), 24.0, 1e-10);
+    CHECK_NEAR(sf::function(0.5), std::sqrt(bestfit::numerics::kPi), 1e-12);
 
     // --- Construction ---
     {
