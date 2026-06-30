@@ -47,4 +47,4 @@ cmake -S core -B core/build && cmake --build core/build && ctest --test-dir core
 
 ## License
 
-0BSD, matching the upstream USACE-RMC libraries.
+The ported C++ library and the packages are licensed under the 0BSD license, matching the original USACE-RMC libraries.
