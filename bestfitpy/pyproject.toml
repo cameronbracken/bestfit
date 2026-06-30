@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "bestfitpy"
+version = "0.0.0"
+description = "Bayesian flood-frequency and extreme-value analysis (Python bindings to the bestfit C++ core)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "0BSD" }
+authors = [{ name = "Cam Bracken", email = "cameron.bracken@pm.me" }]
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/cameronbracken/bestfit"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/bestfitpy"]

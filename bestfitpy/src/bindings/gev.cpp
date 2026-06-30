@@ -1,0 +1,56 @@
+// pybind11 binding exposing the GEV slice of the shared C++ core to Python.
+// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+#include <string>
+#include <vector>
+
+#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+
+namespace py = pybind11;
+namespace dist = bestfit::numerics::distributions;
+
+static dist::EstimationMethod parse_method(const std::string& m) {
+    if (m == "mom" || m == "moments") return dist::EstimationMethod::MethodOfMoments;
+    if (m == "lmom" || m == "lmoments") return dist::EstimationMethod::MethodOfLinearMoments;
+    if (m == "mle") return dist::EstimationMethod::MaximumLikelihood;
+    throw py::value_error("unknown estimation method '" + m + "' (use 'mom', 'lmom', or 'mle')");
+}
+
+PYBIND11_MODULE(_core, m) {
+    m.doc() = "C++ core bindings for bestfitpy (GEV slice).";
+
+    py::class_<dist::GeneralizedExtremeValue>(m, "GeneralizedExtremeValue")
+        .def(py::init<double, double, double>(), py::arg("location"), py::arg("scale"),
+             py::arg("shape"))
+        .def_property_readonly("location", &dist::GeneralizedExtremeValue::xi)
+        .def_property_readonly("scale", &dist::GeneralizedExtremeValue::alpha)
+        .def_property_readonly("shape", &dist::GeneralizedExtremeValue::kappa)
+        .def_property_readonly("parameters_valid",
+                               &dist::GeneralizedExtremeValue::parameters_valid)
+        .def("pdf", &dist::GeneralizedExtremeValue::pdf, py::arg("x"))
+        .def("cdf", &dist::GeneralizedExtremeValue::cdf, py::arg("x"))
+        .def("quantile", &dist::GeneralizedExtremeValue::inverse_cdf, py::arg("p"))
+        .def("mean", &dist::GeneralizedExtremeValue::mean)
+        .def("median", &dist::GeneralizedExtremeValue::median)
+        .def("mode", &dist::GeneralizedExtremeValue::mode)
+        .def("standard_deviation", &dist::GeneralizedExtremeValue::standard_deviation)
+        .def("skewness", &dist::GeneralizedExtremeValue::skewness)
+        .def("kurtosis", &dist::GeneralizedExtremeValue::kurtosis)
+        .def("minimum", &dist::GeneralizedExtremeValue::minimum)
+        .def("maximum", &dist::GeneralizedExtremeValue::maximum)
+        .def("log_likelihood", &dist::GeneralizedExtremeValue::log_likelihood, py::arg("sample"))
+        .def("quantile_variance", &dist::GeneralizedExtremeValue::quantile_variance, py::arg("p"),
+             py::arg("sample_size"));
+
+    // Fit returns {location, scale, shape}.
+    m.def(
+        "gev_fit",
+        [](const std::vector<double>& data, const std::string& method) {
+            dist::GeneralizedExtremeValue g;
+            g.estimate(data, parse_method(method));
+            return std::vector<double>{g.xi(), g.alpha(), g.kappa()};
+        },
+        py::arg("data"), py::arg("method"));
+}

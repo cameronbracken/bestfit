@@ -1,14 +1,16 @@
 # bestfit
 
-R (`bestfitr`) and Python (`bestfitpy`) packages for Bayesian flood-frequency and
-extreme-value analysis, built on a **shared C++17 core** that is a faithful port of the
+R (`bestfitr`) and Python (`bestfitpy`) packages for stochastic hydrology including 
+Bayesian flood-frequency and extreme-value analysis. Both packages are built on a 
+**shared C++17 core** that is a faithful port of the
 USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
 [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries.
 
 The C++ core is wrapped by [cpp11](https://cpp11.r-lib.org/) for R and
-[pybind11](https://pybind11.readthedocs.io/) for Python. Writing the math once and binding
-it twice means both packages run identical code — and, because the Mersenne Twister RNG is
-ported bit-exact, seeded MCMC chains are identical across R and Python.
+[pybind11](https://pybind11.readthedocs.io/) for Python. The core library and the packages are 
+utilize tests derived from from the original RMC libraries and are intended to ensure that the 
+ported code and the packages produce identical output to the original code if the same random 
+seed is used.
 
 ## Status
 
