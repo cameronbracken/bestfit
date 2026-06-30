@@ -44,10 +44,15 @@ doubles bf_gev_quantile_(doubles p, double location, double scale, double shape)
 [[cpp11::register]]
 doubles bf_gev_moments_(double location, double scale, double shape) {
     dist::GeneralizedExtremeValue g(location, scale, shape);
-    writable::doubles out({g.mean(), g.median(), g.standard_deviation(), g.skewness(),
+    writable::doubles out({g.mean(), g.median(), g.mode(), g.standard_deviation(), g.skewness(),
                            g.kurtosis(), g.minimum(), g.maximum()});
-    out.names() = {"mean", "median", "sd", "skewness", "kurtosis", "minimum", "maximum"};
+    out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
     return out;
+}
+
+[[cpp11::register]]
+bool bf_gev_valid_(double location, double scale, double shape) {
+    return dist::GeneralizedExtremeValue(location, scale, shape).parameters_valid();
 }
 
 [[cpp11::register]]
@@ -65,4 +70,29 @@ double bf_gev_quantile_variance_(double p, double location, double scale, double
                                  int sample_size) {
     dist::GeneralizedExtremeValue g(location, scale, shape);
     return g.quantile_variance(p, sample_size);
+}
+
+[[cpp11::register]]
+doubles bf_gev_linear_moments_(double location, double scale, double shape) {
+    dist::GeneralizedExtremeValue g(location, scale, shape);
+    auto lmom = g.linear_moments_from_parameters({location, scale, shape});
+    return writable::doubles(lmom);
+}
+
+[[cpp11::register]]
+doubles bf_gev_quantile_gradient_(double p, double location, double scale, double shape) {
+    dist::GeneralizedExtremeValue g(location, scale, shape);
+    return writable::doubles(g.quantile_gradient(p));
+}
+
+// Returns the flattened 3x3 covariance (row-major).
+[[cpp11::register]]
+doubles bf_gev_parameter_covariance_(double location, double scale, double shape,
+                                     int sample_size) {
+    dist::GeneralizedExtremeValue g(location, scale, shape);
+    auto cov = g.parameter_covariance(sample_size);
+    writable::doubles out(9);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) out[i * 3 + j] = cov[i][j];
+    return out;
 }

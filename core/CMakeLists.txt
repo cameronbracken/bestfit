@@ -26,3 +26,10 @@ foreach(t ${BF_TESTS})
   target_compile_options(${t} PRIVATE -Wall -Wextra)
   add_test(NAME ${t} COMMAND ${t})
 endforeach()
+
+# Generic fixture-driven runner: reads the canonical fixtures/ shared by all languages.
+add_executable(test_fixtures tests/test_fixtures.cpp)
+target_link_libraries(test_fixtures PRIVATE bestfit_core)
+target_include_directories(test_fixtures PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+add_test(NAME test_fixtures
+         COMMAND test_fixtures ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures)

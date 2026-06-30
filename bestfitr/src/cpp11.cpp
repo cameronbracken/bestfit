@@ -34,6 +34,13 @@ extern "C" SEXP _bestfitr_bf_gev_moments_(SEXP location, SEXP scale, SEXP shape)
   END_CPP11
 }
 // gev.cpp
+bool bf_gev_valid_(double location, double scale, double shape);
+extern "C" SEXP _bestfitr_bf_gev_valid_(SEXP location, SEXP scale, SEXP shape) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_gev_valid_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape)));
+  END_CPP11
+}
+// gev.cpp
 doubles bf_gev_fit_(doubles data, std::string method);
 extern "C" SEXP _bestfitr_bf_gev_fit_(SEXP data, SEXP method) {
   BEGIN_CPP11
@@ -47,15 +54,40 @@ extern "C" SEXP _bestfitr_bf_gev_quantile_variance_(SEXP p, SEXP location, SEXP 
     return cpp11::as_sexp(bf_gev_quantile_variance_(cpp11::as_cpp<cpp11::decay_t<double>>(p), cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size)));
   END_CPP11
 }
+// gev.cpp
+doubles bf_gev_linear_moments_(double location, double scale, double shape);
+extern "C" SEXP _bestfitr_bf_gev_linear_moments_(SEXP location, SEXP scale, SEXP shape) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_gev_linear_moments_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape)));
+  END_CPP11
+}
+// gev.cpp
+doubles bf_gev_quantile_gradient_(double p, double location, double scale, double shape);
+extern "C" SEXP _bestfitr_bf_gev_quantile_gradient_(SEXP p, SEXP location, SEXP scale, SEXP shape) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_gev_quantile_gradient_(cpp11::as_cpp<cpp11::decay_t<double>>(p), cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape)));
+  END_CPP11
+}
+// gev.cpp
+doubles bf_gev_parameter_covariance_(double location, double scale, double shape, int sample_size);
+extern "C" SEXP _bestfitr_bf_gev_parameter_covariance_(SEXP location, SEXP scale, SEXP shape, SEXP sample_size) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_gev_parameter_covariance_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size)));
+  END_CPP11
+}
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
-    {"_bestfitr_bf_gev_cdf_",               (DL_FUNC) &_bestfitr_bf_gev_cdf_,               4},
-    {"_bestfitr_bf_gev_fit_",               (DL_FUNC) &_bestfitr_bf_gev_fit_,               2},
-    {"_bestfitr_bf_gev_moments_",           (DL_FUNC) &_bestfitr_bf_gev_moments_,           3},
-    {"_bestfitr_bf_gev_pdf_",               (DL_FUNC) &_bestfitr_bf_gev_pdf_,               4},
-    {"_bestfitr_bf_gev_quantile_",          (DL_FUNC) &_bestfitr_bf_gev_quantile_,          4},
-    {"_bestfitr_bf_gev_quantile_variance_", (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_, 5},
+    {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                  4},
+    {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                  2},
+    {"_bestfitr_bf_gev_linear_moments_",       (DL_FUNC) &_bestfitr_bf_gev_linear_moments_,       3},
+    {"_bestfitr_bf_gev_moments_",              (DL_FUNC) &_bestfitr_bf_gev_moments_,              3},
+    {"_bestfitr_bf_gev_parameter_covariance_", (DL_FUNC) &_bestfitr_bf_gev_parameter_covariance_, 4},
+    {"_bestfitr_bf_gev_pdf_",                  (DL_FUNC) &_bestfitr_bf_gev_pdf_,                  4},
+    {"_bestfitr_bf_gev_quantile_",             (DL_FUNC) &_bestfitr_bf_gev_quantile_,             4},
+    {"_bestfitr_bf_gev_quantile_gradient_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_gradient_,    4},
+    {"_bestfitr_bf_gev_quantile_variance_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_,    5},
+    {"_bestfitr_bf_gev_valid_",                (DL_FUNC) &_bestfitr_bf_gev_valid_,                3},
     {NULL, NULL, 0}
 };
 }

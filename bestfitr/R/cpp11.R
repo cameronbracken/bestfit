@@ -16,10 +16,26 @@ bf_gev_moments_ <- function(location, scale, shape) {
   .Call(`_bestfitr_bf_gev_moments_`, location, scale, shape)
 }
 
+bf_gev_valid_ <- function(location, scale, shape) {
+  .Call(`_bestfitr_bf_gev_valid_`, location, scale, shape)
+}
+
 bf_gev_fit_ <- function(data, method) {
   .Call(`_bestfitr_bf_gev_fit_`, data, method)
 }
 
 bf_gev_quantile_variance_ <- function(p, location, scale, shape, sample_size) {
   .Call(`_bestfitr_bf_gev_quantile_variance_`, p, location, scale, shape, sample_size)
+}
+
+bf_gev_linear_moments_ <- function(location, scale, shape) {
+  .Call(`_bestfitr_bf_gev_linear_moments_`, location, scale, shape)
+}
+
+bf_gev_quantile_gradient_ <- function(p, location, scale, shape) {
+  .Call(`_bestfitr_bf_gev_quantile_gradient_`, p, location, scale, shape)
+}
+
+bf_gev_parameter_covariance_ <- function(location, scale, shape, sample_size) {
+  .Call(`_bestfitr_bf_gev_parameter_covariance_`, location, scale, shape, sample_size)
 }
