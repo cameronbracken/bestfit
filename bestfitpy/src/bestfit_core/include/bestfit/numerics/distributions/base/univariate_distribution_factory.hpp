@@ -35,6 +35,7 @@
 #include "bestfit/numerics/distributions/kappa_four.hpp"
 #include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
 #include "bestfit/numerics/distributions/pearson_type_iii.hpp"
+#include "bestfit/numerics/distributions/pert.hpp"
 #include "bestfit/numerics/distributions/poisson.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
 #include "bestfit/numerics/distributions/truncated_normal.hpp"
@@ -93,6 +94,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Pareto>();
         case UnivariateDistributionType::PearsonTypeIII:
             return std::make_unique<PearsonTypeIII>();
+        case UnivariateDistributionType::Pert:
+            return std::make_unique<Pert>();
         case UnivariateDistributionType::Poisson:
             return std::make_unique<Poisson>();
         case UnivariateDistributionType::Rayleigh:
@@ -143,6 +146,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
     if (name == "PearsonTypeIII") return create_distribution(UnivariateDistributionType::PearsonTypeIII);
+    if (name == "Pert") return create_distribution(UnivariateDistributionType::Pert);
     if (name == "Poisson") return create_distribution(UnivariateDistributionType::Poisson);
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
     if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
