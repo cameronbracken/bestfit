@@ -21,6 +21,7 @@
 #include "bestfit/numerics/distributions/generalized_pareto.hpp"
 #include "bestfit/numerics/distributions/geometric.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
+#include "bestfit/numerics/distributions/log_normal.hpp"
 #include "bestfit/numerics/distributions/logistic.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pareto.hpp"
@@ -51,6 +52,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Geometric>();
         case UnivariateDistributionType::Gumbel:
             return std::make_unique<Gumbel>();
+        case UnivariateDistributionType::LogNormal:
+            return std::make_unique<LogNormal>();
         case UnivariateDistributionType::Logistic:
             return std::make_unique<Logistic>();
         case UnivariateDistributionType::Normal:
@@ -84,6 +87,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
         return create_distribution(UnivariateDistributionType::GeneralizedPareto);
     if (name == "Geometric") return create_distribution(UnivariateDistributionType::Geometric);
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
+    if (name == "LogNormal") return create_distribution(UnivariateDistributionType::LogNormal);
     if (name == "Logistic") return create_distribution(UnivariateDistributionType::Logistic);
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
