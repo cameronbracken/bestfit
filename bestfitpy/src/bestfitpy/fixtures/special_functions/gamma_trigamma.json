@@ -1,0 +1,68 @@
+{
+  "kind": "special_function",
+  "target": "Gamma.trigamma",
+  "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
+  "reference": "Numerics @ a2c4dbf; Gamma.Trigamma — algorithm AS121. Oracle values from Test_Gamma.cs Test_Trigamma + dotnet run.",
+  "cases": [
+    {
+      "name": "trigamma_1p0",
+      "args": [1.0],
+      "assertions": [ { "method": "value", "expected": 1.6449340654732836, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "trigamma_1p2_from_test",
+      "args": [1.2],
+      "assertions": [ { "method": "value", "expected": 1.2673772045232341, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_1p4_from_test",
+      "args": [1.4],
+      "assertions": [ { "method": "value", "expected": 1.0253565899305868, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_1p6_from_test",
+      "args": [1.6],
+      "assertions": [ { "method": "value", "expected": 0.8584318927203769, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_1p8_from_test",
+      "args": [1.8],
+      "assertions": [ { "method": "value", "expected": 0.73697413722527694, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_2p0",
+      "args": [2.0],
+      "assertions": [ { "method": "value", "expected": 0.64493406547328358, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "trigamma_0p2_small_from_test",
+      "args": [0.2],
+      "assertions": [ { "method": "value", "expected": 26.267377204523232, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_0p4_from_test",
+      "args": [0.4],
+      "assertions": [ { "method": "value", "expected": 7.2753565899305865, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_0p6_from_test",
+      "args": [0.6],
+      "assertions": [ { "method": "value", "expected": 3.6362096704981552, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_0p8_from_test",
+      "args": [0.8],
+      "assertions": [ { "method": "value", "expected": 2.2994741372252765, "mode": "rel", "tol": 1e-4 } ]
+    },
+    {
+      "name": "trigamma_5p0_large",
+      "args": [5.0],
+      "assertions": [ { "method": "value", "expected": 0.22132295436217247, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "trigamma_10p0_large",
+      "args": [10.0],
+      "assertions": [ { "method": "value", "expected": 0.10516633568098574, "mode": "abs", "tol": 1e-12 } ]
+    }
+  ]
+}

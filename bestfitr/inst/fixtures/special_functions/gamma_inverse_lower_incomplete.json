@@ -1,0 +1,68 @@
+{
+  "kind": "special_function",
+  "target": "Gamma.inverse_lower_incomplete",
+  "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
+  "reference": "Numerics @ a2c4dbf; Gamma.InverseLowerIncomplete — delegates to Gamma.Inverse(a, 1-y). Oracle values from Test_Gamma.cs Test_InverseLowerIncomplete + dotnet run.",
+  "cases": [
+    {
+      "name": "inv_lower_a1_y01",
+      "args": [1.0, 0.1],
+      "assertions": [ { "method": "value", "expected": 0.1053605156578263, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a2_y02",
+      "args": [2.0, 0.2],
+      "assertions": [ { "method": "value", "expected": 0.82438830903298466, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a3_y03",
+      "args": [3.0, 0.3],
+      "assertions": [ { "method": "value", "expected": 1.9137757941270663, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a4_y04",
+      "args": [4.0, 0.4],
+      "assertions": [ { "method": "value", "expected": 3.2113227801209541, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a5_y05",
+      "args": [5.0, 0.5],
+      "assertions": [ { "method": "value", "expected": 4.6709088827959961, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a6_y06",
+      "args": [6.0, 0.6],
+      "assertions": [ { "method": "value", "expected": 6.2919189833087614, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a7_y07",
+      "args": [7.0, 0.7],
+      "assertions": [ { "method": "value", "expected": 8.1110493066927916, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a8_y08",
+      "args": [8.0, 0.8],
+      "assertions": [ { "method": "value", "expected": 10.232539646894006, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a9_y09",
+      "args": [9.0, 0.9],
+      "assertions": [ { "method": "value", "expected": 12.994711541318566, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a2_y05",
+      "args": [2.0, 0.5],
+      "assertions": [ { "method": "value", "expected": 1.6783469900166608, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a5_y01",
+      "args": [5.0, 0.1],
+      "assertions": [ { "method": "value", "expected": 2.4325910259626671, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_lower_a5_y09",
+      "args": [5.0, 0.9],
+      "assertions": [ { "method": "value", "expected": 7.9935895860526234, "mode": "abs", "tol": 1e-8 } ]
+    }
+  ]
+}

@@ -14,6 +14,61 @@ namespace bestfit::numerics::math::special {
 
 namespace detail {
 
+// Wichura AS241 inverse standard-normal CDF. Ported from Normal.r8_normal_01_cdf_inverse.
+// Needed by inverse_lower_incomplete / inverse_upper_incomplete (they call Normal.StandardZ).
+inline double normal_standard_z(double p) {
+    static constexpr double a[8] = {3.3871328727963666080,    1.3314166789178437745e+2,
+                                    1.9715909503065514427e+3,  1.3731693765509461125e+4,
+                                    4.5921953931549871457e+4,  6.7265770927008700853e+4,
+                                    3.3430575583588128105e+4,  2.5090809287301226727e+3};
+    static constexpr double b[8] = {1.0,                       4.2313330701600911252e+1,
+                                    6.8718700749205790830e+2,  5.3941960214247511077e+3,
+                                    2.1213794301586595867e+4,  3.9307895800092710610e+4,
+                                    2.8729085735721942674e+4,  5.2264952788528545610e+3};
+    static constexpr double c[8] = {1.42343711074968357734,    4.63033784615654529590,
+                                    5.76949722146069140550,    3.64784832476320460504,
+                                    1.27045825245236838258,    2.41780725177450611770e-1,
+                                    2.27238449892691845833e-2, 7.74545014278341407640e-4};
+    static constexpr double d[8] = {1.0,                       2.05319162663775882187,
+                                    1.67638483018380384940,    6.89767334985100004550e-1,
+                                    1.48103976427480074590e-1, 1.51986665636164571966e-2,
+                                    5.47593808499534494600e-4, 1.05075007164441684324e-9};
+    static constexpr double e[8] = {6.65790464350110377720,    5.46378491116411436990,
+                                    1.78482653991729133580,    2.96560571828504891230e-1,
+                                    2.65321895265761230930e-2, 1.24266094738807843860e-3,
+                                    2.71155556874348757815e-5, 2.01033439929228813265e-7};
+    static constexpr double f[8] = {1.0,                       5.99832206555887937690e-1,
+                                    1.36929880922735805310e-1, 1.48753612908506508940e-2,
+                                    7.86869131145613259100e-4, 1.84631831751005468180e-5,
+                                    1.42151175831644588870e-7, 2.04426310338993978564e-15};
+    constexpr double split1 = 0.425, split2 = 5.0;
+    constexpr double const1 = 0.180625, const2 = 1.6;
+    double q, r, val;
+    q = p - 0.5;
+    if (std::fabs(q) <= split1) {
+        r = const1 - q * q;
+        double num = 0.0, den = 0.0;
+        for (int i = 7; i >= 0; --i) { num = num * r + a[i]; den = den * r + b[i]; }
+        val = q * num / den;
+    } else {
+        r = (q < 0.0) ? p : 1.0 - p;
+        r = std::sqrt(-std::log(r));
+        if (r <= split2) {
+            r -= const2;
+            double num = 0.0, den = 0.0;
+            for (int i = 7; i >= 0; --i) { num = num * r + c[i]; den = den * r + d[i]; }
+            val = num / den;
+        } else {
+            r -= split2;
+            double num = 0.0, den = 0.0;
+            for (int i = 7; i >= 0; --i) { num = num * r + e[i]; den = den * r + f[i]; }
+            val = num / den;
+        }
+        if (q < 0.0) val = -val;
+    }
+    return val;
+}
+
 // Horner evaluation: coeffs[0]*x^n + ... + coeffs[n]  (mirrors Evaluate.PolynomialRev).
 inline double polynomial_rev(const double* coeffs, double x, int n) {
     double value = coeffs[0];
@@ -172,13 +227,39 @@ inline double log_gamma(double z) {
         double s = detail::kGammaDk[0];
         for (int i = 1; i <= kGammaN; ++i) s += detail::kGammaDk[i] / (i - z);
         return kLnPi - std::log(std::sin(kPi * z)) - std::log(s) - kLogTwoSqrtEOverPi
-               - (0.5 - z) * std::log((0.5 - z + kGammaR) / std::exp(1.0));
+               - (0.5 - z) * std::log((0.5 - z + kGammaR) / bestfit::numerics::kE);
     } else {
         double s = detail::kGammaDk[0];
         for (int i = 1; i <= kGammaN; ++i) s += detail::kGammaDk[i] / (z + i - 1.0);
         return std::log(s) + kLogTwoSqrtEOverPi
-               + (z - 0.5) * std::log((z - 0.5 + kGammaR) / std::exp(1.0));
+               + (z - 0.5) * std::log((z - 0.5 + kGammaR) / bestfit::numerics::kE);
     }
+}
+
+// trigamma: ψ'(x), second derivative of log-gamma.
+// Ported from Gamma.Trigamma (algorithm AS121).
+inline double trigamma(double X) {
+    constexpr double A = 0.0001;
+    constexpr double B = 5.0;
+    constexpr double B2 =  0.1666666667;
+    constexpr double B4 = -0.03333333333;
+    constexpr double B6 =  0.02380952381;
+    constexpr double B8 = -0.03333333333;
+    if (X <= 0.0) throw std::out_of_range("trigamma: X must be > 0");
+    double Z = X;
+    double result;
+    if (X <= A) {
+        result = 1.0 / X / X;
+    } else {
+        result = 0.0;
+        while (Z < B) {
+            result += 1.0 / Z / Z;
+            Z += 1.0;
+        }
+        double Y = 1.0 / Z / Z;
+        result += 0.5 * Y + (1.0 + Y * (B2 + Y * (B4 + Y * (B6 + Y * B8)))) / Z;
+    }
+    return result;
 }
 
 // upper_incomplete: regularized upper incomplete gamma Q(a, x).
@@ -247,6 +328,93 @@ inline double upper_incomplete(double a, double x) {
         }
     } while (t > kDoubleEpsilon);
     return ans * ax;
+}
+
+// inverse_upper_incomplete: x = Q^{-1}(a, y), i.e. UpperIncomplete(a, x) ≈ y.
+// inverse_lower_incomplete: x = P^{-1}(a, y), i.e. LowerIncomplete(a, x) ≈ y.
+// Both port Gamma.Inverse (private) via the public wrappers in Gamma.cs.
+
+namespace detail {
+// Core inverse: finds x such that UpperIncomplete(a, x) ≈ y.
+// Mirrors Gamma.Inverse exactly (Newton + interval halving).
+inline double gamma_inverse(double a, double y) {
+    constexpr double kLogMax = 709.782712893384;
+    constexpr double kDoubleEpsilon = 0.000000000000000111022302462516;
+    double x0 = std::numeric_limits<double>::max();
+    double yl = 0.0;
+    double x1 = 0.0;
+    double yh = 1.0;
+    double dithresh = 5.0 * kDoubleEpsilon;
+    // initial approximation
+    double d = 1.0 / (9.0 * a);
+    double yy = 1.0 - d - normal_standard_z(y) * std::sqrt(d);
+    double x = a * yy * yy * yy;
+    double lgm = log_gamma(a);
+    for (int i = 0; i <= 9; ++i) {
+        if (x > x0 || x < x1) goto ihalve;
+        yy = upper_incomplete(a, x);
+        if (yy < yl || yy > yh) goto ihalve;
+        if (yy < y) { x0 = x; yl = yy; }
+        else        { x1 = x; yh = yy; }
+        d = (a - 1.0) * std::log(x) - x - lgm;
+        if (d < -kLogMax) goto ihalve;
+        d = -std::exp(d);
+        d = (yy - y) / d;
+        if (std::fabs(d / x) < kDoubleEpsilon) return x;
+        x = x - d;
+    }
+ihalve:
+    d = 0.0625;
+    if (x0 == std::numeric_limits<double>::max()) {
+        if (x <= 0.0) x = 1.0;
+        while (x0 == std::numeric_limits<double>::max() && !std::isnan(x) && !std::isinf(x)) {
+            x = (1.0 + d) * x;
+            yy = upper_incomplete(a, x);
+            if (yy < y) { x0 = x; yl = yy; break; }
+            d += d;
+        }
+    }
+    d = 0.5;
+    double dir = 0.0;
+    for (int i = 0; i <= 399; ++i) {
+        double t = x1 + d * (x0 - x1);
+        if (std::isnan(t)) break;
+        x = t;
+        yy = upper_incomplete(a, x);
+        lgm = (x0 - x1) / (x1 + x0);
+        if (std::fabs(lgm) < dithresh) break;
+        lgm = (yy - y) / y;
+        if (std::fabs(lgm) < dithresh) break;
+        if (x <= 0.0) break;
+        if (yy >= y) {
+            x1 = x; yh = yy;
+            if (dir < 0.0) { dir = 0.0; d = 0.5; }
+            else if (dir > 1.0) { d = 0.5 * d + 0.5; }
+            else { d = (y - yl) / (yh - yl); }
+            dir += 1.0;
+        } else {
+            x0 = x; yl = yy;
+            if (dir > 0.0) { dir = 0.0; d = 0.5; }
+            else if (dir < -1.0) { d = 0.5 * d; }
+            else { d = (y - yl) / (yh - yl); }
+            dir -= 1.0;
+        }
+    }
+    if (x == 0.0 || std::isnan(x)) throw std::runtime_error("gamma_inverse: failed to converge");
+    return x;
+}
+}  // namespace detail
+
+// inverse_upper_incomplete: x such that UpperIncomplete(a, x) ≈ y.
+// Mirrors Gamma.InverseUpperIncomplete → Gamma.Inverse(a, y).
+inline double inverse_upper_incomplete(double a, double y) {
+    return detail::gamma_inverse(a, y);
+}
+
+// inverse_lower_incomplete: x such that LowerIncomplete(a, x) ≈ y.
+// Mirrors Gamma.InverseLowerIncomplete → Gamma.Inverse(a, 1-y).
+inline double inverse_lower_incomplete(double a, double y) {
+    return detail::gamma_inverse(a, 1.0 - y);
 }
 
 }  // namespace bestfit::numerics::math::special

@@ -24,6 +24,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
+#include "bestfit/numerics/math/special/gamma.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
 
@@ -150,6 +151,15 @@ special_function_table() {
         {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},
         {"Erf.inverse_erf",   [](const std::vector<double>& a) { return sf::erf::inverse_erf(a[0]); }},
         {"Erf.inverse_erfc",  [](const std::vector<double>& a) { return sf::erf::inverse_erfc(a[0]); }},
+        // Gamma family
+        {"Gamma.function",               [](const std::vector<double>& a) { return sf::function(a[0]); }},
+        {"Gamma.log_gamma",              [](const std::vector<double>& a) { return sf::log_gamma(a[0]); }},
+        {"Gamma.digamma",                [](const std::vector<double>& a) { return sf::digamma(a[0]); }},
+        {"Gamma.trigamma",               [](const std::vector<double>& a) { return sf::trigamma(a[0]); }},
+        {"Gamma.lower_incomplete",       [](const std::vector<double>& a) { return sf::lower_incomplete(a[0], a[1]); }},
+        {"Gamma.upper_incomplete",       [](const std::vector<double>& a) { return sf::upper_incomplete(a[0], a[1]); }},
+        {"Gamma.inverse_lower_incomplete", [](const std::vector<double>& a) { return sf::inverse_lower_incomplete(a[0], a[1]); }},
+        {"Gamma.inverse_upper_incomplete", [](const std::vector<double>& a) { return sf::inverse_upper_incomplete(a[0], a[1]); }},
     };
     return t;
 }

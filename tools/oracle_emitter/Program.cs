@@ -119,6 +119,15 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "Erf.erfc"         => a => Erf.Erfc(a[0]),
     "Erf.inverse_erf"  => a => Erf.InverseErf(a[0]),
     "Erf.inverse_erfc" => a => Erf.InverseErfc(a[0]),
+    // Gamma family
+    "Gamma.function"                 => a => Gamma.Function(a[0]),
+    "Gamma.log_gamma"                => a => Gamma.LogGamma(a[0]),
+    "Gamma.digamma"                  => a => Gamma.Digamma(a[0]),
+    "Gamma.trigamma"                 => a => Gamma.Trigamma(a[0]),
+    "Gamma.lower_incomplete"         => a => Gamma.LowerIncomplete(a[0], a[1]),
+    "Gamma.upper_incomplete"         => a => Gamma.UpperIncomplete(a[0], a[1]),
+    "Gamma.inverse_lower_incomplete" => a => Gamma.InverseLowerIncomplete(a[0], a[1]),
+    "Gamma.inverse_upper_incomplete" => a => Gamma.InverseUpperIncomplete(a[0], a[1]),
     _ => null,
 };
 

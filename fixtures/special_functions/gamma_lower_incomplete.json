@@ -1,0 +1,83 @@
+{
+  "kind": "special_function",
+  "target": "Gamma.lower_incomplete",
+  "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
+  "reference": "Numerics @ a2c4dbf; Gamma.LowerIncomplete. Oracle values from Test_Gamma.cs Test_LowerIncomplete + dotnet run. Branch: series when x<=1 or x<=a; delegates to upper when x>1 and x>a.",
+  "cases": [
+    {
+      "name": "lower_inc_a0_x2_boundary",
+      "args": [0.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "equal" } ]
+    },
+    {
+      "name": "lower_inc_a025_x2_upper_branch",
+      "args": [0.25, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.98271398814048316, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a05_x05_series_branch",
+      "args": [0.5, 0.5],
+      "assertions": [ { "method": "value", "expected": 0.68268949213708596, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a05_x2_upper_branch",
+      "args": [0.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.95449973610364158, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a1_x0_zero",
+      "args": [1.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 0.0, "mode": "equal" } ]
+    },
+    {
+      "name": "lower_inc_a1_x1_series",
+      "args": [1.0, 1.0],
+      "assertions": [ { "method": "value", "expected": 0.63212055882855811, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a1_x2_upper_branch",
+      "args": [1.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.86466471676338719, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a15_x2_upper_branch",
+      "args": [1.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.7385358700508895, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a2_x2_upper_branch",
+      "args": [2.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.59399415029016167, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a25_x2_upper_branch",
+      "args": [2.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.45058404864721846, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a275_x2_upper_branch",
+      "args": [2.75, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.38426574050242368, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a2_x1_series",
+      "args": [2.0, 1.0],
+      "assertions": [ { "method": "value", "expected": 0.26424111765711528, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a2_x5_upper_branch",
+      "args": [2.0, 5.0],
+      "assertions": [ { "method": "value", "expected": 0.95957231800548726, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a5_x3_series",
+      "args": [5.0, 3.0],
+      "assertions": [ { "method": "value", "expected": 0.18473675547622728, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "lower_inc_a5_x10_upper_branch",
+      "args": [5.0, 10.0],
+      "assertions": [ { "method": "value", "expected": 0.97074731192303898, "mode": "abs", "tol": 1e-12 } ]
+    }
+  ]
+}
