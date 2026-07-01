@@ -94,6 +94,16 @@
       ]
     },
     {
+      "name": "student_t_large_df_sigma2_normal_approx",
+      "note": "nu=1e8 large-df branch with sigma=2 (sigma!=1): PDF mirrors C# Normal.StandardPDF(Z) with NO /sigma factor. Would fail before the fix.",
+      "construct": { "params": [0.0, 2.0, 100000000.0] },
+      "assertions": [
+        { "method": "pdf", "args": [0.0], "expected": 0.3989422804014327, "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf", "args": [1.0], "expected": 0.3520653267642995, "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf", "args": [0.0], "expected": 0.5,                "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
       "name": "student_t_invalid_params",
       "note": "sigma<=0 or nu<1 -> parameters_valid = false; Test_InvalidParameters",
       "construct": { "params": [0.0, -1.0, 1.0] },

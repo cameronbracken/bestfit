@@ -106,8 +106,8 @@ class StudentT : public UnivariateDistributionBase {
         if (!parameters_valid_) throw std::invalid_argument("StudentT: invalid parameters");
         double Z = (x - mu_) / sigma_;
         if (nu_ >= 1.0e8) {
-            // Large-df fallback: standard normal PDF at Z
-            return std::exp(-0.5 * Z * Z) / (kSqrt2PI * sigma_);
+            // Large-df fallback: standard normal PDF at Z (mirrors C# Normal.StandardPDF(Z) — no /sigma)
+            return std::exp(-0.5 * Z * Z) / kSqrt2PI;
         }
         return std::exp(sf_st::log_gamma((nu_ + 1.0) / 2.0) -
                         sf_st::log_gamma(nu_ / 2.0)) *
@@ -154,12 +154,11 @@ class StudentT : public UnivariateDistributionBase {
                 rflg = 1;
             }
             double z = sf_st::beta::incomplete_inverse(0.5 * nu_, 0.5, 2.0 * p);
-            double t;
+            double t = std::sqrt(nu_ / z - nu_);
             if (std::numeric_limits<double>::max() * z < nu_) {
-                // Overflow guard: return signed double-max
-                return mu_ + sigma_ * static_cast<double>(rflg) * std::numeric_limits<double>::max();
+                // Overflow guard: return rflg * double.MaxValue (no mu, no sigma — mirrors C# exactly)
+                return static_cast<double>(rflg) * std::numeric_limits<double>::max();
             }
-            t = std::sqrt(nu_ / z - nu_);
             return mu_ + sigma_ * static_cast<double>(rflg) * t;
         }
     }
