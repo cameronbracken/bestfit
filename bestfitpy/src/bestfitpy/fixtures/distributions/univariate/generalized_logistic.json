@@ -9,7 +9,7 @@
   },
   "cases": [
     {
-      "name": "kappa_zero_limit_branch",
+      "name": "kappa_zero_limit_no_lmoment_oracle",
       "comment": "kappa=0 exercises the near-zero limit: reduces to logistic distribution",
       "construct": { "params": [0.0, 1.0, 0.0] },
       "assertions": [
