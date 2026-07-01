@@ -3,6 +3,9 @@
   "kind": "univariate_distribution",
   "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_LnNormal.cs",
   "reference": "Rao & Hamed, Flood Frequency Analysis, CRC Press 2000",
+  "datasets": {
+    "wabash_river": [41500, 57000, 44000, 49000, 31000, 45900, 19000, 41100, 37300, 76000, 33200, 61200, 76000, 59800, 44400, 58400, 53600, 59800, 63300, 57700, 64000, 63500, 38000, 74600, 13100, 37600, 67500, 21700, 37000, 93500, 58500, 63300, 74400, 34200, 14600, 44200, 13100, 73300, 46600, 39400, 41200, 41300, 62000, 90000, 50600, 41900, 35000, 16500, 35300, 30000, 52600, 99000, 89000, 39500, 55400, 46000, 63000, 58300, 36500, 14600, 64900, 68500, 69100, 42600, 31000, 39400, 40700, 53400, 36000, 43900, 23600, 50500, 49700, 48100, 44500, 56400, 60800, 40400, 80400, 41600, 14700, 33300, 40700, 53300, 77400]
+  },
   "cases": [
     {
       "name": "standard_moments",
@@ -61,6 +64,37 @@
       "construct": { "params": [0.0, "inf"] },
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "mom_fit",
+      "construct": { "fit": { "dataset": "wabash_river", "method": "mom" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 49922.921313029576, "mode": "abs", "tol": 1e-6 },
+        { "method": "param", "args": [1], "expected": 23656.387581108276, "mode": "abs", "tol": 1e-6 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "mle_fit",
+      "construct": { "fit": { "dataset": "wabash_river", "method": "mle" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 49861.969819552069, "mode": "abs", "tol": 1e-3 },
+        { "method": "param", "args": [1], "expected": 23467.576209434686, "mode": "abs", "tol": 1e-3 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "lmom_fit",
+      "construct": { "fit": { "dataset": "wabash_river", "method": "lmom" } },
+      "assertions": [
+        { "method": "param",         "args": [0], "expected": 49505.261724723598, "mode": "abs", "tol": 1e-6 },
+        { "method": "param",         "args": [1], "expected": 22367.290832347288, "mode": "abs", "tol": 1e-6 },
+        { "method": "linear_moment", "args": [0], "expected": 49505.261724723598, "mode": "abs", "tol": 1e-6 },
+        { "method": "linear_moment", "args": [1], "expected": 12619.392499793563, "mode": "abs", "tol": 1e-6 },
+        { "method": "linear_moment", "args": [2], "expected": 0.0,                "mode": "abs", "tol": 1e-9 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12260171954089216, "mode": "abs", "tol": 1e-9 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
       ]
     }
   ]
