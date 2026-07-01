@@ -23,6 +23,7 @@
 #include "bestfit/numerics/distributions/chi_squared.hpp"
 #include "bestfit/numerics/distributions/gamma_distribution.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
+#include "bestfit/numerics/distributions/inverse_chi_squared.hpp"
 #include "bestfit/numerics/distributions/inverse_gamma.hpp"
 #include "bestfit/numerics/distributions/ln_normal.hpp"
 #include "bestfit/numerics/distributions/log_normal.hpp"
@@ -62,6 +63,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<GammaDistribution>();
         case UnivariateDistributionType::Gumbel:
             return std::make_unique<Gumbel>();
+        case UnivariateDistributionType::InverseChiSquared:
+            return std::make_unique<InverseChiSquared>();
         case UnivariateDistributionType::InverseGamma:
             return std::make_unique<InverseGamma>();
         case UnivariateDistributionType::LnNormal:
@@ -107,6 +110,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "ChiSquared") return create_distribution(UnivariateDistributionType::ChiSquared);
     if (name == "GammaDistribution") return create_distribution(UnivariateDistributionType::GammaDistribution);
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
+    if (name == "InverseChiSquared") return create_distribution(UnivariateDistributionType::InverseChiSquared);
     if (name == "InverseGamma") return create_distribution(UnivariateDistributionType::InverseGamma);
     if (name == "LnNormal") return create_distribution(UnivariateDistributionType::LnNormal);
     if (name == "LogNormal") return create_distribution(UnivariateDistributionType::LogNormal);
