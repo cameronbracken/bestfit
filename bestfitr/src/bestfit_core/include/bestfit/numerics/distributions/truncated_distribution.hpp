@@ -2,9 +2,14 @@
 //
 // A general truncated probability distribution. Wraps any UnivariateDistributionBase
 // and restricts it to [min, max]: PDF is renormalized by F(max)-F(min); CDF and InverseCDF
-// are shifted accordingly. Moments are computed via AGK numerical integration mirroring C#
-// CentralMoments(double tolerance=1e-8). Mode clamps the base mode to [min, max] (exact for
-// unimodal bases; equivalent to C# BrentSearch for all standard test cases).
+// are shifted accordingly. Moments use AGK numerical integration over [min, max]; C# uses
+// CentralMoments(1000) (the int overload: trapezoidal, 1000 steps over InverseCDF(1e-8)
+// endpoints). AGK is more accurate and reproduces the C# values to oracle tolerance.
+// Mode clamps the base mode to [min, max]: exact for unimodal bases (the truncated-PDF
+// maximum is the base mode if in-bounds, else the nearest boundary), matching C# BrentSearch
+// for all standard cases. NOTE: this would be wrong for a MULTIMODAL base (e.g. a Mixture)
+// where truncation shifts the global PDF maximum to a different peak — replace with a
+// BrentSearch-over-truncated-PDF port if such a base is ever truncated.
 // type() delegates to the base distribution (mirrors C# `_baseDist.Type`).
 // No IEstimation / ILinearMomentEstimation (TruncatedDistribution does not implement them in C#).
 #pragma once
