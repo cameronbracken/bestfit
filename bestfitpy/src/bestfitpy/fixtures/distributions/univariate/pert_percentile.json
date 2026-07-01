@@ -1,0 +1,63 @@
+{
+  "target": "PertPercentile",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_PertPercentileDists.cs",
+  "cases": [
+    {
+      "name": "symmetric_at_risk",
+      "comment": "Verified against Palisade @Risk; 5th=-1.644, 50th=0, 95th=1.644 — symmetric PERT",
+      "construct": { "params": [-1.6439999999999999, 0.0, 1.6439999999999999] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true,  "mode": "bool" },
+        { "method": "param",   "args": [0], "expected": -1.6439999999999999, "mode": "abs", "tol": 1e-12 },
+        { "method": "param",   "args": [1], "expected":  0.0,               "mode": "abs", "tol": 1e-12 },
+        { "method": "param",   "args": [2], "expected":  1.6439999999999999, "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",     "args": [-1.644], "expected": 0.050000000857530973, "mode": "abs", "tol": 1e-3 },
+        { "method": "cdf",     "args": [0.0],    "expected": 0.50000000071671158,  "mode": "abs", "tol": 1e-3 },
+        { "method": "cdf",     "args": [1.644],  "expected": 0.95000000052141409,  "mode": "abs", "tol": 1e-3 },
+        { "method": "quantile","args": [0.05],   "expected": -1.644000006423358,   "mode": "abs", "tol": 1e-3 },
+        { "method": "quantile","args": [0.5],    "expected": -2.0222801211389196e-9,"mode": "abs","tol": 1e-3 },
+        { "method": "quantile","args": [0.95],   "expected": 1.6439999960943332,   "mode": "abs", "tol": 1e-3 },
+        { "method": "pdf",     "args": [0.0],    "expected": 0.35440764398647906,  "mode": "abs", "tol": 1e-3 },
+        { "method": "mean",    "args": [], "expected": -3.1769826769334486e-9, "mode": "abs", "tol": 1e-3 },
+        { "method": "median",  "args": [], "expected": -2.0222801211389196e-9, "mode": "abs", "tol": 1e-3 },
+        { "method": "mode",    "args": [], "expected":  1.7128827245471712e-9, "mode": "abs", "tol": 1e-3 },
+        { "method": "sd",      "args": [], "expected": 0.99981391310015377,    "mode": "abs", "tol": 1e-3 },
+        { "method": "skewness","args": [], "expected": -4.890775346585377e-9,  "mode": "abs", "tol": 1e-3 },
+        { "method": "kurtosis","args": [], "expected": 2.3333333324482011,     "mode": "abs", "tol": 1e-3 },
+        { "method": "minimum", "args": [], "expected": -2.6452589821042816,    "mode": "abs", "tol": 1e-3 },
+        { "method": "maximum", "args": [], "expected":  2.6452589561908555,    "mode": "abs", "tol": 1e-3 }
+      ]
+    },
+    {
+      "name": "asymmetric_12_21_32",
+      "comment": "Asymmetric case; solver converges to CDF values close to 0.05/0.5/0.95 at inputs",
+      "construct": { "params": [12.0, 21.0, 32.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "cdf",     "args": [12.0], "expected": 0.049999999786868282, "mode": "abs", "tol": 1e-2 },
+        { "method": "cdf",     "args": [21.0], "expected": 0.50000000163535552,  "mode": "abs", "tol": 1e-2 },
+        { "method": "cdf",     "args": [32.0], "expected": 0.94999999963634907,  "mode": "abs", "tol": 1e-2 },
+        { "method": "quantile","args": [0.05], "expected": 12.000000007657588,   "mode": "abs", "tol": 1e-2 },
+        { "method": "quantile","args": [0.5],  "expected": 20.999999972021911,   "mode": "abs", "tol": 1e-2 },
+        { "method": "quantile","args": [0.95], "expected": 32.000000020348061,   "mode": "abs", "tol": 1e-2 },
+        { "method": "pdf",     "args": [21.0], "expected": 0.058451284009528745, "mode": "abs", "tol": 1e-2 },
+        { "method": "mean",    "args": [], "expected": 21.36750297530444,        "mode": "abs", "tol": 1e-2 },
+        { "method": "median",  "args": [], "expected": 20.999999972021911,       "mode": "abs", "tol": 1e-2 },
+        { "method": "mode",    "args": [], "expected": 19.807581917293199,       "mode": "abs", "tol": 1e-2 },
+        { "method": "sd",      "args": [], "expected": 6.0972820851551655,       "mode": "abs", "tol": 1e-2 },
+        { "method": "skewness","args": [], "expected": 0.25583875507566273,      "mode": "abs", "tol": 1e-2 },
+        { "method": "kurtosis","args": [], "expected": 2.4206046247982203,       "mode": "abs", "tol": 1e-2 },
+        { "method": "minimum", "args": [], "expected": 8.0565399798728023,       "mode": "abs", "tol": 1e-1 },
+        { "method": "maximum", "args": [], "expected": 40.918150202781028,       "mode": "abs", "tol": 1e-1 }
+      ]
+    },
+    {
+      "name": "invalid_5pct_gt_95pct",
+      "construct": { "params": [3.0, 2.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}
