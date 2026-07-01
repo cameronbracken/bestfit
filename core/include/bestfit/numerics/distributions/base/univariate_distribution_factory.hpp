@@ -31,6 +31,7 @@
 #include "bestfit/numerics/distributions/ln_normal.hpp"
 #include "bestfit/numerics/distributions/log_normal.hpp"
 #include "bestfit/numerics/distributions/logistic.hpp"
+#include "bestfit/numerics/distributions/noncentral_t.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pareto.hpp"
 #include "bestfit/numerics/distributions/kappa_four.hpp"
@@ -92,6 +93,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<LogNormal>();
         case UnivariateDistributionType::Logistic:
             return std::make_unique<Logistic>();
+        case UnivariateDistributionType::NoncentralT:
+            return std::make_unique<NoncentralT>();
         case UnivariateDistributionType::Normal:
             return std::make_unique<Normal>();
         case UnivariateDistributionType::Pareto:
@@ -150,6 +153,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "LnNormal") return create_distribution(UnivariateDistributionType::LnNormal);
     if (name == "LogNormal") return create_distribution(UnivariateDistributionType::LogNormal);
     if (name == "Logistic") return create_distribution(UnivariateDistributionType::Logistic);
+    if (name == "NoncentralT") return create_distribution(UnivariateDistributionType::NoncentralT);
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
     if (name == "PearsonTypeIII") return create_distribution(UnivariateDistributionType::PearsonTypeIII);
