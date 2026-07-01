@@ -1,0 +1,98 @@
+{
+  "target": "Weibull",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Weibull.cs",
+  "datasets": {
+    "weibull_sample": [5.85217239831041, 11.7689913217945, 7.92234431846412, 2.38759244506478, 15.5436696441499, 6.08101380255694, 2.86541835011654, 14.3272883381316, 15.2293040674263, 9.97119823770777, 15.0078313002315, 7.61635445751015, 15.1579888433448, 1.10494899327883, 5.16175715794861, 1.57293533830851, 2.63953242550359, 10.2188413398386, 17.9577682621499, 12.4224983994072, 11.1290575697936, 4.58559057415731, 8.36394145136537, 7.73020853953012, 4.3003409576186, 13.6952916728348, 5.66874359549936, 3.90607944288712, 6.87181072557784, 6.39556271370504, 8.34155604676012, 1.29993054120872, 8.10693236597578, 1.69364361593805, 11.2322364035615, 10.5062782641941, 10.6177306237836, 8.22440512843937, 4.92470777947916, 10.9335442619582, 9.14151844388434, 10.4858916284884, 18.6061687709787, 11.6935338563956, 13.9506199815183, 4.17482853658164, 14.7373704498786, 2.36384889353382, 5.44157070547486, 5.96907635426314]
+  },
+  "cases": [
+    {
+      "name": "standard_lambda10_kappa2_moments",
+      "construct": { "params": [10.0, 2.0] },
+      "assertions": [
+        { "method": "kurtosis",         "args": [], "expected": 3.24508, "mode": "abs", "tol": 1e-4 },
+        { "method": "minimum",          "args": [], "expected": 0.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "parameters_valid", "args": [], "expected": true,    "mode": "bool" }
+      ]
+    },
+    {
+      "name": "lambda0p1_kappa1_moments",
+      "construct": { "params": [0.1, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 0.1,     "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 0.06931, "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [], "expected": 0.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 0.1,     "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 2.0,     "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "lambda1_kappa1_moments",
+      "construct": { "params": [1.0, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 1.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 0.69314, "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [], "expected": 0.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 1.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 2.0,     "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [], "expected": 9.0,     "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "lambda10_kappa10_mode",
+      "construct": { "params": [10.0, 10.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 9.89519, "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "lambda1_kappa1_pdf_cdf",
+      "construct": { "params": [1.0, 1.0] },
+      "assertions": [
+        { "method": "pdf", "args": [0.0],  "expected": 1.0,      "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf", "args": [1.0],  "expected": 0.36787,  "mode": "abs", "tol": 1e-5 },
+        { "method": "pdf", "args": [10.0], "expected": 0.00004539, "mode": "abs", "tol": 1e-8 },
+        { "method": "cdf", "args": [0.0],  "expected": 0.0,      "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf", "args": [1.0],  "expected": 0.63212,  "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf", "args": [10.0], "expected": 0.99995,  "mode": "abs", "tol": 1e-5 }
+      ]
+    },
+    {
+      "name": "lambda10_kappa2_quantile",
+      "construct": { "params": [10.0, 2.0] },
+      "assertions": [
+        { "method": "quantile", "args": [0.0],  "expected": 0.0,    "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [0.4],  "expected": 7.1472, "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "mle_fit",
+      "construct": { "fit": { "method": "mle", "dataset": "weibull_sample" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 9.589, "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [1], "expected": 1.907, "mode": "rel", "tol": 0.01 }
+      ]
+    },
+    {
+      "name": "quantile_mle_params",
+      "construct": { "params": [9.589, 1.907] },
+      "assertions": [
+        { "method": "quantile", "args": [0.99], "expected": 21.358, "mode": "rel", "tol": 0.01 }
+      ]
+    },
+    {
+      "name": "invalid_params",
+      "construct": { "params": [0.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_params_shape",
+      "construct": { "params": [1.0, 0.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}
