@@ -11,24 +11,44 @@
 
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/bernoulli.hpp"
+#include "bestfit/numerics/distributions/cauchy.hpp"
+#include "bestfit/numerics/distributions/deterministic.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
+#include "bestfit/numerics/distributions/triangular.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/distributions/generalized_logistic.hpp"
+#include "bestfit/numerics/distributions/generalized_pareto.hpp"
+#include "bestfit/numerics/distributions/geometric.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
 #include "bestfit/numerics/distributions/logistic.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pareto.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
+#include "bestfit/numerics/distributions/uniform_discrete.hpp"
 
 namespace bestfit::numerics::distributions {
 
 inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
     UnivariateDistributionType type) {
     switch (type) {
+        case UnivariateDistributionType::Bernoulli:
+            return std::make_unique<Bernoulli>();
+        case UnivariateDistributionType::Cauchy:
+            return std::make_unique<Cauchy>();
+        case UnivariateDistributionType::Deterministic:
+            return std::make_unique<Deterministic>();
         case UnivariateDistributionType::Exponential:
             return std::make_unique<Exponential>();
         case UnivariateDistributionType::GeneralizedExtremeValue:
             return std::make_unique<GeneralizedExtremeValue>();
+        case UnivariateDistributionType::GeneralizedLogistic:
+            return std::make_unique<GeneralizedLogistic>();
+        case UnivariateDistributionType::GeneralizedPareto:
+            return std::make_unique<GeneralizedPareto>();
+        case UnivariateDistributionType::Geometric:
+            return std::make_unique<Geometric>();
         case UnivariateDistributionType::Gumbel:
             return std::make_unique<Gumbel>();
         case UnivariateDistributionType::Logistic:
@@ -39,8 +59,12 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Pareto>();
         case UnivariateDistributionType::Rayleigh:
             return std::make_unique<Rayleigh>();
+        case UnivariateDistributionType::Triangular:
+            return std::make_unique<Triangular>();
         case UnivariateDistributionType::Uniform:
             return std::make_unique<Uniform>();
+        case UnivariateDistributionType::UniformDiscrete:
+            return std::make_unique<UniformDiscrete>();
         default:
             throw std::invalid_argument("univariate distribution type not yet ported");
     }
@@ -48,15 +72,26 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
 
 // Construct from the C# type name (the value stored in fixtures' "target" field).
 inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std::string& name) {
+    if (name == "Bernoulli") return create_distribution(UnivariateDistributionType::Bernoulli);
+    if (name == "Cauchy") return create_distribution(UnivariateDistributionType::Cauchy);
+    if (name == "Deterministic") return create_distribution(UnivariateDistributionType::Deterministic);
     if (name == "Exponential") return create_distribution(UnivariateDistributionType::Exponential);
     if (name == "GeneralizedExtremeValue")
         return create_distribution(UnivariateDistributionType::GeneralizedExtremeValue);
+    if (name == "GeneralizedLogistic")
+        return create_distribution(UnivariateDistributionType::GeneralizedLogistic);
+    if (name == "GeneralizedPareto")
+        return create_distribution(UnivariateDistributionType::GeneralizedPareto);
+    if (name == "Geometric") return create_distribution(UnivariateDistributionType::Geometric);
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
     if (name == "Logistic") return create_distribution(UnivariateDistributionType::Logistic);
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
+    if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
+    if (name == "UniformDiscrete")
+        return create_distribution(UnivariateDistributionType::UniformDiscrete);
     throw std::invalid_argument("unknown distribution name: " + name);
 }
 

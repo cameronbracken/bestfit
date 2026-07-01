@@ -1,0 +1,118 @@
+{
+  "target": "GeneralizedPareto",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_GeneralizedPareto.cs",
+  "reference": "Rao & Hamed, Flood Frequency Analysis, CRC Press 2000",
+  "datasets": {
+    "white_river": [126000, 148000, 66000, 156000, 136000, 122000, 183000, 162000, 85200, 56800, 56600, 138000, 81000, 51800, 90700, 139000, 160000, 118000, 50600, 137000, 151000, 172000, 52600, 248000, 152000, 64500, 61500, 143000, 108000, 53000, 134000, 115000, 84100, 105000, 85400, 76900, 99100, 73700, 122000, 62500, 54300, 58000, 144000, 55800, 127000, 55800, 107000, 56400, 128000, 106000, 110000, 232000, 60400, 60400, 50800, 100000, 55900, 167000, 53700, 56700, 126000, 100000, 59500, 164000, 81800, 56400, 124000, 64600, 77300, 65900, 72500, 65100, 80800, 69800, 53000, 195000, 128000, 114000, 110000, 149000, 74100, 75900, 99300, 168000, 70800, 104000, 125000, 77300, 97300, 140000, 54900, 66000, 199000, 99800, 105000, 93700, 277000, 85700, 77300, 122000, 106000, 93300, 79000, 130000, 126000, 57800, 64700, 162000, 71900, 63500, 81500, 51000, 84400, 108000, 185000, 55800, 94600, 82800, 146000, 66500, 57700, 78700, 85100, 129000, 75700, 104000, 139000, 50600, 53500, 178000, 110000, 50800, 76000, 130000, 67300, 149000, 78400, 96600, 83300, 68400, 84300, 56400, 112000, 76400, 116000, 51400, 59800, 63900, 81900, 88200, 62300, 162000, 67200, 85500, 51000, 286000, 73800, 61300, 60800, 91300, 134000, 106000, 70800, 106000, 122000, 149000, 53700, 85300, 144000, 54800, 116000, 67500, 56500, 86700, 91500, 105000, 134000, 97300, 84000, 141000, 52600, 124000, 196000, 84200, 54500, 74500, 104000, 57200, 61000, 155000, 96500, 89100, 77900, 70500, 73400, 180000, 83700, 302000, 133000, 92100, 105000, 235000, 213000, 96100, 77100, 73900, 55400, 55200, 87800, 52600, 106000, 93000, 147000, 61800, 101000, 154000, 52000, 121000, 86700, 57300, 97500, 112000, 88500, 76200, 140000, 87400, 154000, 95100, 131000, 131000, 54900, 78800, 101000, 224000, 54800, 50900, 63500, 63500, 152000, 51000, 285000, 114000, 197000, 106000, 132000, 83700, 67200, 110000, 202000, 127000, 90600, 126000, 73900, 86500, 181000, 141000, 79700, 97800, 57300, 77200, 133000, 82900, 55000, 62000, 51700, 54500, 51600, 103000, 134000, 71700, 57000, 63900, 60700, 81900, 171000, 111000, 50400, 50500, 69700, 88900, 76600],
+    "lmom_sample": [1953, 1939, 1677, 1692, 2051, 2371, 2022, 1521, 1448, 1825, 1363, 1760, 1672, 1603, 1244, 1521, 1783, 1560, 1357, 1673, 1625, 1425, 1688, 1577, 1736, 1640, 1584, 1293, 1277, 1742, 1491]
+  },
+  "cases": [
+    {
+      "name": "kappa_zero_limit_branch",
+      "comment": "kappa=0 exercises the near-zero branch: exponential distribution on [xi, inf)",
+      "construct": { "params": [0.0, 1.0, 0.0] },
+      "assertions": [
+        { "method": "pdf",      "args": [0.0],  "expected": 1.0,                  "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [1.0],  "expected": 0.36787944117144233,  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [0.0],  "expected": 0.0,                  "mode": "equal" },
+        { "method": "cdf",      "args": [1.0],  "expected": 0.6321205588285578,   "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [0.0],  "expected": 0.0,                  "mode": "equal" },
+        { "method": "quantile", "args": [0.5],  "expected": 0.6931471805599453,   "mode": "abs", "tol": 1e-9 },
+        { "method": "quantile", "args": [1.0],  "expected": "inf",                "mode": "equal" },
+        { "method": "mean",     "args": [],     "expected": 1.0,                  "mode": "equal" },
+        { "method": "median",   "args": [],     "expected": 0.6931471805599453,   "mode": "abs", "tol": 1e-12 },
+        { "method": "mode",     "args": [],     "expected": 0.0,                  "mode": "equal" },
+        { "method": "sd",       "args": [],     "expected": 1.0,                  "mode": "equal" },
+        { "method": "skewness", "args": [],     "expected": 2.0,                  "mode": "equal" },
+        { "method": "kurtosis", "args": [],     "expected": 9.0,                  "mode": "equal" },
+        { "method": "minimum",  "args": [],     "expected": 0.0,                  "mode": "equal" },
+        { "method": "maximum",  "args": [],     "expected": "inf",                "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true,             "mode": "bool" }
+      ]
+    },
+    {
+      "name": "default_100_10_0",
+      "comment": "default constructor params: xi=100, alpha=10, kappa=0",
+      "construct": { "params": [100.0, 10.0, 0.0] },
+      "assertions": [
+        { "method": "pdf",      "args": [100.0], "expected": 0.1,                   "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [200.0], "expected": 4.53999297624849e-06,  "mode": "rel", "tol": 1e-6 },
+        { "method": "cdf",      "args": [100.0], "expected": 0.0,                   "mode": "equal" },
+        { "method": "cdf",      "args": [200.0], "expected": 0.9999546000702376,    "mode": "abs", "tol": 1e-9 },
+        { "method": "mean",     "args": [],      "expected": 110.0,                 "mode": "equal" },
+        { "method": "median",   "args": [],      "expected": 106.931471805599453,   "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [],      "expected": 100.0,                 "mode": "equal" },
+        { "method": "sd",       "args": [],      "expected": 10.0,                  "mode": "equal" },
+        { "method": "minimum",  "args": [],      "expected": 100.0,                 "mode": "equal" },
+        { "method": "maximum",  "args": [],      "expected": "inf",                 "mode": "equal" }
+      ]
+    },
+    {
+      "name": "positive_kappa_bounded",
+      "comment": "xi=100, alpha=10, kappa=1: bounded above at xi+alpha/kappa=110",
+      "construct": { "params": [100.0, 10.0, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [],      "expected": "nan",  "mode": "equal" },
+        { "method": "sd",       "args": [],      "expected": "nan",  "mode": "equal" },
+        { "method": "skewness", "args": [],      "expected": "nan",  "mode": "equal" },
+        { "method": "kurtosis", "args": [],      "expected": "nan",  "mode": "equal" },
+        { "method": "minimum",  "args": [],      "expected": 100.0,  "mode": "equal" },
+        { "method": "maximum",  "args": [],      "expected": 110.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [50.0],  "expected": 0.0,    "mode": "equal" },
+        { "method": "cdf",      "args": [200.0], "expected": 1.0,    "mode": "equal" },
+        { "method": "pdf",      "args": [50.0],  "expected": 0.0,    "mode": "equal" },
+        { "method": "quantile", "args": [0.3],   "expected": 103.0,  "mode": "abs",  "tol": 1e-9 },
+        { "method": "median",   "args": [],      "expected": 95.0,   "mode": "abs",  "tol": 1e-9 }
+      ]
+    },
+    {
+      "name": "negative_kappa_moments",
+      "comment": "xi=100, alpha=10, kappa=-0.1: all moments exist, unbounded above",
+      "construct": { "params": [100.0, 10.0, -0.1] },
+      "assertions": [
+        { "method": "mean",     "args": [],  "expected": 111.111111111111,     "mode": "abs", "tol": 1e-6 },
+        { "method": "sd",       "args": [],  "expected": 12.422599874998830,   "mode": "abs", "tol": 1e-6 },
+        { "method": "skewness", "args": [],  "expected": 2.811056885999736,    "mode": "abs", "tol": 1e-6 },
+        { "method": "minimum",  "args": [],  "expected": 100.0,                "mode": "equal" },
+        { "method": "maximum",  "args": [],  "expected": "inf",                "mode": "equal" }
+      ]
+    },
+    {
+      "name": "invalid_nan",
+      "construct": { "params": ["nan", "nan", "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_zero_scale",
+      "construct": { "params": [100.0, 0.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "lmom_fit",
+      "construct": { "fit": { "dataset": "lmom_sample", "method": "lmom" } },
+      "assertions": [
+        { "method": "param",         "args": [0], "expected": 1285.909,   "mode": "abs", "tol": 0.001 },
+        { "method": "param",         "args": [1], "expected": 589.7772,   "mode": "abs", "tol": 0.001 },
+        { "method": "param",         "args": [2], "expected": 0.6251903,  "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [0], "expected": 1648.806,   "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [1], "expected": 138.2366,   "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [2], "expected": 0.1033903,  "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [3], "expected": 0.03073215, "mode": "abs", "tol": 0.001 }
+      ]
+    },
+    {
+      "name": "mle_fit",
+      "construct": { "fit": { "dataset": "white_river", "method": "mle" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 50400.0,  "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [1], "expected": 55142.29, "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [2], "expected": 0.0945,   "mode": "rel", "tol": 0.05 }
+      ]
+    }
+  ]
+}
