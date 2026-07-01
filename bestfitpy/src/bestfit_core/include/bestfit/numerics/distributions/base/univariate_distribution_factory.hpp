@@ -27,6 +27,7 @@
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pareto.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
+#include "bestfit/numerics/distributions/truncated_normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/distributions/uniform_discrete.hpp"
 
@@ -67,6 +68,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Rayleigh>();
         case UnivariateDistributionType::Triangular:
             return std::make_unique<Triangular>();
+        case UnivariateDistributionType::TruncatedNormal:
+            return std::make_unique<TruncatedNormal>();
         case UnivariateDistributionType::Uniform:
             return std::make_unique<Uniform>();
         case UnivariateDistributionType::UniformDiscrete:
@@ -97,6 +100,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
     if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
+    if (name == "TruncatedNormal") return create_distribution(UnivariateDistributionType::TruncatedNormal);
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
     if (name == "UniformDiscrete")
         return create_distribution(UnivariateDistributionType::UniformDiscrete);
