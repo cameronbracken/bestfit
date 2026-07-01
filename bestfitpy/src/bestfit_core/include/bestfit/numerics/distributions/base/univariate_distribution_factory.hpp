@@ -44,6 +44,7 @@
 #include "bestfit/numerics/distributions/truncated_normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/distributions/uniform_discrete.hpp"
+#include "bestfit/numerics/distributions/von_mises.hpp"
 #include "bestfit/numerics/distributions/weibull.hpp"
 
 namespace bestfit::numerics::distributions {
@@ -117,6 +118,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Uniform>();
         case UnivariateDistributionType::UniformDiscrete:
             return std::make_unique<UniformDiscrete>();
+        case UnivariateDistributionType::VonMises:
+            return std::make_unique<VonMises>();
         case UnivariateDistributionType::Weibull:
             return std::make_unique<Weibull>();
         default:
@@ -166,6 +169,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
     if (name == "UniformDiscrete")
         return create_distribution(UnivariateDistributionType::UniformDiscrete);
+    if (name == "VonMises") return create_distribution(UnivariateDistributionType::VonMises);
     if (name == "Weibull") return create_distribution(UnivariateDistributionType::Weibull);
     throw std::invalid_argument("unknown distribution name: " + name);
 }

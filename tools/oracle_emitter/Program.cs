@@ -39,7 +39,10 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
     var type = Enum.Parse<UnivariateDistributionType>(target);
-    var dist = UnivariateDistributionFactory.CreateDistribution(type);
+    // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
+    UnivariateDistributionBase dist = target == "VonMises"
+        ? new VonMises()
+        : UnivariateDistributionFactory.CreateDistribution(type);
     if (construct.TryGetProperty("params", out var ps))
     {
         var p = ps.EnumerateArray().Select(ParseNum).ToArray();
