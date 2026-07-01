@@ -4,7 +4,6 @@
 // mirrors the C# source method-for-method. The WPF helpers, IBootstrappable, and
 // IStandardError interfaces are not ported (desktop / uncertainty-analysis concerns).
 #pragma once
-#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
