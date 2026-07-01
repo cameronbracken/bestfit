@@ -39,6 +39,7 @@
 #include "bestfit/numerics/distributions/pert.hpp"
 #include "bestfit/numerics/distributions/poisson.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
+#include "bestfit/numerics/distributions/student_t.hpp"
 #include "bestfit/numerics/distributions/truncated_normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/distributions/uniform_discrete.hpp"
@@ -103,6 +104,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Poisson>();
         case UnivariateDistributionType::Rayleigh:
             return std::make_unique<Rayleigh>();
+        case UnivariateDistributionType::StudentT:
+            return std::make_unique<StudentT>();
         case UnivariateDistributionType::Triangular:
             return std::make_unique<Triangular>();
         case UnivariateDistributionType::TruncatedNormal:
@@ -153,6 +156,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Pert") return create_distribution(UnivariateDistributionType::Pert);
     if (name == "Poisson") return create_distribution(UnivariateDistributionType::Poisson);
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
+    if (name == "StudentT") return create_distribution(UnivariateDistributionType::StudentT);
     if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
     if (name == "TruncatedNormal") return create_distribution(UnivariateDistributionType::TruncatedNormal);
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
