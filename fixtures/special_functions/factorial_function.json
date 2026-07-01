@@ -1,0 +1,19 @@
+{
+  "kind": "special_function",
+  "target": "Factorial.function",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_SpecialFunctions.cs",
+  "cases": [
+    { "name": "f_0",   "args": [0],   "assertions": [{ "method": "value", "expected": 1.0,       "mode": "equal" }] },
+    { "name": "f_1",   "args": [1],   "assertions": [{ "method": "value", "expected": 1.0,       "mode": "equal" }] },
+    { "name": "f_2",   "args": [2],   "assertions": [{ "method": "value", "expected": 2.0,       "mode": "equal" }] },
+    { "name": "f_3",   "args": [3],   "assertions": [{ "method": "value", "expected": 6.0,       "mode": "equal" }] },
+    { "name": "f_4",   "args": [4],   "assertions": [{ "method": "value", "expected": 24.0,      "mode": "equal" }] },
+    { "name": "f_5",   "args": [5],   "assertions": [{ "method": "value", "expected": 120.0,     "mode": "equal" }] },
+    { "name": "f_6",   "args": [6],   "assertions": [{ "method": "value", "expected": 720.0,     "mode": "equal" }] },
+    { "name": "f_7",   "args": [7],   "assertions": [{ "method": "value", "expected": 5040.0,    "mode": "equal" }] },
+    { "name": "f_8",   "args": [8],   "assertions": [{ "method": "value", "expected": 40320.0,   "mode": "equal" }] },
+    { "name": "f_9",   "args": [9],   "assertions": [{ "method": "value", "expected": 362880.0,  "mode": "equal" }] },
+    { "name": "f_10",  "args": [10],  "assertions": [{ "method": "value", "expected": 3628800.0, "mode": "equal" }] },
+    { "name": "f_170", "args": [170], "assertions": [{ "method": "value", "expected": 7.257415615307994e+306, "mode": "equal" }] }
+  ]
+}

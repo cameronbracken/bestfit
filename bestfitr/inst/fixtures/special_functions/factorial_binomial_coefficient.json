@@ -1,0 +1,19 @@
+{
+  "kind": "special_function",
+  "target": "Factorial.binomial_coefficient",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_SpecialFunctions.cs",
+  "cases": [
+    { "name": "bc_4_1",  "args": [4, 1],  "assertions": [{ "method": "value", "expected": 4.0,   "mode": "equal" }] },
+    { "name": "bc_4_2",  "args": [4, 2],  "assertions": [{ "method": "value", "expected": 6.0,   "mode": "equal" }] },
+    { "name": "bc_4_3",  "args": [4, 3],  "assertions": [{ "method": "value", "expected": 4.0,   "mode": "equal" }] },
+    { "name": "bc_6_2",  "args": [6, 2],  "assertions": [{ "method": "value", "expected": 15.0,  "mode": "equal" }] },
+    { "name": "bc_6_3",  "args": [6, 3],  "assertions": [{ "method": "value", "expected": 20.0,  "mode": "equal" }] },
+    { "name": "bc_6_4",  "args": [6, 4],  "assertions": [{ "method": "value", "expected": 15.0,  "mode": "equal" }] },
+    { "name": "bc_8_2",  "args": [8, 2],  "assertions": [{ "method": "value", "expected": 28.0,  "mode": "equal" }] },
+    { "name": "bc_8_3",  "args": [8, 3],  "assertions": [{ "method": "value", "expected": 56.0,  "mode": "equal" }] },
+    { "name": "bc_8_4",  "args": [8, 4],  "assertions": [{ "method": "value", "expected": 70.0,  "mode": "equal" }] },
+    { "name": "bc_10_2", "args": [10, 2], "assertions": [{ "method": "value", "expected": 45.0,  "mode": "equal" }] },
+    { "name": "bc_10_3", "args": [10, 3], "assertions": [{ "method": "value", "expected": 120.0, "mode": "equal" }] },
+    { "name": "bc_10_4", "args": [10, 4], "assertions": [{ "method": "value", "expected": 210.0, "mode": "equal" }] }
+  ]
+}
