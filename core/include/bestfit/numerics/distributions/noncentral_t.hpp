@@ -84,7 +84,11 @@ class NoncentralT : public UnivariateDistributionBase {
         return kNaN;
     }
 
-    // Skewness and Kurtosis via numerical CentralMoments (mirrors C# CentralMoments(1e-8)).
+    // Skewness and Kurtosis via numerical CentralMoments (mirrors C# CentralMoments(1e-8)),
+    // but with a composite Gauss-Legendre quadrature in place of C#'s AdaptiveGaussKronrod
+    // (not yet ported). Accurate for near-symmetric cases (small |lambda|); for large |lambda|
+    // with small df these can diverge from the C# value and are NOT oracle-verified there.
+    // Revisit once the adaptive integrator (planned foundation task A7) is ported.
     double skewness() const override { return central_moments(1e-8)[2]; }
     double kurtosis() const override { return central_moments(1e-8)[3]; }
 
