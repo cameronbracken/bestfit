@@ -16,10 +16,14 @@
 #include <string>
 #include <vector>
 
+#include <functional>
+#include <map>
+
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/math/special/erf.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
 
@@ -134,6 +138,41 @@ static void run_gev(const json& spec) {
     }
 }
 
+// --- Special-function path ------------------------------------------------------------
+
+namespace sf = bestfit::numerics::math::special;
+
+// Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
+static const std::map<std::string, std::function<double(const std::vector<double>&)>>&
+special_function_table() {
+    static const std::map<std::string, std::function<double(const std::vector<double>&)>> t = {
+        {"Erf.function",      [](const std::vector<double>& a) { return sf::erf::function(a[0]); }},
+        {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},
+        {"Erf.inverse_erf",   [](const std::vector<double>& a) { return sf::erf::inverse_erf(a[0]); }},
+        {"Erf.inverse_erfc",  [](const std::vector<double>& a) { return sf::erf::inverse_erfc(a[0]); }},
+    };
+    return t;
+}
+
+static void run_special_function(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    const auto& table = special_function_table();
+    auto it = table.find(target);
+    if (it == table.end())
+        throw std::runtime_error("unknown special-function target: " + target);
+    const auto& fn = it->second;
+    for (const auto& c : spec["cases"]) {
+        std::string name = c["name"].get<std::string>();
+        std::vector<double> args;
+        for (const auto& v : c["args"]) args.push_back(parse_num(v));
+        double actual = fn(args);
+        for (const auto& as : c["assertions"]) {
+            std::string where = target + "/" + name + "/" + as["method"].get<std::string>();
+            check_value(actual, as, where);
+        }
+    }
+}
+
 // --- Generic polymorphic path ----------------------------------------------------------
 
 static dist::ParameterEstimationMethod parse_pe_method(const std::string& m) {
@@ -212,11 +251,15 @@ int main(int argc, char** argv) {
         ++files;
         std::ifstream in(entry.path());
         json spec = json::parse(in);
-        if (spec.value("kind", "") != "univariate_distribution") continue;
-        if (spec.value("target", "") == "GeneralizedExtremeValue")
-            run_gev(spec);
-        else
-            run_generic(spec);
+        std::string kind = spec.value("kind", "");
+        if (kind == "special_function") {
+            run_special_function(spec);
+        } else if (kind == "univariate_distribution") {
+            if (spec.value("target", "") == "GeneralizedExtremeValue")
+                run_gev(spec);
+            else
+                run_generic(spec);
+        }
     }
     if (files == 0) {
         std::fprintf(stderr, "no fixtures found under %s\n", argv[1]);

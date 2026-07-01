@@ -96,6 +96,9 @@ test_that("oracle fixtures validate", {
   expect_gt(length(files), 0)
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
+    # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
+    # which are validated in C++ only and are not exposed to the R package.
+    if (!identical(spec$kind, "univariate_distribution")) next
     target <- spec$target
     datasets <- spec$datasets
     for (case in spec$cases) {

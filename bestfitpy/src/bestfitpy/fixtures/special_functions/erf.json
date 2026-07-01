@@ -1,0 +1,33 @@
+{
+  "kind": "special_function",
+  "target": "Erf.function",
+  "source": "Numerics/Mathematics/Special Functions/Erf.cs",
+  "reference": "Numerics @ a2c4dbf; Gamma.LowerIncomplete(0.5, x*x) with sign",
+  "cases": [
+    {
+      "name": "erf_zero",
+      "args": [0.0],
+      "assertions": [ { "method": "value", "expected": 0.0, "mode": "equal" } ]
+    },
+    {
+      "name": "erf_one",
+      "args": [1.0],
+      "assertions": [ { "method": "value", "expected": 0.84270079294971512, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "erf_neg_one",
+      "args": [-1.0],
+      "assertions": [ { "method": "value", "expected": -0.84270079294971512, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "erf_half",
+      "args": [0.5],
+      "assertions": [ { "method": "value", "expected": 0.52049987781304663, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "erf_two",
+      "args": [2.0],
+      "assertions": [ { "method": "value", "expected": 0.99532226501895271, "mode": "abs", "tol": 1e-12 } ]
+    }
+  ]
+}

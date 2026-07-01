@@ -20,6 +20,8 @@ verbatim copy; a CI `--check` run fails on drift.
 
 ## Schema
 
+### `univariate_distribution`
+
 ```jsonc
 {
   "target":  "GeneralizedExtremeValue",     // which model/component
@@ -38,6 +40,31 @@ verbatim copy; a CI `--check` run fails on drift.
   ]
 }
 ```
+
+### `special_function`
+
+For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners
+skip files with this kind; only the C++ runner and the dotnet oracle gate process them.
+
+```jsonc
+{
+  "target":  "Erf.function",               // "<Module>.<method>" dispatch key
+  "kind":    "special_function",
+  "source":  "Numerics/.../Erf.cs",        // provenance
+  "cases": [
+    {
+      "name": "erf_one",
+      "args": [1.0],                        // positional arguments to the function
+      "assertions": [
+        { "method": "value", "expected": 0.8427007929497149, "mode": "abs", "tol": 1e-12 }
+      ]
+    }
+  ]
+}
+```
+
+The dispatch key maps to a free function: `"Erf.function"` → `bestfit::numerics::math::special::erf::function(x)`.
+Each case has a flat `args` array (not nested in `construct`); the single assertion method is always `"value"`.
 
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.

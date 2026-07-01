@@ -11,6 +11,7 @@
 
 using System.Text.Json;
 using Numerics.Distributions;
+using Numerics.Mathematics.SpecialFunctions;
 
 static double ParseNum(JsonElement v)
 {
@@ -111,6 +112,16 @@ static bool Compare(double actual, JsonElement assertion)
     }
 }
 
+// Special-function dispatch table: maps "Module.method" → Func<double[], double>.
+static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
+{
+    "Erf.function"     => a => Erf.Function(a[0]),
+    "Erf.erfc"         => a => Erf.Erfc(a[0]),
+    "Erf.inverse_erf"  => a => Erf.InverseErf(a[0]),
+    "Erf.inverse_erfc" => a => Erf.InverseErfc(a[0]),
+    _ => null,
+};
+
 // --- main -------------------------------------------------------------------------------
 
 string fixturesDir = args.Length > 0 ? args[0]
@@ -129,8 +140,33 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
 {
     using var doc = JsonDocument.Parse(File.ReadAllText(file));
     var root = doc.RootElement;
-    if (root.TryGetProperty("kind", out var kind) && kind.GetString() != "univariate_distribution")
+    string? kindStr = root.TryGetProperty("kind", out var kind) ? kind.GetString() : null;
+
+    // --- special_function branch --------------------------------------------------------
+    if (kindStr == "special_function")
+    {
+        string sfTarget = root.GetProperty("target").GetString()!;
+        var fn = ResolveSpecialFunction(sfTarget);
+        if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            var argList = c.GetProperty("args").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+            double actual;
+            try { actual = fn(argList); }
+            catch (Exception ex) { fail++; failures.Add($"{sfTarget}/{caseName}: {ex.Message}"); continue; }
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string where = $"{sfTarget}/{caseName}/{asrt.GetProperty("method").GetString()}";
+                if (Compare(actual, asrt)) pass++;
+                else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
         continue;
+    }
+
+    if (kindStr != "univariate_distribution") continue;
+
     string target = root.GetProperty("target").GetString()!;
 
     var datasets = new Dictionary<string, double[]>();

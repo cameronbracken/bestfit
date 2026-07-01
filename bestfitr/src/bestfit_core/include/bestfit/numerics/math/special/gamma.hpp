@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Gamma.cs @ <pending-sha>
+// ported from: Numerics/Mathematics/Special Functions/Gamma.cs @ a2c4dbf
 //             + Numerics/Mathematics/Special Functions/Evaluate.cs (PolynomialRev)
 //
 // Gamma function (Cephes), Lanczos approximation, and digamma. Algorithms and
@@ -151,6 +151,102 @@ inline double digamma(double X) {
         dg = D1 - 1.0 / X;
     }
     return dg;
+}
+
+// log_gamma: Lanczos-based log(Gamma(z)), ported from Gamma.LogGamma(z).
+// Coefficient table (GammaDk) and algorithm mirror the C# source exactly.
+namespace detail {
+inline constexpr double kGammaDk[11] = {
+    2.48574089138753565546e-5,  1.05142378581721974210,    -3.45687097222016235469,
+    4.51227709466894823700,    -2.98285225323576655721,     1.05639711577126713077,
+   -1.95428773191645869583e-1,  1.70970543404441224307e-2, -5.71926117404305781283e-4,
+    4.63399473359905636708e-6, -2.71994908488607703910e-9};
+}  // namespace detail
+
+inline double log_gamma(double z) {
+    constexpr int kGammaN = 10;
+    constexpr double kGammaR = 10.900511;
+    constexpr double kLnPi = 1.1447298858494001741434273513530587116472948129153;
+    constexpr double kLogTwoSqrtEOverPi = 0.6207822376352452223455184457816472122518527279025978;
+    if (z < 0.5) {
+        double s = detail::kGammaDk[0];
+        for (int i = 1; i <= kGammaN; ++i) s += detail::kGammaDk[i] / (i - z);
+        return kLnPi - std::log(std::sin(kPi * z)) - std::log(s) - kLogTwoSqrtEOverPi
+               - (0.5 - z) * std::log((0.5 - z + kGammaR) / std::exp(1.0));
+    } else {
+        double s = detail::kGammaDk[0];
+        for (int i = 1; i <= kGammaN; ++i) s += detail::kGammaDk[i] / (z + i - 1.0);
+        return std::log(s) + kLogTwoSqrtEOverPi
+               + (z - 0.5) * std::log((z - 0.5 + kGammaR) / std::exp(1.0));
+    }
+}
+
+// upper_incomplete: regularized upper incomplete gamma Q(a, x).
+// Ported from Gamma.UpperIncomplete — continued-fraction algorithm.
+inline double upper_incomplete(double a, double x);
+
+// lower_incomplete: regularized lower incomplete gamma P(a, x).
+// Ported from Gamma.LowerIncomplete — series expansion algorithm.
+inline double lower_incomplete(double a, double x) {
+    constexpr double kLogMax = 709.782712893384;
+    constexpr double kDoubleEpsilon = 0.000000000000000111022302462516;
+    if (a <= 0.0) return 1.0;
+    if (x <= 0.0) return 0.0;
+    if (x > 1.0 && x > a) return 1.0 - upper_incomplete(a, x);
+    double ax = a * std::log(x) - x - log_gamma(a);
+    if (ax < -kLogMax) return 0.0;
+    ax = std::exp(ax);
+    double r = a;
+    double c = 1.0;
+    double ans = 1.0;
+    do {
+        r += 1.0;
+        c *= x / r;
+        ans += c;
+    } while (c / ans > kDoubleEpsilon);
+    return ans * ax / a;
+}
+
+inline double upper_incomplete(double a, double x) {
+    constexpr double kLogMax = 709.782712893384;
+    constexpr double kDoubleEpsilon = 0.000000000000000111022302462516;
+    constexpr double big = 4.5035996273705e+15;
+    constexpr double biginv = 0.000000000000000222044604925031;
+    if (x <= 0.0 || a <= 0.0) return 1.0;
+    if (x < 1.0 || x < a) return 1.0 - lower_incomplete(a, x);
+    if (std::isinf(x) && x > 0.0) return 0.0;
+    double ax = a * std::log(x) - x - log_gamma(a);
+    if (ax < -kLogMax) return 0.0;
+    ax = std::exp(ax);
+    // continued fraction
+    double y = 1.0 - a;
+    double z = x + y + 1.0;
+    double c = 0.0;
+    double pkm2 = 1.0, qkm2 = x;
+    double pkm1 = x + 1.0, qkm1 = z * x;
+    double ans = pkm1 / qkm1;
+    double t;
+    do {
+        c += 1.0; y += 1.0; z += 2.0;
+        double yc = y * c;
+        double pk = pkm1 * z - pkm2 * yc;
+        double qk = qkm1 * z - qkm2 * yc;
+        double r;
+        if (qk != 0.0) {
+            r = pk / qk;
+            t = std::fabs((ans - r) / r);
+            ans = r;
+        } else {
+            t = 1.0;
+        }
+        pkm2 = pkm1; pkm1 = pk;
+        qkm2 = qkm1; qkm1 = qk;
+        if (std::fabs(pk) > big) {
+            pkm2 *= biginv; pkm1 *= biginv;
+            qkm2 *= biginv; qkm1 *= biginv;
+        }
+    } while (t > kDoubleEpsilon);
+    return ans * ax;
 }
 
 }  // namespace bestfit::numerics::math::special

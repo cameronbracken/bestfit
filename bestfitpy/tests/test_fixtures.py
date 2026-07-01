@@ -130,6 +130,10 @@ def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
         spec = json.loads(fx.read_text())
+        # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
+        # which are validated in C++ only and are not exposed to the Python package.
+        if spec.get("kind") != "univariate_distribution":
+            continue
         for case in spec["cases"]:
             out.append((spec["target"], spec.get("datasets", {}), case))
     return out
