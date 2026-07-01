@@ -11,6 +11,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 
 namespace dist = bestfit::numerics::distributions;
@@ -120,4 +121,46 @@ double bf_trunc_quantile_(std::string base_target, doubles base_params,
 [[cpp11::register]]
 bool bf_trunc_valid_(std::string base_target, doubles base_params, double lo, double hi) {
     return make_trunc(base_target, base_params, lo, hi).parameters_valid();
+}
+
+// --- Composite glue: EmpiricalDistribution ------------------------------------------
+// Accepts (x, p, p_transform) and exposes the full distribution surface.
+// p_transform: "NormalZ" (default) or "None".
+
+static dist::EmpiricalDistribution make_empirical(doubles x_vals, doubles p_vals,
+                                                   std::string p_transform) {
+    std::vector<double> xv(x_vals.begin(), x_vals.end());
+    std::vector<double> pv(p_vals.begin(), p_vals.end());
+    dist::EmpiricalTransform pt = dist::EmpiricalTransform::NormalZ;
+    if (p_transform == "None") pt = dist::EmpiricalTransform::None;
+    return dist::EmpiricalDistribution(std::move(xv), std::move(pv), pt);
+}
+
+[[cpp11::register]]
+doubles bf_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform) {
+    auto d = make_empirical(x_vals, p_vals, p_transform);
+    writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
+                           d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
+    out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
+    return out;
+}
+
+[[cpp11::register]]
+double bf_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
+    return make_empirical(x_vals, p_vals, p_transform).pdf(x);
+}
+
+[[cpp11::register]]
+double bf_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
+    return make_empirical(x_vals, p_vals, p_transform).cdf(x);
+}
+
+[[cpp11::register]]
+double bf_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform, double prob) {
+    return make_empirical(x_vals, p_vals, p_transform).inverse_cdf(prob);
+}
+
+[[cpp11::register]]
+bool bf_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform) {
+    return make_empirical(x_vals, p_vals, p_transform).parameters_valid();
 }

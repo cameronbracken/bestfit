@@ -22,6 +22,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
@@ -254,7 +255,7 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_component(const j
 
 // build_composite: switch on composite targets; returns a UnivariateDistributionBase* so
 // dispatch_generic can be reused without modification for pdf/cdf/moments/etc.
-// Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) add a case here.
+// Future composites (KernelDensity, Mixture, CompetingRisks) add a case here.
 static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const std::string& target,
                                                                           const json& construct,
                                                                           const json& datasets) {
@@ -265,11 +266,24 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         double hi = parse_num(bounds[1]);
         return std::make_unique<dist::TruncatedDistribution>(std::move(base), lo, hi);
     }
+    if (target == "Empirical") {
+        std::vector<double> xv, pv;
+        for (const auto& v : construct["x"]) xv.push_back(parse_num(v));
+        for (const auto& v : construct["p"]) pv.push_back(parse_num(v));
+        auto pt = dist::EmpiricalTransform::NormalZ;
+        if (construct.contains("p_transform")) {
+            std::string t = construct["p_transform"].get<std::string>();
+            if (t == "None") pt = dist::EmpiricalTransform::None;
+            else if (t == "NormalZ") pt = dist::EmpiricalTransform::NormalZ;
+            else throw std::runtime_error("unknown p_transform: " + t);
+        }
+        return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt);
+    }
     throw std::runtime_error("unknown composite target: " + target);
 }
 
 static bool is_composite_target(const std::string& target) {
-    return target == "TruncatedDistribution";
+    return target == "TruncatedDistribution" || target == "Empirical";
 }
 
 static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,

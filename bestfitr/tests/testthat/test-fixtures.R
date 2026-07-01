@@ -95,7 +95,7 @@ check_assertion <- function(actual, a) {
 # build_composite_data() parses the construct into a list consumed by dispatch_composite().
 # Adding a new composite = one new case in build_composite_data + one in dispatch_composite.
 
-kCompositeTargets <- c("TruncatedDistribution")
+kCompositeTargets <- c("TruncatedDistribution", "Empirical")
 
 build_composite_data <- function(target, construct) {
   if (target == "TruncatedDistribution") {
@@ -105,14 +105,20 @@ build_composite_data <- function(target, construct) {
     hi <- as.double(construct$bounds[[2]])
     return(list(base_target = base_target, base_params = base_params, lo = lo, hi = hi))
   }
+  if (target == "Empirical") {
+    xv <- as.double(unlist(construct$x))
+    pv <- as.double(unlist(construct$p))
+    pt <- if (!is.null(construct$p_transform)) construct$p_transform else "NormalZ"
+    return(list(x_vals = xv, p_vals = pv, p_transform = pt))
+  }
   stop(sprintf("unknown composite target: %s", target))
 }
 
 dispatch_composite <- function(target, cd, method, args) {
   ns <- asNamespace("bestfitr")
+  moment_names <- c("mean", "median", "mode", "sd", "skewness", "kurtosis",
+                    "minimum", "maximum")
   if (target == "TruncatedDistribution") {
-    moment_names <- c("mean", "median", "mode", "sd", "skewness", "kurtosis",
-                      "minimum", "maximum")
     if (method %in% moment_names) {
       return(unname(ns$bf_trunc_moments_(cd$base_target, cd$base_params, cd$lo, cd$hi)[[method]]))
     }
@@ -125,6 +131,19 @@ dispatch_composite <- function(target, cd, method, args) {
                                        as.double(args[[1]])),
       parameters_valid = ns$bf_trunc_valid_(cd$base_target, cd$base_params, cd$lo, cd$hi),
       stop(sprintf("unknown fixture method for TruncatedDistribution: %s", method))
+    ))
+  }
+  if (target == "Empirical") {
+    xv <- cd$x_vals; pv <- cd$p_vals; pt <- cd$p_transform
+    if (method %in% moment_names) {
+      return(unname(ns$bf_emp_moments_(xv, pv, pt)[[method]]))
+    }
+    return(switch(method,
+      pdf      = ns$bf_emp_pdf_(xv, pv, pt, as.double(args[[1]])),
+      cdf      = ns$bf_emp_cdf_(xv, pv, pt, as.double(args[[1]])),
+      quantile = ns$bf_emp_quantile_(xv, pv, pt, as.double(args[[1]])),
+      parameters_valid = ns$bf_emp_valid_(xv, pv, pt),
+      stop(sprintf("unknown fixture method for Empirical: %s", method))
     ))
   }
   stop(sprintf("unknown composite target: %s", target))

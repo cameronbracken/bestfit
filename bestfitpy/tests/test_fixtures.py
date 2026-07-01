@@ -82,7 +82,7 @@ def _dispatch_gev(g, method, args):
 # the fixture "construct" uses a structured schema rather than flat "params".
 # Adding a new composite = one new case in _build_composite + one in _dispatch_composite.
 
-_COMPOSITE_TARGETS = {"TruncatedDistribution"}
+_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical"}
 
 
 def _build_composite(target: str, construct: dict) -> dict:
@@ -92,6 +92,11 @@ def _build_composite(target: str, construct: dict) -> dict:
         base_params = [_num(v) for v in construct["base"]["params"]]
         lo, hi = float(construct["bounds"][0]), float(construct["bounds"][1])
         return {"base_target": base_target, "base_params": base_params, "lo": lo, "hi": hi}
+    if target == "Empirical":
+        xv = [float(v) for v in construct["x"]]
+        pv = [float(v) for v in construct["p"]]
+        pt = construct.get("p_transform", "NormalZ")
+        return {"x_vals": xv, "p_vals": pv, "p_transform": pt}
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -109,6 +114,19 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         if method == "parameters_valid":
             return _core.trunc_valid(bt, bp, lo, hi)
         raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
+    if target == "Empirical":
+        xv, pv, pt = cd["x_vals"], cd["p_vals"], cd["p_transform"]
+        if method in _MOMENTS:
+            return _core.emp_moments(xv, pv, pt)[method]
+        if method == "pdf":
+            return _core.emp_pdf(xv, pv, pt, args[0])
+        if method == "cdf":
+            return _core.emp_cdf(xv, pv, pt, args[0])
+        if method == "quantile":
+            return _core.emp_quantile(xv, pv, pt, args[0])
+        if method == "parameters_valid":
+            return _core.emp_valid(xv, pv, pt)
+        raise KeyError(f"unknown fixture method for Empirical: {method}")
     raise KeyError(f"unknown composite target: {target}")
 
 

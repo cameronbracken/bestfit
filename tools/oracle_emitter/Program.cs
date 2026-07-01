@@ -10,6 +10,7 @@
 // GEV standard-error methods are reported as "skipped" (verified in Phase 0, not re-checked here).
 
 using System.Text.Json;
+using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Mathematics.SpecialFunctions;
 
@@ -63,7 +64,7 @@ static UnivariateDistributionBase BuildComponent(JsonElement desc,
 }
 
 // Build composite distributions from their structured construct schemas.
-// Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) add a case here.
+// Future composites (KernelDensity, Mixture, CompetingRisks) add a case here.
 static UnivariateDistributionBase BuildComposite(string target, JsonElement construct,
                                                   Dictionary<string, double[]> datasets)
 {
@@ -74,6 +75,23 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
         double lo = ParseNum(boundsArr[0]), hi = ParseNum(boundsArr[1]);
         return new TruncatedDistribution(baseDist, lo, hi);
     }
+    if (target == "Empirical")
+    {
+        var xArr = construct.GetProperty("x").EnumerateArray().Select(ParseNum).ToArray();
+        var pArr = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
+        var emp = new EmpiricalDistribution(xArr, pArr);
+        // Optional p_transform: "None" or "NormalZ" (default NormalZ)
+        if (construct.TryGetProperty("p_transform", out var pt))
+        {
+            emp.ProbabilityTransform = pt.GetString() switch
+            {
+                "None"    => Transform.None,
+                "NormalZ" => Transform.NormalZ,
+                var s     => throw new Exception($"unknown p_transform: {s}")
+            };
+        }
+        return emp;
+    }
     throw new Exception($"unknown composite target: {target}");
 }
 
@@ -81,9 +99,10 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
     // Composite distributions use bespoke construction (no flat enum entry in C# or C++).
-    if (target == "TruncatedDistribution")
+    if (target == "TruncatedDistribution" || target == "Empirical")
         return BuildComposite(target, construct, datasets);
 
+    // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.
     var type = Enum.Parse<UnivariateDistributionType>(target);
     // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
     UnivariateDistributionBase dist = target == "VonMises"

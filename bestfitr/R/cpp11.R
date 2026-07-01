@@ -48,6 +48,26 @@ bf_trunc_valid_ <- function(base_target, base_params, lo, hi) {
   .Call(`_bestfitr_bf_trunc_valid_`, base_target, base_params, lo, hi)
 }
 
+bf_emp_moments_ <- function(x_vals, p_vals, p_transform) {
+  .Call(`_bestfitr_bf_emp_moments_`, x_vals, p_vals, p_transform)
+}
+
+bf_emp_pdf_ <- function(x_vals, p_vals, p_transform, x) {
+  .Call(`_bestfitr_bf_emp_pdf_`, x_vals, p_vals, p_transform, x)
+}
+
+bf_emp_cdf_ <- function(x_vals, p_vals, p_transform, x) {
+  .Call(`_bestfitr_bf_emp_cdf_`, x_vals, p_vals, p_transform, x)
+}
+
+bf_emp_quantile_ <- function(x_vals, p_vals, p_transform, prob) {
+  .Call(`_bestfitr_bf_emp_quantile_`, x_vals, p_vals, p_transform, prob)
+}
+
+bf_emp_valid_ <- function(x_vals, p_vals, p_transform) {
+  .Call(`_bestfitr_bf_emp_valid_`, x_vals, p_vals, p_transform)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

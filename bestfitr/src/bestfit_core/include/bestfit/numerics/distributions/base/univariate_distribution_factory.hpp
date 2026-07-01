@@ -16,6 +16,7 @@
 #include "bestfit/numerics/distributions/binomial.hpp"
 #include "bestfit/numerics/distributions/cauchy.hpp"
 #include "bestfit/numerics/distributions/deterministic.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
 #include "bestfit/numerics/distributions/triangular.hpp"
 #include "bestfit/numerics/distributions/generalized_beta.hpp"
@@ -64,6 +65,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Cauchy>();
         case UnivariateDistributionType::Deterministic:
             return std::make_unique<Deterministic>();
+        case UnivariateDistributionType::Empirical:
+            return std::make_unique<EmpiricalDistribution>();
         case UnivariateDistributionType::Exponential:
             return std::make_unique<Exponential>();
         case UnivariateDistributionType::GeneralizedBeta:
@@ -140,6 +143,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Binomial") return create_distribution(UnivariateDistributionType::Binomial);
     if (name == "Cauchy") return create_distribution(UnivariateDistributionType::Cauchy);
     if (name == "Deterministic") return create_distribution(UnivariateDistributionType::Deterministic);
+    if (name == "Empirical") return create_distribution(UnivariateDistributionType::Empirical);
     if (name == "Exponential") return create_distribution(UnivariateDistributionType::Exponential);
     if (name == "GeneralizedBeta")
         return create_distribution(UnivariateDistributionType::GeneralizedBeta);

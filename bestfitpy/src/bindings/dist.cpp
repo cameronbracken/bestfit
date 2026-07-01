@@ -13,6 +13,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bindings.hpp"
 
@@ -111,5 +112,47 @@ void register_distributions(py::module_& m) {
         auto base = dist::create_distribution(bt);
         base->set_parameters(bp);
         return dist::TruncatedDistribution(std::move(base), lo, hi).parameters_valid();
+    });
+
+    // --- Composite glue: EmpiricalDistribution -----------------------------------------
+    // Accepts (x_vals, p_vals, p_transform) and exposes the full distribution surface.
+    // p_transform: "NormalZ" (default) or "None".
+
+    auto parse_emp_transform = [](const std::string& s) {
+        if (s == "None") return dist::EmpiricalTransform::None;
+        if (s == "NormalZ") return dist::EmpiricalTransform::NormalZ;
+        throw py::value_error("unknown p_transform: " + s);
+        return dist::EmpiricalTransform::NormalZ;  // unreachable
+    };
+
+    m.def("emp_moments", [parse_emp_transform](const std::vector<double>& xv,
+                                                const std::vector<double>& pv,
+                                                const std::string& pt_str) {
+        dist::EmpiricalDistribution d(xv, pv, parse_emp_transform(pt_str));
+        return std::map<std::string, double>{
+            {"mean", d.mean()},         {"median", d.median()},
+            {"mode", d.mode()},         {"sd", d.standard_deviation()},
+            {"skewness", d.skewness()}, {"kurtosis", d.kurtosis()},
+            {"minimum", d.minimum()},   {"maximum", d.maximum()}};
+    });
+    m.def("emp_pdf", [parse_emp_transform](const std::vector<double>& xv,
+                                            const std::vector<double>& pv,
+                                            const std::string& pt_str, double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).pdf(x);
+    });
+    m.def("emp_cdf", [parse_emp_transform](const std::vector<double>& xv,
+                                            const std::vector<double>& pv,
+                                            const std::string& pt_str, double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).cdf(x);
+    });
+    m.def("emp_quantile", [parse_emp_transform](const std::vector<double>& xv,
+                                                 const std::vector<double>& pv,
+                                                 const std::string& pt_str, double prob) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).inverse_cdf(prob);
+    });
+    m.def("emp_valid", [parse_emp_transform](const std::vector<double>& xv,
+                                              const std::vector<double>& pv,
+                                              const std::string& pt_str) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).parameters_valid();
     });
 }
