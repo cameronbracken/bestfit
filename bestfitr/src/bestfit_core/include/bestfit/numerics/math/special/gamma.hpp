@@ -17,6 +17,9 @@ namespace detail {
 // Wichura AS241 inverse standard-normal CDF. Ported from Normal.r8_normal_01_cdf_inverse.
 // Needed by inverse_lower_incomplete / inverse_upper_incomplete (they call Normal.StandardZ).
 inline double normal_standard_z(double p) {
+    // Boundary guards match r8_normal_01_cdf_inverse: p<=0 -> -inf, p>=1 -> +inf.
+    if (p <= 0.0) return -std::numeric_limits<double>::infinity();
+    if (p >= 1.0) return  std::numeric_limits<double>::infinity();
     static constexpr double a[8] = {3.3871328727963666080,    1.3314166789178437745e+2,
                                     1.9715909503065514427e+3,  1.3731693765509461125e+4,
                                     4.5921953931549871457e+4,  6.7265770927008700853e+4,
@@ -38,7 +41,7 @@ inline double normal_standard_z(double p) {
                                     2.65321895265761230930e-2, 1.24266094738807843860e-3,
                                     2.71155556874348757815e-5, 2.01033439929228813265e-7};
     static constexpr double f[8] = {1.0,                       5.99832206555887937690e-1,
-                                    1.36929880922735805310e-1, 1.48753612908506508940e-2,
+                                    1.36929880922735805310e-1, 1.48753612908506148525e-2,
                                     7.86869131145613259100e-4, 1.84631831751005468180e-5,
                                     1.42151175831644588870e-7, 2.04426310338993978564e-15};
     constexpr double split1 = 0.425, split2 = 5.0;
@@ -337,6 +340,9 @@ inline double upper_incomplete(double a, double x) {
 namespace detail {
 // Core inverse: finds x such that UpperIncomplete(a, x) ≈ y.
 // Mirrors Gamma.Inverse exactly (Newton + interval halving).
+// Normal.StandardZ (called by C# Gamma.Inverse) clamps p==0 to double.Epsilon and
+// p==1 to 1-double.Epsilon before calling r8_normal_01_cdf_inverse; we replicate that
+// here so boundary inputs yield the same large-finite results as the C# oracle.
 inline double gamma_inverse(double a, double y) {
     constexpr double kLogMax = 709.782712893384;
     constexpr double kDoubleEpsilon = 0.000000000000000111022302462516;
@@ -345,9 +351,13 @@ inline double gamma_inverse(double a, double y) {
     double x1 = 0.0;
     double yh = 1.0;
     double dithresh = 5.0 * kDoubleEpsilon;
-    // initial approximation
+    // initial approximation — clamp y like Normal.StandardZ to match C# oracle behavior
+    // for boundary inputs (y==0 → denorm_min, y==1 → 1-denorm_min).
+    double yc = y;
+    if (yc == 0.0) yc = std::numeric_limits<double>::denorm_min();
+    if (yc == 1.0) yc = 1.0 - std::numeric_limits<double>::denorm_min();
     double d = 1.0 / (9.0 * a);
-    double yy = 1.0 - d - normal_standard_z(y) * std::sqrt(d);
+    double yy = 1.0 - d - normal_standard_z(yc) * std::sqrt(d);
     double x = a * yy * yy * yy;
     double lgm = log_gamma(a);
     for (int i = 0; i <= 9; ++i) {

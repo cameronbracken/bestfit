@@ -48,6 +48,26 @@
       "name": "inv_upper_a3_y03",
       "args": [3.0, 0.3],
       "assertions": [ { "method": "value", "expected": 3.615567665865985, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "inv_upper_a1_y0_boundary",
+      "args": [1.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 8.9884656743115785e+307, "mode": "rel", "tol": 1e-6 } ]
+    },
+    {
+      "name": "inv_upper_a1_y1_boundary",
+      "args": [1.0, 1.0],
+      "assertions": [ { "method": "value", "expected": 1.474514954580286e-17, "mode": "abs", "tol": 1e-24 } ]
+    },
+    {
+      "name": "inv_upper_a2_y0_boundary",
+      "args": [2.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 8.9884656743115785e+307, "mode": "rel", "tol": 1e-6 } ]
+    },
+    {
+      "name": "inv_upper_a2_y1_boundary",
+      "args": [2.0, 1.0],
+      "assertions": [ { "method": "value", "expected": 1.9790604710578918e-09, "mode": "abs", "tol": 1e-15 } ]
     }
   ]
 }
