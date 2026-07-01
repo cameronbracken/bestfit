@@ -211,8 +211,13 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         double L1 = moments[0];
         double L2 = moments[1];
         double T3 = moments[2];
+        // C# reads moments[3] (T4) but does not use it.
         double kappa = -T3;
         double alpha, xi;
+        // INTENTIONAL DIVERGENCE from C#: upstream computes sin(kappa*pi)/(kappa*pi)
+        // (and 1/kappa - pi/sin(kappa*pi)) with no guard, yielding NaN/Inf at kappa=0.
+        // We return the correct L'Hopital limit instead. Oracle gate cannot verify this
+        // point (C# returns NaN).
         if (std::fabs(kappa) <= kNearZero) {
             alpha = L2;
             xi = L1;
@@ -233,6 +238,10 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         if (std::fabs(kappa) >= 1.0)
             throw std::out_of_range("L-moments can only be defined for -1 < kappa < 1");
         double L1, L2;
+        // INTENTIONAL DIVERGENCE from C#: upstream computes 1/kappa - pi/sin(kappa*pi)
+        // (and kappa*pi/sin(kappa*pi)) with no guard, yielding NaN/Inf at kappa=0. We
+        // return the correct L'Hopital limit instead. Oracle gate cannot verify this
+        // point (C# returns NaN).
         if (std::fabs(kappa) <= kNearZero) {
             L1 = xi;
             L2 = alpha;
