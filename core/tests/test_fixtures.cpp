@@ -8,22 +8,25 @@
 // Two code paths: the GEV slice keeps its bespoke dispatch (location/scale/shape names,
 // standard-error methods); every other distribution goes through the polymorphic
 // UnivariateDistributionBase + factory path, which is what new distributions plug into.
+// Special functions use a flat target->lambda map.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <functional>
-#include <map>
 
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/math/special/beta.hpp"
+#include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
+#include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
@@ -147,6 +150,7 @@ namespace sf = bestfit::numerics::math::special;
 static const std::map<std::string, std::function<double(const std::vector<double>&)>>&
 special_function_table() {
     static const std::map<std::string, std::function<double(const std::vector<double>&)>> t = {
+        // Erf family
         {"Erf.function",      [](const std::vector<double>& a) { return sf::erf::function(a[0]); }},
         {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},
         {"Erf.inverse_erf",   [](const std::vector<double>& a) { return sf::erf::inverse_erf(a[0]); }},
@@ -160,6 +164,20 @@ special_function_table() {
         {"Gamma.upper_incomplete",       [](const std::vector<double>& a) { return sf::upper_incomplete(a[0], a[1]); }},
         {"Gamma.inverse_lower_incomplete", [](const std::vector<double>& a) { return sf::inverse_lower_incomplete(a[0], a[1]); }},
         {"Gamma.inverse_upper_incomplete", [](const std::vector<double>& a) { return sf::inverse_upper_incomplete(a[0], a[1]); }},
+        // Beta family
+        {"Beta.function",           [](const std::vector<double>& a) { return sf::beta::function(a[0], a[1]); }},
+        {"Beta.incomplete",         [](const std::vector<double>& a) { return sf::beta::incomplete(a[0], a[1], a[2]); }},
+        {"Beta.incbcf",             [](const std::vector<double>& a) { return sf::beta::detail::incbcf(a[0], a[1], a[2]); }},
+        {"Beta.incbd",              [](const std::vector<double>& a) { return sf::beta::detail::incbd(a[0], a[1], a[2]); }},
+        {"Beta.power_series",       [](const std::vector<double>& a) { return sf::beta::detail::power_series(a[0], a[1], a[2]); }},
+        {"Beta.incomplete_inverse", [](const std::vector<double>& a) { return sf::beta::incomplete_inverse(a[0], a[1], a[2]); }},
+        // Factorial family
+        {"Factorial.function",             [](const std::vector<double>& a) { return sf::factorial::function(static_cast<int>(a[0])); }},
+        {"Factorial.log_factorial",        [](const std::vector<double>& a) { return sf::factorial::log_factorial(static_cast<int>(a[0])); }},
+        {"Factorial.binomial_coefficient", [](const std::vector<double>& a) { return sf::factorial::binomial_coefficient(static_cast<int>(a[0]), static_cast<int>(a[1])); }},
+        // Bessel family
+        {"Bessel.i0", [](const std::vector<double>& a) { return sf::bessel::i0(a[0]); }},
+        {"Bessel.i1", [](const std::vector<double>& a) { return sf::bessel::i1(a[0]); }},
     };
     return t;
 }

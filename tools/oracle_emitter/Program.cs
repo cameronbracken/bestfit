@@ -115,6 +115,7 @@ static bool Compare(double actual, JsonElement assertion)
 // Special-function dispatch table: maps "Module.method" → Func<double[], double>.
 static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
 {
+    // Erf family
     "Erf.function"     => a => Erf.Function(a[0]),
     "Erf.erfc"         => a => Erf.Erfc(a[0]),
     "Erf.inverse_erf"  => a => Erf.InverseErf(a[0]),
@@ -128,6 +129,20 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "Gamma.upper_incomplete"         => a => Gamma.UpperIncomplete(a[0], a[1]),
     "Gamma.inverse_lower_incomplete" => a => Gamma.InverseLowerIncomplete(a[0], a[1]),
     "Gamma.inverse_upper_incomplete" => a => Gamma.InverseUpperIncomplete(a[0], a[1]),
+    // Beta family
+    "Beta.function"           => a => Beta.Function(a[0], a[1]),
+    "Beta.incomplete"         => a => Beta.Incomplete(a[0], a[1], a[2]),
+    "Beta.incbcf"             => a => Beta.Incbcf(a[0], a[1], a[2]),
+    "Beta.incbd"              => a => Beta.Incbd(a[0], a[1], a[2]),
+    "Beta.power_series"       => a => Beta.PowerSeries(a[0], a[1], a[2]),
+    "Beta.incomplete_inverse" => a => Beta.IncompleteInverse(a[0], a[1], a[2]),
+    // Factorial family
+    "Factorial.function"             => a => Factorial.Function((int)a[0]),
+    "Factorial.log_factorial"        => a => Factorial.LogFactorial((int)a[0]),
+    "Factorial.binomial_coefficient" => a => Factorial.BinomialCoefficient((int)a[0], (int)a[1]),
+    // Bessel family
+    "Bessel.i0" => a => Bessel.I0(a[0]),
+    "Bessel.i1" => a => Bessel.I1(a[0]),
     _ => null,
 };
 

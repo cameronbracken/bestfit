@@ -1,0 +1,24 @@
+{
+  "kind": "special_function",
+  "target": "Beta.function",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
+  "cases": [
+    { "name": "f_1_1",   "args": [1.0, 1.0], "assertions": [{ "method": "value", "expected": 1.0,           "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_02_1",  "args": [0.2, 1.0], "assertions": [{ "method": "value", "expected": 5.0,           "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_1_02",  "args": [1.0, 0.2], "assertions": [{ "method": "value", "expected": 5.0,           "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_04_1",  "args": [0.4, 1.0], "assertions": [{ "method": "value", "expected": 2.5,           "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_1_04",  "args": [1.0, 0.4], "assertions": [{ "method": "value", "expected": 2.5,           "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_1_06",  "args": [1.0, 0.6], "assertions": [{ "method": "value", "expected": 1.666667,      "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_08_1",  "args": [0.8, 1.0], "assertions": [{ "method": "value", "expected": 1.25,          "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_6_6",   "args": [6.0, 6.0], "assertions": [{ "method": "value", "expected": 0.0003607504,  "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_6_5",   "args": [6.0, 5.0], "assertions": [{ "method": "value", "expected": 0.0007936508,  "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_6_4",   "args": [6.0, 4.0], "assertions": [{ "method": "value", "expected": 0.001984127,   "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_6_3",   "args": [6.0, 3.0], "assertions": [{ "method": "value", "expected": 0.005952381,   "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_6_2",   "args": [6.0, 2.0], "assertions": [{ "method": "value", "expected": 0.0238095,     "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_7_7",   "args": [7.0, 7.0], "assertions": [{ "method": "value", "expected": 0.00008325008, "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_5_5",   "args": [5.0, 5.0], "assertions": [{ "method": "value", "expected": 0.001587302,   "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_4_4",   "args": [4.0, 4.0], "assertions": [{ "method": "value", "expected": 0.007142857,   "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_3_3",   "args": [3.0, 3.0], "assertions": [{ "method": "value", "expected": 0.03333333,    "mode": "abs", "tol": 1e-4 }] },
+    { "name": "f_2_2",   "args": [2.0, 2.0], "assertions": [{ "method": "value", "expected": 0.1666667,     "mode": "abs", "tol": 1e-4 }] }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "special_function",
+  "target": "Beta.incomplete",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
+  "cases": [
+    { "name": "inc_5_4_05_cf_branch",   "args": [5.0, 4.0, 0.5],  "assertions": [{ "method": "value", "expected": 0.36328125, "mode": "abs", "tol": 1e-6 }] },
+    { "name": "inc_2_2_04_power_series", "args": [2.0, 2.0, 0.4],  "assertions": [{ "method": "value", "expected": 0.352,      "mode": "abs", "tol": 1e-6 }] },
+    { "name": "inc_3_3_06_incbd_branch", "args": [3.0, 3.0, 0.6],  "assertions": [{ "method": "value", "expected": 0.68256,    "mode": "abs", "tol": 1e-6 }] }
+  ]
+}

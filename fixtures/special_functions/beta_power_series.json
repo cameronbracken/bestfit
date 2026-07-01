@@ -1,0 +1,8 @@
+{
+  "kind": "special_function",
+  "target": "Beta.power_series",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
+  "cases": [
+    { "name": "ps_4_2_42", "args": [4.0, 2.0, 4.2], "assertions": [{ "method": "value", "expected": -3671.801280000001, "mode": "abs", "tol": 1e-8 }] }
+  ]
+}
