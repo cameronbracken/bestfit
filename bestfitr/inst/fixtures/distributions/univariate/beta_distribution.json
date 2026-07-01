@@ -1,0 +1,84 @@
+{
+  "target": "Beta",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Beta.cs",
+  "cases": [
+    {
+      "name": "alpha0p42_beta1p57",
+      "construct": { "params": [0.42, 1.57] },
+      "assertions": [
+        { "method": "mean",     "args": [],      "expected": 0.21105527638190955, "mode": "abs", "tol": 1e-4 },
+        { "method": "median",   "args": [],      "expected": 0.11577711097114812, "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [],      "expected": 0.0,                 "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",       "args": [],      "expected": 0.23598576615025,    "mode": "abs", "tol": 1e-4 },
+        { "method": "skewness", "args": [],      "expected": 1.2275,              "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis", "args": [],      "expected": 3.6048,             "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [0.27],  "expected": 0.94644031936694828, "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",      "args": [0.27],  "expected": 0.69358638272337991, "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.69358638272337991], "expected": 0.27,  "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.05],  "expected": 0.000459,           "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.95],  "expected": 0.7238,             "mode": "abs", "tol": 1e-4 },
+        { "method": "minimum",  "args": [],      "expected": 0.0,                 "mode": "equal" },
+        { "method": "maximum",  "args": [],      "expected": 1.0,                 "mode": "equal" },
+        { "method": "param",    "args": [0],     "expected": 0.42,                "mode": "abs", "tol": 1e-12 },
+        { "method": "param",    "args": [1],     "expected": 1.57,                "mode": "abs", "tol": 1e-12 },
+        { "method": "parameters_valid", "args": [], "expected": true,             "mode": "bool" }
+      ]
+    },
+    {
+      "name": "alpha1_beta1_uniform",
+      "construct": { "params": [1.0, 1.0] },
+      "assertions": [
+        { "method": "mode",     "args": [],     "expected": 0.5,                 "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [],     "expected": 0.0,                 "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [0.0],   "expected": 1.0,                "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [0.5],   "expected": 1.0,                "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [1.0],   "expected": 1.0,                "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",      "args": [0.0],   "expected": 0.0,                "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [0.5],   "expected": 0.5,                "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",      "args": [1.0],   "expected": 1.0,                "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [1.0],   "expected": 1.0,                "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "alpha9_beta1",
+      "construct": { "params": [9.0, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [],     "expected": 0.9,                "mode": "abs", "tol": 1e-12 },
+        { "method": "mode",     "args": [],     "expected": 1.0,                "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [],     "expected": -1.474055,          "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [0.0],   "expected": 0.0,               "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [0.5],   "expected": 0.035156,          "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [1.0],   "expected": 8.9999,            "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [-1.0],  "expected": 0.0,               "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [2.0],   "expected": 0.0,               "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",      "args": [0.0],   "expected": 0.0,               "mode": "equal" },
+        { "method": "cdf",      "args": [0.5],   "expected": 0.001953125,       "mode": "abs", "tol": 1e-9 },
+        { "method": "cdf",      "args": [1.0],   "expected": 1.0,               "mode": "equal" },
+        { "method": "quantile", "args": [0.0],   "expected": 0.0,               "mode": "equal" },
+        { "method": "quantile", "args": [1.0],   "expected": 1.0,               "mode": "equal" }
+      ]
+    },
+    {
+      "name": "standard_deviation_cases",
+      "construct": { "params": [2.0, 3.0] },
+      "assertions": [
+        { "method": "sd", "args": [], "expected": 0.2, "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "kurtosis_2_2",
+      "construct": { "params": [2.0, 2.0] },
+      "assertions": [
+        { "method": "kurtosis", "args": [], "expected": 2.14285, "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "invalid_negative_alpha",
+      "construct": { "params": [-1.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}

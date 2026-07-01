@@ -12,6 +12,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/bernoulli.hpp"
+#include "bestfit/numerics/distributions/beta_distribution.hpp"
 #include "bestfit/numerics/distributions/cauchy.hpp"
 #include "bestfit/numerics/distributions/deterministic.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
@@ -47,6 +48,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
     switch (type) {
         case UnivariateDistributionType::Bernoulli:
             return std::make_unique<Bernoulli>();
+        case UnivariateDistributionType::Beta:
+            return std::make_unique<BetaDistribution>();
         case UnivariateDistributionType::Cauchy:
             return std::make_unique<Cauchy>();
         case UnivariateDistributionType::Deterministic:
@@ -109,6 +112,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
 // Construct from the C# type name (the value stored in fixtures' "target" field).
 inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std::string& name) {
     if (name == "Bernoulli") return create_distribution(UnivariateDistributionType::Bernoulli);
+    if (name == "Beta") return create_distribution(UnivariateDistributionType::Beta);
     if (name == "Cauchy") return create_distribution(UnivariateDistributionType::Cauchy);
     if (name == "Deterministic") return create_distribution(UnivariateDistributionType::Deterministic);
     if (name == "Exponential") return create_distribution(UnivariateDistributionType::Exponential);
