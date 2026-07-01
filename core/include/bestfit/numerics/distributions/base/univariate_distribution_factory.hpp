@@ -20,6 +20,8 @@
 #include "bestfit/numerics/distributions/generalized_logistic.hpp"
 #include "bestfit/numerics/distributions/generalized_pareto.hpp"
 #include "bestfit/numerics/distributions/geometric.hpp"
+#include "bestfit/numerics/distributions/chi_squared.hpp"
+#include "bestfit/numerics/distributions/gamma_distribution.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
 #include "bestfit/numerics/distributions/ln_normal.hpp"
 #include "bestfit/numerics/distributions/log_normal.hpp"
@@ -30,6 +32,7 @@
 #include "bestfit/numerics/distributions/truncated_normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/distributions/uniform_discrete.hpp"
+#include "bestfit/numerics/distributions/weibull.hpp"
 
 namespace bestfit::numerics::distributions {
 
@@ -52,6 +55,10 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<GeneralizedPareto>();
         case UnivariateDistributionType::Geometric:
             return std::make_unique<Geometric>();
+        case UnivariateDistributionType::ChiSquared:
+            return std::make_unique<ChiSquared>();
+        case UnivariateDistributionType::GammaDistribution:
+            return std::make_unique<GammaDistribution>();
         case UnivariateDistributionType::Gumbel:
             return std::make_unique<Gumbel>();
         case UnivariateDistributionType::LnNormal:
@@ -74,6 +81,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Uniform>();
         case UnivariateDistributionType::UniformDiscrete:
             return std::make_unique<UniformDiscrete>();
+        case UnivariateDistributionType::Weibull:
+            return std::make_unique<Weibull>();
         default:
             throw std::invalid_argument("univariate distribution type not yet ported");
     }
@@ -92,6 +101,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "GeneralizedPareto")
         return create_distribution(UnivariateDistributionType::GeneralizedPareto);
     if (name == "Geometric") return create_distribution(UnivariateDistributionType::Geometric);
+    if (name == "ChiSquared") return create_distribution(UnivariateDistributionType::ChiSquared);
+    if (name == "GammaDistribution") return create_distribution(UnivariateDistributionType::GammaDistribution);
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
     if (name == "LnNormal") return create_distribution(UnivariateDistributionType::LnNormal);
     if (name == "LogNormal") return create_distribution(UnivariateDistributionType::LogNormal);
@@ -104,6 +115,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
     if (name == "UniformDiscrete")
         return create_distribution(UnivariateDistributionType::UniformDiscrete);
+    if (name == "Weibull") return create_distribution(UnivariateDistributionType::Weibull);
     throw std::invalid_argument("unknown distribution name: " + name);
 }
 
