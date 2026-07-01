@@ -16,6 +16,7 @@
 #include "bestfit/numerics/distributions/exponential.hpp"
 #include "bestfit/numerics/distributions/triangular.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/distributions/geometric.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
 #include "bestfit/numerics/distributions/logistic.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
@@ -37,6 +38,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Exponential>();
         case UnivariateDistributionType::GeneralizedExtremeValue:
             return std::make_unique<GeneralizedExtremeValue>();
+        case UnivariateDistributionType::Geometric:
+            return std::make_unique<Geometric>();
         case UnivariateDistributionType::Gumbel:
             return std::make_unique<Gumbel>();
         case UnivariateDistributionType::Logistic:
@@ -65,6 +68,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Exponential") return create_distribution(UnivariateDistributionType::Exponential);
     if (name == "GeneralizedExtremeValue")
         return create_distribution(UnivariateDistributionType::GeneralizedExtremeValue);
+    if (name == "Geometric") return create_distribution(UnivariateDistributionType::Geometric);
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
     if (name == "Logistic") return create_distribution(UnivariateDistributionType::Logistic);
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
