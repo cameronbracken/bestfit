@@ -30,6 +30,7 @@
 #include "bestfit/numerics/distributions/logistic.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pareto.hpp"
+#include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
 #include "bestfit/numerics/distributions/pearson_type_iii.hpp"
 #include "bestfit/numerics/distributions/poisson.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
@@ -69,6 +70,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<InverseChiSquared>();
         case UnivariateDistributionType::InverseGamma:
             return std::make_unique<InverseGamma>();
+        case UnivariateDistributionType::LogPearsonTypeIII:
+            return std::make_unique<LogPearsonTypeIII>();
         case UnivariateDistributionType::LnNormal:
             return std::make_unique<LnNormal>();
         case UnivariateDistributionType::LogNormal:
@@ -118,6 +121,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Gumbel") return create_distribution(UnivariateDistributionType::Gumbel);
     if (name == "InverseChiSquared") return create_distribution(UnivariateDistributionType::InverseChiSquared);
     if (name == "InverseGamma") return create_distribution(UnivariateDistributionType::InverseGamma);
+    if (name == "LogPearsonTypeIII")
+        return create_distribution(UnivariateDistributionType::LogPearsonTypeIII);
     if (name == "LnNormal") return create_distribution(UnivariateDistributionType::LnNormal);
     if (name == "LogNormal") return create_distribution(UnivariateDistributionType::LogNormal);
     if (name == "Logistic") return create_distribution(UnivariateDistributionType::Logistic);
