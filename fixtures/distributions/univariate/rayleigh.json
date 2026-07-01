@@ -3,6 +3,9 @@
   "kind": "univariate_distribution",
   "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Rayleigh.cs",
   "reference": "Verified using Accord.Net",
+  "datasets": {
+    "sample_31": [1953, 1939, 1677, 1692, 2051, 2371, 2022, 1521, 1448, 1825, 1363, 1760, 1672, 1603, 1244, 1521, 1783, 1560, 1357, 1673, 1625, 1425, 1688, 1577, 1736, 1640, 1584, 1293, 1277, 1742, 1491]
+  },
   "cases": [
     {
       "name": "standard_sigma_1",
@@ -50,6 +53,20 @@
         { "method": "sd",     "args": [],     "expected": 6.551363775620336,    "mode": "abs", "tol": 1e-4 },
         { "method": "skewness","args": [],    "expected": 0.6311106578189364,   "mode": "abs", "tol": 1e-4 },
         { "method": "kurtosis","args": [],    "expected": 3.245089300687639,    "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "mom_fit",
+      "construct": { "fit": { "dataset": "sample_31", "method": "mom" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 1315.5572114940921, "mode": "abs", "tol": 1e-6 }
+      ]
+    },
+    {
+      "name": "mle_fit",
+      "construct": { "fit": { "dataset": "sample_31", "method": "mle" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 1183.3429104199172, "mode": "abs", "tol": 1e-6 }
       ]
     },
     {
