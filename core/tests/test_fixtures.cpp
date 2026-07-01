@@ -23,6 +23,7 @@
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
@@ -228,6 +229,49 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_generic(const std
     return d;
 }
 
+// --- Composite distribution path (TruncatedDistribution, and future Empirical/Kernel/Mixture/CR) ---
+
+// build_component: create a sub-distribution from {"target": "...", "params": [...]} (or "fit").
+// Recursive -- components can nest (Mixture inside CompetingRisks, etc.).
+static std::unique_ptr<dist::UnivariateDistributionBase> build_component(const json& desc,
+                                                                          const json& datasets) {
+    std::string target = desc["target"].get<std::string>();
+    auto d = dist::create_distribution(target);
+    if (desc.contains("params")) {
+        std::vector<double> p;
+        for (const auto& v : desc["params"]) p.push_back(parse_num(v));
+        d->set_parameters(p);
+    } else if (desc.contains("fit")) {
+        const auto& fit = desc["fit"];
+        std::vector<double> data;
+        for (const auto& v : datasets[fit["dataset"].get<std::string>()]) data.push_back(v.get<double>());
+        auto* est = dynamic_cast<dist::IEstimation*>(d.get());
+        if (est == nullptr) throw std::runtime_error(target + " does not support estimation");
+        est->estimate(data, parse_pe_method(fit["method"].get<std::string>()));
+    }
+    return d;
+}
+
+// build_composite: switch on composite targets; returns a UnivariateDistributionBase* so
+// dispatch_generic can be reused without modification for pdf/cdf/moments/etc.
+// Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) add a case here.
+static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const std::string& target,
+                                                                          const json& construct,
+                                                                          const json& datasets) {
+    if (target == "TruncatedDistribution") {
+        auto base = build_component(construct["base"], datasets);
+        const auto& bounds = construct["bounds"];
+        double lo = parse_num(bounds[0]);
+        double hi = parse_num(bounds[1]);
+        return std::make_unique<dist::TruncatedDistribution>(std::move(base), lo, hi);
+    }
+    throw std::runtime_error("unknown composite target: " + target);
+}
+
+static bool is_composite_target(const std::string& target) {
+    return target == "TruncatedDistribution";
+}
+
 static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,
                                const json& a) {
     if (m == "mean") return d.mean();
@@ -252,9 +296,14 @@ static double dispatch_generic(const dist::UnivariateDistributionBase& d, const 
 
 static void run_generic(const json& spec) {
     std::string target = spec["target"].get<std::string>();
+    bool composite = is_composite_target(target);
     json datasets = spec.value("datasets", json::object());
     for (const auto& c : spec["cases"]) {
-        auto d = build_generic(target, c["construct"], datasets);
+        // Composite targets use build_composite; flat-param targets use build_generic.
+        // dispatch_generic works for both since TruncatedDistribution is a UnivariateDistributionBase.
+        std::unique_ptr<dist::UnivariateDistributionBase> d =
+            composite ? build_composite(target, c["construct"], datasets)
+                      : build_generic(target, c["construct"], datasets);
         std::string name = c["name"].get<std::string>();
         for (const auto& as : c["assertions"]) {
             std::string method = as["method"].get<std::string>();

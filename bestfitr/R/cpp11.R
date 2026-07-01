@@ -28,6 +28,26 @@ bf_dist_linear_moments_ <- function(target, params) {
   .Call(`_bestfitr_bf_dist_linear_moments_`, target, params)
 }
 
+bf_trunc_moments_ <- function(base_target, base_params, lo, hi) {
+  .Call(`_bestfitr_bf_trunc_moments_`, base_target, base_params, lo, hi)
+}
+
+bf_trunc_pdf_ <- function(base_target, base_params, lo, hi, x) {
+  .Call(`_bestfitr_bf_trunc_pdf_`, base_target, base_params, lo, hi, x)
+}
+
+bf_trunc_cdf_ <- function(base_target, base_params, lo, hi, x) {
+  .Call(`_bestfitr_bf_trunc_cdf_`, base_target, base_params, lo, hi, x)
+}
+
+bf_trunc_quantile_ <- function(base_target, base_params, lo, hi, p) {
+  .Call(`_bestfitr_bf_trunc_quantile_`, base_target, base_params, lo, hi, p)
+}
+
+bf_trunc_valid_ <- function(base_target, base_params, lo, hi) {
+  .Call(`_bestfitr_bf_trunc_valid_`, base_target, base_params, lo, hi)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

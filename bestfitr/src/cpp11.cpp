@@ -54,6 +54,41 @@ extern "C" SEXP _bestfitr_bf_dist_linear_moments_(SEXP target, SEXP params) {
     return cpp11::as_sexp(bf_dist_linear_moments_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<doubles>>(params)));
   END_CPP11
 }
+// dist.cpp
+doubles bf_trunc_moments_(std::string base_target, doubles base_params, double lo, double hi);
+extern "C" SEXP _bestfitr_bf_trunc_moments_(SEXP base_target, SEXP base_params, SEXP lo, SEXP hi) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_trunc_moments_(cpp11::as_cpp<cpp11::decay_t<std::string>>(base_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(base_params), cpp11::as_cpp<cpp11::decay_t<double>>(lo), cpp11::as_cpp<cpp11::decay_t<double>>(hi)));
+  END_CPP11
+}
+// dist.cpp
+double bf_trunc_pdf_(std::string base_target, doubles base_params, double lo, double hi, double x);
+extern "C" SEXP _bestfitr_bf_trunc_pdf_(SEXP base_target, SEXP base_params, SEXP lo, SEXP hi, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_trunc_pdf_(cpp11::as_cpp<cpp11::decay_t<std::string>>(base_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(base_params), cpp11::as_cpp<cpp11::decay_t<double>>(lo), cpp11::as_cpp<cpp11::decay_t<double>>(hi), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_trunc_cdf_(std::string base_target, doubles base_params, double lo, double hi, double x);
+extern "C" SEXP _bestfitr_bf_trunc_cdf_(SEXP base_target, SEXP base_params, SEXP lo, SEXP hi, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_trunc_cdf_(cpp11::as_cpp<cpp11::decay_t<std::string>>(base_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(base_params), cpp11::as_cpp<cpp11::decay_t<double>>(lo), cpp11::as_cpp<cpp11::decay_t<double>>(hi), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_trunc_quantile_(std::string base_target, doubles base_params, double lo, double hi, double p);
+extern "C" SEXP _bestfitr_bf_trunc_quantile_(SEXP base_target, SEXP base_params, SEXP lo, SEXP hi, SEXP p) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_trunc_quantile_(cpp11::as_cpp<cpp11::decay_t<std::string>>(base_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(base_params), cpp11::as_cpp<cpp11::decay_t<double>>(lo), cpp11::as_cpp<cpp11::decay_t<double>>(hi), cpp11::as_cpp<cpp11::decay_t<double>>(p)));
+  END_CPP11
+}
+// dist.cpp
+bool bf_trunc_valid_(std::string base_target, doubles base_params, double lo, double hi);
+extern "C" SEXP _bestfitr_bf_trunc_valid_(SEXP base_target, SEXP base_params, SEXP lo, SEXP hi) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_trunc_valid_(cpp11::as_cpp<cpp11::decay_t<std::string>>(base_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(base_params), cpp11::as_cpp<cpp11::decay_t<double>>(lo), cpp11::as_cpp<cpp11::decay_t<double>>(hi)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -144,6 +179,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_gev_quantile_gradient_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_gradient_,    4},
     {"_bestfitr_bf_gev_quantile_variance_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_,    5},
     {"_bestfitr_bf_gev_valid_",                (DL_FUNC) &_bestfitr_bf_gev_valid_,                3},
+    {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},
+    {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,            4},
+    {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                5},
+    {"_bestfitr_bf_trunc_quantile_",           (DL_FUNC) &_bestfitr_bf_trunc_quantile_,           5},
+    {"_bestfitr_bf_trunc_valid_",              (DL_FUNC) &_bestfitr_bf_trunc_valid_,              4},
     {NULL, NULL, 0}
 };
 }

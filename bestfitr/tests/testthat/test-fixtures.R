@@ -89,6 +89,47 @@ check_assertion <- function(actual, a) {
   }
 }
 
+# --- Composite distribution path -------------------------------------------------------
+# For TruncatedDistribution (and future Empirical/KernelDensity/Mixture/CompetingRisks),
+# the "construct" field uses a structured schema instead of flat "params".
+# build_composite_data() parses the construct into a list consumed by dispatch_composite().
+# Adding a new composite = one new case in build_composite_data + one in dispatch_composite.
+
+kCompositeTargets <- c("TruncatedDistribution")
+
+build_composite_data <- function(target, construct) {
+  if (target == "TruncatedDistribution") {
+    base_target <- construct$base$target
+    base_params <- vapply(construct$base$params, parse_num, numeric(1))
+    lo <- as.double(construct$bounds[[1]])
+    hi <- as.double(construct$bounds[[2]])
+    return(list(base_target = base_target, base_params = base_params, lo = lo, hi = hi))
+  }
+  stop(sprintf("unknown composite target: %s", target))
+}
+
+dispatch_composite <- function(target, cd, method, args) {
+  ns <- asNamespace("bestfitr")
+  if (target == "TruncatedDistribution") {
+    moment_names <- c("mean", "median", "mode", "sd", "skewness", "kurtosis",
+                      "minimum", "maximum")
+    if (method %in% moment_names) {
+      return(unname(ns$bf_trunc_moments_(cd$base_target, cd$base_params, cd$lo, cd$hi)[[method]]))
+    }
+    return(switch(method,
+      pdf      = ns$bf_trunc_pdf_(cd$base_target, cd$base_params, cd$lo, cd$hi,
+                                  as.double(args[[1]])),
+      cdf      = ns$bf_trunc_cdf_(cd$base_target, cd$base_params, cd$lo, cd$hi,
+                                  as.double(args[[1]])),
+      quantile = ns$bf_trunc_quantile_(cd$base_target, cd$base_params, cd$lo, cd$hi,
+                                       as.double(args[[1]])),
+      parameters_valid = ns$bf_trunc_valid_(cd$base_target, cd$base_params, cd$lo, cd$hi),
+      stop(sprintf("unknown fixture method for TruncatedDistribution: %s", method))
+    ))
+  }
+  stop(sprintf("unknown composite target: %s", target))
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -101,16 +142,26 @@ test_that("oracle fixtures validate", {
     if (!identical(spec$kind, "univariate_distribution")) next
     target <- spec$target
     datasets <- spec$datasets
+    is_composite <- target %in% kCompositeTargets
     for (case in spec$cases) {
-      p <- build_params(target, case$construct, datasets)
-      for (a in case$assertions) {
-        args <- if (is.null(a$args)) list() else a$args
-        actual <- if (target == "GeneralizedExtremeValue") {
-          dispatch_gev(p, a$method, args)
-        } else {
-          dispatch_generic(target, p, a$method, args)
+      if (is_composite) {
+        cd <- build_composite_data(target, case$construct)
+        for (a in case$assertions) {
+          args <- if (is.null(a$args)) list() else a$args
+          actual <- dispatch_composite(target, cd, a$method, args)
+          check_assertion(actual, a)
         }
-        check_assertion(actual, a)
+      } else {
+        p <- build_params(target, case$construct, datasets)
+        for (a in case$assertions) {
+          args <- if (is.null(a$args)) list() else a$args
+          actual <- if (target == "GeneralizedExtremeValue") {
+            dispatch_gev(p, a$method, args)
+          } else {
+            dispatch_generic(target, p, a$method, args)
+          }
+          check_assertion(actual, a)
+        }
       }
     }
   }

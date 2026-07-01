@@ -11,6 +11,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/truncated_distribution.hpp"
 
 namespace dist = bestfit::numerics::distributions;
 using namespace cpp11;
@@ -74,4 +75,49 @@ doubles bf_dist_linear_moments_(std::string target, doubles params) {
     auto* lm = dynamic_cast<dist::ILinearMomentEstimation*>(d.get());
     if (lm == nullptr) stop("distribution '%s' has no L-moments", target.c_str());
     return writable::doubles(lm->linear_moments_from_parameters(d->get_parameters()));
+}
+
+// --- Composite glue: TruncatedDistribution ------------------------------------------
+// Accepts (base_target, base_params, lo, hi) and exposes the full distribution surface.
+// Mirrors the bf_gev_* pattern: bespoke entry points that the R fixture runner uses.
+// Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) follow the same
+// pattern with their own bf_<name>_* functions; the R runner dispatches by target string.
+
+static dist::TruncatedDistribution make_trunc(const std::string& base_target,
+                                               doubles base_params,
+                                               double lo, double hi) {
+    auto base = dist::create_distribution(base_target);
+    base->set_parameters(std::vector<double>(base_params.begin(), base_params.end()));
+    return dist::TruncatedDistribution(std::move(base), lo, hi);
+}
+
+[[cpp11::register]]
+doubles bf_trunc_moments_(std::string base_target, doubles base_params,
+                           double lo, double hi) {
+    auto td = make_trunc(base_target, base_params, lo, hi);
+    writable::doubles out({td.mean(), td.median(), td.mode(), td.standard_deviation(),
+                           td.skewness(), td.kurtosis(), td.minimum(), td.maximum()});
+    out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
+    return out;
+}
+
+[[cpp11::register]]
+double bf_trunc_pdf_(std::string base_target, doubles base_params, double lo, double hi, double x) {
+    return make_trunc(base_target, base_params, lo, hi).pdf(x);
+}
+
+[[cpp11::register]]
+double bf_trunc_cdf_(std::string base_target, doubles base_params, double lo, double hi, double x) {
+    return make_trunc(base_target, base_params, lo, hi).cdf(x);
+}
+
+[[cpp11::register]]
+double bf_trunc_quantile_(std::string base_target, doubles base_params,
+                           double lo, double hi, double p) {
+    return make_trunc(base_target, base_params, lo, hi).inverse_cdf(p);
+}
+
+[[cpp11::register]]
+bool bf_trunc_valid_(std::string base_target, doubles base_params, double lo, double hi) {
+    return make_trunc(base_target, base_params, lo, hi).parameters_valid();
 }

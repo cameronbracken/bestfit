@@ -35,9 +35,55 @@ static ParameterEstimationMethod ParseMethod(string m) => m switch
     _ => ParameterEstimationMethod.MaximumLikelihood,
 };
 
+// Build a component distribution from {"target": "...", "params": [...]} (or "fit").
+// Recursive: components can nest for future Mixture / CompetingRisks.
+static UnivariateDistributionBase BuildComponent(JsonElement desc,
+                                                  Dictionary<string, double[]> datasets)
+{
+    var compTarget = desc.GetProperty("target").GetString()!;
+    var compType = Enum.Parse<UnivariateDistributionType>(compTarget);
+    UnivariateDistributionBase compDist = compTarget == "VonMises"
+        ? new VonMises()
+        : UnivariateDistributionFactory.CreateDistribution(compType);
+    if (desc.TryGetProperty("params", out var compPs))
+    {
+        compDist.SetParameters(compPs.EnumerateArray().Select(ParseNum).ToArray());
+        return compDist;
+    }
+    if (desc.TryGetProperty("fit", out var compFit))
+    {
+        var compData = datasets[compFit.GetProperty("dataset").GetString()!];
+        if (compDist is IEstimation compEst)
+            compEst.Estimate(compData, ParseMethod(compFit.GetProperty("method").GetString()!));
+        else
+            throw new Exception($"{compTarget} does not support estimation");
+        return compDist;
+    }
+    throw new Exception($"BuildComponent: missing 'params' or 'fit' for {compTarget}");
+}
+
+// Build composite distributions from their structured construct schemas.
+// Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) add a case here.
+static UnivariateDistributionBase BuildComposite(string target, JsonElement construct,
+                                                  Dictionary<string, double[]> datasets)
+{
+    if (target == "TruncatedDistribution")
+    {
+        var baseDist = BuildComponent(construct.GetProperty("base"), datasets);
+        var boundsArr = construct.GetProperty("bounds").EnumerateArray().ToArray();
+        double lo = ParseNum(boundsArr[0]), hi = ParseNum(boundsArr[1]);
+        return new TruncatedDistribution(baseDist, lo, hi);
+    }
+    throw new Exception($"unknown composite target: {target}");
+}
+
 static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
+    // Composite distributions use bespoke construction (no flat enum entry in C# or C++).
+    if (target == "TruncatedDistribution")
+        return BuildComposite(target, construct, datasets);
+
     var type = Enum.Parse<UnivariateDistributionType>(target);
     // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
     UnivariateDistributionBase dist = target == "VonMises"

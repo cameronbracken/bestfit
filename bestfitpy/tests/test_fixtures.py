@@ -77,6 +77,41 @@ def _dispatch_gev(g, method, args):
     raise KeyError(f"unknown fixture method: {method}")
 
 
+# --- Composite distribution path -------------------------------------------------------
+# For TruncatedDistribution (and future Empirical/KernelDensity/Mixture/CompetingRisks),
+# the fixture "construct" uses a structured schema rather than flat "params".
+# Adding a new composite = one new case in _build_composite + one in _dispatch_composite.
+
+_COMPOSITE_TARGETS = {"TruncatedDistribution"}
+
+
+def _build_composite(target: str, construct: dict) -> dict:
+    """Parse a composite construct into a dict that _dispatch_composite can use."""
+    if target == "TruncatedDistribution":
+        base_target = construct["base"]["target"]
+        base_params = [_num(v) for v in construct["base"]["params"]]
+        lo, hi = float(construct["bounds"][0]), float(construct["bounds"][1])
+        return {"base_target": base_target, "base_params": base_params, "lo": lo, "hi": hi}
+    raise KeyError(f"unknown composite target: {target}")
+
+
+def _dispatch_composite(target: str, cd: dict, method: str, args: list):
+    if target == "TruncatedDistribution":
+        bt, bp, lo, hi = cd["base_target"], cd["base_params"], cd["lo"], cd["hi"]
+        if method in _MOMENTS:
+            return _core.trunc_moments(bt, bp, lo, hi)[method]
+        if method == "pdf":
+            return _core.trunc_pdf(bt, bp, lo, hi, args[0])
+        if method == "cdf":
+            return _core.trunc_cdf(bt, bp, lo, hi, args[0])
+        if method == "quantile":
+            return _core.trunc_quantile(bt, bp, lo, hi, args[0])
+        if method == "parameters_valid":
+            return _core.trunc_valid(bt, bp, lo, hi)
+        raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
+    raise KeyError(f"unknown composite target: {target}")
+
+
 # --- Generic polymorphic path ----------------------------------------------------------
 
 
@@ -147,14 +182,19 @@ CASES = _load_cases()
 )
 def test_fixture_case(target, datasets, case):
     is_gev = target == "GeneralizedExtremeValue"
+    is_composite = target in _COMPOSITE_TARGETS
     if is_gev:
         g = _build_gev(case["construct"], datasets)
+    elif is_composite:
+        cd = _build_composite(target, case["construct"])
     else:
         params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:
         args = a.get("args", [])
         if is_gev:
             actual = _dispatch_gev(g, a["method"], args)
+        elif is_composite:
+            actual = _dispatch_composite(target, cd, a["method"], args)
         else:
             actual = _dispatch_generic(target, params, a["method"], args)
         _check(actual, a)
