@@ -239,8 +239,6 @@ class PearsonTypeIII : public UnivariateDistributionBase,
                  / (1.0 + H1 * alpha_val + H2 * alpha_val * alpha_val
                     + H3 * alpha_val * alpha_val * alpha_val);
         }
-        // L-skewness sign follows gamma sign (positive gamma → positive T3)
-        T3 = (gamma_val >= 0.0) ? T3 : -T3;
         return {L1, L2, T3, T4};
     }
 

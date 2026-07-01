@@ -105,6 +105,16 @@
       ]
     },
     {
+      "name": "lmom_forward_negative_skew",
+      "construct": { "params": [191.31739, 47.01925, -0.61897] },
+      "assertions": [
+        { "method": "linear_moment", "args": [0], "expected": 191.31739,            "mode": "abs", "tol": 1e-9 },
+        { "method": "linear_moment", "args": [1], "expected": 26.212177497578356,   "mode": "abs", "tol": 1e-7 },
+        { "method": "linear_moment", "args": [2], "expected": 0.10127700839455282,  "mode": "abs", "tol": 1e-7 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12571672816473162,  "mode": "abs", "tol": 1e-7 }
+      ]
+    },
+    {
       "name": "mle_fit_harricana",
       "construct": { "fit": { "method": "mle", "dataset": "harricana" } },
       "assertions": [
