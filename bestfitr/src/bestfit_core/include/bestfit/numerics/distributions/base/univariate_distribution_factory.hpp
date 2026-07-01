@@ -17,6 +17,7 @@
 #include "bestfit/numerics/distributions/deterministic.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
 #include "bestfit/numerics/distributions/triangular.hpp"
+#include "bestfit/numerics/distributions/generalized_beta.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/generalized_logistic.hpp"
 #include "bestfit/numerics/distributions/generalized_pareto.hpp"
@@ -56,6 +57,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Deterministic>();
         case UnivariateDistributionType::Exponential:
             return std::make_unique<Exponential>();
+        case UnivariateDistributionType::GeneralizedBeta:
+            return std::make_unique<GeneralizedBeta>();
         case UnivariateDistributionType::GeneralizedExtremeValue:
             return std::make_unique<GeneralizedExtremeValue>();
         case UnivariateDistributionType::GeneralizedLogistic:
@@ -116,6 +119,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Cauchy") return create_distribution(UnivariateDistributionType::Cauchy);
     if (name == "Deterministic") return create_distribution(UnivariateDistributionType::Deterministic);
     if (name == "Exponential") return create_distribution(UnivariateDistributionType::Exponential);
+    if (name == "GeneralizedBeta")
+        return create_distribution(UnivariateDistributionType::GeneralizedBeta);
     if (name == "GeneralizedExtremeValue")
         return create_distribution(UnivariateDistributionType::GeneralizedExtremeValue);
     if (name == "GeneralizedLogistic")
