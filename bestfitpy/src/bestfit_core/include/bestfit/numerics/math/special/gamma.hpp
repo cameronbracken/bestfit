@@ -6,6 +6,7 @@
 // oracle values bit-closely.
 #pragma once
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "bestfit/numerics/tools.hpp"
