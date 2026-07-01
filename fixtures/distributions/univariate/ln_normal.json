@@ -1,0 +1,67 @@
+{
+  "target": "LnNormal",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_LnNormal.cs",
+  "reference": "Rao & Hamed, Flood Frequency Analysis, CRC Press 2000",
+  "cases": [
+    {
+      "name": "standard_moments",
+      "construct": { "params": [1.0, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 0.7071067811865475, "mode": "abs", "tol": 1e-10 },
+        { "method": "mode",     "args": [], "expected": 0.3535533905932738, "mode": "abs", "tol": 1e-10 },
+        { "method": "sd",       "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 4.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "kurtosis", "args": [], "expected": 41.0, "mode": "abs", "tol": 1e-8 },
+        { "method": "minimum",  "args": [], "expected": 0.0, "mode": "equal" },
+        { "method": "maximum",  "args": [], "expected": "inf", "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "default_10_10",
+      "construct": { "params": [10.0, 10.0] },
+      "assertions": [
+        { "method": "mean",   "args": [], "expected": 10.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "median", "args": [], "expected": 7.071067811865475, "mode": "abs", "tol": 1e-10 },
+        { "method": "mode",   "args": [], "expected": 3.5355339059327378, "mode": "abs", "tol": 1e-10 },
+        { "method": "sd",     "args": [], "expected": 10.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.5], "expected": 7.071067811865475, "mode": "abs", "tol": 1e-8 }
+      ]
+    },
+    {
+      "name": "pdf_cdf",
+      "construct": { "params": [2.5, 2.5] },
+      "assertions": [
+        { "method": "pdf", "args": [0.5], "expected": 0.3033224382517943, "mode": "abs", "tol": 1e-6 },
+        { "method": "pdf", "args": [-1.0], "expected": 0.0, "mode": "equal" },
+        { "method": "cdf", "args": [0.5], "expected": 0.0646516944840288, "mode": "abs", "tol": 1e-8 },
+        { "method": "cdf", "args": [0.8], "expected": 0.17046666295639445, "mode": "abs", "tol": 1e-8 }
+      ]
+    },
+    {
+      "name": "inverse_cdf",
+      "construct": { "params": [10.0, 10.0] },
+      "assertions": [
+        { "method": "quantile", "args": [0.0], "expected": 0.0, "mode": "equal" },
+        { "method": "quantile", "args": [1.0], "expected": "inf", "mode": "equal" },
+        { "method": "quantile", "args": [0.5], "expected": 7.071067811865475, "mode": "abs", "tol": 1e-8 }
+      ]
+    },
+    {
+      "name": "invalid_nan",
+      "construct": { "params": ["nan", 0.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_sd",
+      "construct": { "params": [0.0, "inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}
