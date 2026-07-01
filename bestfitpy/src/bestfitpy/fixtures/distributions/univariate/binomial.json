@@ -1,0 +1,99 @@
+{
+  "target": "Binomial",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Binomial.cs",
+  "cases": [
+    {
+      "name": "binomial_0p12_n16_moments_pmf_cdf",
+      "note": "Verified against Test_BinomialDist and C# source; p=0.12, n=16",
+      "construct": { "params": [0.12, 16.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 1.92, "mode": "abs", "tol": 1e-10 },
+        { "method": "median",   "args": [], "expected": 2.0,  "mode": "abs", "tol": 1e-10 },
+        { "method": "mode",     "args": [], "expected": 2.0,  "mode": "abs", "tol": 1e-10 },
+        { "method": "sd",       "args": [], "expected": 1.2998461447417538, "mode": "abs", "tol": 1e-10 },
+        { "method": "skewness", "args": [], "expected": 0.5846845821518305, "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis", "args": [], "expected": 3.2168560606060606, "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [1.0], "expected": 0.2821897994882162, "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf",      "args": [0.0], "expected": 0.12933699143209909, "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.05], "expected": 0.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.95], "expected": 4.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "binomial_0p4_n8_cdf",
+      "note": "Test_CDF: Binomial(0.4, 8).CDF(3) = 0.5940864",
+      "construct": { "params": [0.4, 8.0] },
+      "assertions": [
+        { "method": "cdf",      "args": [3.0], "expected": 0.5940863999999999, "mode": "abs", "tol": 1e-7 }
+      ]
+    },
+    {
+      "name": "binomial_0p3_n100_quantile",
+      "note": "Test_InverseCDF: Binomial(0.3, 100).InverseCDF(0.7) = 32",
+      "construct": { "params": [0.3, 100.0] },
+      "assertions": [
+        { "method": "quantile", "args": [0.7], "expected": 32.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "binomial_0p5_n10_boundary_quantile",
+      "note": "Test_InverseCDF_Boundary: high-probability quantiles reach NumberOfTrials",
+      "construct": { "params": [0.5, 10.0] },
+      "assertions": [
+        { "method": "quantile", "args": [0.95], "expected": 8.0,  "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.99], "expected": 9.0,  "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [1.0],  "expected": 10.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.0],  "expected": 0.0,  "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "binomial_0p3_n3_pmf_moments",
+      "note": "Test_PDF, Test_Mode, Test_StandardDeviation, Test_Skewness, Test_Kurtosis",
+      "construct": { "params": [0.3, 3.0] },
+      "assertions": [
+        { "method": "pdf",      "args": [0.0], "expected": 0.3429999999999999, "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf",      "args": [1.0], "expected": 0.4409999999999999, "mode": "abs", "tol": 1e-10 },
+        { "method": "mean",     "args": [], "expected": 0.8999999999999999, "mode": "abs", "tol": 1e-10 },
+        { "method": "mode",     "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "sd",       "args": [], "expected": 0.7937253933025404, "mode": "abs", "tol": 1e-4 },
+        { "method": "skewness", "args": [], "expected": 0.5039526306789697, "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis", "args": [], "expected": 2.5873015873015872, "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.5], "expected": 1.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "binomial_p0_special",
+      "note": "p=0: pdf(0)=1, pdf(1)=0; Test_Construction, Test_Mode",
+      "construct": { "params": [0.0, 4.0] },
+      "assertions": [
+        { "method": "pdf",  "args": [0.0], "expected": 1.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "pdf",  "args": [1.0], "expected": 0.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "mode", "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "mean", "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "sd",   "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-15 }
+      ]
+    },
+    {
+      "name": "binomial_p1_special",
+      "note": "p=1: pdf(n)=1, pdf(0)=0, mode=n; Test_Construction, Test_Mode",
+      "construct": { "params": [1.0, 2.0] },
+      "assertions": [
+        { "method": "pdf",  "args": [2.0], "expected": 1.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "pdf",  "args": [0.0], "expected": 0.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "mode", "args": [], "expected": 2.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "mean", "args": [], "expected": 2.0, "mode": "abs", "tol": 1e-15 },
+        { "method": "sd",   "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-15 }
+      ]
+    },
+    {
+      "name": "binomial_invalid_params",
+      "note": "p out of [0,1] or n<=0 -> parameters_valid = false; Test_InvalidParameters",
+      "construct": { "params": [-1.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}
