@@ -13,6 +13,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/cauchy.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
+#include "bestfit/numerics/distributions/triangular.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
 #include "bestfit/numerics/distributions/logistic.hpp"
@@ -42,6 +43,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Pareto>();
         case UnivariateDistributionType::Rayleigh:
             return std::make_unique<Rayleigh>();
+        case UnivariateDistributionType::Triangular:
+            return std::make_unique<Triangular>();
         case UnivariateDistributionType::Uniform:
             return std::make_unique<Uniform>();
         default:
@@ -60,6 +63,7 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Normal") return create_distribution(UnivariateDistributionType::Normal);
     if (name == "Pareto") return create_distribution(UnivariateDistributionType::Pareto);
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
+    if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
     throw std::invalid_argument("unknown distribution name: " + name);
 }
