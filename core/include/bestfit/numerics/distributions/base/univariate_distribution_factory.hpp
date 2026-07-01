@@ -22,6 +22,7 @@
 #include "bestfit/numerics/distributions/pareto.hpp"
 #include "bestfit/numerics/distributions/rayleigh.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
+#include "bestfit/numerics/distributions/uniform_discrete.hpp"
 
 namespace bestfit::numerics::distributions {
 
@@ -50,6 +51,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(
             return std::make_unique<Triangular>();
         case UnivariateDistributionType::Uniform:
             return std::make_unique<Uniform>();
+        case UnivariateDistributionType::UniformDiscrete:
+            return std::make_unique<UniformDiscrete>();
         default:
             throw std::invalid_argument("univariate distribution type not yet ported");
     }
@@ -69,6 +72,8 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "Rayleigh") return create_distribution(UnivariateDistributionType::Rayleigh);
     if (name == "Triangular") return create_distribution(UnivariateDistributionType::Triangular);
     if (name == "Uniform") return create_distribution(UnivariateDistributionType::Uniform);
+    if (name == "UniformDiscrete")
+        return create_distribution(UnivariateDistributionType::UniformDiscrete);
     throw std::invalid_argument("unknown distribution name: " + name);
 }
 
