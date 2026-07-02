@@ -11,20 +11,40 @@
 // `multiply` (+ `operator*` for Matrix*Matrix and Matrix*Vector), `transpose`, and
 // `clone`. A `(rows, cols, flat)` constructor is also added -- not present in the C#
 // source -- to match this port's fixture convention of passing matrices as flattened
-// row-major `args` (see `fixtures/special_functions/cholesky.json`).
+// row-major `args` (see `fixtures/special_functions/cholesky.json`). The square ctor
+// `Matrix(int size)` delegates to the `(rows, cols)` ctor, which zero-value-initializes
+// its backing `std::vector<std::vector<double>>` -- confirmed this matches C#'s `new
+// double[size, size]` default-zero semantics, which RWMH's proposal-sigma init relies on
+// (`new Matrix(2)` as an all-zeros starting matrix).
 //
-// Omitted (UI/serialization or not yet needed by Phase 2; add if a later target needs
-// them): `Header`, `Array` (raw-array reference property; `to_array()`/`ToArray()`, a
-// copy, is provided instead), `ToXElement`/XElement ctor, the single-column-array/
-// `List<double[]>` ctors, `Row`/`Column`, `UpperTriangle`/`LowerTriangle`/`Trace`,
-// `ColumnMeans`, `Apply`/`Sqr`/`Log`/`Exp`, `Sum`, `Outer`, `Add`/`Subtract` (+ their
-// operators), and the scalar `Multiply`/`Divide` (+ their operators). Also omitted,
-// because they depend on the not-yet-ported `LUDecomposition`: `Matrix.Determinant()`/
-// `Matrix.Inverse()` and `operator!` -- CholeskyDecomposition computes its own
-// determinant/inverse directly from `L` without needing them. `operator~` (the C#
-// transpose alias) is omitted too, but for an unrelated reason: it has no LU dependency
-// -- it is just a spelling for the already-ported `transpose()` below -- and is left out
-// only because no caller needs the operator form yet.
+// Phase 3 (this port) extends the class with the members RunningCovarianceMatrix.Push
+// (Numerics/Data/Statistics/RunningCovarianceMatrix.cs) needs beyond Phase 2's set:
+// `add`/`subtract` (+ `operator+`/`operator-`) and scalar `operator*` on both sides (C#
+// has both `Matrix*double` and `double*Matrix`, unlike Vector). The task brief's own
+// EXTEND note for this file mentioned only the scalar operator; `add`/`subtract` are
+// pulled in too because `RunningCovarianceMatrix.Push` needs `Mean +=`/`x - Mean` and the
+// C# source governs over the brief when the two disagree on scope (see the task report).
+// `Matrix::inverse()` is also added, backed by the newly-ported `LUDecomposition`
+// (`lu_decomposition.hpp`) -- C# parity for `Matrix.Inverse()`/`operator!`, needed by
+// `RunningCovarianceMatrix.SampleCorrelation`/`PopulationCorrelation` (`!D` in C#) and by
+// the MAP init path. `Matrix::determinant()` (`Matrix.Determinant()`) is added alongside
+// it for the same LU-backed parity, even though no ported caller needs it yet, because it
+// is a two-line sibling of `inverse()` sharing the same `LUDecomposition` instance.
+//
+// Omitted (UI/serialization or not yet needed; add if a later target needs them):
+// `Header`, `Array` (raw-array reference property; `to_array()`/`ToArray()`, a copy, is
+// provided instead), `ToXElement`/XElement ctor, the single-column-array/`List<double[]>`
+// ctors (RunningCovarianceMatrix.Push uses the existing `(rows, cols, flat)` ctor
+// instead, passing a length-N vector as an Nx1 flattened matrix -- an equivalent
+// construction), `Row`/`Column`, `UpperTriangle`/`LowerTriangle`/`Trace`, `ColumnMeans`,
+// `Apply`/`Sqr`/`Log`/`Exp`, `Sum`, `Outer`, and scalar `Divide` (+ its operator). Also
+// omitted: `operator!` (inverse alias) and `operator~` (transpose alias) -- both are just
+// operator spellings for the already-ported `inverse()`/`transpose()` methods, left out
+// because C++ `operator!`/`operator~` on a non-boolean/non-bitmask type would be
+// unidiomatic and no caller needs the operator form; call sites use `.inverse()`/
+// `.transpose()` directly (e.g. `!D` in C# becomes `D.inverse()` here). The static
+// `Matrix.Transpose(A)` overload is likewise omitted -- callers use the already-ported
+// instance `transpose()`, which computes the identical result.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -144,6 +164,18 @@ class Matrix {
         return t;
     }
 
+    // Returns the matrix determinant, via LUDecomposition (C# `Matrix.Determinant()`).
+    // Declared here, defined out-of-line in lu_decomposition.hpp once LUDecomposition is
+    // complete (LUDecomposition's own constructor takes a Matrix, so the two headers are
+    // mutually dependent; including lu_decomposition.hpp is required to link a call to
+    // this method).
+    double determinant() const;
+
+    // Returns the matrix inverse A^-1, via LUDecomposition (C# `Matrix.Inverse()` /
+    // `operator!`). See the `determinant()` comment above for why this is declared here
+    // but defined in lu_decomposition.hpp.
+    Matrix inverse() const;
+
     // Returns the diagonal matrix from a square matrix A (off-diagonal entries zeroed).
     static Matrix diagonal(const Matrix& a) {
         if (!a.is_square()) throw std::invalid_argument("The matrix must be square.");
@@ -206,6 +238,38 @@ class Matrix {
         return Vector(std::move(result));
     }
 
+    // Multiply by a scalar.
+    Matrix multiply(double scalar) const {
+        Matrix result(number_of_rows(), number_of_columns());
+        for (int i = 0; i < number_of_rows(); ++i)
+            for (int j = 0; j < number_of_columns(); ++j) result(i, j) = data_[i][j] * scalar;
+        return result;
+    }
+
+    // Add the matrix. Matrices must have the same number of rows and columns.
+    Matrix add(const Matrix& other) const {
+        if (number_of_columns() != other.number_of_columns())
+            throw std::invalid_argument("The matrix must have the same number of columns.");
+        if (number_of_rows() != other.number_of_rows())
+            throw std::invalid_argument("The matrix must have the same number of rows.");
+        Matrix result(number_of_rows(), number_of_columns());
+        for (int i = 0; i < number_of_rows(); ++i)
+            for (int j = 0; j < number_of_columns(); ++j) result(i, j) = data_[i][j] + other(i, j);
+        return result;
+    }
+
+    // Subtract the matrix. Matrices must have the same number of rows and columns.
+    Matrix subtract(const Matrix& other) const {
+        if (number_of_columns() != other.number_of_columns())
+            throw std::invalid_argument("The matrix must have the same number of columns.");
+        if (number_of_rows() != other.number_of_rows())
+            throw std::invalid_argument("The matrix must have the same number of rows.");
+        Matrix result(number_of_rows(), number_of_columns());
+        for (int i = 0; i < number_of_rows(); ++i)
+            for (int j = 0; j < number_of_columns(); ++j) result(i, j) = data_[i][j] - other(i, j);
+        return result;
+    }
+
    private:
     Matrix2D data_;
 };
@@ -215,5 +279,17 @@ inline Matrix operator*(const Matrix& a, const Matrix& b) { return a.multiply(b)
 
 // Multiplies matrix A with vector b and returns the result as a vector.
 inline Vector operator*(const Matrix& a, const Vector& b) { return a.multiply(b); }
+
+// Multiplies a matrix A with a scalar and returns the result as a matrix.
+inline Matrix operator*(const Matrix& a, double scalar) { return a.multiply(scalar); }
+
+// Multiplies a matrix A with a scalar and returns the result as a matrix.
+inline Matrix operator*(double scalar, const Matrix& a) { return a.multiply(scalar); }
+
+// Adds matrix A and B and returns the result as a matrix.
+inline Matrix operator+(const Matrix& a, const Matrix& b) { return a.add(b); }
+
+// Subtracts matrix A and B and returns the result as a matrix.
+inline Matrix operator-(const Matrix& a, const Matrix& b) { return a.subtract(b); }
 
 }  // namespace bestfit::numerics::math::linalg
