@@ -379,7 +379,15 @@ class Mixture : public UnivariateDistributionBase, public IEstimation {
                     initials.push_back(v);
                     // Wide bounds: ±max(100*|v|, 1000*sample_sd)
                     double range = std::max(100.0 * std::fabs(v), 100.0 * sample_sd);
-                    lowers.push_back(j == 0 ? v - range : 1e-15);  // sigma/scale bounds
+                    // LIMITATION: coarse lower-bound heuristic. Only the first parameter of
+                    // each component gets a symmetric bound; params j>0 are floored at 1e-15,
+                    // which wrongly forbids legitimately-negative non-first parameters (e.g. a
+                    // GEV/GeneralizedLogistic shape kappa). The correct per-parameter bounds
+                    // need IMaximumLikelihoodEstimation.GetParameterConstraints, which is not
+                    // ported. The composite MLE path is not oracle-covered (C# fits seeded-RNG
+                    // samples that cannot be transcribed), so this is a documented, untested
+                    // deferral; all current mixture fixtures use Normal-only components.
+                    lowers.push_back(j == 0 ? v - range : 1e-15);
                     uppers.push_back(v + range);
                 }
             }

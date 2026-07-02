@@ -450,6 +450,12 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
                     double v = std::isfinite(p[j]) && std::fabs(p[j]) > 1e-10 ? p[j] : sample_mean;
                     initials.push_back(v);
                     double range = std::max(100.0 * std::fabs(v), 100.0 * sample_sd);
+                    // LIMITATION: every parameter is floored at 1e-15, which wrongly forbids
+                    // legitimately-negative parameters (e.g. a Normal/Gumbel location). Correct
+                    // per-parameter bounds need IMaximumLikelihoodEstimation.GetParameterConstraints
+                    // (not ported). The composite MLE path is not oracle-covered (C# fits
+                    // seeded-RNG samples that cannot be transcribed), so this is a documented,
+                    // untested deferral; PDF/CDF/moments are exact mirrors of C#.
                     lowers.push_back(1e-15);
                     uppers.push_back(v + range);
                 }

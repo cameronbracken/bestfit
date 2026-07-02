@@ -1,8 +1,9 @@
 // ported from: Numerics/Distributions/Univariate/KernelDensity.cs @ a2c4dbf
 //
 // Kernel density estimation distribution. Mirrors the C# source method-for-method.
-// IBootstrappable is not ported (desktop/uncertainty concern). The weighted constructor
-// is ported but not exposed in the fixture (unweighted only in current fixtures).
+// IBootstrappable is not ported (desktop/uncertainty concern). The weighted (per-point
+// weights) constructor and weighted PDF/moments are NOT ported (out of scope for the
+// current port); only the three unweighted C# constructors are mirrored.
 // C# uses Parallel.For for the PDF sum; the C++ port uses a sequential loop (no
 // external threading dependency; CRAN/PyPI packages are single-threaded).
 // Moments are the sample product-moments (mean/sd/skewness/kurtosis of the sample
