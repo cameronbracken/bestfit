@@ -437,6 +437,102 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization
+
+- **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch
+  (`MAP = DE.BestParameterSet.Clone();`) versus `Sample()`'s output-phase MAP tracking
+  (`if (_chainStates[j].Fitness > MAP.Fitness) MAP = _chainStates[j].Clone();`).
+- **What:** `DifferentialEvolution.Maximize()` sets `_functionScale = -1` and every fitness it
+  records (including `BestParameterSet.Fitness`) is `-1 * LogLikelihoodFunction(x)` -- the
+  *scaled* (negated) objective, not the sampler's own unscaled log-likelihood convention. When
+  `Initialize == MAP` succeeds, `MAP = DE.BestParameterSet.Clone();` copies that *scaled*
+  fitness directly into `MCMCSampler.MAP.Fitness`. For any typical negative log-likelihood
+  (the overwhelmingly common case) this makes `MAP.Fitness` a large *positive* number, while
+  every `_chainStates[j].Fitness` the output phase compares it against is the sampler's normal
+  *unscaled* (negative) log-likelihood. The comparison `_chainStates[j].Fitness > MAP.Fitness`
+  is thereby nearly always false, so `MAP` is effectively frozen at the DE estimate for the
+  rest of `Sample()` -- the output-phase MAP-tracking loop is live code but practically
+  never fires after a successful MAP initialization.
+- **Evidence (reproduced against the real C# library):** the `normal_rstan` MCMC fixture case
+  (`fixtures/sampling/mcmc/rwmh.json`, `Initialize = MAP`) shows `MCMCResults.MAP.Fitness ==
+  473.558...` (positive) while every per-draw chain fitness recorded in the same run is in the
+  `[-478, -473]` range (negative) -- confirming the comparison never re-triggers once MAP is
+  seeded from `DifferentialEvolution`. A `Randomize`-initialized run (no `DifferentialEvolution`
+  in the picture, `MAP` starts at `double.NegativeInfinity` and accumulates normally) does NOT
+  exhibit this: its `MAP.Fitness` (`normal_short_exact` case) is a normal, properly-tracked
+  negative log-likelihood value.
+- **Port handling:** mirrored faithfully -- `mcmc_sampler.hpp`'s `sample()` has the identical
+  `chain_states_[j].fitness > map_.fitness` comparison, and `initialize_chains()`'s MAP branch
+  copies `de.best_parameter_set()` (also on DE's scaled-fitness convention) into `map_`
+  unmodified. Both are documented in-header at the call site; the `normal_rstan` fixture case
+  asserts `map_fitness` at its (buggy, positive) value specifically to lock this behavior in,
+  not to celebrate it.
+- **Suggested C# fix:** either re-scale `DE.BestParameterSet.Fitness` back to the unscaled
+  log-likelihood convention when copying it into `MAP` (`MAP = new
+  ParameterSet(DE.BestParameterSet.Values, LogLikelihoodFunction(DE.BestParameterSet.Values));`
+  recomputes it cleanly), or track a separate scaled/unscaled flag on `ParameterSet` so the
+  output-phase comparison in `Sample()` can normalize before comparing. Either fix changes the
+  observable `MAP.Fitness` value for every successful-MAP-init run -- coordinate with any
+  downstream consumer (`RMC.BestFit`'s Bayesian analysis) that reads it before shipping.
+
+## CONSISTENCY/API — an all-zero RWMH proposal covariance is only safe under `Initialize = MAP`
+
+- **Where:** `Numerics/Sampling/MCMC/RWMH.cs`, `ChainIteration` (`mvn[index].SetParameters(
+  state.Values, ProposalSigma.Array)`), via `Numerics/Distributions/Multivariate/
+  MultivariateNormal.cs`'s `SetParameters` -> `CholeskyDecomposition` ctor.
+- **What:** `RWMH.ChainIteration` calls `SetParameters` with the CURRENT `ProposalSigma` on
+  every single iteration. `MultivariateNormal.SetParameters` constructs a
+  `CholeskyDecomposition` of that covariance unconditionally, and `CholeskyDecomposition`
+  throws for any non-positive-definite input (an all-zero matrix's first diagonal pivot is
+  exactly `0`, which fails the decomposition's `sum <= 0` guard). `Test_RWMH_NormalDist_RStan`
+  constructs `new RWMH(priors, logLH, new Matrix(2))` -- a literal all-zero 2x2 proposal
+  covariance -- and this is harmless ONLY because the test also sets `Initialize = MAP`, and a
+  successful MAP initialization's `InitializeCustomSettings()` unconditionally overwrites
+  `ProposalSigma` with the Fisher-information-derived covariance BEFORE the first
+  `ChainIteration` call. Nothing in the public API prevents constructing (or leaving)
+  `ProposalSigma` as all-zero under `Initialize = Randomize` or `UserDefined`, where no such
+  override ever happens -- that configuration throws on the very first `ChainIteration`.
+- **Evidence (reproduced against the real C# library):** a standalone console app (built
+  against `upstream/Numerics/Numerics/Numerics.csproj`) constructing `new RWMH(priors, logLH,
+  new Matrix(2))` with `Initialize = Randomize` and calling `Sample()` throws `AggregateException
+  ("... Cholesky Decomposition failed. The input matrix is not positive-definite. ...")` (wrapped
+  by the `Parallel.For` in `Sample()`) on the very first iteration. The identical construction
+  with `Initialize = MAP` (the actual `Test_RWMH_NormalDist_RStan` configuration) succeeds.
+  Substituting `Matrix.Identity(2)` for the proposal covariance under `Initialize = Randomize`
+  succeeds and reproduces bit-close (~1e-15 relative) between the C++ port and the real C#
+  library across all sampled draws.
+- **Port handling:** mirrored faithfully -- `MultivariateNormal::set_parameters` throws
+  identically for a non-positive-definite covariance (`cholesky_decomposition.hpp`'s `sum <=
+  0.0` guard, unchanged from the Phase 2 port). This is not treated as a bug to fix; an
+  all-zero proposal covariance is not a meaningful sampler configuration under either language.
+  It IS a fixture-authoring hazard worth flagging: the `normal_short_exact` MCMC fixture case
+  (`Initialize = Randomize`) uses a `proposal_sigma: "identity"` sentinel instead of the
+  upstream test's literal `"zeros"` for exactly this reason -- see the divergence note in
+  `fixtures/README.md`'s `mcmc_sampler` section.
+- **Suggested action:** none required upstream (working as designed) -- flagged purely so a
+  future MCMC-sampler port (ARWMH/DEMCz/DEMCzs/HMC/NUTS/Gibbs/SNIS) doesn't rediscover this the
+  hard way when authoring a `Randomize`-initialized fixture case with a degenerate proposal.
+
+## COSMETIC — MCMCSampler.InitializeChains computes an unused midpoint vector in its MAP branch
+
+- **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch:
+  `var inititals = lowerBounds.Add(upperBounds).Divide(2d);` (note the typo: `inititals`, not
+  `initials`).
+- **What:** this local variable is computed (an elementwise midpoint of the prior bounds) but
+  never referenced again anywhere in the method -- confirmed by inspection of the full method
+  body. `DifferentialEvolution`'s own population initialization (inside `DE.Maximize()`) draws
+  from its own `LatinHypercube`-seeded population, not from this vector. Dead code with no
+  observable effect (the `Vector.Add`/`Divide` extension calls have no side effects and cannot
+  throw for the fixed-length arrays involved here).
+- **Port handling:** omitted -- `mcmc_sampler.hpp`'s `initialize_chains()` has a NOTE comment at
+  the equivalent location explaining the omission (this port has no `Vector::divide`, since no
+  other ported call site needs one; adding it solely to reproduce dead code was judged not
+  worthwhile).
+- **Suggested C# fix:** delete the unused `inititals` line (and fix the typo if a future
+  version does end up needing this midpoint vector for something).
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a
