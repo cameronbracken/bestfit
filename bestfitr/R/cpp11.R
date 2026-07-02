@@ -68,6 +68,26 @@ bf_emp_valid_ <- function(x_vals, p_vals, p_transform) {
   .Call(`_bestfitr_bf_emp_valid_`, x_vals, p_vals, p_transform)
 }
 
+bf_kde_moments_ <- function(data, kernel, bandwidth, bounded_by_data) {
+  .Call(`_bestfitr_bf_kde_moments_`, data, kernel, bandwidth, bounded_by_data)
+}
+
+bf_kde_pdf_ <- function(data, kernel, bandwidth, bounded_by_data, x) {
+  .Call(`_bestfitr_bf_kde_pdf_`, data, kernel, bandwidth, bounded_by_data, x)
+}
+
+bf_kde_cdf_ <- function(data, kernel, bandwidth, bounded_by_data, x) {
+  .Call(`_bestfitr_bf_kde_cdf_`, data, kernel, bandwidth, bounded_by_data, x)
+}
+
+bf_kde_quantile_ <- function(data, kernel, bandwidth, bounded_by_data, prob) {
+  .Call(`_bestfitr_bf_kde_quantile_`, data, kernel, bandwidth, bounded_by_data, prob)
+}
+
+bf_kde_valid_ <- function(data, kernel, bandwidth, bounded_by_data) {
+  .Call(`_bestfitr_bf_kde_valid_`, data, kernel, bandwidth, bounded_by_data)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

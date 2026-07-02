@@ -124,6 +124,41 @@ extern "C" SEXP _bestfitr_bf_emp_valid_(SEXP x_vals, SEXP p_vals, SEXP p_transfo
     return cpp11::as_sexp(bf_emp_valid_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform)));
   END_CPP11
 }
+// dist.cpp
+doubles bf_kde_moments_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data);
+extern "C" SEXP _bestfitr_bf_kde_moments_(SEXP data, SEXP kernel, SEXP bandwidth, SEXP bounded_by_data) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_kde_moments_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data)));
+  END_CPP11
+}
+// dist.cpp
+double bf_kde_pdf_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data, double x);
+extern "C" SEXP _bestfitr_bf_kde_pdf_(SEXP data, SEXP kernel, SEXP bandwidth, SEXP bounded_by_data, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_kde_pdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_kde_cdf_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data, double x);
+extern "C" SEXP _bestfitr_bf_kde_cdf_(SEXP data, SEXP kernel, SEXP bandwidth, SEXP bounded_by_data, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_kde_cdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_kde_quantile_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data, double prob);
+extern "C" SEXP _bestfitr_bf_kde_quantile_(SEXP data, SEXP kernel, SEXP bandwidth, SEXP bounded_by_data, SEXP prob) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_kde_quantile_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
+  END_CPP11
+}
+// dist.cpp
+bool bf_kde_valid_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data);
+extern "C" SEXP _bestfitr_bf_kde_valid_(SEXP data, SEXP kernel, SEXP bandwidth, SEXP bounded_by_data) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_kde_valid_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -219,6 +254,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_gev_quantile_gradient_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_gradient_,    4},
     {"_bestfitr_bf_gev_quantile_variance_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_,    5},
     {"_bestfitr_bf_gev_valid_",                (DL_FUNC) &_bestfitr_bf_gev_valid_,                3},
+    {"_bestfitr_bf_kde_cdf_",                  (DL_FUNC) &_bestfitr_bf_kde_cdf_,                  5},
+    {"_bestfitr_bf_kde_moments_",              (DL_FUNC) &_bestfitr_bf_kde_moments_,              4},
+    {"_bestfitr_bf_kde_pdf_",                  (DL_FUNC) &_bestfitr_bf_kde_pdf_,                  5},
+    {"_bestfitr_bf_kde_quantile_",             (DL_FUNC) &_bestfitr_bf_kde_quantile_,             5},
+    {"_bestfitr_bf_kde_valid_",                (DL_FUNC) &_bestfitr_bf_kde_valid_,                4},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},
     {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,            4},
     {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                5},

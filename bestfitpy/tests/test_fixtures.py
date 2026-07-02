@@ -82,10 +82,10 @@ def _dispatch_gev(g, method, args):
 # the fixture "construct" uses a structured schema rather than flat "params".
 # Adding a new composite = one new case in _build_composite + one in _dispatch_composite.
 
-_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical"}
+_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical", "KernelDensity"}
 
 
-def _build_composite(target: str, construct: dict) -> dict:
+def _build_composite(target: str, construct: dict, datasets: dict | None = None) -> dict:
     """Parse a composite construct into a dict that _dispatch_composite can use."""
     if target == "TruncatedDistribution":
         base_target = construct["base"]["target"]
@@ -97,6 +97,14 @@ def _build_composite(target: str, construct: dict) -> dict:
         pv = [float(v) for v in construct["p"]]
         pt = construct.get("p_transform", "NormalZ")
         return {"x_vals": xv, "p_vals": pv, "p_transform": pt}
+    if target == "KernelDensity":
+        ds = datasets or {}
+        data_key = construct["data"]
+        data_vec = [float(v) for v in ds[data_key]]
+        kernel = construct.get("kernel", "Gaussian")
+        bandwidth = float(construct["bandwidth"]) if "bandwidth" in construct else -1.0
+        bounded = bool(construct.get("bounded_by_data", True))
+        return {"data_vec": data_vec, "kernel": kernel, "bandwidth": bandwidth, "bounded": bounded}
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -127,6 +135,19 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         if method == "parameters_valid":
             return _core.emp_valid(xv, pv, pt)
         raise KeyError(f"unknown fixture method for Empirical: {method}")
+    if target == "KernelDensity":
+        dv, ker, bw, bd = cd["data_vec"], cd["kernel"], cd["bandwidth"], cd["bounded"]
+        if method in _MOMENTS:
+            return _core.kde_moments(dv, ker, bw, bd)[method]
+        if method == "pdf":
+            return _core.kde_pdf(dv, ker, bw, bd, args[0])
+        if method == "cdf":
+            return _core.kde_cdf(dv, ker, bw, bd, args[0])
+        if method == "quantile":
+            return _core.kde_quantile(dv, ker, bw, bd, args[0])
+        if method == "parameters_valid":
+            return _core.kde_valid(dv, ker, bw, bd)
+        raise KeyError(f"unknown fixture method for KernelDensity: {method}")
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -204,7 +225,7 @@ def test_fixture_case(target, datasets, case):
     if is_gev:
         g = _build_gev(case["construct"], datasets)
     elif is_composite:
-        cd = _build_composite(target, case["construct"])
+        cd = _build_composite(target, case["construct"], datasets)
     else:
         params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:

@@ -14,6 +14,7 @@
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
+#include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bindings.hpp"
 
@@ -154,5 +155,57 @@ void register_distributions(py::module_& m) {
                                               const std::vector<double>& pv,
                                               const std::string& pt_str) {
         return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).parameters_valid();
+    });
+
+    // --- Composite glue: KernelDensity -------------------------------------------------
+    // Accepts (data, kernel, bandwidth, bounded_by_data) and exposes the full surface.
+    // kernel: "Gaussian" | "Epanechnikov" | "Triangular" | "Uniform"
+    // bandwidth: negative value means use Silverman's rule (auto).
+
+    auto parse_kernel_type = [](const std::string& s) {
+        if (s == "Epanechnikov") return dist::KernelType::Epanechnikov;
+        if (s == "Gaussian")     return dist::KernelType::Gaussian;
+        if (s == "Triangular")   return dist::KernelType::Triangular;
+        if (s == "Uniform")      return dist::KernelType::Uniform;
+        throw py::value_error("unknown kernel type: " + s);
+        return dist::KernelType::Gaussian;  // unreachable
+    };
+
+    auto make_kde = [parse_kernel_type](const std::vector<double>& data,
+                                        const std::string& kernel,
+                                        double bandwidth,
+                                        bool bounded_by_data) {
+        dist::KernelType kt = parse_kernel_type(kernel);
+        dist::KernelDensity kde = bandwidth < 0.0
+            ? dist::KernelDensity(data, kt)
+            : dist::KernelDensity(data, kt, bandwidth);
+        kde.set_bounded_by_data(bounded_by_data);
+        return kde;
+    };
+
+    m.def("kde_moments", [make_kde](const std::vector<double>& data, const std::string& kernel,
+                                     double bandwidth, bool bounded_by_data) {
+        auto d = make_kde(data, kernel, bandwidth, bounded_by_data);
+        return std::map<std::string, double>{
+            {"mean", d.mean()},         {"median", d.median()},
+            {"mode", d.mode()},         {"sd", d.standard_deviation()},
+            {"skewness", d.skewness()}, {"kurtosis", d.kurtosis()},
+            {"minimum", d.minimum()},   {"maximum", d.maximum()}};
+    });
+    m.def("kde_pdf", [make_kde](const std::vector<double>& data, const std::string& kernel,
+                                 double bandwidth, bool bounded_by_data, double x) {
+        return make_kde(data, kernel, bandwidth, bounded_by_data).pdf(x);
+    });
+    m.def("kde_cdf", [make_kde](const std::vector<double>& data, const std::string& kernel,
+                                 double bandwidth, bool bounded_by_data, double x) {
+        return make_kde(data, kernel, bandwidth, bounded_by_data).cdf(x);
+    });
+    m.def("kde_quantile", [make_kde](const std::vector<double>& data, const std::string& kernel,
+                                      double bandwidth, bool bounded_by_data, double prob) {
+        return make_kde(data, kernel, bandwidth, bounded_by_data).inverse_cdf(prob);
+    });
+    m.def("kde_valid", [make_kde](const std::vector<double>& data, const std::string& kernel,
+                                   double bandwidth, bool bounded_by_data) {
+        return make_kde(data, kernel, bandwidth, bounded_by_data).parameters_valid();
     });
 }

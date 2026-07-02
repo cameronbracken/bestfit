@@ -24,6 +24,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
@@ -279,11 +280,34 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         }
         return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt);
     }
+    if (target == "KernelDensity") {
+        const auto& ds_name = construct["data"].get<std::string>();
+        std::vector<double> data;
+        for (const auto& v : datasets[ds_name]) data.push_back(v.get<double>());
+        std::string kernel_str = "Gaussian";
+        if (construct.contains("kernel")) kernel_str = construct["kernel"].get<std::string>();
+        dist::KernelType kt = dist::KernelType::Gaussian;
+        if      (kernel_str == "Epanechnikov") kt = dist::KernelType::Epanechnikov;
+        else if (kernel_str == "Gaussian")     kt = dist::KernelType::Gaussian;
+        else if (kernel_str == "Triangular")   kt = dist::KernelType::Triangular;
+        else if (kernel_str == "Uniform")      kt = dist::KernelType::Uniform;
+        else throw std::runtime_error("unknown kernel type: " + kernel_str);
+        std::unique_ptr<dist::KernelDensity> kde;
+        if (construct.contains("bandwidth"))
+            kde = std::make_unique<dist::KernelDensity>(std::move(data), kt,
+                                                        construct["bandwidth"].get<double>());
+        else
+            kde = std::make_unique<dist::KernelDensity>(std::move(data), kt);
+        if (construct.contains("bounded_by_data"))
+            kde->set_bounded_by_data(construct["bounded_by_data"].get<bool>());
+        return kde;
+    }
     throw std::runtime_error("unknown composite target: " + target);
 }
 
 static bool is_composite_target(const std::string& target) {
-    return target == "TruncatedDistribution" || target == "Empirical";
+    return target == "TruncatedDistribution" || target == "Empirical"
+        || target == "KernelDensity";
 }
 
 static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,

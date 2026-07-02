@@ -64,7 +64,7 @@ static UnivariateDistributionBase BuildComponent(JsonElement desc,
 }
 
 // Build composite distributions from their structured construct schemas.
-// Future composites (KernelDensity, Mixture, CompetingRisks) add a case here.
+// Future composites (Mixture, CompetingRisks) add a case here.
 static UnivariateDistributionBase BuildComposite(string target, JsonElement construct,
                                                   Dictionary<string, double[]> datasets)
 {
@@ -92,6 +92,25 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
         }
         return emp;
     }
+    if (target == "KernelDensity")
+    {
+        var data = datasets[construct.GetProperty("data").GetString()!];
+        var kernelStr = construct.TryGetProperty("kernel", out var k) ? k.GetString()! : "Gaussian";
+        var kernelType = kernelStr switch
+        {
+            "Epanechnikov" => KernelDensity.KernelType.Epanechnikov,
+            "Gaussian"     => KernelDensity.KernelType.Gaussian,
+            "Triangular"   => KernelDensity.KernelType.Triangular,
+            "Uniform"      => KernelDensity.KernelType.Uniform,
+            var s          => throw new Exception($"unknown kernel type: {s}")
+        };
+        KernelDensity kde = construct.TryGetProperty("bandwidth", out var bw)
+            ? new KernelDensity(data, kernelType, bw.GetDouble())
+            : new KernelDensity(data, kernelType);
+        if (construct.TryGetProperty("bounded_by_data", out var bd))
+            kde.BoundedByData = bd.GetBoolean();
+        return kde;
+    }
     throw new Exception($"unknown composite target: {target}");
 }
 
@@ -99,7 +118,7 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
     // Composite distributions use bespoke construction (no flat enum entry in C# or C++).
-    if (target == "TruncatedDistribution" || target == "Empirical")
+    if (target == "TruncatedDistribution" || target == "Empirical" || target == "KernelDensity")
         return BuildComposite(target, construct, datasets);
 
     // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.
