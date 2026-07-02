@@ -89,7 +89,8 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
   almost line-for-line. Each ported file carries a `// ported from: <path> @ <sha>` header.
 - **Portability (learned from CI):** never use `M_PI` (absent under strict `-std=c++17` on Linux
   and on MSVC) — use `bestfit::numerics::kPi`. Don't name a namespace alias `gamma` (clashes with
-  glibc's libm `gamma()`). Pass `-Wall/-Wextra` only to non-MSVC compilers in CMake.
+  glibc's libm `gamma()`) or `stat` (clashes with the MSVC/POSIX CRT `stat` symbol). Pass
+  `-Wall/-Wextra` only to non-MSVC compilers in CMake.
 - **Self-contained core:** no external C++ deps (port Numerics' own linear algebra / RNG). Keeps
   the CRAN dependency surface empty and preserves oracle fidelity. Don't add Eigen to the core.
 - **CRAN:** `bestfitr` uses `License: file LICENSE` (R can't standardize the `0BSD` token).
