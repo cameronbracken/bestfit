@@ -12,6 +12,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -25,7 +26,8 @@ namespace sf = bestfit::numerics::math::special;
 
 class LogPearsonTypeIII : public UnivariateDistributionBase,
                           public IEstimation,
-                          public ILinearMomentEstimation {
+                          public ILinearMomentEstimation,
+                          public IMaximumLikelihoodEstimation {
    public:
     // Constructs a LogPearsonTypeIII with mean(log)=3, sd(log)=0.5, skew(log)=0.
     LogPearsonTypeIII() { set_parameters(3.0, 0.5, 0.0); }
@@ -383,7 +385,7 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         // Use indirect MoM for initial values
         auto log_sample = transform_log(sample);
         auto mom = data::product_moments(log_sample);

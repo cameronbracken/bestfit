@@ -14,6 +14,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -23,7 +24,8 @@ namespace bestfit::numerics::distributions {
 
 class LnNormal : public UnivariateDistributionBase,
                  public IEstimation,
-                 public ILinearMomentEstimation {
+                 public ILinearMomentEstimation,
+                 public IMaximumLikelihoodEstimation {
    public:
     // Default constructor: real-space mean=10, sd=10 (mirrors C# default)
     LnNormal() { set_parameters(10.0, 10.0); }
@@ -180,7 +182,7 @@ class LnNormal : public UnivariateDistributionBase,
 
     void get_parameter_constraints(const std::vector<double>& sample, std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         auto moments = data::product_moments(sample);
         initials = {moments[0], moments[1]};  // real-space mean, sd
         lowers.resize(2);

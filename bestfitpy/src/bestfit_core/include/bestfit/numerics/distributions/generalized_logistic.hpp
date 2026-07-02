@@ -14,6 +14,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -25,7 +26,8 @@ namespace bestfit::numerics::distributions {
 
 class GeneralizedLogistic : public UnivariateDistributionBase,
                             public IEstimation,
-                            public ILinearMomentEstimation {
+                            public ILinearMomentEstimation,
+                            public IMaximumLikelihoodEstimation {
    public:
     GeneralizedLogistic() { set_parameters(100.0, 10.0, 0.0); }
     GeneralizedLogistic(double location, double scale, double shape) {
@@ -258,7 +260,7 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         initials = parameters_from_linear_moments(data::linear_moments(sample));
         if (initials[0] == 0.0) initials[0] = kDoubleMachineEpsilon;
         lowers.resize(3);

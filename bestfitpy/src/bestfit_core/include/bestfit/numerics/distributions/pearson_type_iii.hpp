@@ -12,6 +12,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
@@ -25,7 +26,8 @@ namespace sf = bestfit::numerics::math::special;
 
 class PearsonTypeIII : public UnivariateDistributionBase,
                        public IEstimation,
-                       public ILinearMomentEstimation {
+                       public ILinearMomentEstimation,
+                       public IMaximumLikelihoodEstimation {
    public:
     // Constructs a Pearson Type III distribution with mean=100, sd=10, skew=0.
     PearsonTypeIII() { set_parameters(100.0, 10.0, 0.0); }
@@ -245,7 +247,7 @@ class PearsonTypeIII : public UnivariateDistributionBase,
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         auto moments = data::product_moments(sample);
         initials = {moments[0], moments[1], moments[2]};
         lowers.resize(3);

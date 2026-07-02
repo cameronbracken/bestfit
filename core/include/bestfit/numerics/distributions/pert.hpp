@@ -6,7 +6,8 @@
 // C# source method-for-method. Implements IEstimation with the method of moments and MLE (via
 // NelderMead). The method-of-percentiles path (C# ParameterEstimationMethod.MethodOfPercentiles)
 // depends on PertPercentile, which is not yet ported, so it is not implemented here. The
-// IBootstrappable / IMaximumLikelihoodEstimation desktop interfaces are not ported.
+// IBootstrappable desktop interface is not ported; IMaximumLikelihoodEstimation is wired in
+// Phase 2 (bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp).
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -15,6 +16,7 @@
 #include <vector>
 
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/generalized_beta.hpp"
@@ -23,7 +25,9 @@
 
 namespace bestfit::numerics::distributions {
 
-class Pert : public UnivariateDistributionBase, public IEstimation {
+class Pert : public UnivariateDistributionBase,
+            public IEstimation,
+            public IMaximumLikelihoodEstimation {
    public:
     // Constructs a PERT distribution with min = 0, mode = 0.5, max = 1.
     Pert() { set_parameters(0.0, 0.5, 1.0); }
@@ -122,7 +126,7 @@ class Pert : public UnivariateDistributionBase, public IEstimation {
 
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials, std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         double s_min = *std::min_element(sample.begin(), sample.end());
         double s_max = *std::max_element(sample.begin(), sample.end());
         double s_mean = std::accumulate(sample.begin(), sample.end(), 0.0) /

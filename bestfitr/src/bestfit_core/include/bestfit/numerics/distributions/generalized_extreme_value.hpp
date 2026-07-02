@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -24,7 +25,8 @@ namespace bestfit::numerics::distributions {
 // kept so the GEV bindings/fixtures continue to resolve "mom"/"lmom"/"mle" unchanged).
 enum class EstimationMethod { MethodOfMoments, MethodOfLinearMoments, MaximumLikelihood };
 
-class GeneralizedExtremeValue : public UnivariateDistributionBase {
+class GeneralizedExtremeValue : public UnivariateDistributionBase,
+                                public IMaximumLikelihoodEstimation {
    public:
     GeneralizedExtremeValue() { set_parameters(100.0, 10.0, 0.0); }
     GeneralizedExtremeValue(double location, double scale, double shape) {
@@ -148,7 +150,7 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase {
     // Initial values + bounds for MLE (location/scale/shape).
     void get_parameter_constraints(const std::vector<double>& sample, std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         initials = parameters_from_linear_moments(data::linear_moments(sample));
         lowers.assign(3, 0.0);
         uppers.assign(3, 0.0);

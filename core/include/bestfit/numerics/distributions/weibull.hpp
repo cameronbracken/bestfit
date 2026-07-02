@@ -10,6 +10,7 @@
 
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -20,7 +21,9 @@ namespace bestfit::numerics::distributions {
 
 namespace sf_wb = bestfit::numerics::math::special;
 
-class Weibull : public UnivariateDistributionBase, public IEstimation {
+class Weibull : public UnivariateDistributionBase,
+                public IEstimation,
+                public IMaximumLikelihoodEstimation {
    public:
     // Constructs a Weibull distribution with scale = 10 and shape = 2.
     Weibull() { set_parameters(10.0, 2.0); }
@@ -132,7 +135,7 @@ class Weibull : public UnivariateDistributionBase, public IEstimation {
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         initials = solve_mle(sample);
         lowers.resize(2);
         uppers.resize(2);

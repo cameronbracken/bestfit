@@ -11,6 +11,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -20,7 +21,8 @@ namespace bestfit::numerics::distributions {
 
 class LogNormal : public UnivariateDistributionBase,
                   public IEstimation,
-                  public ILinearMomentEstimation {
+                  public ILinearMomentEstimation,
+                  public IMaximumLikelihoodEstimation {
    public:
     // Default constructor: mu=3, sigma=0.5, base=10 (mirrors C# default)
     LogNormal() { set_parameters(3.0, 0.5); }
@@ -195,7 +197,7 @@ class LogNormal : public UnivariateDistributionBase,
 
     void get_parameter_constraints(const std::vector<double>& sample, std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         auto mom = indirect_mom(sample);
         initials = {mom[0], mom[1]};
         lowers.resize(2);
