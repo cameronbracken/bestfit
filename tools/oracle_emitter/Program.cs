@@ -17,6 +17,7 @@ using Numerics.Distributions;
 using Numerics.Distributions.Copulas;
 using Numerics.Mathematics;
 using Numerics.Mathematics.LinearAlgebra;
+using Numerics.Mathematics.Optimization;
 using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
 
@@ -543,6 +544,10 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "NumericalDerivative.gradient_element_normal_loglik" => a => NumericalDerivativeGradientElement(NumericalDerivativeNormalLoglik, a),
     "NumericalDerivative.hessian_element_quadratic" => a => NumericalDerivativeHessianElement(NumericalDerivativeQuadratic, a),
     "NumericalDerivative.hessian_element_normal_loglik" => a => NumericalDerivativeHessianElement(NumericalDerivativeNormalLoglik, a),
+    // DifferentialEvolution family (closed function registry; REUSES
+    // NumericalDerivativeQuadratic/NumericalDerivativeNormalLoglik above -- MUST match
+    // differential_evolution_best_value() in core/tests/test_fixtures.cpp)
+    "DifferentialEvolution.best_value" => DifferentialEvolutionBestValue,
     // Histogram family (args: [explicit_bins, data..., trailing probe?] -- see
     // HistogramBuild() below and fixtures/special_functions/histogram.json)
     "Histogram.number_of_bins" => a => (double)HistogramBuild(a, 0).NumberOfBins,
@@ -683,6 +688,33 @@ static double NumericalDerivativeHessianElement(Func<double[], double> f, double
     int j = (int)a[next + 1];
     var hess = NumericalDerivative.Hessian(f, theta, lower, upper);
     return hess[i, j];
+}
+
+// DifferentialEvolution fixture args convention -- MUST mirror
+// differential_evolution_best_value() in core/tests/test_fixtures.cpp exactly:
+// args = [fnId, direction, D, lower(D), upper(D), index]. fnId: 0 = Quadratic, 1 =
+// NormalLoglik (reuses the closed registry above). direction: 0 = Minimize(), 1 =
+// Maximize(). index: 0..D-1 selects BestParameterSet.Values[index]; index == D selects
+// BestParameterSet.Fitness. Every other knob uses the library default.
+static double DifferentialEvolutionBestValue(double[] a)
+{
+    int fnId = (int)a[0];
+    int direction = (int)a[1];
+    int D = (int)a[2];
+    var lower = a[3..(3 + D)];
+    var upper = a[(3 + D)..(3 + 2 * D)];
+    int index = (int)a[3 + 2 * D];
+
+    Func<double[], double> f = fnId switch
+    {
+        0 => NumericalDerivativeQuadratic,
+        1 => NumericalDerivativeNormalLoglik,
+        _ => throw new Exception($"unknown DifferentialEvolution function id: {fnId}")
+    };
+
+    var de = new DifferentialEvolution(f, D, lower, upper);
+    if (direction == 0) de.Minimize(); else de.Maximize();
+    return index == D ? de.BestParameterSet.Fitness : de.BestParameterSet.Values[index];
 }
 
 // Histogram fixture args convention -- MUST mirror histogram_build() in

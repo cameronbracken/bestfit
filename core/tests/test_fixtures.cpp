@@ -53,6 +53,7 @@
 #include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/vector.hpp"
+#include "bestfit/numerics/math/optimization/differential_evolution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
@@ -186,6 +187,7 @@ namespace bfsamp = bestfit::numerics::sampling;
 namespace bfutil = bestfit::numerics::utilities;
 namespace bffourier = bestfit::numerics::math::fourier;
 namespace bfdiff = bestfit::numerics::math::differentiation;
+namespace bfopt = bestfit::numerics::math::optimization;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -356,6 +358,41 @@ static double numerical_derivative_hessian_element(const bfdiff::ScalarFunction&
     int j = static_cast<int>(a[next + 1]);
     auto hess = bfdiff::hessian(f, theta, lower, upper);
     return hess[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+}
+
+// DifferentialEvolution fixture args convention (fixtures/special_functions/differential_evolution.json):
+//   args = [fn_id, direction, D, lower(D values), upper(D values), index]
+// fn_id: 0 = "quadratic" (numerical_derivative_quadratic), 1 = "normal_loglik"
+// (numerical_derivative_normal_loglik) -- REUSES the P3.3 closed named-function registry
+// above (see numerical_derivative_{quadratic,normal_loglik}) rather than porting a second
+// registry, so the emitter runs the REAL C# DifferentialEvolution against the identical
+// objective this runner does. direction: 0 = minimize(), 1 = maximize(). index: 0..D-1
+// selects best_parameter_set().values[index]; index == D selects
+// best_parameter_set().fitness. Every other DifferentialEvolution/Optimizer knob
+// (PRNGSeed, PopulationSize, Mutation, DitherRate, CrossoverProbability, MaxIterations,
+// tolerances, ReportFailure) is left at its library default -- matching the only real call
+// site (MCMCSampler.cs's MAP init, a later task), which overrides none of them except
+// ReportFailure (irrelevant here: whether hitting Max*Reached throws-then-is-swallowed or
+// never throws at all, BestParameterSet ends up identical either way -- see optimizer.hpp's
+// file header for the full analysis).
+static double differential_evolution_best_value(const std::vector<double>& a) {
+    int fn_id = static_cast<int>(a[0]);
+    int direction = static_cast<int>(a[1]);
+    int D = static_cast<int>(a[2]);
+    std::vector<double> lower(a.begin() + 3, a.begin() + 3 + D);
+    std::vector<double> upper(a.begin() + 3 + D, a.begin() + 3 + 2 * D);
+    int index = static_cast<int>(a[static_cast<std::size_t>(3 + 2 * D)]);
+
+    bfopt::DifferentialEvolution::Objective f =
+        fn_id == 0 ? bfopt::DifferentialEvolution::Objective(numerical_derivative_quadratic)
+                   : bfopt::DifferentialEvolution::Objective(numerical_derivative_normal_loglik);
+    bfopt::DifferentialEvolution de(f, D, lower, upper);
+    if (direction == 0)
+        de.minimize();
+    else
+        de.maximize();
+    return index == D ? de.best_parameter_set().fitness
+                       : de.best_parameter_set().values[static_cast<std::size_t>(index)];
 }
 
 // Histogram fixture args convention (fixtures/special_functions/histogram.json): args =
@@ -619,6 +656,9 @@ special_function_table() {
         {"NumericalDerivative.hessian_element_normal_loglik", [](const std::vector<double>& a) {
             return numerical_derivative_hessian_element(numerical_derivative_normal_loglik, a);
         }},
+        // DifferentialEvolution family (see differential_evolution_best_value() above and
+        // fixtures/special_functions/differential_evolution.json for the args convention)
+        {"DifferentialEvolution.best_value", differential_evolution_best_value},
         // Histogram family (args: [explicit_bins, data..., trailing probe?] -- see
         // histogram_build() above and fixtures/special_functions/histogram.json)
         {"Histogram.number_of_bins", [](const std::vector<double>& a) {
