@@ -360,8 +360,9 @@ def _check(actual, a):
 # share no common surface), so this path is fully generic through the factory-driven
 # _core.cop_val/_core.cop_fit bindings in copula.cpp -- no per-target branching, mirroring
 # copula_factory.hpp's rationale. construct is either {"theta": x} (optionally {"theta": x,
-# "df": y} for 2-parameter copulas) or {"fit": {"x", "y", "method", "marginals"?}}; see
-# fixtures/README.md for the full schema.
+# "df": y} for 2-parameter copulas, and/or {"marginals": {"targets", "params"}} to attach
+# marginals directly -- used by the "random_value" sampling oracles) or {"fit": {"x", "y",
+# "method", "marginals"?}}; see fixtures/README.md for the full schema.
 
 
 def _build_copula_params(construct: dict) -> list[float]:
@@ -371,9 +372,20 @@ def _build_copula_params(construct: dict) -> list[float]:
     return p
 
 
-def _dispatch_copula(target: str, params: list[float], method: str, args: list):
+def _dispatch_copula(
+    target: str,
+    params: list[float],
+    method: str,
+    args: list,
+    marg_x_target: str = "",
+    marg_x_params: list[float] | None = None,
+    marg_y_target: str = "",
+    marg_y_params: list[float] | None = None,
+):
     ar = _flatten_mv_args(args)
-    return _core.cop_val(target, params, method, ar)
+    return _core.cop_val(
+        target, params, method, ar, marg_x_target, marg_x_params or [], marg_y_target, marg_y_params or []
+    )
 
 
 def _run_copula_case(target: str, construct: dict, assertions: list, datasets: dict):
@@ -399,9 +411,16 @@ def _run_copula_case(target: str, construct: dict, assertions: list, datasets: d
             _check(actual, a)
     else:
         params = _build_copula_params(construct)
+        marg = construct.get("marginals")
+        marg_x_target = marg["targets"][0] if marg else ""
+        marg_y_target = marg["targets"][1] if marg else ""
+        marg_x_params = [_num(v) for v in marg["params"][0]] if marg else []
+        marg_y_params = [_num(v) for v in marg["params"][1]] if marg else []
         for a in assertions:
             args = a.get("args", [])
-            actual = _dispatch_copula(target, params, a["method"], args)
+            actual = _dispatch_copula(
+                target, params, a["method"], args, marg_x_target, marg_x_params, marg_y_target, marg_y_params
+            )
             _check(actual, a)
 
 

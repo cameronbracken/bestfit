@@ -6,10 +6,10 @@
 #include <R_ext/Visibility.h>
 
 // copula.cpp
-double bf_cop_val_(std::string type, doubles params, std::string method, doubles args);
-extern "C" SEXP _bestfitr_bf_cop_val_(SEXP type, SEXP params, SEXP method, SEXP args) {
+double bf_cop_val_(std::string type, doubles params, std::string method, doubles args, std::string marg_x_target, doubles marg_x_params, std::string marg_y_target, doubles marg_y_params);
+extern "C" SEXP _bestfitr_bf_cop_val_(SEXP type, SEXP params, SEXP method, SEXP args, SEXP marg_x_target, SEXP marg_x_params, SEXP marg_y_target, SEXP marg_y_params) {
   BEGIN_CPP11
-    return cpp11::as_sexp(bf_cop_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(type), cpp11::as_cpp<cpp11::decay_t<doubles>>(params), cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+    return cpp11::as_sexp(bf_cop_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(type), cpp11::as_cpp<cpp11::decay_t<doubles>>(params), cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(args), cpp11::as_cpp<cpp11::decay_t<std::string>>(marg_x_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(marg_x_params), cpp11::as_cpp<cpp11::decay_t<std::string>>(marg_y_target), cpp11::as_cpp<cpp11::decay_t<doubles>>(marg_y_params)));
   END_CPP11
 }
 // copula.cpp
@@ -388,7 +388,7 @@ extern "C" {
 static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                   7},
     {"_bestfitr_bf_cop_fit_",                  (DL_FUNC) &_bestfitr_bf_cop_fit_,                   6},
-    {"_bestfitr_bf_cop_val_",                  (DL_FUNC) &_bestfitr_bf_cop_val_,                   4},
+    {"_bestfitr_bf_cop_val_",                  (DL_FUNC) &_bestfitr_bf_cop_val_,                   8},
     {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                    4},
     {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,                3},
     {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                    4},

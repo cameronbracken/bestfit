@@ -33,7 +33,10 @@ static data::Transform parse_transform(const std::string& s) {
 void register_multivariate(py::module_& m) {
     // --- Dirichlet ---------------------------------------------------------------------
     // method + flat args in, double out. Methods: dimension, parameters_valid, alpha,
-    // alpha_sum, mean, variance, mode, covariance, pdf, log_pdf, log_multivariate_beta.
+    // alpha_sum, mean, variance, mode, covariance, pdf, log_pdf, log_multivariate_beta,
+    // random_value (args = [sample_size, seed, row, col]; stateless -- generate_random_values
+    // seeds its own MersenneTwister from `seed`; no LHS -- Dirichlet has no
+    // LatinHypercubeRandomValues in the C# source, see fixtures/README.md).
     m.def("dirichlet_val", [](const std::string& method, const std::vector<double>& alpha,
                                const std::vector<double>& args) {
         mvd::Dirichlet d(alpha);
@@ -49,12 +52,17 @@ void register_multivariate(py::module_& m) {
         if (method == "pdf") return d.pdf(args);
         if (method == "log_pdf") return d.log_pdf(args);
         if (method == "log_multivariate_beta") return mvd::Dirichlet::log_multivariate_beta(args);
+        if (method == "random_value") {
+            auto sample = d.generate_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
+        }
         throw py::value_error("unknown Dirichlet fixture method: " + method);
     });
 
     // --- Multinomial ---------------------------------------------------------------------
     // Methods: dimension, parameters_valid, number_of_trials, mean, variance, covariance,
-    // pdf, log_pdf.
+    // pdf, log_pdf, random_value (args = [sample_size, seed, row, col]; stateless; no LHS --
+    // Multinomial has no LatinHypercubeRandomValues in the C# source).
     m.def("multinomial_val", [](const std::string& method, int n, const std::vector<double>& p,
                                  const std::vector<double>& args) {
         mvd::Multinomial d(n, p);
@@ -67,6 +75,10 @@ void register_multivariate(py::module_& m) {
             return d.covariance(static_cast<int>(args[0]), static_cast<int>(args[1]));
         if (method == "pdf") return d.pdf(args);
         if (method == "log_pdf") return d.log_pdf(args);
+        if (method == "random_value") {
+            auto sample = d.generate_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
+        }
         throw py::value_error("unknown Multinomial fixture method: " + method);
     });
 
@@ -94,7 +106,11 @@ void register_multivariate(py::module_& m) {
     // median, mode, sd, variance, covariance, pdf, log_pdf, cdf for dim 1-2, mahalanobis,
     // inverse_cdf, dimension, parameters_valid). Seeded CDF (dim>=3) / MVNDST batches need
     // a single persistent instance across several calls -- see mvn_cdf_seq/mvn_mvndst_seq
-    // (added alongside the MVNDST port).
+    // (added alongside the MVNDST port). random_value/lhs_value (args = [sample_size, seed,
+    // row, col]) are ALSO stateless despite being "seeded" -- unlike MVNUNI,
+    // GenerateRandomValues/LatinHypercubeRandomValues seed their own fresh MersenneTwister/
+    // LatinHypercube draw from the `seed` argument every call (see fixtures/README.md's
+    // Statefulness section).
     m.def("mvn_val", [](const std::string& method, const std::vector<double>& mean,
                          const std::vector<std::vector<double>>& covariance,
                          const std::vector<double>& args) {
@@ -117,6 +133,15 @@ void register_multivariate(py::module_& m) {
             std::vector<double> p(args.begin(), args.end() - 1);
             int idx = static_cast<int>(args.back());
             return n.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+        }
+        if (method == "random_value") {
+            auto sample = n.generate_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
+        }
+        if (method == "lhs_value") {
+            auto sample =
+                n.latin_hypercube_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
         }
         throw py::value_error("unknown MultivariateNormal fixture method: " + method);
     });
@@ -182,7 +207,9 @@ void register_multivariate(py::module_& m) {
     // stratified chi-squared mixture) is fully deterministic -- no seeded MVNUNI stream, so
     // no mvt_*_seq batch entry point is needed. Methods: dimension, parameters_valid,
     // degrees_of_freedom, mean, median, mode, sd, variance, covariance, pdf, log_pdf, cdf,
-    // mahalanobis, inverse_cdf.
+    // mahalanobis, inverse_cdf, random_value, lhs_value (args = [sample_size, seed, row,
+    // col]; stateless for the same reason as MultivariateNormal's -- see the comment above
+    // mvn_val).
     m.def("mvt_val", [](const std::string& method, double df, const std::vector<double>& location,
                          const std::vector<std::vector<double>>& scale, const std::vector<double>& args) {
         mvd::MultivariateStudentT t(df, location, scale);
@@ -205,6 +232,15 @@ void register_multivariate(py::module_& m) {
             std::vector<double> p(args.begin(), args.end() - 1);
             int idx = static_cast<int>(args.back());
             return t.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+        }
+        if (method == "random_value") {
+            auto sample = t.generate_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
+        }
+        if (method == "lhs_value") {
+            auto sample =
+                t.latin_hypercube_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+            return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
         }
         throw py::value_error("unknown MultivariateStudentT fixture method: " + method);
     });

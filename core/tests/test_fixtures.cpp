@@ -597,6 +597,25 @@ static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const 
     throw std::runtime_error("unknown multivariate target: " + target);
 }
 
+// Shared lookup for the "random_value"/"lhs_value" seeded-sampling oracle methods, common
+// to every multivariate target that implements generate_random_values (all four) /
+// latin_hypercube_random_values (MultivariateNormal, MultivariateStudentT only -- see
+// fixtures/README.md). args = [sample_size, seed, row, col]: construct a FRESH draw (the
+// method itself seeds its own MersenneTwister from `seed`, so this is stateless -- no
+// persistent-instance batching needed, unlike MultivariateNormal's MVNUNI-seeded cdf/
+// interval/mvndst path above).
+template <typename Dist>
+static double random_value_at(const Dist& d, const json& a) {
+    auto sample = d.generate_random_values(a[0].get<int>(), a[1].get<int>());
+    return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
+}
+
+template <typename Dist>
+static double lhs_value_at(const Dist& d, const json& a) {
+    auto sample = d.latin_hypercube_random_values(a[0].get<int>(), a[1].get<int>());
+    return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
+}
+
 static double dispatch_multivariate(const dist::MultivariateDistribution& d, const std::string& target,
                                     const std::string& m, const json& a) {
     if (m == "dimension") return d.dimension();
@@ -613,12 +632,14 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "mode") return dd.mode()[static_cast<std::size_t>(a[0].get<int>())];
         if (m == "covariance") return dd.covariance(a[0].get<int>(), a[1].get<int>());
         if (m == "log_multivariate_beta") return dist::Dirichlet::log_multivariate_beta(parse_num_vec(a));
+        if (m == "random_value") return random_value_at(dd, a);
     } else if (target == "Multinomial") {
         const auto& mm = dynamic_cast<const dist::Multinomial&>(d);
         if (m == "number_of_trials") return mm.number_of_trials();
         if (m == "mean") return mm.mean()[static_cast<std::size_t>(a[0].get<int>())];
         if (m == "variance") return mm.variance()[static_cast<std::size_t>(a[0].get<int>())];
         if (m == "covariance") return mm.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "random_value") return random_value_at(mm, a);
     } else if (target == "BivariateEmpirical") {
         const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
         if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
@@ -633,6 +654,8 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "mahalanobis") return nn.mahalanobis(parse_num_vec(a[0]));
         if (m == "inverse_cdf") return nn.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
         if (m == "interval") return nn.interval(parse_num_vec(a[0]), parse_num_vec(a[1]));
+        if (m == "random_value") return random_value_at(nn, a);
+        if (m == "lhs_value") return lhs_value_at(nn, a);
         if (m == "mvndst") {
             // args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
             int n = a[0].get<int>();
@@ -660,6 +683,8 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "covariance") return tt.covariance(a[0].get<int>(), a[1].get<int>());
         if (m == "mahalanobis") return tt.mahalanobis(parse_num_vec(a[0]));
         if (m == "inverse_cdf") return tt.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
+        if (m == "random_value") return random_value_at(tt, a);
+        if (m == "lhs_value") return lhs_value_at(tt, a);
     }
     throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
 }
@@ -717,13 +742,15 @@ static void set_theta_from_tau_dispatch(cop::BivariateCopula& copula, const std:
 }
 
 // Per fixtures/README.md: construct is {"theta": x} (optionally {"theta": x, "df": y} for
-// 2-parameter copulas) or {"fit": {"x": "<dataset>", "y": "<dataset>", "method":
-// "tau"|"mpl"|"ifm"|"mle", "marginals": ["Normal", "Normal"]?}}. "x"/"y" are the sample
-// data for tau/ifm/mle, or the precomputed plotting-position datasets for mpl (the runner
-// stays thin: it never computes plotting positions itself). "ifm" pre-fits the marginals
-// by MLE before estimating the copula (mirroring the C# Test_IFM_Fit flow); "mle" leaves
-// the marginals unfitted and lets BivariateCopulaEstimation.MLE (bivariate_copula_estimation.hpp)
-// fit everything jointly.
+// 2-parameter copulas, and/or {"marginals": {"targets": [..], "params": [[..], [..]]}} to
+// attach marginals directly via the C# `Copula(theta, marginX, marginY)` ctor -- used by the
+// seeded "random_value" sampling oracles, which back-transform through the marginals when
+// set) or {"fit": {"x": "<dataset>", "y": "<dataset>", "method": "tau"|"mpl"|"ifm"|"mle",
+// "marginals": ["Normal", "Normal"]?}}. "x"/"y" are the sample data for tau/ifm/mle, or the
+// precomputed plotting-position datasets for mpl (the runner stays thin: it never computes
+// plotting positions itself). "ifm" pre-fits the marginals by MLE before estimating the
+// copula (mirroring the C# Test_IFM_Fit flow); "mle" leaves the marginals unfitted and lets
+// BivariateCopulaEstimation.MLE (bivariate_copula_estimation.hpp) fit everything jointly.
 static std::unique_ptr<cop::BivariateCopula> build_copula(const std::string& target,
                                                             const json& construct,
                                                             const json& datasets) {
@@ -732,6 +759,15 @@ static std::unique_ptr<cop::BivariateCopula> build_copula(const std::string& tar
         std::vector<double> params = {parse_num(construct["theta"])};
         if (construct.contains("df")) params.push_back(parse_num(construct["df"]));
         c->set_copula_parameters(params);
+        if (construct.contains("marginals")) {
+            const auto& marg = construct["marginals"];
+            auto mx = dist::create_distribution(marg["targets"][0].get<std::string>());
+            auto my = dist::create_distribution(marg["targets"][1].get<std::string>());
+            mx->set_parameters(parse_num_vec(marg["params"][0]));
+            my->set_parameters(parse_num_vec(marg["params"][1]));
+            c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+            c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+        }
         return c;
     }
 
@@ -787,6 +823,13 @@ static double dispatch_copula(const cop::BivariateCopula& c, const std::string& 
         std::size_t idx = static_cast<std::size_t>(a[1].get<int>());
         const auto& marg = which == "x" ? c.marginal_distribution_x : c.marginal_distribution_y;
         return marg->get_parameters()[idx];
+    }
+    if (m == "random_value") {
+        // args = [sample_size, seed, row, col]. Stateless: GenerateRandomValues seeds its
+        // own internal LatinHypercube draw from `seed`, so no persistent-instance batching
+        // is needed (mirrors random_value_at() for multivariate_distribution above).
+        auto sample = c.generate_random_values(a[0].get<int>(), a[1].get<int>());
+        return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
     }
     throw std::runtime_error("unknown copula fixture method: " + m);
 }

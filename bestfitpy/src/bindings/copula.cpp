@@ -63,24 +63,49 @@ void register_copulas(py::module_& m) {
     // method + flat numeric args in, double out. Methods: pdf/log_pdf/cdf (args=[u,v]),
     // inverse_cdf (args=[u,v,index]), upper_tail_dependence, lower_tail_dependence, theta,
     // df (2-parameter copulas only; get_copula_parameters()[1]), or_exceedance/
-    // and_exceedance (args=[u,v]), parameters_valid.
-    m.def("cop_val", [](const std::string& type, const std::vector<double>& params,
-                         const std::string& method, const std::vector<double>& args) {
-        auto c = make_copula(type, params);
-        if (method == "pdf") return c->pdf(args[0], args[1]);
-        if (method == "log_pdf") return c->log_pdf(args[0], args[1]);
-        if (method == "cdf") return c->cdf(args[0], args[1]);
-        if (method == "inverse_cdf")
-            return c->inverse_cdf(args[0], args[1])[static_cast<std::size_t>(args[2])];
-        if (method == "upper_tail_dependence") return c->upper_tail_dependence();
-        if (method == "lower_tail_dependence") return c->lower_tail_dependence();
-        if (method == "theta") return c->theta();
-        if (method == "df") return c->get_copula_parameters()[1];
-        if (method == "or_exceedance") return c->or_joint_exceedance_probability(args[0], args[1]);
-        if (method == "and_exceedance") return c->and_joint_exceedance_probability(args[0], args[1]);
-        if (method == "parameters_valid") return c->parameters_valid() ? 1.0 : 0.0;
-        throw py::value_error("unknown copula fixture method: " + method);
-    });
+    // and_exceedance (args=[u,v]), parameters_valid, random_value (args=[sample_size, seed,
+    // row, col]; stateless -- GenerateRandomValues seeds its own LatinHypercube draw from
+    // `seed`). marg_x_target/marg_y_target optionally attach marginals directly (the C#
+    // `Copula(theta, marginX, marginY)` ctor path), mirroring cop_fit's fitted-marginals
+    // convention: "" means no marginal for that side.
+    m.def(
+        "cop_val",
+        [](const std::string& type, const std::vector<double>& params, const std::string& method,
+           const std::vector<double>& args, const std::string& marg_x_target,
+           const std::vector<double>& marg_x_params, const std::string& marg_y_target,
+           const std::vector<double>& marg_y_params) {
+            auto c = make_copula(type, params);
+            if (!marg_x_target.empty()) {
+                auto mx = dist::create_distribution(marg_x_target);
+                mx->set_parameters(marg_x_params);
+                c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+            }
+            if (!marg_y_target.empty()) {
+                auto my = dist::create_distribution(marg_y_target);
+                my->set_parameters(marg_y_params);
+                c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+            }
+            if (method == "pdf") return c->pdf(args[0], args[1]);
+            if (method == "log_pdf") return c->log_pdf(args[0], args[1]);
+            if (method == "cdf") return c->cdf(args[0], args[1]);
+            if (method == "inverse_cdf")
+                return c->inverse_cdf(args[0], args[1])[static_cast<std::size_t>(args[2])];
+            if (method == "upper_tail_dependence") return c->upper_tail_dependence();
+            if (method == "lower_tail_dependence") return c->lower_tail_dependence();
+            if (method == "theta") return c->theta();
+            if (method == "df") return c->get_copula_parameters()[1];
+            if (method == "or_exceedance") return c->or_joint_exceedance_probability(args[0], args[1]);
+            if (method == "and_exceedance") return c->and_joint_exceedance_probability(args[0], args[1]);
+            if (method == "parameters_valid") return c->parameters_valid() ? 1.0 : 0.0;
+            if (method == "random_value") {
+                auto sample = c->generate_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
+                return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
+            }
+            throw py::value_error("unknown copula fixture method: " + method);
+        },
+        py::arg("type"), py::arg("params"), py::arg("method"), py::arg("args"),
+        py::arg("marg_x_target") = "", py::arg("marg_x_params") = std::vector<double>{},
+        py::arg("marg_y_target") = "", py::arg("marg_y_params") = std::vector<double>{});
 
     // Fits a copula (+ optionally its marginals) and returns {"params": [...],
     // "marg_x_params": [...], "marg_y_params": [...]} (empty lists when the fit has no

@@ -162,6 +162,16 @@
         {"method": "marginal_param", "args": ["y", 0], "expected": 84.17168, "mode": "abs", "tol": 0.01},
         {"method": "marginal_param", "args": ["y", 1], "expected": 24.58027, "mode": "abs", "tol": 0.01}
       ]
+    },
+    {
+      "name": "seeded_sampling",
+      "note": "GenerateRandomValues first-N (u,v) draws (no marginals set here -- reduced-variate copula space); stateless (seeds its own LatinHypercube draw from `seed`).",
+      "construct": {"theta": 0.5},
+      "assertions": [
+        {"method": "random_value", "args": [5, 42, 0, 0], "expected": 0.231972771929577, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump"},
+        {"method": "random_value", "args": [5, 42, 0, 1], "expected": 0.004492588316647338, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump"},
+        {"method": "random_value", "args": [5, 42, 4, 1], "expected": 0.33211930807631596, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump"}
+      ]
     }
   ]
 }

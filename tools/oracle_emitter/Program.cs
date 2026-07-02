@@ -433,6 +433,19 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
     throw new Exception($"unknown multivariate target: {target}");
 }
 
+// Shared lookup for the "random_value"/"lhs_value" seeded-sampling oracle methods, common
+// to every multivariate target that implements GenerateRandomValues (all four) /
+// LatinHypercubeRandomValues (MultivariateNormal, MultivariateStudentT only -- see
+// fixtures/README.md). args = [sample_size, seed, row, col]: `generate` is a method-group
+// reference to the (int sampleSize, int seed) => double[,] overload itself, so this is
+// stateless -- no persistent-instance batching needed, unlike MultivariateNormal's
+// MVNUNI-seeded cdf/interval/mvndst path above.
+static double SampleValueAt(Func<int, int, double[,]> generate, JsonElement[] a)
+{
+    var sample = generate(a[0].GetInt32(), a[1].GetInt32());
+    return sample[a[2].GetInt32(), a[3].GetInt32()];
+}
+
 static double DispatchMultivariate(MultivariateDistribution d, string target, string m, JsonElement[] a)
 {
     switch (m)
@@ -456,6 +469,7 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
             case "mode": return dd.Mode[a[0].GetInt32()];
             case "covariance": return dd.Covariance(a[0].GetInt32(), a[1].GetInt32());
             case "log_multivariate_beta": return Dirichlet.LogMultivariateBeta(a.Select(ParseNum).ToArray());
+            case "random_value": return SampleValueAt(dd.GenerateRandomValues, a);
         }
     }
     else if (target == "Multinomial")
@@ -467,6 +481,7 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
             case "mean": return mm.Mean[a[0].GetInt32()];
             case "variance": return mm.Variance[a[0].GetInt32()];
             case "covariance": return mm.Covariance(a[0].GetInt32(), a[1].GetInt32());
+            case "random_value": return SampleValueAt(mm.GenerateRandomValues, a);
         }
     }
     else if (target == "BivariateEmpirical")
@@ -516,6 +531,8 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
                 nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
                 return val;
             }
+            case "random_value": return SampleValueAt(nn.GenerateRandomValues, a);
+            case "lhs_value": return SampleValueAt(nn.LatinHypercubeRandomValues, a);
         }
     }
     else if (target == "MultivariateStudentT")
@@ -538,6 +555,8 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
                 int idx = a[1].GetInt32();
                 return tt.InverseCDF(p)[idx];
             }
+            case "random_value": return SampleValueAt(tt.GenerateRandomValues, a);
+            case "lhs_value": return SampleValueAt(tt.LatinHypercubeRandomValues, a);
         }
     }
     throw new Exception($"unknown multivariate fixture method: {target}/{m}");
@@ -574,6 +593,25 @@ static BivariateCopula BuildCopula(string target, JsonElement construct,
         var parms = new List<double> { ParseNum(thetaEl) };
         if (construct.TryGetProperty("df", out var dfEl)) parms.Add(ParseNum(dfEl));
         copula.SetCopulaParameters(parms.ToArray());
+        // {"marginals": {"targets": [..], "params": [[..], [..]]}} attaches marginals
+        // directly via the C# `Copula(theta, marginX, marginY)` ctor path -- used by the
+        // seeded "random_value" sampling oracles, which back-transform through the
+        // marginals when set. Distinct from the "fit"-construct's marginals (a bare
+        // 2-element type-name array; see below), since this path sets FIXED marginal
+        // parameters rather than fitting them.
+        if (construct.TryGetProperty("marginals", out var directMarginalsEl))
+        {
+            var targets = directMarginalsEl.GetProperty("targets").EnumerateArray().ToArray();
+            var paramArrays = directMarginalsEl.GetProperty("params").EnumerateArray().ToArray();
+            var mx = UnivariateDistributionFactory.CreateDistribution(
+                Enum.Parse<UnivariateDistributionType>(targets[0].GetString()!));
+            var my = UnivariateDistributionFactory.CreateDistribution(
+                Enum.Parse<UnivariateDistributionType>(targets[1].GetString()!));
+            mx.SetParameters(paramArrays[0].EnumerateArray().Select(ParseNum).ToArray());
+            my.SetParameters(paramArrays[1].EnumerateArray().Select(ParseNum).ToArray());
+            copula.MarginalDistributionX = mx;
+            copula.MarginalDistributionY = my;
+        }
         return copula;
     }
 
@@ -650,6 +688,14 @@ static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
             int idx = a[1].GetInt32();
             var marg = which == "x" ? c.MarginalDistributionX : c.MarginalDistributionY;
             return marg!.GetParameters[idx];
+        }
+        case "random_value":
+        {
+            // args = [sample_size, seed, row, col]. Stateless: GenerateRandomValues seeds
+            // its own internal LatinHypercube draw from `seed`, so no persistent-instance
+            // batching is needed (mirrors SampleValueAt() for MultivariateDistribution above).
+            var sample = c.GenerateRandomValues(a[0].GetInt32(), a[1].GetInt32());
+            return sample[a[2].GetInt32(), a[3].GetInt32()];
         }
         default: throw new Exception($"unknown copula fixture method: {m}");
     }

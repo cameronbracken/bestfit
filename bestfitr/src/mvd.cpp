@@ -23,9 +23,11 @@ using namespace cpp11;
 
 // --- Dirichlet -----------------------------------------------------------------------
 // method + flat args in, double out. Methods: dimension, parameters_valid, alpha,
-// alpha_sum, mean, variance, mode, covariance, pdf, log_pdf, log_multivariate_beta.
-// `args` carries index/point arguments per method (see bestfitr/tests/testthat's dispatch
-// for the exact per-method argument shape, mirroring fixtures/README.md).
+// alpha_sum, mean, variance, mode, covariance, pdf, log_pdf, log_multivariate_beta,
+// random_value (args = [sample_size, seed, row, col]; no LHS -- Dirichlet has no
+// LatinHypercubeRandomValues in the C# source, see fixtures/README.md). `args` carries
+// index/point arguments per method (see bestfitr/tests/testthat's dispatch for the exact
+// per-method argument shape, mirroring fixtures/README.md).
 
 [[cpp11::register]]
 double bf_dirichlet_val_(std::string method, doubles alpha, doubles args) {
@@ -45,12 +47,19 @@ double bf_dirichlet_val_(std::string method, doubles alpha, doubles args) {
     if (method == "pdf") return d.pdf(ar);
     if (method == "log_pdf") return d.log_pdf(ar);
     if (method == "log_multivariate_beta") return mvd::Dirichlet::log_multivariate_beta(ar);
+    if (method == "random_value") {
+        // args = [sample_size, seed, row, col]; stateless (generate_random_values seeds
+        // its own MersenneTwister from `seed`).
+        auto sample = d.generate_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
+    }
     stop("unknown Dirichlet fixture method '%s'", method.c_str());
 }
 
 // --- Multinomial -----------------------------------------------------------------------
 // Methods: dimension, parameters_valid, number_of_trials, mean, variance, covariance,
-// pdf, log_pdf.
+// pdf, log_pdf, random_value (args = [sample_size, seed, row, col]; no LHS -- Multinomial
+// has no LatinHypercubeRandomValues in the C# source).
 
 [[cpp11::register]]
 double bf_multinomial_val_(std::string method, int n, doubles p, doubles args) {
@@ -67,6 +76,12 @@ double bf_multinomial_val_(std::string method, int n, doubles p, doubles args) {
         return m.covariance(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
     if (method == "pdf") return m.pdf(ar);
     if (method == "log_pdf") return m.log_pdf(ar);
+    if (method == "random_value") {
+        // args = [sample_size, seed, row, col]; stateless (generate_random_values seeds
+        // its own MersenneTwister from `seed`).
+        auto sample = m.generate_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
+    }
     stop("unknown Multinomial fixture method '%s'", method.c_str());
 }
 
@@ -111,7 +126,11 @@ double bf_bve_cdf_(std::string method, doubles x1, doubles x2, doubles p_flat, i
 // mode, sd, variance, covariance, pdf, log_pdf, cdf for dim 1-2, mahalanobis,
 // inverse_cdf, dimension, parameters_valid). Seeded CDF (dim>=3) / MVNDST batches need a
 // single persistent instance across several calls -- see bf_mvn_cdf_seq_/
-// bf_mvn_mvndst_seq_ (added alongside the MVNDST port).
+// bf_mvn_mvndst_seq_ (added alongside the MVNDST port). random_value/lhs_value (args =
+// [sample_size, seed, row, col]) are ALSO stateless despite being "seeded" -- unlike
+// MVNUNI, GenerateRandomValues/LatinHypercubeRandomValues seed their own fresh
+// MersenneTwister/LatinHypercube draw from the `seed` argument every call, so a fresh
+// instance per call is correct (see fixtures/README.md's Statefulness section).
 
 [[cpp11::register]]
 double bf_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles args) {
@@ -140,6 +159,17 @@ double bf_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles a
         std::vector<double> p(ar.begin(), ar.end() - 1);
         int idx = static_cast<int>(ar.back());
         return n.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+    }
+    if (method == "random_value") {
+        // args = [sample_size, seed, row, col]; stateless (generate_random_values seeds
+        // its own MersenneTwister from `seed` -- independent of the MVNUNI stream the
+        // seeded cdf/interval/mvndst batch above uses).
+        auto sample = n.generate_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
+    }
+    if (method == "lhs_value") {
+        auto sample = n.latin_hypercube_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
     }
     stop("unknown MultivariateNormal fixture method '%s'", method.c_str());
 }
@@ -234,7 +264,9 @@ doubles bf_mvn_mvndst_seq_(int n_dim, int seed, doubles lower_flat, doubles uppe
 // stratified chi-squared mixture) is fully deterministic -- no seeded MVNUNI stream, so no
 // bf_mvt_*_seq_ batch entry point is needed. Methods: dimension, parameters_valid,
 // degrees_of_freedom, mean, median, mode, sd, variance, covariance, pdf, log_pdf, cdf,
-// mahalanobis, inverse_cdf.
+// mahalanobis, inverse_cdf, random_value, lhs_value (args = [sample_size, seed, row, col];
+// stateless for the same reason as MultivariateNormal's -- see the comment above
+// bf_mvn_val_).
 
 [[cpp11::register]]
 double bf_mvt_val_(std::string method, double df, doubles location, doubles scale_flat, doubles args) {
@@ -264,6 +296,16 @@ double bf_mvt_val_(std::string method, double df, doubles location, doubles scal
         std::vector<double> p(ar.begin(), ar.end() - 1);
         int idx = static_cast<int>(ar.back());
         return t.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+    }
+    if (method == "random_value") {
+        // args = [sample_size, seed, row, col]; stateless (generate_random_values seeds
+        // its own MersenneTwister from `seed`).
+        auto sample = t.generate_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
+    }
+    if (method == "lhs_value") {
+        auto sample = t.latin_hypercube_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+        return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
     }
     stop("unknown MultivariateStudentT fixture method '%s'", method.c_str());
 }

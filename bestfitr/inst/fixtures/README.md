@@ -116,6 +116,14 @@ hardcoded literal, so there is no literal to transcribe. Methods:
   (MultivariateNormal only) -- direct entry point to the ported Genz MVNDST routine, exercising the
   flattened-covariance / `INFIN`-code Fortran-style interface rather than the mean/covariance
   wrapper; also draws from the seeded MVNUNI stream (see Statefulness below).
+- `random_value [sample_size, seed, row, col]` (all four multivariate targets: Dirichlet,
+  Multinomial, MultivariateNormal, MultivariateStudentT) -- element `[row, col]` (0-based) of the
+  matrix returned by `generate_random_values(sample_size, seed)`; locks the first-N draws of the
+  ported Mersenne Twister stream against the real C# `GenerateRandomValues`.
+- `lhs_value [sample_size, seed, row, col]` (MultivariateNormal, MultivariateStudentT only -- the
+  only two multivariate targets with a `LatinHypercubeRandomValues` method in the C# source;
+  Dirichlet/Multinomial have no such method and carry no `lhs_value` cases) -- same shape,
+  dispatching to `latin_hypercube_random_values(sample_size, seed)`.
 
 **Statefulness:** Dirichlet/Multinomial/BivariateEmpirical are stateless per case (every assertion
 is independent, dispatched against a fresh instance). MultivariateNormal is stateless UNLESS its
@@ -129,9 +137,15 @@ Assertions for other methods (or in a case with no `"seed"`) fall through to the
 per-assertion dispatch, unchanged. MultivariateStudentT is ALWAYS stateless -- its CDF (dim >= 2)
 is a deterministic K=200 stratified chi-squared(v) mixture over MultivariateNormal's CDF, not a
 seeded quasi-Monte-Carlo integrator, so no seeded batching is needed even though its `cdf`
-internally constructs and evaluates an MVN instance. Seeded *sampling* methods
-(`random_value`/`lhs_value`-style first-N draws) are not covered yet for any target -- they arrive
-in a later task (Chunk 10).
+internally constructs and evaluates an MVN instance. `random_value`/`lhs_value` are ALWAYS
+stateless for every target that has them, REGARDLESS of a `"seed"` in `construct` -- this is a
+property of the C# source itself, not a port simplification: `GenerateRandomValues`/
+`LatinHypercubeRandomValues` each seed their OWN fresh MersenneTwister/LatinHypercube draw from
+their `seed` **argument** on every call (unlike the MVNUNI stream `cdf`/`interval`/`mvndst` share
+across a persistent instance), so evaluating each assertion against a fresh instance reproduces
+correctly with no batching -- see `seeded_sampling` in
+`fixtures/distributions/multivariate/multivariate_normal.json` for an example case that mixes
+`random_value`/`lhs_value` assertions alongside a case with no `"seed"` key at all.
 
 ### `bivariate_copula`
 
@@ -169,6 +183,15 @@ changes (the one exception, the `"tau"` fit method, is explained below).
 - `{"theta": <double>}` -- direct construction. 2-parameter copulas (StudentT, a later task) add a
   second key, `{"theta": <double>, "df": <double>}`; the runners map this to
   `set_copula_parameters([theta, df])`, matching `GetCopulaParameters`'s declared order.
+- `{"theta": <double>, "marginals": {"targets": [<x-type>, <y-type>], "params": [[<x-params...>],
+  [<y-params...>]]}}` -- an ADD-ON to the direct-construction key above (not a substitute for it)
+  that attaches FIXED marginal distributions via the C# `Copula(theta, marginX, marginY)` ctor
+  overload, e.g. `{"theta": 5, "marginals": {"targets": ["Normal", "Normal"], "params": [[100.0,
+  15.0], [80.0, 20.0]]}}` sets `MarginalDistributionX = new Normal(100.0, 15.0)`. Distinct from the
+  `"fit"` construct's own `"marginals"` key below, which FITS marginal parameters from data rather
+  than fixing them outright; used by the `random_value` sampling oracles that need marginals set to
+  exercise the back-transform branch of `GenerateRandomValues` (see `seeded_sampling_with_marginals`
+  in `fixtures/distributions/copulas/clayton_copula.json`).
 - `{"fit": {"x": "<dataset>", "y": "<dataset>", "method": "tau"|"mpl"|"ifm"|"mle", "marginals":
   ["Normal", "Normal"]?}}` -- fits the copula (and, for `"ifm"`/`"mle"`, its marginals) from sample
   data. `"marginals"` is a 2-element array of univariate distribution type names (the same strings
@@ -211,6 +234,13 @@ Assertions use the same `{method, args, expected, mode, tol}` shape as the other
 - `marginal_param` (`args: ["x"|"y", index]`) -- a fitted marginal's parameter, 0-based; only valid
   after a `"fit"` construct with `"marginals"` set.
 - `parameters_valid` (`mode: "bool"`).
+- `random_value [sample_size, seed, row, col]` -- element `[row, col]` (0-based; column 0 is `u`,
+  column 1 is `v`, or their marginal-back-transformed values when `construct.marginals` is set) of
+  the matrix returned by `generate_random_values(sample_size, seed)`; stateless (`GenerateRandomValues`
+  seeds its own fresh `LatinHypercube` draw from the `seed` argument on every call, mirroring
+  `multivariate_distribution`'s `random_value`/`lhs_value` -- see that kind's Statefulness note
+  above). Every copula has this method (there is no copula-specific `lhs_value` -- copulas only ever
+  draw via Latin Hypercube internally, so there's no separate LHS entry point to lock).
 
 **Fit tolerance:** every `"fit"` assertion uses `mode: "abs"`/`"rel"` with a tolerance, NEVER
 `"equal"`. `"mpl"`/`"ifm"`/`"mle"` walk BrentSearch/NelderMead, which can diverge from the C#
@@ -219,10 +249,12 @@ see the Task 3 ledger note in `.superpowers/sdd/progress.md`. `clayton_copula.js
 tolerances as the upstream C# test literals (`1e-4` for theta on `"tau"`/`"mpl"`/`"ifm"`, `1e-3` for
 theta on `"mle"`, `1e-2` for MLE's marginal parameters).
 
-**Not covered yet** (arrive in later tasks, mirroring the `multivariate_distribution` precedent):
-seeded sampling oracles (`random_value`/`lhs_value`-style first-N draws from
-`generate_random_values`, Chunk 10) and the elliptical copulas' extra construct/dispatch surface
-(Normal/StudentT, Chunk 9) beyond what is already documented above.
+**Seeded sampling coverage:** every copula target carries a `seeded_sampling` case exercising
+`random_value` (reduced-variate `(u, v)` space, no marginals). Clayton additionally carries a
+`seeded_sampling_with_marginals` case using the `"marginals"` direct-attach construct documented
+above, the one target chosen to cover the back-transform branch (all seven copulas share the same
+`generate_random_values` implementation in `bivariate_copula.hpp`, so one marginals-attached
+companion case is sufficient to lock that branch; it does not need repeating per target).
 
 ### `special_function`
 

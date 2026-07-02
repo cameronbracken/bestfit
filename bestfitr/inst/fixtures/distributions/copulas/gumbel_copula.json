@@ -814,6 +814,54 @@
           "tol": 0.1
         }
       ]
+    },
+    {
+      "name": "seeded_sampling",
+      "note": "GenerateRandomValues first-N (u,v) draws (no marginals set here -- reduced-variate copula space); stateless (seeds its own LatinHypercube draw from `seed`).",
+      "construct": {
+        "theta": 5
+      },
+      "assertions": [
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            0,
+            0
+          ],
+          "expected": 0.231972771929577,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            0,
+            1
+          ],
+          "expected": 0.03318358450810758,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            4,
+            1
+          ],
+          "expected": 0.481091018160018,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
     }
   ]
 }

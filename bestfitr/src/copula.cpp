@@ -36,10 +36,26 @@ static std::unique_ptr<cop::BivariateCopula> make_copula(const std::string& type
 // method + flat numeric args in, double out. Methods: pdf/log_pdf/cdf (args=[u,v]),
 // inverse_cdf (args=[u,v,index]), upper_tail_dependence, lower_tail_dependence, theta, df
 // (2-parameter copulas only; get_copula_parameters()[1]), or_exceedance/and_exceedance
-// (args=[u,v]), parameters_valid.
+// (args=[u,v]), parameters_valid, random_value (args=[sample_size, seed, row, col];
+// stateless -- GenerateRandomValues seeds its own LatinHypercube draw from `seed`).
+// marg_x_target/marg_y_target optionally attach marginals directly (the C# `Copula(theta,
+// marginX, marginY)` ctor path), mirroring bf_cop_fit_'s fitted-marginals convention: ""
+// means no marginal for that side.
 [[cpp11::register]]
-double bf_cop_val_(std::string type, doubles params, std::string method, doubles args) {
+double bf_cop_val_(std::string type, doubles params, std::string method, doubles args,
+                    std::string marg_x_target, doubles marg_x_params, std::string marg_y_target,
+                    doubles marg_y_params) {
     auto c = make_copula(type, params);
+    if (!marg_x_target.empty()) {
+        auto mx = dist::create_distribution(marg_x_target);
+        mx->set_parameters(std::vector<double>(marg_x_params.begin(), marg_x_params.end()));
+        c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+    }
+    if (!marg_y_target.empty()) {
+        auto my = dist::create_distribution(marg_y_target);
+        my->set_parameters(std::vector<double>(marg_y_params.begin(), marg_y_params.end()));
+        c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+    }
     std::vector<double> a(args.begin(), args.end());
 
     if (method == "pdf") return c->pdf(a[0], a[1]);
@@ -54,6 +70,10 @@ double bf_cop_val_(std::string type, doubles params, std::string method, doubles
     if (method == "or_exceedance") return c->or_joint_exceedance_probability(a[0], a[1]);
     if (method == "and_exceedance") return c->and_joint_exceedance_probability(a[0], a[1]);
     if (method == "parameters_valid") return c->parameters_valid() ? 1.0 : 0.0;
+    if (method == "random_value") {
+        auto sample = c->generate_random_values(static_cast<int>(a[0]), static_cast<int>(a[1]));
+        return sample[static_cast<std::size_t>(a[2])][static_cast<std::size_t>(a[3])];
+    }
     stop("unknown copula fixture method '%s'", method.c_str());
 }
 

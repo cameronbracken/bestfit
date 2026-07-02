@@ -3,7 +3,7 @@
   "kind": "multivariate_distribution",
   "source": "Numerics/Test_Numerics/Distributions/Multivariate/Test_MultivariateNormal.cs",
   "reference": "Test_MultivariateNormalDist verified against Accord.NET. The seeded MVNDST/CDF cases (Genz-Bretz quasi-Monte-Carlo, seed 12345) and the curated inverse_cdf/interval/mahalanobis/high-correlation-CDF spot values land with the Task 5 commit that ports MVNDST -- see fixtures/README.md's statefulness contract for MultivariateNormal.",
-  "note": "GenerateRandomValues/LatinHypercubeRandomValues/StratifiedRandomValues are not covered here -- seeded sampling gets first-N oracles in a later task (mirrors the Dirichlet/Multinomial/BivariateEmpirical precedent). Clone is not fixture-observable.",
+  "note": "GenerateRandomValues/LatinHypercubeRandomValues first-N draws are covered by the seeded_sampling case below; StratifiedRandomValues is not covered (no random_value-style fixture method for it). Clone is not fixture-observable.",
   "cases": [
     {
       "name": "accord_2d_moments_pdf_cdf",
@@ -947,6 +947,106 @@
           "expected": 0.125,
           "mode": "abs",
           "tol": 0.0001
+        }
+      ]
+    },
+    {
+      "name": "seeded_sampling",
+      "note": "GenerateRandomValues/LatinHypercubeRandomValues first-N draws; both seed their own MersenneTwister/LatinHypercube from `seed` (independent of the MVNUNI stream cdf/interval/mvndst use), so this is stateless -- no 'seed' key in construct.",
+      "construct": {
+        "mean": [
+          4.0,
+          2.0
+        ],
+        "covariance": [
+          [
+            0.3,
+            0.1
+          ],
+          [
+            0.1,
+            0.7
+          ]
+        ]
+      },
+      "assertions": [
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            0,
+            0
+          ],
+          "expected": 3.8248096295029,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            2,
+            1
+          ],
+          "expected": 2.742628250226776,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "random_value",
+          "args": [
+            5,
+            42,
+            4,
+            0
+          ],
+          "expected": 3.446276351063736,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "lhs_value",
+          "args": [
+            5,
+            7,
+            0,
+            1
+          ],
+          "expected": 2.795740085024856,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "lhs_value",
+          "args": [
+            5,
+            7,
+            1,
+            0
+          ],
+          "expected": 4.205142547061009,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "lhs_value",
+          "args": [
+            5,
+            7,
+            3,
+            1
+          ],
+          "expected": 1.6153245335982374,
+          "mode": "abs",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
         }
       ]
     }

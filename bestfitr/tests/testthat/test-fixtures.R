@@ -337,8 +337,9 @@ run_mvn_case <- function(construct, assertions) {
 # share no common surface), so this path is fully generic through the factory-driven
 # bf_cop_val_/bf_cop_fit_ glue in copula.cpp -- no per-target branching, mirroring
 # copula_factory.hpp's rationale. construct is either {"theta": x} (optionally {"theta":
-# x, "df": y} for 2-parameter copulas) or {"fit": {"x", "y", "method", "marginals"?}}; see
-# fixtures/README.md for the full schema.
+# x, "df": y} for 2-parameter copulas, and/or {"marginals": {"targets", "params"}} to
+# attach marginals directly -- used by the "random_value" sampling oracles) or {"fit": {"x",
+# "y", "method", "marginals"?}}; see fixtures/README.md for the full schema.
 
 build_copula_params <- function(construct) {
   p <- parse_num(construct$theta)
@@ -346,10 +347,11 @@ build_copula_params <- function(construct) {
   p
 }
 
-dispatch_copula <- function(target, params, method, args) {
+dispatch_copula <- function(target, params, method, args, marg_x_target = "", marg_x_params = numeric(0),
+                             marg_y_target = "", marg_y_params = numeric(0)) {
   ns <- asNamespace("bestfitr")
   ar <- flatten_mv_args(if (length(args) == 0) list() else args)
-  ns$bf_cop_val_(target, params, method, ar)
+  ns$bf_cop_val_(target, params, method, ar, marg_x_target, marg_x_params, marg_y_target, marg_y_params)
 }
 
 run_copula_case <- function(target, construct, assertions, datasets) {
@@ -377,9 +379,15 @@ run_copula_case <- function(target, construct, assertions, datasets) {
     }
   } else {
     params <- build_copula_params(construct)
+    marg <- construct$marginals
+    marg_x_target <- if (!is.null(marg)) marg$targets[[1]] else ""
+    marg_y_target <- if (!is.null(marg)) marg$targets[[2]] else ""
+    marg_x_params <- if (!is.null(marg)) vapply(marg$params[[1]], parse_num, numeric(1)) else numeric(0)
+    marg_y_params <- if (!is.null(marg)) vapply(marg$params[[2]], parse_num, numeric(1)) else numeric(0)
     for (a in assertions) {
       args <- if (is.null(a$args)) list() else a$args
-      actual <- dispatch_copula(target, params, a$method, args)
+      actual <- dispatch_copula(target, params, a$method, args, marg_x_target, marg_x_params,
+                                 marg_y_target, marg_y_params)
       check_assertion(actual, a)
     }
   }
