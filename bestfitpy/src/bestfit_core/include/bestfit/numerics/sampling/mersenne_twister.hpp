@@ -10,6 +10,10 @@
 // rejection loops (C# System.Random.Next()/Next(int)) that LatinHypercube's shuffle
 // and per-column reseeding consume; they draw from the same gen_rand_int32() stream in
 // the same order as C#, so seeded call sequences stay bit-exact across languages.
+//
+// Omitted: C# Next(int minInclusive, int maxExclusive) (a one-line forwarder,
+// `Next(maxExclusive - minInclusive) + minInclusive`) has no caller ported so far;
+// add it here (same forwarding form) if a later target needs it.
 #pragma once
 #include <cstdint>
 #include <limits>

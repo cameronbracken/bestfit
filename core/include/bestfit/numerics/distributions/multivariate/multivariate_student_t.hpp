@@ -4,10 +4,18 @@
 // location vector mu, and (not-covariance) scale matrix Sigma. PDF/LogPDF/Mahalanobis are
 // closed-form; CDF for dim 1 delegates to the univariate StudentT CDF, and for dim >= 2
 // uses a deterministic K=200 stratified-quantile chi-square(v) mixture over
-// MultivariateNormal's CDF (see cdf() below) -- unlike MultivariateNormal's CDF for dim >=
-// 3, this has no seeded/statistical component: every quantile is a midpoint of an
-// equal-probability stratum, so the result is bit-reproducible for a given (v, mu, Sigma,
-// x). Member order mirrors the C# source throughout.
+// MultivariateNormal's CDF (see cdf() below): every quantile is a midpoint of an
+// equal-probability stratum, so the mixture construction itself has no seeded/statistical
+// component. For dim <= 2 this makes the result fully bit-reproducible for a given (v, mu,
+// Sigma, x), because the inner MultivariateNormal::cdf() calls it drives are themselves
+// closed-form/deterministic at dim 1-2. For dim >= 3, though, each of the 200 inner
+// MultivariateNormal::cdf() calls runs the seeded Genz-Bretz quasi-Monte-Carlo integrator
+// (see multivariate_normal.hpp), and the MultivariateNormal instance this constructor
+// builds is never given an explicit seed, so its `mvnuni_` stream defaults to
+// make_clock_seeded() -- meaning MVT's own cdf() is NOT bit-reproducible across runs at
+// dim >= 3 (a faithful mirror of the upstream C# `_MVNUNI = new MersenneTwister()` default
+// in MultivariateNormal.cs, not a divergence introduced by this port; no fixture exercises
+// MVT CDF at dim >= 3). Member order mirrors the C# source throughout.
 //
 // Divergence notes (see also docs/upstream-csharp-issues.md for the running log):
 //   - `Variance`/`StandardDeviation` are computed on every call rather than lazily cached

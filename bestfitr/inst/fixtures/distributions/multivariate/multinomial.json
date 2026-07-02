@@ -2,8 +2,8 @@
   "target": "Multinomial",
   "kind": "multivariate_distribution",
   "source": "Numerics/Test_Numerics/Distributions/Multivariate/Test_Multinomial.cs",
-  "reference": "Reference values verified analytically and against R dmultinom.",
-  "note": "Test_Sampling's seeded first-N draws are covered by the seeded_sampling case below; the static Sample()/Clone/CDF-throws are not fixture-observable through this method table.",
+  "reference": "Reference values verified analytically and against R dmultinom. Test_LogPMF in the C# source is a self-consistency check (Assert.AreEqual(Math.Log(M.PDF(x)), M.LogPMF(x))), not a hardcoded literal; this file's log_pmf case is synthesized as ln() of the pmf_binomial case's own value rather than scraped from a C# test literal (log_pmf_invalid's -inf values ARE scraped verbatim from Test_LogPMF_InvalidInput_ReturnsNegativeInfinity).",
+  "note": "Test_Sampling's seeded first-N draws are covered by the seeded_sampling case below; Test_WeightedSample/Test_WeightedSample_EdgeCases (the static Sample())/Clone/CDF-throws are not fixture-observable through this method table. Test_InvalidParameters (constructor ArgumentOutOfRangeException throws) has no exception-assertion hook in this fixture schema, so is not reproduced here. Test_TypeAndName (DisplayName/ShortDisplayName/Type enum) is likewise outside the numeric/bool assertion schema.",
   "cases": [
     {
       "name": "construction",

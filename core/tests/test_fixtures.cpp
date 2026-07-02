@@ -169,7 +169,7 @@ namespace la = bestfit::numerics::math::linalg;
 namespace stat = bestfit::numerics::data;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
-// (equal-length samples) -- see fixtures/statistics/correlation.json / README.md.
+// (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
 static void correlation_split(const std::vector<double>& a, std::vector<double>& x,
                                std::vector<double>& y) {
     std::size_t mid = a.size() / 2;
@@ -272,7 +272,7 @@ special_function_table() {
         {"Bessel.i0", [](const std::vector<double>& a) { return sf::bessel::i0(a[0]); }},
         {"Bessel.i1", [](const std::vector<double>& a) { return sf::bessel::i1(a[0]); }},
         // Correlation family (args: [x..., y...], split at the midpoint -- see
-        // fixtures/statistics/correlation.json for the full convention)
+        // fixtures/special_functions/correlation.json for the full convention)
         {"Correlation.pearson", [](const std::vector<double>& a) {
             std::vector<double> x, y;
             correlation_split(a, x, y);
