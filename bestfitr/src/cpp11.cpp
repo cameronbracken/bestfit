@@ -299,6 +299,20 @@ extern "C" SEXP _bestfitr_bf_gev_parameter_covariance_(SEXP location, SEXP scale
     return cpp11::as_sexp(bf_gev_parameter_covariance_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size)));
   END_CPP11
 }
+// sobol.cpp
+doubles_matrix<by_column> bf_sobol_generate_(int dimension, int n_steps, std::string path);
+extern "C" SEXP _bestfitr_bf_sobol_generate_(SEXP dimension, SEXP n_steps, SEXP path) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_sobol_generate_(cpp11::as_cpp<cpp11::decay_t<int>>(dimension), cpp11::as_cpp<cpp11::decay_t<int>>(n_steps), cpp11::as_cpp<cpp11::decay_t<std::string>>(path)));
+  END_CPP11
+}
+// sobol.cpp
+doubles bf_sobol_skip_to_(int dimension, int index, std::string path);
+extern "C" SEXP _bestfitr_bf_sobol_skip_to_(SEXP dimension, SEXP index, SEXP path) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_sobol_skip_to_(cpp11::as_cpp<cpp11::decay_t<int>>(dimension), cpp11::as_cpp<cpp11::decay_t<int>>(index), cpp11::as_cpp<cpp11::decay_t<std::string>>(path)));
+  END_CPP11
+}
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
@@ -339,6 +353,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                  4},
     {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,             4},
     {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                3},
+    {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,           3},
+    {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,            3},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},
     {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,            4},
     {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                5},

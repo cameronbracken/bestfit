@@ -167,3 +167,11 @@ bf_gev_quantile_gradient_ <- function(p, location, scale, shape) {
 bf_gev_parameter_covariance_ <- function(location, scale, shape, sample_size) {
   .Call(`_bestfitr_bf_gev_parameter_covariance_`, location, scale, shape, sample_size)
 }
+
+bf_sobol_generate_ <- function(dimension, n_steps, path) {
+  .Call(`_bestfitr_bf_sobol_generate_`, dimension, n_steps, path)
+}
+
+bf_sobol_skip_to_ <- function(dimension, index, path) {
+  .Call(`_bestfitr_bf_sobol_skip_to_`, dimension, index, path)
+}
