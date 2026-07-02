@@ -25,6 +25,8 @@
 #include "bestfit/numerics/distributions/copulas/frank_copula.hpp"
 #include "bestfit/numerics/distributions/copulas/gumbel_copula.hpp"
 #include "bestfit/numerics/distributions/copulas/joe_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/normal_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/student_t_copula.hpp"
 
 namespace bestfit::numerics::distributions::copulas {
 
@@ -40,6 +42,10 @@ inline std::unique_ptr<BivariateCopula> create_copula(CopulaType type) {
             return std::make_unique<GumbelCopula>();
         case CopulaType::Joe:
             return std::make_unique<JoeCopula>();
+        case CopulaType::Normal:
+            return std::make_unique<NormalCopula>();
+        case CopulaType::StudentT:
+            return std::make_unique<StudentTCopula>();
         default:
             throw std::invalid_argument("copula type not yet ported");
     }
@@ -53,6 +59,8 @@ inline std::unique_ptr<BivariateCopula> create_copula(const std::string& name) {
     if (name == "Frank") return create_copula(CopulaType::Frank);
     if (name == "Gumbel") return create_copula(CopulaType::Gumbel);
     if (name == "Joe") return create_copula(CopulaType::Joe);
+    if (name == "Normal") return create_copula(CopulaType::Normal);
+    if (name == "StudentT") return create_copula(CopulaType::StudentT);
     throw std::invalid_argument("unknown copula name: " + name);
 }
 

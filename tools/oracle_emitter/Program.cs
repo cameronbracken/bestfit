@@ -564,6 +564,8 @@ static BivariateCopula BuildCopula(string target, JsonElement construct,
         CopulaType.Frank => new FrankCopula(),
         CopulaType.Gumbel => new GumbelCopula(),
         CopulaType.Joe => new JoeCopula(),
+        CopulaType.Normal => new NormalCopula(),
+        CopulaType.StudentT => new StudentTCopula(),
         _ => throw new Exception($"copula type not yet ported: {target}")
     };
 
