@@ -29,6 +29,9 @@
 #include "bestfit/numerics/distributions/competing_risks.hpp"
 #include "bestfit/numerics/distributions/mixture.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
+#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/math/linalg/vector.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
@@ -151,11 +154,61 @@ static void run_gev(const json& spec) {
 // --- Special-function path ------------------------------------------------------------
 
 namespace sf = bestfit::numerics::math::special;
+namespace la = bestfit::numerics::math::linalg;
+
+// Cholesky fixture args are a flattened row-major n*n matrix, with n inferred from the
+// args length per the convention documented in fixtures/special_functions/cholesky.json.
+static int cholesky_square_n(std::size_t len) {
+    int n = static_cast<int>(std::lround(std::sqrt(static_cast<double>(len))));
+    if (static_cast<std::size_t>(n) * static_cast<std::size_t>(n) != len)
+        throw std::runtime_error("Cholesky fixture args: length is not a perfect square");
+    return n;
+}
+
+// solve_element args are [flattened n*n matrix, n-length rhs vector, index i], i.e.
+// n*n + n + 1 == len; solve the quadratic for n.
+static int cholesky_solve_n(std::size_t len) {
+    double n_double = (-1.0 + std::sqrt(1.0 + 4.0 * (static_cast<double>(len) - 1.0))) / 2.0;
+    int n = static_cast<int>(std::lround(n_double));
+    if (static_cast<std::size_t>(n) * static_cast<std::size_t>(n) + static_cast<std::size_t>(n) + 1 != len)
+        throw std::runtime_error("Cholesky fixture args: length does not fit n*n+n+1");
+    return n;
+}
+
+static la::Matrix cholesky_matrix_from_flat(const std::vector<double>& a, int n) {
+    std::vector<double> flat(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n) * n);
+    return la::Matrix(n, n, flat);
+}
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
 static const std::map<std::string, std::function<double(const std::vector<double>&)>>&
 special_function_table() {
     static const std::map<std::string, std::function<double(const std::vector<double>&)>> t = {
+        // Cholesky family (args: flattened row-major matrix, n inferred from length --
+        // see fixtures/special_functions/cholesky.json for the full convention)
+        {"Cholesky.determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).determinant();
+        }},
+        {"Cholesky.log_determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).log_determinant();
+        }},
+        {"Cholesky.inverse_element", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size() - 2);
+            la::CholeskyDecomposition chol(cholesky_matrix_from_flat(a, n));
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n]);
+            int j = static_cast<int>(a[static_cast<std::size_t>(n) * n + 1]);
+            return chol.inverse_a()(i, j);
+        }},
+        {"Cholesky.solve_element", [](const std::vector<double>& a) {
+            int n = cholesky_solve_n(a.size());
+            la::CholeskyDecomposition chol(cholesky_matrix_from_flat(a, n));
+            std::vector<double> rhs(a.begin() + static_cast<std::ptrdiff_t>(n) * n,
+                                     a.begin() + static_cast<std::ptrdiff_t>(n) * n + n);
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n + static_cast<std::size_t>(n)]);
+            return chol.solve(la::Vector(std::move(rhs)))[i];
+        }},
         // Erf family
         {"Erf.function",      [](const std::vector<double>& a) { return sf::erf::function(a[0]); }},
         {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},
@@ -188,14 +241,20 @@ special_function_table() {
     return t;
 }
 
+// Most special_function fixtures dispatch every case through one file-level `target`
+// (e.g. "Erf.function"). The Cholesky fixture instead groups several related dispatch
+// keys ("Cholesky.determinant", "Cholesky.inverse_element", ...) in one file, so each
+// case may override the target; a case without its own `target` falls back to the
+// file-level one, preserving the single-target files' existing behavior unchanged.
 static void run_special_function(const json& spec) {
-    std::string target = spec["target"].get<std::string>();
+    std::string file_target = spec["target"].get<std::string>();
     const auto& table = special_function_table();
-    auto it = table.find(target);
-    if (it == table.end())
-        throw std::runtime_error("unknown special-function target: " + target);
-    const auto& fn = it->second;
     for (const auto& c : spec["cases"]) {
+        std::string target = c.value("target", file_target);
+        auto it = table.find(target);
+        if (it == table.end())
+            throw std::runtime_error("unknown special-function target: " + target);
+        const auto& fn = it->second;
         std::string name = c["name"].get<std::string>();
         std::vector<double> args;
         for (const auto& v : c["args"]) args.push_back(parse_num(v));

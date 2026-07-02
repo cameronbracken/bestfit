@@ -13,6 +13,7 @@ using System.Text.Json;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
+using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
 
 static double ParseNum(JsonElement v)
@@ -218,9 +219,65 @@ static bool Compare(double actual, JsonElement assertion)
     }
 }
 
+// Cholesky fixture args are a flattened row-major n*n matrix, with n inferred from the
+// args length per the convention documented in fixtures/special_functions/cholesky.json.
+static int CholeskySquareN(int len)
+{
+    int n = (int)Math.Round(Math.Sqrt(len));
+    if (n * n != len) throw new Exception("Cholesky fixture args: length is not a perfect square");
+    return n;
+}
+
+// solve_element args are [flattened n*n matrix, n-length rhs vector, index i], i.e.
+// n*n + n + 1 == len; solve the quadratic for n.
+static int CholeskySolveN(int len)
+{
+    int n = (int)Math.Round((-1.0 + Math.Sqrt(1.0 + 4.0 * (len - 1))) / 2.0);
+    if (n * n + n + 1 != len) throw new Exception("Cholesky fixture args: length does not fit n*n+n+1");
+    return n;
+}
+
+static Matrix CholeskyMatrixFromFlat(double[] a, int n)
+{
+    var m = new Matrix(n, n);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            m[i, j] = a[i * n + j];
+    return m;
+}
+
 // Special-function dispatch table: maps "Module.method" → Func<double[], double>.
 static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
 {
+    // Cholesky family (args: flattened row-major matrix, n inferred from length -- see
+    // fixtures/special_functions/cholesky.json for the full convention)
+    "Cholesky.determinant" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        return new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n)).Determinant();
+    },
+    "Cholesky.log_determinant" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        return new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n)).LogDeterminant();
+    },
+    "Cholesky.inverse_element" => a =>
+    {
+        int n = CholeskySquareN(a.Length - 2);
+        var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+        int i = (int)a[n * n];
+        int j = (int)a[n * n + 1];
+        return chol.InverseA()[i, j];
+    },
+    "Cholesky.solve_element" => a =>
+    {
+        int n = CholeskySolveN(a.Length);
+        var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+        var rhs = new double[n];
+        Array.Copy(a, n * n, rhs, 0, n);
+        int i = (int)a[n * n + n];
+        return chol.Solve(new Vector(rhs))[i];
+    },
     // Erf family
     "Erf.function"     => a => Erf.Function(a[0]),
     "Erf.erfc"         => a => Erf.Erfc(a[0]),
@@ -273,13 +330,19 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
     string? kindStr = root.TryGetProperty("kind", out var kind) ? kind.GetString() : null;
 
     // --- special_function branch --------------------------------------------------------
+    // Most files dispatch every case through one file-level `target` (e.g. "Erf.function").
+    // The Cholesky fixture groups several related dispatch keys in one file, so a case may
+    // override `target`; a case without its own falls back to the file-level one, leaving
+    // single-target files' behavior unchanged.
     if (kindStr == "special_function")
     {
-        string sfTarget = root.GetProperty("target").GetString()!;
-        var fn = ResolveSpecialFunction(sfTarget);
-        if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
+        string fileTarget = root.GetProperty("target").GetString()!;
         foreach (var c in root.GetProperty("cases").EnumerateArray())
         {
+            string sfTarget = c.TryGetProperty("target", out var caseTarget)
+                ? caseTarget.GetString()! : fileTarget;
+            var fn = ResolveSpecialFunction(sfTarget);
+            if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
             string caseName = c.GetProperty("name").GetString()!;
             var argList = c.GetProperty("args").EnumerateArray().Select(v => v.GetDouble()).ToArray();
             double actual;
