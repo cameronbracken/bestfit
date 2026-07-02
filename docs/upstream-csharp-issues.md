@@ -167,6 +167,40 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   near-symmetric until it is switched to the now-ported AGK). Only a limitation on the C++ side.
 - **Suggested action:** none for C#; noted for context.
 
+## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted
+
+- **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `COVSRT`, the
+  `for (int j = i - 1; j < 0; j--)` loop inside the `CVDIAG <= 0` branch (permute limits/rows when
+  a covariance diagonal entry is degenerate).
+- **What:** counting DOWN from `j = i - 1` with a `j < 0` continuation condition means the loop body
+  only ever runs when `i == 0` (so `j` starts at `-1`, which already satisfies `j < 0`); for every
+  `i >= 1` the condition fails immediately and the loop never executes. When it does run (`i == 0`,
+  `j == -1`), it immediately indexes `COV[II + j]` with `II == 0`, i.e. `COV[-1]` — in C# this throws
+  `IndexOutOfRangeException`. The condition looks like a Fortran `DO j = i-1, 0, -1` mistranslated
+  (should be `j >= 0`).
+- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test (requires a
+  degenerate/near-zero effective covariance diagonal at the very first COVSRT-sorted pivot).
+- **Port handling:** mirrored faithfully (`core/include/.../multivariate_normal.hpp`, `covsrt`).
+  Flagged as higher risk in C++ than C#: `std::vector::operator[]` performs no bounds check, so the
+  `i==0` trigger case is undefined behavior here rather than a catchable exception.
+- **Suggested C# fix:** change the loop condition to `j >= 0` (or reverse the iteration order to
+  match the apparent Fortran intent); add a regression test with a rank-deficient covariance matrix
+  that forces the first sorted pivot to be numerically zero.
+
+## COSMETIC — MultivariateNormal.MVNDNT return value is always 0
+
+- **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `MVNDNT`.
+- **What:** the local `result` is initialized to `0` and never reassigned anywhere in the method
+  body, so `MVNDNT` always returns `0.0`. Its only caller, `MVNDST`, casts this return straight into
+  `INFORM` (`INFORM = (int)MVNDNT(...)`), so `INFORM` is always (re)initialized to `0` regardless of
+  what `COVSRT`/`MVNLMS`/`BVNMVN` computed; only the `N-INFIS >= 2` branch (via `DKBVRC`) can set it
+  to anything else afterward.
+- **Port handling:** mirrored faithfully (`mvndnt` always returns `0.0`), documented in-header.
+  Harmless in practice — `INFORM` ends up correct for the only case that matters (multi-dimensional
+  integration) — but the return value itself is dead code.
+- **Suggested C# fix:** either remove the unused return value (change `MVNDNT` to `void`) or wire it
+  up if some future INFORM semantics were intended for the `N-INFIS` 0/1 branches.
+
 ## COSMETIC — dead variables / heritage artifacts
 
 - `NoncentralT.cs`: a `TT` variable is assigned then never used after the sign flip (a FORTRAN
