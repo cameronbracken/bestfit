@@ -1,0 +1,127 @@
+{
+  "target": "PearsonTypeIII",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_PearsonTypeIII.cs",
+  "datasets": {
+    "harricana": [122.0, 244.0, 214.0, 173.0, 229.0, 156.0, 212.0, 263.0, 146.0, 183.0, 161.0, 205.0, 135.0, 331.0, 225.0, 174.0, 98.8, 149.0, 238.0, 262.0, 132.0, 235.0, 216.0, 240.0, 230.0, 192.0, 195.0, 172.0, 173.0, 172.0, 153.0, 142.0, 317.0, 161.0, 201.0, 204.0, 194.0, 164.0, 183.0, 161.0, 167.0, 179.0, 185.0, 117.0, 192.0, 337.0, 125.0, 166.0, 99.1, 202.0, 230.0, 158.0, 262.0, 154.0, 164.0, 182.0, 164.0, 183.0, 171.0, 250.0, 184.0, 205.0, 237.0, 177.0, 239.0, 187.0, 180.0, 173.0, 174.0],
+    "lmom_sample": [1953.0, 1939.0, 1677.0, 1692.0, 2051.0, 2371.0, 2022.0, 1521.0, 1448.0, 1825.0, 1363.0, 1760.0, 1672.0, 1603.0, 1244.0, 1521.0, 1783.0, 1560.0, 1357.0, 1673.0, 1625.0, 1425.0, 1688.0, 1577.0, 1736.0, 1640.0, 1584.0, 1293.0, 1277.0, 1742.0, 1491.0]
+  },
+  "cases": [
+    {
+      "name": "zero_skew_normal_reduction",
+      "construct": { "params": [100.0, 10.0, 0.0] },
+      "assertions": [
+        { "method": "pdf",              "args": [100.0], "expected": 0.03989422804014326,  "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",              "args": [110.0], "expected": 0.024197072451914332, "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",              "args": [100.0], "expected": 0.5,                  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",              "args": [110.0], "expected": 0.841344746068543,     "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile",         "args": [0.5],   "expected": 100.0,                "mode": "abs", "tol": 1e-9 },
+        { "method": "quantile",         "args": [0.9],   "expected": 112.815515655446,      "mode": "abs", "tol": 1e-7 },
+        { "method": "mean",             "args": [],      "expected": 100.0,                "mode": "abs", "tol": 1e-12 },
+        { "method": "median",           "args": [],      "expected": 100.0,                "mode": "abs", "tol": 1e-9 },
+        { "method": "mode",             "args": [],      "expected": 100.0,                "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",               "args": [],      "expected": 10.0,                 "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness",         "args": [],      "expected": 0.0,                  "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis",         "args": [],      "expected": 3.0,                  "mode": "abs", "tol": 1e-12 },
+        { "method": "parameters_valid", "args": [],      "expected": true,                 "mode": "bool" }
+      ]
+    },
+    {
+      "name": "positive_skew_gamma_0p86055",
+      "construct": { "params": [191.31739, 47.96161, 0.86055] },
+      "assertions": [
+        { "method": "pdf",      "args": [191.31739], "expected": 0.008190748265640644,  "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf",      "args": [250.0],     "expected": 0.003067832634118116,  "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf",      "args": [191.31739], "expected": 0.5572523024146164,    "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf",      "args": [300.0],     "expected": 0.9724742584022152,    "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.5],       "expected": 184.51911972379173,    "mode": "abs", "tol": 1e-6 },
+        { "method": "quantile", "args": [0.99],      "expected": 331.90760834064537,    "mode": "abs", "tol": 1e-5 },
+        { "method": "mean",     "args": [],          "expected": 191.31739,             "mode": "abs", "tol": 1e-10 },
+        { "method": "median",   "args": [],          "expected": 184.51911972379173,    "mode": "abs", "tol": 1e-6 },
+        { "method": "mode",     "args": [],          "expected": 170.68070825725,       "mode": "abs", "tol": 1e-7 },
+        { "method": "sd",       "args": [],          "expected": 47.96161,              "mode": "abs", "tol": 1e-10 },
+        { "method": "skewness", "args": [],          "expected": 0.86055,               "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [],          "expected": 4.1108194537500005,    "mode": "abs", "tol": 1e-10 },
+        { "method": "parameters_valid", "args": [],  "expected": true,                  "mode": "bool" }
+      ]
+    },
+    {
+      "name": "negative_skew_gamma_neg0p61897",
+      "construct": { "params": [191.31739, 47.01925, -0.61897] },
+      "assertions": [
+        { "method": "pdf",      "args": [191.31739], "expected": 0.008417226172733296,  "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf",      "args": [150.0],     "expected": 0.004767849372242745,  "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf",      "args": [191.31739], "expected": 0.45882729317510007,   "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf",      "args": [250.0],     "expected": 0.9117626621746844,    "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.5],       "expected": 196.13947322665922,    "mode": "abs", "tol": 1e-6 },
+        { "method": "quantile", "args": [0.99],      "expected": 279.06467258605403,    "mode": "abs", "tol": 1e-5 },
+        { "method": "mean",     "args": [],          "expected": 191.31739,             "mode": "abs", "tol": 1e-10 },
+        { "method": "median",   "args": [],          "expected": 196.13947322665922,    "mode": "abs", "tol": 1e-6 },
+        { "method": "mode",     "args": [],          "expected": 205.86914258624998,    "mode": "abs", "tol": 1e-7 },
+        { "method": "sd",       "args": [],          "expected": 47.01925,              "mode": "abs", "tol": 1e-10 },
+        { "method": "skewness", "args": [],          "expected": -0.61897,              "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [],          "expected": 3.57468579135,         "mode": "abs", "tol": 1e-9 },
+        { "method": "parameters_valid", "args": [],  "expected": true,                  "mode": "bool" }
+      ]
+    },
+    {
+      "name": "construction_p3_1_1_1",
+      "construct": { "params": [1.0, 1.0, 1.0] },
+      "assertions": [
+        { "method": "mode",     "args": [], "expected": 0.5,   "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [], "expected": 4.5,   "mode": "abs", "tol": 1e-12 },
+        { "method": "mean",     "args": [], "expected": 1.0,   "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 1.0,   "mode": "abs", "tol": 1e-12 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_params_sigma_zero",
+      "construct": { "params": [100.0, 0.0, 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "mom_fit_harricana",
+      "construct": { "fit": { "method": "mom", "dataset": "harricana" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 191.3173913043478,    "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [1], "expected": 47.9616113541118,     "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [2], "expected": 0.8605451107460355,   "mode": "rel", "tol": 0.01 }
+      ]
+    },
+    {
+      "name": "lmom_fit",
+      "construct": { "fit": { "method": "lmom", "dataset": "lmom_sample" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 1648.8064516129032,   "mode": "abs", "tol": 0.001 },
+        { "method": "param", "args": [1], "expected": 248.09179229873484,   "mode": "abs", "tol": 0.001 },
+        { "method": "param", "args": [2], "expected": 0.631762222677656,    "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [0], "expected": 1648.8064516129032,  "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [1], "expected": 138.23655913978536,  "mode": "abs", "tol": 0.001 },
+        { "method": "linear_moment", "args": [2], "expected": 0.10338887285584834, "mode": "abs", "tol": 0.0001 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12585212994002676, "mode": "abs", "tol": 0.0001 }
+      ]
+    },
+    {
+      "name": "lmom_forward_negative_skew",
+      "construct": { "params": [191.31739, 47.01925, -0.61897] },
+      "assertions": [
+        { "method": "linear_moment", "args": [0], "expected": 191.31739,            "mode": "abs", "tol": 1e-9 },
+        { "method": "linear_moment", "args": [1], "expected": 26.212177497578356,   "mode": "abs", "tol": 1e-7 },
+        { "method": "linear_moment", "args": [2], "expected": 0.10127700839455282,  "mode": "abs", "tol": 1e-7 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12571672816473162,  "mode": "abs", "tol": 1e-7 }
+      ]
+    },
+    {
+      "name": "mle_fit_harricana",
+      "construct": { "fit": { "method": "mle", "dataset": "harricana" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 191.31170563217557,   "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [1], "expected": 47.01513920134638,    "mode": "rel", "tol": 0.01 },
+        { "method": "param", "args": [2], "expected": 0.6191935694126403,   "mode": "rel", "tol": 0.01 }
+      ]
+    }
+  ]
+}

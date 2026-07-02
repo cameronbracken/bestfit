@@ -1,0 +1,8 @@
+{
+  "kind": "special_function",
+  "target": "Beta.incbcf",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
+  "cases": [
+    { "name": "incbcf_4_2_42", "args": [4.0, 2.0, 4.2], "assertions": [{ "method": "value", "expected": -0.23046874999999992, "mode": "equal" }] }
+  ]
+}

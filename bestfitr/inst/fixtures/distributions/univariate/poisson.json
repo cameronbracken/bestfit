@@ -1,0 +1,107 @@
+{
+  "target": "Poisson",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Poisson.cs",
+  "cases": [
+    {
+      "name": "lambda42_moments_pdf_cdf_quantile",
+      "construct": { "params": [4.2] },
+      "assertions": [
+        { "method": "mean",     "args": [],     "expected": 4.2,                        "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [],     "expected": 4.0,                        "mode": "abs", "tol": 1e-4  },
+        { "method": "mode",     "args": [],     "expected": 4.0,                        "mode": "abs", "tol": 1e-4  },
+        { "method": "sd",       "args": [],     "expected": 2.04939015319192,           "mode": "abs", "tol": 1e-4  },
+        { "method": "skewness", "args": [],     "expected": 0.48795003647426655,        "mode": "abs", "tol": 1e-4  },
+        { "method": "kurtosis", "args": [],     "expected": 3.238095238095238,          "mode": "abs", "tol": 1e-4  },
+        { "method": "pdf",      "args": [4.0],  "expected": 0.19442365170822165,        "mode": "abs", "tol": 1e-4  },
+        { "method": "cdf",      "args": [4.0],  "expected": 0.58982702131057763,        "mode": "abs", "tol": 1e-4  },
+        { "method": "quantile", "args": [0.05], "expected": 1.0,                        "mode": "abs", "tol": 1e-4  },
+        { "method": "quantile", "args": [0.95], "expected": 8.0,                        "mode": "abs", "tol": 1e-4  },
+        { "method": "parameters_valid", "args": [], "expected": true,                   "mode": "bool"              }
+      ]
+    },
+    {
+      "name": "lambda1_moments",
+      "construct": { "params": [1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-4  },
+        { "method": "mode",     "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 1.0, "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [], "expected": 4.0, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "lambda4_moments",
+      "construct": { "params": [4.0] },
+      "assertions": [
+        { "method": "sd",       "args": [], "expected": 2.0,  "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [], "expected": 3.25, "mode": "abs", "tol": 1e-12 },
+        { "method": "mode",     "args": [], "expected": 4.0,  "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "lambda10_moments",
+      "construct": { "params": [10.0] },
+      "assertions": [
+        { "method": "mean", "args": [], "expected": 10.0, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "lambda24_mode",
+      "construct": { "params": [2.4] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 2.0, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "lambda15_pdf_cdf",
+      "construct": { "params": [1.5] },
+      "assertions": [
+        { "method": "pdf", "args": [1.0],  "expected": 0.33469,   "mode": "abs", "tol": 1e-4  },
+        { "method": "pdf", "args": [10.0], "expected": 0.00000354, "mode": "abs", "tol": 1e-8 },
+        { "method": "cdf", "args": [1.0],  "expected": 0.55782,   "mode": "abs", "tol": 1e-4  },
+        { "method": "cdf", "args": [10.0], "expected": 0.999999,  "mode": "abs", "tol": 1e-6  }
+      ]
+    },
+    {
+      "name": "lambda54_pdf",
+      "construct": { "params": [5.4] },
+      "assertions": [
+        { "method": "pdf", "args": [1.0],  "expected": 0.024389, "mode": "abs", "tol": 1e-5 },
+        { "method": "pdf", "args": [10.0], "expected": 0.02624,  "mode": "abs", "tol": 1e-5 }
+      ]
+    },
+    {
+      "name": "lambda108_cdf",
+      "construct": { "params": [10.8] },
+      "assertions": [
+        { "method": "cdf", "args": [1.0],  "expected": 0.00024,   "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf", "args": [10.0], "expected": 0.483969,  "mode": "abs", "tol": 1e-5 }
+      ]
+    },
+    {
+      "name": "lambda1_quantile_boundaries",
+      "construct": { "params": [1.0] },
+      "assertions": [
+        { "method": "quantile", "args": [0.0], "expected": 0.0, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "minimum_maximum",
+      "construct": { "params": [1.0] },
+      "assertions": [
+        { "method": "minimum", "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "invalid_params_nan",
+      "construct": { "params": [-1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}

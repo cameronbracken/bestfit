@@ -1,0 +1,32 @@
+{
+  "target": "KernelDensity",
+  "kind":   "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_KernelDensity.cs",
+  "datasets": {
+    "tippecanoe": [6290, 2700, 13100, 16900, 14600, 9600, 7740, 8490, 8130, 12000, 17200, 15000, 12400, 6960, 6500, 5840, 10400, 18800, 21400, 22600, 14200, 11000, 12800, 15700, 4740, 6950, 11800, 12100, 20600, 14600, 14600, 8900, 10600, 14200, 14100, 14100, 12500, 7530, 13400, 17600, 13400, 19200, 16900, 15500, 14500, 21900, 10400, 7460]
+  },
+  "cases": [
+    {
+      "name": "gaussian_default_pdf",
+      "construct": {"data": "tippecanoe", "kernel": "Gaussian"},
+      "assertions": [
+        { "method": "pdf",              "args": [2328.878], "expected": 1.0423134048637404e-05, "mode": "abs", "tol": 1e-9 },
+        { "method": "pdf",              "args": [12221.33], "expected": 7.4122039062202643e-05,  "mode": "abs", "tol": 1e-9 },
+        { "method": "pdf",              "args": [28708.74], "expected": 1.8292309077128219e-07,  "mode": "abs", "tol": 1e-11 },
+        { "method": "minimum",          "args": [],         "expected": 2700.0,                  "mode": "equal" },
+        { "method": "maximum",          "args": [],         "expected": 22600.0,                 "mode": "equal" },
+        { "method": "parameters_valid", "args": [],         "expected": true,                    "mode": "bool" }
+      ]
+    },
+    {
+      "name": "gaussian_unbounded_cdf",
+      "construct": {"data": "tippecanoe", "kernel": "Gaussian", "bounded_by_data": false},
+      "assertions": [
+        { "method": "cdf",      "args": [2328.878],  "expected": 0.01734183, "mode": "abs", "tol": 1e-2 },
+        { "method": "cdf",      "args": [12221.33],  "expected": 0.4669572,  "mode": "abs", "tol": 1e-2 },
+        { "method": "cdf",      "args": [28708.74],  "expected": 0.9999118,  "mode": "abs", "tol": 1e-2 },
+        { "method": "quantile", "args": [0.4669572], "expected": 12221.33,   "mode": "abs", "tol": 100.0 }
+      ]
+    }
+  ]
+}

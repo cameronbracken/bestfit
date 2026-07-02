@@ -1,0 +1,45 @@
+{
+  "target": "UniformDiscrete",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_UniformDiscrete.cs",
+  "cases": [
+    {
+      "name": "standard_min0_max1",
+      "construct": { "params": [0.0, 1.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 0.5,  "mode": "abs", "tol": 1e-5 },
+        { "method": "skewness", "args": [], "expected": 0.0,  "mode": "abs", "tol": 1e-12 },
+        { "method": "kurtosis", "args": [], "expected": 1.0,  "mode": "abs", "tol": 1e-5 },
+        { "method": "pdf",      "args": [-1.0], "expected": 0.0,  "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [0.0],  "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [1.0],  "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",      "args": [2.0],  "expected": 0.0,  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [0.0],  "expected": 0.5,  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [1.0],  "expected": 1.0,  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [0.5],  "expected": 0.75, "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [0.0],  "expected": 0.0,  "mode": "abs", "tol": 1e-9 },
+        { "method": "quantile", "args": [1.0],  "expected": 1.0,  "mode": "abs", "tol": 1e-9 },
+        { "method": "quantile", "args": [0.3],  "expected": 0.0,  "mode": "abs", "tol": 1e-9 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "min2_max6",
+      "construct": { "params": [2.0, 6.0] },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 4.0, "mode": "abs", "tol": 1e-4 },
+        { "method": "median",   "args": [], "expected": 4.0, "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",       "args": [], "expected": 1.4142135623730951, "mode": "abs", "tol": 1e-5 },
+        { "method": "skewness", "args": [], "expected": 0.0,  "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis", "args": [], "expected": 1.7,  "mode": "abs", "tol": 1e-4 },
+        { "method": "pdf",      "args": [4.0], "expected": 0.2,  "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",      "args": [2.0], "expected": 0.2,  "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.17], "expected": 2.0, "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile", "args": [0.87], "expected": 6.0, "mode": "abs", "tol": 1e-4 },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    }
+  ]
+}

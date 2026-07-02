@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionType.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionType.cs @ a2c4dbf
 //
 // Enumeration of every univariate distribution. The full set is mirrored verbatim
 // (even those not yet ported) so the factory switch and any persisted type names line

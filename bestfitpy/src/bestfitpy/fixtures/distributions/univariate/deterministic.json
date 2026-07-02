@@ -1,0 +1,48 @@
+{
+  "target": "Deterministic",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Distributions/Univariate/Deterministic.cs",
+  "cases": [
+    {
+      "name": "default_0p5",
+      "construct": { "params": [0.5] },
+      "assertions": [
+        { "method": "mean",     "args": [],      "expected": 0.5,  "mode": "equal" },
+        { "method": "median",   "args": [],      "expected": 0.5,  "mode": "equal" },
+        { "method": "mode",     "args": [],      "expected": 0.5,  "mode": "equal" },
+        { "method": "sd",       "args": [],      "expected": "nan", "mode": "equal" },
+        { "method": "skewness", "args": [],      "expected": "nan", "mode": "equal" },
+        { "method": "kurtosis", "args": [],      "expected": "nan", "mode": "equal" },
+        { "method": "minimum",  "args": [],      "expected": 0.5,  "mode": "equal" },
+        { "method": "maximum",  "args": [],      "expected": 0.5,  "mode": "equal" },
+        { "method": "pdf",      "args": [0.5],   "expected": 1.0,  "mode": "equal" },
+        { "method": "pdf",      "args": [0.0],   "expected": 0.0,  "mode": "equal" },
+        { "method": "pdf",      "args": [1.0],   "expected": 0.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [0.5],   "expected": 1.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [0.49],  "expected": 0.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [1.0],   "expected": 1.0,  "mode": "equal" },
+        { "method": "quantile", "args": [0.0],   "expected": 0.5,  "mode": "equal" },
+        { "method": "quantile", "args": [0.5],   "expected": 0.5,  "mode": "equal" },
+        { "method": "quantile", "args": [1.0],   "expected": 0.5,  "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "value_42",
+      "construct": { "params": [42.0] },
+      "assertions": [
+        { "method": "mean",     "args": [],      "expected": 42.0, "mode": "equal" },
+        { "method": "median",   "args": [],      "expected": 42.0, "mode": "equal" },
+        { "method": "mode",     "args": [],      "expected": 42.0, "mode": "equal" },
+        { "method": "minimum",  "args": [],      "expected": 42.0, "mode": "equal" },
+        { "method": "maximum",  "args": [],      "expected": 42.0, "mode": "equal" },
+        { "method": "pdf",      "args": [42.0],  "expected": 1.0,  "mode": "equal" },
+        { "method": "pdf",      "args": [41.0],  "expected": 0.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [42.0],  "expected": 1.0,  "mode": "equal" },
+        { "method": "cdf",      "args": [41.9],  "expected": 0.0,  "mode": "equal" },
+        { "method": "quantile", "args": [0.3],   "expected": 42.0, "mode": "equal" },
+        { "method": "quantile", "args": [0.7],   "expected": 42.0, "mode": "equal" }
+      ]
+    }
+  ]
+}

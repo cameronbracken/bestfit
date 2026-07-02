@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ a2c4dbf
 //
 // Abstract base for every univariate distribution. Declares the distribution-core
 // surface as pure virtuals (moments, support, PDF/CDF/InverseCDF, parameters) and
@@ -51,6 +51,20 @@ class UnivariateDistributionBase {
         double f = pdf(x);
         if (std::isnan(f) || std::isinf(f) || f <= 0.0) return -kInf;
         return std::log(f);
+    }
+
+    virtual double log_cdf(double x) const {
+        double F = cdf(x);
+        if (std::isnan(F) || std::isinf(F) || F <= 0.0) return -kInf;
+        return std::log(F);
+    }
+
+    virtual double ccdf(double x) const { return 1.0 - cdf(x); }
+
+    virtual double log_ccdf(double x) const {
+        double cF = ccdf(x);
+        if (std::isnan(cF) || std::isinf(cF) || cF <= 0.0) return -kInf;
+        return std::log(cF);
     }
 
     double log_likelihood(const std::vector<double>& sample) const {

@@ -1,0 +1,78 @@
+{
+  "kind": "special_function",
+  "target": "Gamma.upper_incomplete",
+  "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
+  "reference": "Numerics @ a2c4dbf; Gamma.UpperIncomplete. Oracle values from Test_Gamma.cs Test_UpperIncomplete + dotnet run. Uses continued-fraction when x>=1 and x>=a; delegates to lower otherwise.",
+  "cases": [
+    {
+      "name": "upper_inc_a0_x2_boundary",
+      "args": [0.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "equal" } ]
+    },
+    {
+      "name": "upper_inc_a025_x2",
+      "args": [0.25, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.017286011859516785, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a05_x2",
+      "args": [0.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.045500263896358424, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a075_x2",
+      "args": [0.75, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.085055514861681114, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a1_x2",
+      "args": [1.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.13533528323661276, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a125_x2",
+      "args": [1.25, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.19484695835948623, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a15_x2",
+      "args": [1.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.2614641299491105, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a175_x2",
+      "args": [1.75, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.33270559569176628, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a2_x2",
+      "args": [2.0, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.406005849709838, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a225_x2",
+      "args": [2.25, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.47894447275943874, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a25_x2",
+      "args": [2.5, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.54941595135278154, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a275_x2",
+      "args": [2.75, 2.0],
+      "assertions": [ { "method": "value", "expected": 0.61573425949757632, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "upper_inc_a1_x0_one",
+      "args": [1.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "equal" } ]
+    },
+    {
+      "name": "upper_inc_a1_x100_near_zero",
+      "args": [1.0, 100.0],
+      "assertions": [ { "method": "value", "expected": 3.7200759760208177e-44, "mode": "rel", "tol": 1e-10 } ]
+    }
+  ]
+}

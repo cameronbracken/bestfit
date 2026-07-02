@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/Statistics.cs @ <pending-sha>
+// ported from: Numerics/Data/Statistics/Statistics.cs @ a2c4dbf
 //
 // Sample statistics needed by distribution estimation: product moments
 // (mean, stdev, bias-corrected skew & excess kurtosis) and linear (L-)moments.

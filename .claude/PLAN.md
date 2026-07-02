@@ -1,27 +1,20 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0 is **complete**. **Phase 1 is underway** —
-> the first increment landed the polymorphic distribution layer (`UnivariateDistributionBase`,
-> `UnivariateDistributionType`, the factory, and the `IEstimation` / `ILinearMomentEstimation`
-> capability mixins) plus the first three pilot distributions (**Normal**, **Uniform**,
-> **Exponential**), with GEV refactored onto the base. Runners and bindings in all three languages
-> are now factory-driven and polymorphic, so a new distribution = one fixture file + a couple of
-> dispatch entries. The GEV slice keeps a bespoke path for its standard-error methods.
+> **Current status (kept in sync by hand):** Phase 0 and Phase 1 are **complete**.
 >
-> Oracle workflow is now **hybrid**: fixtures are curated from the C# tests AND verified
-> reproducible against the real Numerics library by `tools/oracle_emitter` (C#) +
-> `tools/verify_oracles.py` (dev-only; needs `dotnet`, which is now installed). All three harnesses
-> + the dotnet gate are green; R and Python agree bit-for-bit.
+> Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
+> Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
+> the dotnet oracle gate: all special functions (Erf, Gamma, Beta, Factorial, Bessel I0/I1), the
+> AdaptiveGaussKronrod integrator, Brent root-finder, Nelder-Mead optimizer, Matrix/Vector linear
+> algebra, MersenneTwister RNG, Sobol sequence, Statistics (product moments, L-moments),
+> GoodnessOfFit, and all 42 univariate distributions including composite types (Mixture,
+> TruncatedDistribution, CompetingRisks). CI is green on the full matrix (`sync-check`, `core`,
+> `r-cmd-check`, `python`) on Linux/macOS/Windows. The dotnet oracle gate is dev-only (not in CI).
 >
-> This increment is committed on branch `phase1-pilot-distributions` (PR #1, GPG-signed
-> `de86a8d`) with **CI green on the full matrix** — `sync-check`, `core`, `r-cmd-check`, and
-> `python` all pass on Linux/macOS/Windows. The dotnet oracle gate is intentionally not in CI
-> (CI checks out with `submodules: false` and has no `dotnet`); it stays a local dev gate.
->
-> The `upstream/` submodules exist (`upstream/Numerics`, `upstream/RMC-BestFit` — official
-> USACE-RMC `main`, shallow, dev-only). Still pending: the remaining ~38 univariate distributions,
-> the rest of the math/RNG foundation, an auto-scraper for the bulk oracle extraction,
-> `PORTING_MANIFEST.toml`, `upstream_diff.py`, and the `core/src` source-manifest machinery.
+> Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
+> USACE-RMC `main`, shallow, dev-only). Still pending: `PORTING_MANIFEST.toml`,
+> `upstream_diff.py`, the auto-scraper for bulk oracle extraction, and the `core/src`
+> source-manifest machinery.
 > The rest of this document is the originally approved architecture and phasing.
 
 ## Context
@@ -209,13 +202,15 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
 
 **Phases 1–7 — bulk port (tests ported alongside each chunk):**
 1. Numerics math + RNG foundation (all `Mathematics`, `Sampling` RNG, `Data/Statistics`).
-   [IN PROGRESS] The univariate base/factory/capability-mixin layer is built and the first
-   three distributions are ported (see pilot below); `std::erf`, Wichura AS241 inverse-normal,
-   and the shared statistics are in. Still to do: Sobol + RNG breadth, integration,
-   differentiation, fuller linear algebra and special functions, goodness-of-fit stats.
+   [DONE] All special functions (Erf, Gamma, Beta, Factorial, Bessel I0/I1), AdaptiveGaussKronrod
+   integrator, Brent root-finder, Nelder-Mead optimizer, Matrix/Vector linear algebra,
+   MersenneTwister RNG, Sobol sequence, Statistics (product moments, L-moments), and GoodnessOfFit
+   are ported, fixture-validated in all three harnesses, and reproduced against C# by the dotnet
+   oracle gate.
 2. All 42 univariate distributions (mechanical once the base exists; parallelizable).
-   [PILOT DONE] **Normal**, **Uniform**, **Exponential** ported, fixture-validated in
-   C++/R/Python and reproduced against C# (PR #1). ~38 remaining, dependency-ordered.
+   [DONE] All 42 distributions ported, fixture-validated in C++/R/Python, and reproduced against
+   C# by the dotnet oracle gate. Includes composite types: Mixture, TruncatedDistribution, and
+   CompetingRisks. The polymorphic factory/base/mixin layer is used throughout.
 3. Multivariate distributions + copulas.
 4. Sampling/MCMC (RWMH, ARWMH, DEMCz/zs, HMC, NUTS, Gibbs, SNIS) + Bootstrap — fixture digests prove
    identical seeded chains across R/Python.

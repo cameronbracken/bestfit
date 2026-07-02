@@ -10,7 +10,10 @@
 // GEV standard-error methods are reported as "skipped" (verified in Phase 0, not re-checked here).
 
 using System.Text.Json;
+using Numerics.Data;
+using Numerics.Data.Statistics;
 using Numerics.Distributions;
+using Numerics.Mathematics.SpecialFunctions;
 
 static double ParseNum(JsonElement v)
 {
@@ -34,11 +37,115 @@ static ParameterEstimationMethod ParseMethod(string m) => m switch
     _ => ParameterEstimationMethod.MaximumLikelihood,
 };
 
+// Build a component distribution from {"target": "...", "params": [...]} (or "fit").
+// Recursive: components can nest for future Mixture / CompetingRisks.
+static UnivariateDistributionBase BuildComponent(JsonElement desc,
+                                                  Dictionary<string, double[]> datasets)
+{
+    var compTarget = desc.GetProperty("target").GetString()!;
+    var compType = Enum.Parse<UnivariateDistributionType>(compTarget);
+    UnivariateDistributionBase compDist = compTarget == "VonMises"
+        ? new VonMises()
+        : UnivariateDistributionFactory.CreateDistribution(compType);
+    if (desc.TryGetProperty("params", out var compPs))
+    {
+        compDist.SetParameters(compPs.EnumerateArray().Select(ParseNum).ToArray());
+        return compDist;
+    }
+    if (desc.TryGetProperty("fit", out var compFit))
+    {
+        var compData = datasets[compFit.GetProperty("dataset").GetString()!];
+        if (compDist is IEstimation compEst)
+            compEst.Estimate(compData, ParseMethod(compFit.GetProperty("method").GetString()!));
+        else
+            throw new Exception($"{compTarget} does not support estimation");
+        return compDist;
+    }
+    throw new Exception($"BuildComponent: missing 'params' or 'fit' for {compTarget}");
+}
+
+// Build composite distributions from their structured construct schemas.
+// Future composites (Mixture, CompetingRisks) add a case here.
+static UnivariateDistributionBase BuildComposite(string target, JsonElement construct,
+                                                  Dictionary<string, double[]> datasets)
+{
+    if (target == "TruncatedDistribution")
+    {
+        var baseDist = BuildComponent(construct.GetProperty("base"), datasets);
+        var boundsArr = construct.GetProperty("bounds").EnumerateArray().ToArray();
+        double lo = ParseNum(boundsArr[0]), hi = ParseNum(boundsArr[1]);
+        return new TruncatedDistribution(baseDist, lo, hi);
+    }
+    if (target == "Empirical")
+    {
+        var xArr = construct.GetProperty("x").EnumerateArray().Select(ParseNum).ToArray();
+        var pArr = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
+        var emp = new EmpiricalDistribution(xArr, pArr);
+        // Optional p_transform: "None" or "NormalZ" (default NormalZ)
+        if (construct.TryGetProperty("p_transform", out var pt))
+        {
+            emp.ProbabilityTransform = pt.GetString() switch
+            {
+                "None"    => Transform.None,
+                "NormalZ" => Transform.NormalZ,
+                var s     => throw new Exception($"unknown p_transform: {s}")
+            };
+        }
+        return emp;
+    }
+    if (target == "KernelDensity")
+    {
+        var data = datasets[construct.GetProperty("data").GetString()!];
+        var kernelStr = construct.TryGetProperty("kernel", out var k) ? k.GetString()! : "Gaussian";
+        var kernelType = kernelStr switch
+        {
+            "Epanechnikov" => KernelDensity.KernelType.Epanechnikov,
+            "Gaussian"     => KernelDensity.KernelType.Gaussian,
+            "Triangular"   => KernelDensity.KernelType.Triangular,
+            "Uniform"      => KernelDensity.KernelType.Uniform,
+            var s          => throw new Exception($"unknown kernel type: {s}")
+        };
+        KernelDensity kde = construct.TryGetProperty("bandwidth", out var bw)
+            ? new KernelDensity(data, kernelType, bw.GetDouble())
+            : new KernelDensity(data, kernelType);
+        if (construct.TryGetProperty("bounded_by_data", out var bd))
+            kde.BoundedByData = bd.GetBoolean();
+        return kde;
+    }
+    if (target == "Mixture")
+    {
+        var comps = construct.GetProperty("components").EnumerateArray()
+            .Select(c => BuildComponent(c, datasets)).ToArray();
+        var wts = construct.GetProperty("weights").EnumerateArray()
+            .Select(e => e.GetDouble()).ToArray();
+        return new Mixture(wts, comps);
+    }
+    if (target == "CompetingRisks")
+    {
+        var comps = construct.GetProperty("components").EnumerateArray()
+            .Select(c => BuildComponent(c, datasets)).ToArray();
+        var cr = new CompetingRisks(comps);
+        if (construct.TryGetProperty("minimum_of_random_variables", out var minOfRV))
+            cr.MinimumOfRandomVariables = minOfRV.GetBoolean();
+        return cr;
+    }
+    throw new Exception($"unknown composite target: {target}");
+}
+
 static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
+    // Composite distributions use bespoke construction (no flat enum entry in C# or C++).
+    if (target == "TruncatedDistribution" || target == "Empirical" || target == "KernelDensity"
+        || target == "Mixture" || target == "CompetingRisks")
+        return BuildComposite(target, construct, datasets);
+
+    // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.
     var type = Enum.Parse<UnivariateDistributionType>(target);
-    var dist = UnivariateDistributionFactory.CreateDistribution(type);
+    // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
+    UnivariateDistributionBase dist = target == "VonMises"
+        ? new VonMises()
+        : UnivariateDistributionFactory.CreateDistribution(type);
     if (construct.TryGetProperty("params", out var ps))
     {
         var p = ps.EnumerateArray().Select(ParseNum).ToArray();
@@ -111,6 +218,40 @@ static bool Compare(double actual, JsonElement assertion)
     }
 }
 
+// Special-function dispatch table: maps "Module.method" → Func<double[], double>.
+static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
+{
+    // Erf family
+    "Erf.function"     => a => Erf.Function(a[0]),
+    "Erf.erfc"         => a => Erf.Erfc(a[0]),
+    "Erf.inverse_erf"  => a => Erf.InverseErf(a[0]),
+    "Erf.inverse_erfc" => a => Erf.InverseErfc(a[0]),
+    // Gamma family
+    "Gamma.function"                 => a => Gamma.Function(a[0]),
+    "Gamma.log_gamma"                => a => Gamma.LogGamma(a[0]),
+    "Gamma.digamma"                  => a => Gamma.Digamma(a[0]),
+    "Gamma.trigamma"                 => a => Gamma.Trigamma(a[0]),
+    "Gamma.lower_incomplete"         => a => Gamma.LowerIncomplete(a[0], a[1]),
+    "Gamma.upper_incomplete"         => a => Gamma.UpperIncomplete(a[0], a[1]),
+    "Gamma.inverse_lower_incomplete" => a => Gamma.InverseLowerIncomplete(a[0], a[1]),
+    "Gamma.inverse_upper_incomplete" => a => Gamma.InverseUpperIncomplete(a[0], a[1]),
+    // Beta family
+    "Beta.function"           => a => Beta.Function(a[0], a[1]),
+    "Beta.incomplete"         => a => Beta.Incomplete(a[0], a[1], a[2]),
+    "Beta.incbcf"             => a => Beta.Incbcf(a[0], a[1], a[2]),
+    "Beta.incbd"              => a => Beta.Incbd(a[0], a[1], a[2]),
+    "Beta.power_series"       => a => Beta.PowerSeries(a[0], a[1], a[2]),
+    "Beta.incomplete_inverse" => a => Beta.IncompleteInverse(a[0], a[1], a[2]),
+    // Factorial family
+    "Factorial.function"             => a => Factorial.Function((int)a[0]),
+    "Factorial.log_factorial"        => a => Factorial.LogFactorial((int)a[0]),
+    "Factorial.binomial_coefficient" => a => Factorial.BinomialCoefficient((int)a[0], (int)a[1]),
+    // Bessel family
+    "Bessel.i0" => a => Bessel.I0(a[0]),
+    "Bessel.i1" => a => Bessel.I1(a[0]),
+    _ => null,
+};
+
 // --- main -------------------------------------------------------------------------------
 
 string fixturesDir = args.Length > 0 ? args[0]
@@ -129,8 +270,89 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
 {
     using var doc = JsonDocument.Parse(File.ReadAllText(file));
     var root = doc.RootElement;
-    if (root.TryGetProperty("kind", out var kind) && kind.GetString() != "univariate_distribution")
+    string? kindStr = root.TryGetProperty("kind", out var kind) ? kind.GetString() : null;
+
+    // --- special_function branch --------------------------------------------------------
+    if (kindStr == "special_function")
+    {
+        string sfTarget = root.GetProperty("target").GetString()!;
+        var fn = ResolveSpecialFunction(sfTarget);
+        if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            var argList = c.GetProperty("args").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+            double actual;
+            try { actual = fn(argList); }
+            catch (Exception ex) { fail++; failures.Add($"{sfTarget}/{caseName}: {ex.Message}"); continue; }
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string where = $"{sfTarget}/{caseName}/{asrt.GetProperty("method").GetString()}";
+                if (Compare(actual, asrt)) pass++;
+                else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
         continue;
+    }
+
+    // --- goodness_of_fit branch ---------------------------------------------------------
+    if (kindStr == "goodness_of_fit")
+    {
+        var dsSets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var dsNode))
+            foreach (var kv in dsNode.EnumerateObject())
+                dsSets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            string fn = c.GetProperty("function").GetString()!;
+
+            // Resolve inputs: scalar args or observed/modeled dataset pairs
+            double[] scalarArgs = c.TryGetProperty("args", out var argsNode)
+                ? argsNode.EnumerateArray().Select(ParseNum).ToArray()
+                : Array.Empty<double>();
+            double[]? obs = c.TryGetProperty("observed_dataset", out var obsName)
+                ? dsSets[obsName.GetString()!] : null;
+            double[]? mod = c.TryGetProperty("modeled_dataset", out var modName)
+                ? dsSets[modName.GetString()!] : null;
+
+            double actual;
+            try
+            {
+                actual = fn switch
+                {
+                    "AIC"  => GoodnessOfFit.AIC((int)scalarArgs[0], scalarArgs[1]),
+                    "AICc" => GoodnessOfFit.AICc((int)scalarArgs[0], (int)scalarArgs[1], scalarArgs[2]),
+                    "BIC"  => GoodnessOfFit.BIC((int)scalarArgs[0], (int)scalarArgs[1], scalarArgs[2]),
+                    "MSE"  => GoodnessOfFit.MSE(obs!, mod!),
+                    "MAE"  => GoodnessOfFit.MAE(obs!, mod!),
+                    "NashSutcliffeEfficiency"    => GoodnessOfFit.NashSutcliffeEfficiency(obs!, mod!),
+                    "KlingGuptaEfficiency"       => GoodnessOfFit.KlingGuptaEfficiency(obs!, mod!),
+                    "KlingGuptaEfficiencyMod"    => GoodnessOfFit.KlingGuptaEfficiencyMod(obs!, mod!),
+                    "PBIAS"                      => GoodnessOfFit.PBIAS(obs!, mod!),
+                    "RSR"                        => GoodnessOfFit.RSR(obs!, mod!),
+                    "IndexOfAgreement"           => GoodnessOfFit.IndexOfAgreement(obs!, mod!),
+                    "ModifiedIndexOfAgreement"   => GoodnessOfFit.ModifiedIndexOfAgreement(obs!, mod!),
+                    "RefinedIndexOfAgreement"    => GoodnessOfFit.RefinedIndexOfAgreement(obs!, mod!),
+                    "VolumetricEfficiency"       => GoodnessOfFit.VolumetricEfficiency(obs!, mod!),
+                    _ => throw new Exception($"unknown goodness_of_fit function: {fn}")
+                };
+            }
+            catch (Exception ex) { fail++; failures.Add($"gof/{caseName}: {ex.Message}"); continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string where = $"gof/{caseName}";
+                if (Compare(actual, asrt)) pass++;
+                else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
+        continue;
+    }
+
+    if (kindStr != "univariate_distribution") continue;
+
     string target = root.GetProperty("target").GetString()!;
 
     var datasets = new Dictionary<string, double[]>();

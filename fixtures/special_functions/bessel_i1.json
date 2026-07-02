@@ -1,0 +1,12 @@
+{
+  "kind": "special_function",
+  "target": "Bessel.i1",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Bessel.cs",
+  "cases": [
+    { "name": "i1_0",        "args": [0.0],   "assertions": [{ "method": "value", "expected": 0.0,           "mode": "abs", "tol": 1e-7 }] },
+    { "name": "i1_1_poly",   "args": [1.0],   "assertions": [{ "method": "value", "expected": 0.5651591040,  "mode": "abs", "tol": 1e-5 }] },
+    { "name": "i1_2_poly",   "args": [2.0],   "assertions": [{ "method": "value", "expected": 1.5906368546,  "mode": "abs", "tol": 1e-5 }] },
+    { "name": "i1_5_asymp",  "args": [5.0],   "assertions": [{ "method": "value", "expected": 24.3356421088, "mode": "abs", "tol": 1e-2 }] },
+    { "name": "i1_neg_anti", "args": [-2.5],  "assertions": [{ "method": "value", "expected": -2.5167162452, "mode": "abs", "tol": 1e-4 }] }
+  ]
+}

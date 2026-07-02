@@ -1,0 +1,111 @@
+{
+  "kind": "goodness_of_fit",
+  "source": "Numerics/Data/Statistics/GoodnessOfFit.cs",
+  "reference": "Numerics @ a2c4dbf; Test_GoodnessOfFit.cs",
+  "note": "AIC/AICc/BIC use logL = -121.01131220612 (derived from Test_AIC expected 246.02262441224). MSE/MAE/MAPE inputs match Test_MSE/Test_MAE/Test_MAPE exactly. Statistical-test inputs: Normal(100,15) quantiles at i/31 for i=1..30.",
+  "datasets": {
+    "obs_4":    [2.5, 0.0, 2.1, 1.4],
+    "mod_4":    [3.0, -0.5, 2.0, 1.5],
+    "obs_8":    [2.5, 0.0, 2.1, 1.4, 3.2, 2.8, 1.9, 0.5],
+    "mod_8":    [3.0, -0.5, 2.0, 1.5, 3.0, 2.9, 2.1, 0.8],
+    "obs_8_ve": [2.5, 1.0, 2.1, 1.4, 3.2, 2.8, 1.9, 0.5],
+    "mod_8_ve": [3.0, 0.5, 2.0, 1.5, 3.0, 2.9, 2.1, 0.8]
+  },
+  "cases": [
+    {
+      "name": "AIC_n2_loglik",
+      "function": "AIC",
+      "args": [2, -121.01131220612],
+      "assertions": [{ "expected": 246.02262441224, "mode": "abs", "tol": 1e-6 }]
+    },
+    {
+      "name": "AICc_n30_k2_loglik",
+      "function": "AICc",
+      "args": [30, 2, -121.01131220612],
+      "assertions": [{ "expected": 246.467068856684, "mode": "abs", "tol": 1e-6 }]
+    },
+    {
+      "name": "BIC_n30_k2_loglik",
+      "function": "BIC",
+      "args": [30, 2, -121.01131220612],
+      "assertions": [{ "expected": 248.825019175564, "mode": "abs", "tol": 1e-6 }]
+    },
+    {
+      "name": "MSE_basic",
+      "function": "MSE",
+      "observed_dataset": "obs_4",
+      "modeled_dataset": "mod_4",
+      "assertions": [{ "expected": 0.13, "mode": "abs", "tol": 1e-6 }]
+    },
+    {
+      "name": "MAE_basic",
+      "function": "MAE",
+      "observed_dataset": "obs_4",
+      "modeled_dataset": "mod_4",
+      "assertions": [{ "expected": 0.3, "mode": "abs", "tol": 1e-6 }]
+    },
+    {
+      "name": "NSE_basic",
+      "function": "NashSutcliffeEfficiency",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.918981, "mode": "abs", "tol": 1e-5 }]
+    },
+    {
+      "name": "PBIAS_basic",
+      "function": "PBIAS",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 2.777778, "mode": "abs", "tol": 1e-5 }]
+    },
+    {
+      "name": "RSR_basic",
+      "function": "RSR",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.284637521, "mode": "abs", "tol": 1e-5 }]
+    },
+    {
+      "name": "IndexOfAgreement_basic",
+      "function": "IndexOfAgreement",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.98147, "mode": "abs", "tol": 1e-4 }]
+    },
+    {
+      "name": "ModifiedIndexOfAgreement_basic",
+      "function": "ModifiedIndexOfAgreement",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.86301, "mode": "abs", "tol": 1e-4 }]
+    },
+    {
+      "name": "RefinedIndexOfAgreement_basic",
+      "function": "RefinedIndexOfAgreement",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.85714, "mode": "abs", "tol": 1e-4 }]
+    },
+    {
+      "name": "VolumetricEfficiency_basic",
+      "function": "VolumetricEfficiency",
+      "observed_dataset": "obs_8_ve",
+      "modeled_dataset": "mod_8_ve",
+      "assertions": [{ "expected": 0.87013, "mode": "abs", "tol": 1e-4 }]
+    },
+    {
+      "name": "KGE_basic",
+      "function": "KlingGuptaEfficiency",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.88573, "mode": "abs", "tol": 1e-4 }]
+    },
+    {
+      "name": "KGEMod_basic",
+      "function": "KlingGuptaEfficiencyMod",
+      "observed_dataset": "obs_8",
+      "modeled_dataset": "mod_8",
+      "assertions": [{ "expected": 0.91295, "mode": "abs", "tol": 1e-4 }]
+    }
+  ]
+}

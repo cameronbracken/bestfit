@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Exponential.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Exponential.cs @ a2c4dbf
 //
 // The (two-parameter) Exponential distribution, location ξ and scale α. Logic mirrors
 // the C# source method-for-method. The WPF ConditionalMoments helper is not ported.

@@ -28,6 +28,106 @@ bf_dist_linear_moments_ <- function(target, params) {
   .Call(`_bestfitr_bf_dist_linear_moments_`, target, params)
 }
 
+bf_trunc_moments_ <- function(base_target, base_params, lo, hi) {
+  .Call(`_bestfitr_bf_trunc_moments_`, base_target, base_params, lo, hi)
+}
+
+bf_trunc_pdf_ <- function(base_target, base_params, lo, hi, x) {
+  .Call(`_bestfitr_bf_trunc_pdf_`, base_target, base_params, lo, hi, x)
+}
+
+bf_trunc_cdf_ <- function(base_target, base_params, lo, hi, x) {
+  .Call(`_bestfitr_bf_trunc_cdf_`, base_target, base_params, lo, hi, x)
+}
+
+bf_trunc_quantile_ <- function(base_target, base_params, lo, hi, p) {
+  .Call(`_bestfitr_bf_trunc_quantile_`, base_target, base_params, lo, hi, p)
+}
+
+bf_trunc_valid_ <- function(base_target, base_params, lo, hi) {
+  .Call(`_bestfitr_bf_trunc_valid_`, base_target, base_params, lo, hi)
+}
+
+bf_emp_moments_ <- function(x_vals, p_vals, p_transform) {
+  .Call(`_bestfitr_bf_emp_moments_`, x_vals, p_vals, p_transform)
+}
+
+bf_emp_pdf_ <- function(x_vals, p_vals, p_transform, x) {
+  .Call(`_bestfitr_bf_emp_pdf_`, x_vals, p_vals, p_transform, x)
+}
+
+bf_emp_cdf_ <- function(x_vals, p_vals, p_transform, x) {
+  .Call(`_bestfitr_bf_emp_cdf_`, x_vals, p_vals, p_transform, x)
+}
+
+bf_emp_quantile_ <- function(x_vals, p_vals, p_transform, prob) {
+  .Call(`_bestfitr_bf_emp_quantile_`, x_vals, p_vals, p_transform, prob)
+}
+
+bf_emp_valid_ <- function(x_vals, p_vals, p_transform) {
+  .Call(`_bestfitr_bf_emp_valid_`, x_vals, p_vals, p_transform)
+}
+
+bf_kde_moments_ <- function(data, kernel, bandwidth, bounded_by_data) {
+  .Call(`_bestfitr_bf_kde_moments_`, data, kernel, bandwidth, bounded_by_data)
+}
+
+bf_kde_pdf_ <- function(data, kernel, bandwidth, bounded_by_data, x) {
+  .Call(`_bestfitr_bf_kde_pdf_`, data, kernel, bandwidth, bounded_by_data, x)
+}
+
+bf_kde_cdf_ <- function(data, kernel, bandwidth, bounded_by_data, x) {
+  .Call(`_bestfitr_bf_kde_cdf_`, data, kernel, bandwidth, bounded_by_data, x)
+}
+
+bf_kde_quantile_ <- function(data, kernel, bandwidth, bounded_by_data, prob) {
+  .Call(`_bestfitr_bf_kde_quantile_`, data, kernel, bandwidth, bounded_by_data, prob)
+}
+
+bf_kde_valid_ <- function(data, kernel, bandwidth, bounded_by_data) {
+  .Call(`_bestfitr_bf_kde_valid_`, data, kernel, bandwidth, bounded_by_data)
+}
+
+bf_mix_moments_ <- function(comp_targets, comp_params_list, weights) {
+  .Call(`_bestfitr_bf_mix_moments_`, comp_targets, comp_params_list, weights)
+}
+
+bf_mix_pdf_ <- function(comp_targets, comp_params_list, weights, x) {
+  .Call(`_bestfitr_bf_mix_pdf_`, comp_targets, comp_params_list, weights, x)
+}
+
+bf_mix_cdf_ <- function(comp_targets, comp_params_list, weights, x) {
+  .Call(`_bestfitr_bf_mix_cdf_`, comp_targets, comp_params_list, weights, x)
+}
+
+bf_mix_quantile_ <- function(comp_targets, comp_params_list, weights, prob) {
+  .Call(`_bestfitr_bf_mix_quantile_`, comp_targets, comp_params_list, weights, prob)
+}
+
+bf_mix_valid_ <- function(comp_targets, comp_params_list, weights) {
+  .Call(`_bestfitr_bf_mix_valid_`, comp_targets, comp_params_list, weights)
+}
+
+bf_cr_moments_ <- function(comp_targets, comp_params_list, minimum_of_rv) {
+  .Call(`_bestfitr_bf_cr_moments_`, comp_targets, comp_params_list, minimum_of_rv)
+}
+
+bf_cr_pdf_ <- function(comp_targets, comp_params_list, minimum_of_rv, x) {
+  .Call(`_bestfitr_bf_cr_pdf_`, comp_targets, comp_params_list, minimum_of_rv, x)
+}
+
+bf_cr_cdf_ <- function(comp_targets, comp_params_list, minimum_of_rv, x) {
+  .Call(`_bestfitr_bf_cr_cdf_`, comp_targets, comp_params_list, minimum_of_rv, x)
+}
+
+bf_cr_quantile_ <- function(comp_targets, comp_params_list, minimum_of_rv, prob) {
+  .Call(`_bestfitr_bf_cr_quantile_`, comp_targets, comp_params_list, minimum_of_rv, prob)
+}
+
+bf_cr_valid_ <- function(comp_targets, comp_params_list, minimum_of_rv) {
+  .Call(`_bestfitr_bf_cr_valid_`, comp_targets, comp_params_list, minimum_of_rv)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }
@@ -66,4 +166,12 @@ bf_gev_quantile_gradient_ <- function(p, location, scale, shape) {
 
 bf_gev_parameter_covariance_ <- function(location, scale, shape, sample_size) {
   .Call(`_bestfitr_bf_gev_parameter_covariance_`, location, scale, shape, sample_size)
+}
+
+bf_sobol_generate_ <- function(dimension, n_steps, path) {
+  .Call(`_bestfitr_bf_sobol_generate_`, dimension, n_steps, path)
+}
+
+bf_sobol_skip_to_ <- function(dimension, index, path) {
+  .Call(`_bestfitr_bf_sobol_skip_to_`, dimension, index, path)
 }

@@ -17,7 +17,18 @@ set(BF_TESTS
   test_mersenne_twister
   test_generalized_extreme_value
   test_gev_estimation
+  test_goodness_of_fit
 )
+
+# Sobol test takes the direction-number file as its sole argument.
+add_executable(test_sobol tests/test_sobol.cpp)
+target_link_libraries(test_sobol PRIVATE bestfit_core)
+target_include_directories(test_sobol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_compile_options(test_sobol PRIVATE
+  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra>)
+add_test(NAME test_sobol
+         COMMAND test_sobol "${CMAKE_CURRENT_SOURCE_DIR}/data/new-joe-kuo-6.21201")
 
 foreach(t ${BF_TESTS})
   add_executable(${t} tests/${t}.cpp)

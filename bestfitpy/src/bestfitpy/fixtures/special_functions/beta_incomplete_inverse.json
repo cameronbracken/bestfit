@@ -1,0 +1,8 @@
+{
+  "kind": "special_function",
+  "target": "Beta.incomplete_inverse",
+  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
+  "cases": [
+    { "name": "inv_05_06_01", "args": [0.5, 0.6, 0.1], "assertions": [{ "method": "value", "expected": 0.019145979066925722, "mode": "abs", "tol": 1e-12 }] }
+  ]
+}

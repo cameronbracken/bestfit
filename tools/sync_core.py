@@ -27,6 +27,15 @@ PACKAGES = [ROOT / "bestfitr" / "src" / "bestfit_core",
             ROOT / "bestfitpy" / "src" / "bestfit_core"]
 SUBTREES = ["include", "data"]
 
+# core/data/ also needs to land in the runtime data directories of each package so
+# callers can locate the direction-number file at run time:
+#   R:      system.file("extdata", "new-joe-kuo-6.21201", package = "bestfitr")
+#   Python: importlib.resources.files("bestfitpy") / "data" / "new-joe-kuo-6.21201"
+DATA_RUNTIME_DESTS = [
+    ROOT / "bestfitr" / "inst" / "extdata",
+    ROOT / "bestfitpy" / "src" / "bestfitpy" / "data",
+]
+
 
 def dirs_equal(a: Path, b: Path) -> bool:
     if not b.exists():
@@ -62,6 +71,21 @@ def main() -> int:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(src, dest)
                 print(f"synced {src} -> {dest}")
+
+    # --- Runtime data copies (core/data/ -> R inst/extdata/ and Python package data) ---
+    data_src = CORE / "data"
+    if data_src.exists() and any(p.is_file() for p in data_src.rglob("*")):
+        for dest in DATA_RUNTIME_DESTS:
+            if args.check:
+                if not dirs_equal(data_src, dest):
+                    print(f"STALE: {dest} differs from {data_src}")
+                    stale = True
+            else:
+                if dest.exists():
+                    shutil.rmtree(dest)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(data_src, dest)
+                print(f"synced {data_src} -> {dest}")
 
     if args.check and stale:
         print("Vendored core is stale; run: python3 tools/sync_core.py")

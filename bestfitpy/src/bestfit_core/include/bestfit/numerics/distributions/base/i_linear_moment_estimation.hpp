@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Parameter Estimation/ILinearMomentEstimation.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Parameter Estimation/ILinearMomentEstimation.cs @ a2c4dbf
 //
 // Capability interface: a distribution whose parameters map to/from sample L-moments.
 // Mirrors the C# ILinearMomentEstimation mixin; the generic runner dynamic_casts to it

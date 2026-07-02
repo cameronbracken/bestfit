@@ -77,6 +77,118 @@ def _dispatch_gev(g, method, args):
     raise KeyError(f"unknown fixture method: {method}")
 
 
+# --- Composite distribution path -------------------------------------------------------
+# For TruncatedDistribution (and future Empirical/KernelDensity/Mixture/CompetingRisks),
+# the fixture "construct" uses a structured schema rather than flat "params".
+# Adding a new composite = one new case in _build_composite + one in _dispatch_composite.
+
+_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical", "KernelDensity", "Mixture",
+                      "CompetingRisks"}
+
+
+def _build_composite(target: str, construct: dict, datasets: dict | None = None) -> dict:
+    """Parse a composite construct into a dict that _dispatch_composite can use."""
+    if target == "TruncatedDistribution":
+        base_target = construct["base"]["target"]
+        base_params = [_num(v) for v in construct["base"]["params"]]
+        lo, hi = float(construct["bounds"][0]), float(construct["bounds"][1])
+        return {"base_target": base_target, "base_params": base_params, "lo": lo, "hi": hi}
+    if target == "Empirical":
+        xv = [float(v) for v in construct["x"]]
+        pv = [float(v) for v in construct["p"]]
+        pt = construct.get("p_transform", "NormalZ")
+        return {"x_vals": xv, "p_vals": pv, "p_transform": pt}
+    if target == "KernelDensity":
+        ds = datasets or {}
+        data_key = construct["data"]
+        data_vec = [float(v) for v in ds[data_key]]
+        kernel = construct.get("kernel", "Gaussian")
+        bandwidth = float(construct["bandwidth"]) if "bandwidth" in construct else -1.0
+        bounded = bool(construct.get("bounded_by_data", True))
+        return {"data_vec": data_vec, "kernel": kernel, "bandwidth": bandwidth, "bounded": bounded}
+    if target == "Mixture":
+        comp_targets = [c["target"] for c in construct["components"]]
+        comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
+        wts = [float(w) for w in construct["weights"]]
+        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts}
+    if target == "CompetingRisks":
+        comp_targets = [c["target"] for c in construct["components"]]
+        comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
+        min_of_rv = bool(construct.get("minimum_of_random_variables", True))
+        return {"comp_targets": comp_targets, "comp_params": comp_params,
+                "minimum_of_rv": min_of_rv}
+    raise KeyError(f"unknown composite target: {target}")
+
+
+def _dispatch_composite(target: str, cd: dict, method: str, args: list):
+    if target == "TruncatedDistribution":
+        bt, bp, lo, hi = cd["base_target"], cd["base_params"], cd["lo"], cd["hi"]
+        if method in _MOMENTS:
+            return _core.trunc_moments(bt, bp, lo, hi)[method]
+        if method == "pdf":
+            return _core.trunc_pdf(bt, bp, lo, hi, args[0])
+        if method == "cdf":
+            return _core.trunc_cdf(bt, bp, lo, hi, args[0])
+        if method == "quantile":
+            return _core.trunc_quantile(bt, bp, lo, hi, args[0])
+        if method == "parameters_valid":
+            return _core.trunc_valid(bt, bp, lo, hi)
+        raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
+    if target == "Empirical":
+        xv, pv, pt = cd["x_vals"], cd["p_vals"], cd["p_transform"]
+        if method in _MOMENTS:
+            return _core.emp_moments(xv, pv, pt)[method]
+        if method == "pdf":
+            return _core.emp_pdf(xv, pv, pt, args[0])
+        if method == "cdf":
+            return _core.emp_cdf(xv, pv, pt, args[0])
+        if method == "quantile":
+            return _core.emp_quantile(xv, pv, pt, args[0])
+        if method == "parameters_valid":
+            return _core.emp_valid(xv, pv, pt)
+        raise KeyError(f"unknown fixture method for Empirical: {method}")
+    if target == "KernelDensity":
+        dv, ker, bw, bd = cd["data_vec"], cd["kernel"], cd["bandwidth"], cd["bounded"]
+        if method in _MOMENTS:
+            return _core.kde_moments(dv, ker, bw, bd)[method]
+        if method == "pdf":
+            return _core.kde_pdf(dv, ker, bw, bd, args[0])
+        if method == "cdf":
+            return _core.kde_cdf(dv, ker, bw, bd, args[0])
+        if method == "quantile":
+            return _core.kde_quantile(dv, ker, bw, bd, args[0])
+        if method == "parameters_valid":
+            return _core.kde_valid(dv, ker, bw, bd)
+        raise KeyError(f"unknown fixture method for KernelDensity: {method}")
+    if target == "Mixture":
+        ct, cp, wts = cd["comp_targets"], cd["comp_params"], cd["weights"]
+        if method in _MOMENTS:
+            return _core.mix_moments(ct, cp, wts)[method]
+        if method == "pdf":
+            return _core.mix_pdf(ct, cp, wts, args[0])
+        if method == "cdf":
+            return _core.mix_cdf(ct, cp, wts, args[0])
+        if method == "quantile":
+            return _core.mix_quantile(ct, cp, wts, args[0])
+        if method == "parameters_valid":
+            return _core.mix_valid(ct, cp, wts)
+        raise KeyError(f"unknown fixture method for Mixture: {method}")
+    if target == "CompetingRisks":
+        ct, cp, min_rv = cd["comp_targets"], cd["comp_params"], cd["minimum_of_rv"]
+        if method in _MOMENTS:
+            return _core.cr_moments(ct, cp, min_rv)[method]
+        if method == "pdf":
+            return _core.cr_pdf(ct, cp, min_rv, args[0])
+        if method == "cdf":
+            return _core.cr_cdf(ct, cp, min_rv, args[0])
+        if method == "quantile":
+            return _core.cr_quantile(ct, cp, min_rv, args[0])
+        if method == "parameters_valid":
+            return _core.cr_valid(ct, cp, min_rv)
+        raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
+    raise KeyError(f"unknown composite target: {target}")
+
+
 # --- Generic polymorphic path ----------------------------------------------------------
 
 
@@ -130,6 +242,10 @@ def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
         spec = json.loads(fx.read_text())
+        # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
+        # which are validated in C++ only and are not exposed to the Python package.
+        if spec.get("kind") != "univariate_distribution":
+            continue
         for case in spec["cases"]:
             out.append((spec["target"], spec.get("datasets", {}), case))
     return out
@@ -143,14 +259,19 @@ CASES = _load_cases()
 )
 def test_fixture_case(target, datasets, case):
     is_gev = target == "GeneralizedExtremeValue"
+    is_composite = target in _COMPOSITE_TARGETS
     if is_gev:
         g = _build_gev(case["construct"], datasets)
+    elif is_composite:
+        cd = _build_composite(target, case["construct"], datasets)
     else:
         params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:
         args = a.get("args", [])
         if is_gev:
             actual = _dispatch_gev(g, a["method"], args)
+        elif is_composite:
+            actual = _dispatch_composite(target, cd, a["method"], args)
         else:
             actual = _dispatch_generic(target, params, a["method"], args)
         _check(actual, a)

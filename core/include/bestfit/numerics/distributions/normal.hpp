@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Normal.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Normal.cs @ a2c4dbf
 //
 // The Normal (Gaussian) distribution, parameters µ (location) and σ (scale).
 // CDF uses std::erf (matches the C# Erf.Function = regularized lower-incomplete gamma to
@@ -132,6 +132,11 @@ class Normal : public UnivariateDistributionBase,
     }
 
     // --- Standard normal helpers (static, mirror the C# public API) ---
+
+    // Standard normal CDF Φ(z). Mirrors Normal.StandardCDF(Z) in C#.
+    static double standard_cdf(double z) {
+        return 0.5 * (1.0 + std::erf(z / kSqrt2));
+    }
 
     // Z variate of the standard normal for a probability (Wichura AS241).
     static double standard_z(double probability) {

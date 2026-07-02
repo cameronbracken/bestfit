@@ -1,0 +1,55 @@
+{
+  "target": "TruncatedDistribution",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_TruncatedDistribution.cs",
+  "reference": "USACE-RMC Numerics; C# test values verified against R package 'truncnorm'",
+  "cases": [
+    {
+      "name": "normal_2_1_bounds_1p1_2p11",
+      "construct": {
+        "base": { "target": "Normal", "params": [2, 1] },
+        "bounds": [1.10, 2.11]
+      },
+      "assertions": [
+        { "method": "pdf",      "args": [1.5],      "expected": 0.9786791, "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf",      "args": [1.5],      "expected": 0.3460251, "mode": "abs", "tol": 1e-5 },
+        { "method": "quantile", "args": [0.3460251],"expected": 1.5,       "mode": "abs", "tol": 1e-4 },
+        { "method": "minimum",  "args": [],          "expected": 1.1,       "mode": "equal" },
+        { "method": "maximum",  "args": [],          "expected": 2.11,      "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "normal_10_3_bounds_8_25",
+      "construct": {
+        "base": { "target": "Normal", "params": [10, 3] },
+        "bounds": [8, 25]
+      },
+      "assertions": [
+        { "method": "pdf",      "args": [12.75],     "expected": 0.1168717, "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf",      "args": [12.75],     "expected": 0.7596566, "mode": "abs", "tol": 1e-5 },
+        { "method": "quantile", "args": [0.7596566], "expected": 12.75,     "mode": "abs", "tol": 1e-4 },
+        { "method": "minimum",  "args": [],           "expected": 8,         "mode": "equal" },
+        { "method": "maximum",  "args": [],           "expected": 25,        "mode": "equal" }
+      ]
+    },
+    {
+      "name": "normal_0p5_0p2_bounds_0_1_moments",
+      "construct": {
+        "base": { "target": "Normal", "params": [0.5, 0.2] },
+        "bounds": [0, 1]
+      },
+      "assertions": [
+        { "method": "mean",     "args": [], "expected": 0.5,     "mode": "abs", "tol": 1e-4 },
+        { "method": "median",   "args": [], "expected": 0.5,     "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [], "expected": 0.5,     "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",       "args": [], "expected": 0.19091, "mode": "abs", "tol": 1e-4 },
+        { "method": "skewness", "args": [], "expected": 0,       "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis", "args": [], "expected": 2.62422, "mode": "abs", "tol": 1e-4 },
+        { "method": "minimum",  "args": [], "expected": 0, "mode": "equal" },
+        { "method": "maximum",  "args": [], "expected": 1, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    }
+  ]
+}

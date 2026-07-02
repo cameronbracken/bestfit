@@ -1,0 +1,87 @@
+{
+  "target": "Rayleigh",
+  "kind": "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Rayleigh.cs",
+  "reference": "Verified using Accord.Net",
+  "datasets": {
+    "sample_31": [1953, 1939, 1677, 1692, 2051, 2371, 2022, 1521, 1448, 1825, 1363, 1760, 1672, 1603, 1244, 1521, 1783, 1560, 1357, 1673, 1625, 1425, 1688, 1577, 1736, 1640, 1584, 1293, 1277, 1742, 1491]
+  },
+  "cases": [
+    {
+      "name": "standard_sigma_1",
+      "construct": { "params": [1.0] },
+      "assertions": [
+        { "method": "pdf",      "args": [1.0], "expected": 0.6065306597126334,  "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",      "args": [1.0], "expected": 0.3934693402873666,  "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [0.4], "expected": 1.0107676525947897,  "mode": "abs", "tol": 1e-9 },
+        { "method": "quantile", "args": [0.0], "expected": 0.0,                 "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile", "args": [1.0], "expected": "inf",               "mode": "equal" },
+        { "method": "mean",     "args": [], "expected": 1.2533141373155001,     "mode": "abs", "tol": 1e-12 },
+        { "method": "median",   "args": [], "expected": 1.1774100225154747,     "mode": "abs", "tol": 1e-12 },
+        { "method": "mode",     "args": [], "expected": 1.0,                    "mode": "abs", "tol": 1e-12 },
+        { "method": "sd",       "args": [], "expected": 0.6551363775620336,     "mode": "abs", "tol": 1e-12 },
+        { "method": "skewness", "args": [], "expected": 0.6311106578189364,     "mode": "abs", "tol": 1e-10 },
+        { "method": "kurtosis", "args": [], "expected": 3.245089300687639,      "mode": "abs", "tol": 1e-10 },
+        { "method": "minimum",  "args": [], "expected": 0.0,                    "mode": "abs", "tol": 1e-12 },
+        { "method": "maximum",  "args": [], "expected": "inf",                  "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "rayleigh_0.42",
+      "construct": { "params": [0.42] },
+      "assertions": [
+        { "method": "pdf",    "args": [1.4],  "expected": 0.030681905868831811, "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",    "args": [1.4],  "expected": 0.9961340798605272,   "mode": "abs", "tol": 1e-12 },
+        { "method": "mean",   "args": [],     "expected": 0.52639193767251,     "mode": "abs", "tol": 1e-10 },
+        { "method": "median", "args": [],     "expected": 0.4945122094564993,   "mode": "abs", "tol": 1e-10 },
+        { "method": "sd",     "args": [],     "expected": 0.2751572785760541,   "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "rayleigh_10",
+      "construct": { "params": [10.0] },
+      "assertions": [
+        { "method": "pdf",    "args": [1.0],  "expected": 0.009950124791926824, "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",    "args": [2.0],  "expected": 0.019603973466135106, "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",    "args": [1.0],  "expected": 0.00498752080731768,  "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile","args": [0.4], "expected": 10.107676525947898,   "mode": "abs", "tol": 1e-4 },
+        { "method": "quantile","args": [0.0], "expected": 0.0,                  "mode": "abs", "tol": 1e-12 },
+        { "method": "quantile","args": [1.0], "expected": "inf",                "mode": "equal" },
+        { "method": "mean",   "args": [],     "expected": 12.533141373155,      "mode": "abs", "tol": 1e-4 },
+        { "method": "median", "args": [],     "expected": 11.774100225154747,   "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",     "args": [],     "expected": 6.551363775620336,    "mode": "abs", "tol": 1e-4 },
+        { "method": "skewness","args": [],    "expected": 0.6311106578189364,   "mode": "abs", "tol": 1e-4 },
+        { "method": "kurtosis","args": [],    "expected": 3.245089300687639,    "mode": "abs", "tol": 1e-4 }
+      ]
+    },
+    {
+      "name": "mom_fit",
+      "construct": { "fit": { "dataset": "sample_31", "method": "mom" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 1315.5572114940921, "mode": "abs", "tol": 1e-6 }
+      ]
+    },
+    {
+      "name": "mle_fit",
+      "construct": { "fit": { "dataset": "sample_31", "method": "mle" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 1183.3429104199172, "mode": "abs", "tol": 1e-6 }
+      ]
+    },
+    {
+      "name": "invalid_nan",
+      "construct": { "params": ["nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf",
+      "construct": { "params": ["inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    }
+  ]
+}
