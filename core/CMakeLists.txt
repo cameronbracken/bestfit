@@ -17,6 +17,7 @@ set(BF_TESTS
   test_mersenne_twister
   test_generalized_extreme_value
   test_gev_estimation
+  test_goodness_of_fit
 )
 
 # Sobol test takes the direction-number file as its sole argument.

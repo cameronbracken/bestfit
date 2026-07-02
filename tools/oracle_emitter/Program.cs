@@ -11,6 +11,7 @@
 
 using System.Text.Json;
 using Numerics.Data;
+using Numerics.Data.Statistics;
 using Numerics.Distributions;
 using Numerics.Mathematics.SpecialFunctions;
 
@@ -287,6 +288,62 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
             foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
             {
                 string where = $"{sfTarget}/{caseName}/{asrt.GetProperty("method").GetString()}";
+                if (Compare(actual, asrt)) pass++;
+                else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- goodness_of_fit branch ---------------------------------------------------------
+    if (kindStr == "goodness_of_fit")
+    {
+        var dsSets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var dsNode))
+            foreach (var kv in dsNode.EnumerateObject())
+                dsSets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            string fn = c.GetProperty("function").GetString()!;
+
+            // Resolve inputs: scalar args or observed/modeled dataset pairs
+            double[] scalarArgs = c.TryGetProperty("args", out var argsNode)
+                ? argsNode.EnumerateArray().Select(ParseNum).ToArray()
+                : Array.Empty<double>();
+            double[]? obs = c.TryGetProperty("observed_dataset", out var obsName)
+                ? dsSets[obsName.GetString()!] : null;
+            double[]? mod = c.TryGetProperty("modeled_dataset", out var modName)
+                ? dsSets[modName.GetString()!] : null;
+
+            double actual;
+            try
+            {
+                actual = fn switch
+                {
+                    "AIC"  => GoodnessOfFit.AIC((int)scalarArgs[0], scalarArgs[1]),
+                    "AICc" => GoodnessOfFit.AICc((int)scalarArgs[0], (int)scalarArgs[1], scalarArgs[2]),
+                    "BIC"  => GoodnessOfFit.BIC((int)scalarArgs[0], (int)scalarArgs[1], scalarArgs[2]),
+                    "MSE"  => GoodnessOfFit.MSE(obs!, mod!),
+                    "MAE"  => GoodnessOfFit.MAE(obs!, mod!),
+                    "NashSutcliffeEfficiency"    => GoodnessOfFit.NashSutcliffeEfficiency(obs!, mod!),
+                    "KlingGuptaEfficiency"       => GoodnessOfFit.KlingGuptaEfficiency(obs!, mod!),
+                    "KlingGuptaEfficiencyMod"    => GoodnessOfFit.KlingGuptaEfficiencyMod(obs!, mod!),
+                    "PBIAS"                      => GoodnessOfFit.PBIAS(obs!, mod!),
+                    "RSR"                        => GoodnessOfFit.RSR(obs!, mod!),
+                    "IndexOfAgreement"           => GoodnessOfFit.IndexOfAgreement(obs!, mod!),
+                    "ModifiedIndexOfAgreement"   => GoodnessOfFit.ModifiedIndexOfAgreement(obs!, mod!),
+                    "RefinedIndexOfAgreement"    => GoodnessOfFit.RefinedIndexOfAgreement(obs!, mod!),
+                    "VolumetricEfficiency"       => GoodnessOfFit.VolumetricEfficiency(obs!, mod!),
+                    _ => throw new Exception($"unknown goodness_of_fit function: {fn}")
+                };
+            }
+            catch (Exception ex) { fail++; failures.Add($"gof/{caseName}: {ex.Message}"); continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string where = $"gof/{caseName}";
                 if (Compare(actual, asrt)) pass++;
                 else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
             }

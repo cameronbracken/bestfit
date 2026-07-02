@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -375,6 +376,54 @@ static void run_generic(const json& spec) {
     }
 }
 
+// --- goodness_of_fit path -------------------------------------------------------------
+
+namespace gof = bestfit::numerics::data;
+
+static double dispatch_gof(const std::string& fn, const std::vector<double>& args,
+                            const std::vector<double>& obs, const std::vector<double>& mod) {
+    if (fn == "AIC")  return gof::GoodnessOfFit::aic(static_cast<int>(args[0]), args[1]);
+    if (fn == "AICc") return gof::GoodnessOfFit::aicc(static_cast<int>(args[0]),
+                                                       static_cast<int>(args[1]), args[2]);
+    if (fn == "BIC")  return gof::GoodnessOfFit::bic(static_cast<int>(args[0]),
+                                                      static_cast<int>(args[1]), args[2]);
+    if (fn == "MSE")  return gof::GoodnessOfFit::mse(obs, mod);
+    if (fn == "MAE")  return gof::GoodnessOfFit::mae(obs, mod);
+    if (fn == "NashSutcliffeEfficiency")  return gof::GoodnessOfFit::nash_sutcliffe_efficiency(obs, mod);
+    if (fn == "KlingGuptaEfficiency")     return gof::GoodnessOfFit::kling_gupta_efficiency(obs, mod);
+    if (fn == "KlingGuptaEfficiencyMod")  return gof::GoodnessOfFit::kling_gupta_efficiency_mod(obs, mod);
+    if (fn == "PBIAS")                    return gof::GoodnessOfFit::pbias(obs, mod);
+    if (fn == "RSR")                      return gof::GoodnessOfFit::rsr(obs, mod);
+    if (fn == "IndexOfAgreement")         return gof::GoodnessOfFit::index_of_agreement(obs, mod);
+    if (fn == "ModifiedIndexOfAgreement") return gof::GoodnessOfFit::modified_index_of_agreement(obs, mod);
+    if (fn == "RefinedIndexOfAgreement")  return gof::GoodnessOfFit::refined_index_of_agreement(obs, mod);
+    if (fn == "VolumetricEfficiency")     return gof::GoodnessOfFit::volumetric_efficiency(obs, mod);
+    throw std::runtime_error("unknown goodness_of_fit function: " + fn);
+}
+
+static void run_goodness_of_fit(const json& spec) {
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        std::string name = c["name"].get<std::string>();
+        std::string fn = c["function"].get<std::string>();
+        std::vector<double> args;
+        if (c.contains("args"))
+            for (const auto& v : c["args"]) args.push_back(parse_num(v));
+        std::vector<double> obs, mod;
+        if (c.contains("observed_dataset"))
+            for (const auto& v : datasets[c["observed_dataset"].get<std::string>()])
+                obs.push_back(v.get<double>());
+        if (c.contains("modeled_dataset"))
+            for (const auto& v : datasets[c["modeled_dataset"].get<std::string>()])
+                mod.push_back(v.get<double>());
+        double actual = dispatch_gof(fn, args, obs, mod);
+        for (const auto& as : c["assertions"]) {
+            std::string where = "gof/" + name;
+            check_value(actual, as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -389,6 +438,8 @@ int main(int argc, char** argv) {
         std::string kind = spec.value("kind", "");
         if (kind == "special_function") {
             run_special_function(spec);
+        } else if (kind == "goodness_of_fit") {
+            run_goodness_of_fit(spec);
         } else if (kind == "univariate_distribution") {
             if (spec.value("target", "") == "GeneralizedExtremeValue")
                 run_gev(spec);

@@ -53,6 +53,20 @@ class UnivariateDistributionBase {
         return std::log(f);
     }
 
+    virtual double log_cdf(double x) const {
+        double F = cdf(x);
+        if (std::isnan(F) || std::isinf(F) || F <= 0.0) return -kInf;
+        return std::log(F);
+    }
+
+    virtual double ccdf(double x) const { return 1.0 - cdf(x); }
+
+    virtual double log_ccdf(double x) const {
+        double cF = ccdf(x);
+        if (std::isnan(cF) || std::isinf(cF) || cF <= 0.0) return -kInf;
+        return std::log(cF);
+    }
+
     double log_likelihood(const std::vector<double>& sample) const {
         double ll = 0.0;
         for (double v : sample) ll += log_pdf(v);
