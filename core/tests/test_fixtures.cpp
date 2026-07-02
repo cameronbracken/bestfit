@@ -166,7 +166,9 @@ static void run_gev(const json& spec) {
 
 namespace sf = bestfit::numerics::math::special;
 namespace la = bestfit::numerics::math::linalg;
-namespace stat = bestfit::numerics::data;
+// Alias must not be named `stat` (collides with the MSVC/POSIX CRT symbol, like the
+// glibc `gamma` clash documented in .claude/CLAUDE.md).
+namespace bfdata = bestfit::numerics::data;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -276,17 +278,17 @@ special_function_table() {
         {"Correlation.pearson", [](const std::vector<double>& a) {
             std::vector<double> x, y;
             correlation_split(a, x, y);
-            return stat::pearson(x, y);
+            return bfdata::pearson(x, y);
         }},
         {"Correlation.spearman", [](const std::vector<double>& a) {
             std::vector<double> x, y;
             correlation_split(a, x, y);
-            return stat::spearman(x, y);
+            return bfdata::spearman(x, y);
         }},
         {"Correlation.kendalls_tau", [](const std::vector<double>& a) {
             std::vector<double> x, y;
             correlation_split(a, x, y);
-            return stat::kendalls_tau(x, y);
+            return bfdata::kendalls_tau(x, y);
         }},
     };
     return t;
@@ -585,12 +587,12 @@ static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const 
         std::vector<std::vector<double>> p;
         for (const auto& row : construct["p"]) p.push_back(parse_num_vec(row));
         auto parse_transform = [&](const char* key) {
-            stat::Transform t = stat::Transform::None;
+            bfdata::Transform t = bfdata::Transform::None;
             if (!construct.contains(key)) return t;
             std::string s = construct[key].get<std::string>();
-            if (s == "None") t = stat::Transform::None;
-            else if (s == "Logarithmic") t = stat::Transform::Logarithmic;
-            else if (s == "NormalZ") t = stat::Transform::NormalZ;
+            if (s == "None") t = bfdata::Transform::None;
+            else if (s == "Logarithmic") t = bfdata::Transform::Logarithmic;
+            else if (s == "NormalZ") t = bfdata::Transform::NormalZ;
             else throw std::runtime_error("unknown transform: " + s);
             return t;
         };
