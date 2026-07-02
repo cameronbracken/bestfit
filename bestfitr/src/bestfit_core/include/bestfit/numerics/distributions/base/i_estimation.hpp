@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Parameter Estimation/IEstimation.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Parameter Estimation/IEstimation.cs @ a2c4dbf
 //
 // Capability interface: a distribution that can be fit to a sample. Mirrors the C#
 // IEstimation mixin -- the generic fixture runner / bindings dynamic_cast to this to

@@ -1,4 +1,4 @@
-// ported from: Numerics/Utilities/Tools.cs @ <pending-sha>
+// ported from: Numerics/Utilities/Tools.cs @ a2c4dbf
 // Shared numerical constants.
 #pragma once
 

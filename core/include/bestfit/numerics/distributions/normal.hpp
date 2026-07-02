@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Normal.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Normal.cs @ a2c4dbf
 //
 // The Normal (Gaussian) distribution, parameters µ (location) and σ (scale).
 // CDF uses std::erf (matches the C# Erf.Function = regularized lower-incomplete gamma to

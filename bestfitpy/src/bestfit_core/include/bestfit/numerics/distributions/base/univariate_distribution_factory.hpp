@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionFactory.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionFactory.cs @ a2c4dbf
 //
 // Constructs a default-parameterized distribution from its type. The C# if/else chain
 // becomes a switch; the XElement overload is dropped (serialization is a desktop concern).

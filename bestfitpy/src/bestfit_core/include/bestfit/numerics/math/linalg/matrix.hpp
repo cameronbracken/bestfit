@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/Support/Matrix.cs @ <pending-sha>
+// ported from: Numerics/Mathematics/Linear Algebra/Support/Matrix.cs @ a2c4dbf
 //
 // Minimal dense square-matrix inverse (Gauss-Jordan with partial pivoting). Sufficient
 // for the small parameter-covariance matrices in Phase 0; the full Matrix type and its

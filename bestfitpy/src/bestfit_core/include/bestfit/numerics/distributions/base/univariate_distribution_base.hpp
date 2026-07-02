@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ <pending-sha>
+// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ a2c4dbf
 //
 // Abstract base for every univariate distribution. Declares the distribution-core
 // surface as pure virtuals (moments, support, PDF/CDF/InverseCDF, parameters) and
