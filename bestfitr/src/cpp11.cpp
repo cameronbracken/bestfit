@@ -348,6 +348,13 @@ extern "C" SEXP _bestfitr_bf_mvn_mvndst_seq_(SEXP n_dim, SEXP seed, SEXP lower_f
     return cpp11::as_sexp(bf_mvn_mvndst_seq_(cpp11::as_cpp<cpp11::decay_t<int>>(n_dim), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(lower_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(upper_flat), cpp11::as_cpp<cpp11::decay_t<integers>>(infin_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(correl_flat), cpp11::as_cpp<cpp11::decay_t<integers>>(maxpts_v), cpp11::as_cpp<cpp11::decay_t<doubles>>(abseps_v), cpp11::as_cpp<cpp11::decay_t<doubles>>(releps_v), cpp11::as_cpp<cpp11::decay_t<int>>(k)));
   END_CPP11
 }
+// mvd.cpp
+double bf_mvt_val_(std::string method, double df, doubles location, doubles scale_flat, doubles args);
+extern "C" SEXP _bestfitr_bf_mvt_val_(SEXP method, SEXP df, SEXP location, SEXP scale_flat, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mvt_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<double>>(df), cpp11::as_cpp<cpp11::decay_t<doubles>>(location), cpp11::as_cpp<cpp11::decay_t<doubles>>(scale_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
 // sobol.cpp
 doubles_matrix<by_column> bf_sobol_generate_(int dimension, int n_steps, std::string path);
 extern "C" SEXP _bestfitr_bf_sobol_generate_(SEXP dimension, SEXP n_steps, SEXP path) {
@@ -409,6 +416,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_mvn_interval_seq_",         (DL_FUNC) &_bestfitr_bf_mvn_interval_seq_,          6},
     {"_bestfitr_bf_mvn_mvndst_seq_",           (DL_FUNC) &_bestfitr_bf_mvn_mvndst_seq_,           10},
     {"_bestfitr_bf_mvn_val_",                  (DL_FUNC) &_bestfitr_bf_mvn_val_,                   4},
+    {"_bestfitr_bf_mvt_val_",                  (DL_FUNC) &_bestfitr_bf_mvt_val_,                   5},
     {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,            3},
     {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,             3},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                 5},

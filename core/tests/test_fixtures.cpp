@@ -34,6 +34,7 @@
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -535,8 +536,8 @@ static void run_goodness_of_fit(const json& spec) {
 // have no shared arithmetic surface beyond dimension/pdf/log_pdf/cdf/parameters_valid (no
 // factory, no common Mean/Variance/Covariance signature across Dirichlet/Multinomial/
 // BivariateEmpirical), so dispatch_multivariate dynamic_casts to the concrete type for
-// everything else. Extensible: MultivariateNormal/MultivariateStudentT add a case to each
-// of build_multivariate/dispatch_multivariate.
+// everything else. Extensible: additional multivariate targets add a case to each of
+// build_multivariate/dispatch_multivariate.
 
 static std::vector<double> parse_num_vec(const json& arr) {
     std::vector<double> v;
@@ -582,6 +583,13 @@ static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const 
         if (construct.contains("abs_error")) mvn->set_absolute_error(construct["abs_error"].get<double>());
         if (construct.contains("rel_error")) mvn->set_relative_error(construct["rel_error"].get<double>());
         return mvn;
+    }
+    if (target == "MultivariateStudentT") {
+        double df = construct["df"].get<double>();
+        std::vector<double> location = parse_num_vec(construct["location"]);
+        std::vector<std::vector<double>> scale;
+        for (const auto& row : construct["scale"]) scale.push_back(parse_num_vec(row));
+        return std::make_unique<dist::MultivariateStudentT>(df, std::move(location), std::move(scale));
     }
     throw std::runtime_error("unknown multivariate target: " + target);
 }
@@ -638,6 +646,17 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
             nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
             return value;
         }
+    } else if (target == "MultivariateStudentT") {
+        const auto& tt = dynamic_cast<const dist::MultivariateStudentT&>(d);
+        if (m == "degrees_of_freedom") return tt.degrees_of_freedom();
+        if (m == "mean") return tt.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "median") return tt.median()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return tt.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "sd") return tt.standard_deviation()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return tt.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return tt.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "mahalanobis") return tt.mahalanobis(parse_num_vec(a[0]));
+        if (m == "inverse_cdf") return tt.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
     }
     throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
 }

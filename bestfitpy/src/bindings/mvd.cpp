@@ -1,8 +1,8 @@
 // pybind11 glue exposing the multivariate-distribution surface (Dirichlet, Multinomial,
-// BivariateEmpirical) of the shared C++ core to Python. Mirrors the trunc_*/emp_* style
-// in dist.cpp: bespoke per-target module functions, generic-by-method-string rather than
-// one function per method, so a new multivariate target (MultivariateNormal,
-// MultivariateStudentT) only adds one more <name>_val function here.
+// BivariateEmpirical, MultivariateNormal, MultivariateStudentT) of the shared C++ core to
+// Python. Mirrors the trunc_*/emp_* style in dist.cpp: bespoke per-target module
+// functions, generic-by-method-string rather than one function per method, so each new
+// multivariate target only adds one more <name>_val function here.
 // Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -16,6 +16,7 @@
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
@@ -173,5 +174,38 @@ void register_multivariate(py::module_& m) {
             out.push_back(value);
         }
         return out;
+    });
+
+    // --- MultivariateStudentT ------------------------------------------------------------
+    // Stateless per-call style, mirroring mvn_val: a fresh instance is constructed from
+    // (df, location, scale) on every call. Unlike MultivariateNormal, the CDF here (K=200
+    // stratified chi-squared mixture) is fully deterministic -- no seeded MVNUNI stream, so
+    // no mvt_*_seq batch entry point is needed. Methods: dimension, parameters_valid,
+    // degrees_of_freedom, mean, median, mode, sd, variance, covariance, pdf, log_pdf, cdf,
+    // mahalanobis, inverse_cdf.
+    m.def("mvt_val", [](const std::string& method, double df, const std::vector<double>& location,
+                         const std::vector<std::vector<double>>& scale, const std::vector<double>& args) {
+        mvd::MultivariateStudentT t(df, location, scale);
+        if (method == "dimension") return static_cast<double>(t.dimension());
+        if (method == "parameters_valid") return t.parameters_valid() ? 1.0 : 0.0;
+        if (method == "degrees_of_freedom") return t.degrees_of_freedom();
+        if (method == "mean") return t.mean()[static_cast<std::size_t>(args[0])];
+        if (method == "median") return t.median()[static_cast<std::size_t>(args[0])];
+        if (method == "mode") return t.mode()[static_cast<std::size_t>(args[0])];
+        if (method == "sd") return t.standard_deviation()[static_cast<std::size_t>(args[0])];
+        if (method == "variance") return t.variance()[static_cast<std::size_t>(args[0])];
+        if (method == "covariance")
+            return t.covariance(static_cast<int>(args[0]), static_cast<int>(args[1]));
+        if (method == "pdf") return t.pdf(args);
+        if (method == "log_pdf") return t.log_pdf(args);
+        if (method == "cdf") return t.cdf(args);
+        if (method == "mahalanobis") return t.mahalanobis(args);
+        if (method == "inverse_cdf") {
+            // args = [p_1..p_dim+1, index]
+            std::vector<double> p(args.begin(), args.end() - 1);
+            int idx = static_cast<int>(args.back());
+            return t.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+        }
+        throw py::value_error("unknown MultivariateStudentT fixture method: " + method);
     });
 }

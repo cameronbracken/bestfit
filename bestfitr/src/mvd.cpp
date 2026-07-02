@@ -1,8 +1,8 @@
 // cpp11 glue exposing the multivariate-distribution surface (Dirichlet, Multinomial,
-// BivariateEmpirical) of the shared C++ core to R. Mirrors the bf_trunc_*/bf_emp_* style
-// in dist.cpp: bespoke per-target entry points, generic-by-method-string rather than one
-// function per method, so a new multivariate target (MultivariateNormal,
-// MultivariateStudentT) only adds one more bf_<name>_val_ function here.
+// BivariateEmpirical, MultivariateNormal, MultivariateStudentT) of the shared C++ core to
+// R. Mirrors the bf_trunc_*/bf_emp_* style in dist.cpp: bespoke per-target entry points,
+// generic-by-method-string rather than one function per method, so each new multivariate
+// target only adds one more bf_<name>_val_ function here.
 // Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
 #include <cpp11.hpp>
 
@@ -15,6 +15,7 @@
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
 
 namespace mvd = bestfit::numerics::distributions;
 namespace data = bestfit::numerics::data;
@@ -225,4 +226,44 @@ doubles bf_mvn_mvndst_seq_(int n_dim, int seed, doubles lower_flat, doubles uppe
         out[c] = value;
     }
     return out;
+}
+
+// --- MultivariateStudentT ---------------------------------------------------------------
+// Stateless per-call style, mirroring bf_mvn_val_: a fresh instance is constructed from
+// (df, location, scale_flat) on every call. Unlike MultivariateNormal, the CDF here (K=200
+// stratified chi-squared mixture) is fully deterministic -- no seeded MVNUNI stream, so no
+// bf_mvt_*_seq_ batch entry point is needed. Methods: dimension, parameters_valid,
+// degrees_of_freedom, mean, median, mode, sd, variance, covariance, pdf, log_pdf, cdf,
+// mahalanobis, inverse_cdf.
+
+[[cpp11::register]]
+double bf_mvt_val_(std::string method, double df, doubles location, doubles scale_flat, doubles args) {
+    std::vector<double> loc(location.begin(), location.end());
+    std::size_t dim = loc.size();
+    std::vector<std::vector<double>> scale(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) scale[i][j] = scale_flat[static_cast<int>(i * dim + j)];
+    std::vector<double> ar(args.begin(), args.end());
+    mvd::MultivariateStudentT t(df, loc, scale);
+
+    if (method == "dimension") return t.dimension();
+    if (method == "parameters_valid") return t.parameters_valid() ? 1.0 : 0.0;
+    if (method == "degrees_of_freedom") return t.degrees_of_freedom();
+    if (method == "mean") return t.mean()[static_cast<std::size_t>(ar[0])];
+    if (method == "median") return t.median()[static_cast<std::size_t>(ar[0])];
+    if (method == "mode") return t.mode()[static_cast<std::size_t>(ar[0])];
+    if (method == "sd") return t.standard_deviation()[static_cast<std::size_t>(ar[0])];
+    if (method == "variance") return t.variance()[static_cast<std::size_t>(ar[0])];
+    if (method == "covariance") return t.covariance(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+    if (method == "pdf") return t.pdf(ar);
+    if (method == "log_pdf") return t.log_pdf(ar);
+    if (method == "cdf") return t.cdf(ar);
+    if (method == "mahalanobis") return t.mahalanobis(ar);
+    if (method == "inverse_cdf") {
+        // args = [p_1..p_dim+1, index]
+        std::vector<double> p(ar.begin(), ar.end() - 1);
+        int idx = static_cast<int>(ar.back());
+        return t.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+    }
+    stop("unknown MultivariateStudentT fixture method '%s'", method.c_str());
 }

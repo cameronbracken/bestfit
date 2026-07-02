@@ -214,8 +214,8 @@ dispatch_composite <- function(target, cd, method, args) {
 # --- multivariate_distribution path -----------------------------------------------------
 # Dirichlet/Multinomial/BivariateEmpirical dispatch to the bespoke bf_dirichlet_val_/
 # bf_multinomial_val_/bf_bve_cdf_ glue in mvd.cpp (method + flat numeric args in, double
-# out). Extensible: MultivariateNormal/MultivariateStudentT add a branch here plus their
-# own bf_<name>_val_ entry point.
+# out). Extensible: additional multivariate targets add a branch here plus their own
+# bf_<name>_val_ entry point.
 
 # Flattens fixture assertion args to a numeric vector. Handles both conventions: a single
 # nested vector argument (e.g. pdf args = [[0.3, 0.4, 0.3]]) and flat scalar args (e.g.
@@ -254,6 +254,12 @@ dispatch_multivariate <- function(target, construct, method, args) {
     mean <- vapply(construct$mean, parse_num, numeric(1))
     cov_flat <- as.double(unlist(lapply(construct$covariance, function(row) vapply(row, parse_num, numeric(1)))))
     return(ns$bf_mvn_val_(method, mean, cov_flat, ar))
+  }
+  if (target == "MultivariateStudentT") {
+    df <- parse_num(construct$df)
+    location <- vapply(construct$location, parse_num, numeric(1))
+    scale_flat <- as.double(unlist(lapply(construct$scale, function(row) vapply(row, parse_num, numeric(1)))))
+    return(ns$bf_mvt_val_(method, df, location, scale_flat, ar))
   }
   stop(sprintf("unknown multivariate target: %s", target))
 }

@@ -220,8 +220,8 @@ def _dispatch_generic(target, params, method, args):
 # --- multivariate_distribution path -----------------------------------------------------
 # Dirichlet/Multinomial/BivariateEmpirical dispatch to the bespoke _core.dirichlet_val/
 # _core.multinomial_val/_core.bve_cdf functions (method + flat numeric args in, double
-# out). Extensible: MultivariateNormal/MultivariateStudentT add a branch here plus their
-# own _core.<name>_val entry point.
+# out). Extensible: additional multivariate targets add a branch here plus their own
+# _core.<name>_val entry point.
 
 def _flatten_mv_args(args: list) -> list[float]:
     """Flattens fixture assertion args to a flat float list.
@@ -263,6 +263,11 @@ def _dispatch_multivariate(target: str, construct: dict, method: str, args: list
         mean = [float(v) for v in construct["mean"]]
         cov = [[float(v) for v in row] for row in construct["covariance"]]
         return _core.mvn_val(method, mean, cov, ar)
+    if target == "MultivariateStudentT":
+        df = float(construct["df"])
+        location = [float(v) for v in construct["location"]]
+        scale = [[float(v) for v in row] for row in construct["scale"]]
+        return _core.mvt_val(method, df, location, scale, ar)
     raise KeyError(f"unknown multivariate target: {target}")
 
 

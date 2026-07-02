@@ -356,8 +356,8 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
 // Mirrors the univariate Build/Dispatch split. Dirichlet/Multinomial/BivariateEmpirical have
 // no common Mean/Variance/Covariance signature (unlike UnivariateDistributionBase), so
 // DispatchMultivariate downcasts to the concrete type for anything beyond
-// Dimension/PDF/LogPDF/CDF/ParametersValid. Extensible: MultivariateNormal/
-// MultivariateStudentT add a case to each of Build/Dispatch.
+// Dimension/PDF/LogPDF/CDF/ParametersValid. Extensible: additional multivariate targets add
+// a case to each of Build/Dispatch.
 
 static MultivariateDistribution BuildMultivariate(string target, JsonElement construct)
 {
@@ -415,6 +415,19 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
         if (construct.TryGetProperty("rel_error", out var relErrEl))
             mvn.RelativeError = relErrEl.GetDouble();
         return mvn;
+    }
+    if (target == "MultivariateStudentT")
+    {
+        double df = construct.GetProperty("df").GetDouble();
+        var location = construct.GetProperty("location").EnumerateArray().Select(ParseNum).ToArray();
+        var scaleRows = construct.GetProperty("scale").EnumerateArray().ToArray();
+        var scale = new double[scaleRows.Length, location.Length];
+        for (int i = 0; i < scaleRows.Length; i++)
+        {
+            var row = scaleRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) scale[i, j] = row[j];
+        }
+        return new MultivariateStudentT(df, location, scale);
     }
     throw new Exception($"unknown multivariate target: {target}");
 }
@@ -501,6 +514,28 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
                 int inform = 0;
                 nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
                 return val;
+            }
+        }
+    }
+    else if (target == "MultivariateStudentT")
+    {
+        var tt = (MultivariateStudentT)d;
+        switch (m)
+        {
+            case "degrees_of_freedom": return tt.DegreesOfFreedom;
+            case "mean": return tt.Mean[a[0].GetInt32()];
+            case "median": return tt.Median[a[0].GetInt32()];
+            case "mode": return tt.Mode[a[0].GetInt32()];
+            case "sd": return tt.StandardDeviation[a[0].GetInt32()];
+            case "variance": return tt.Variance[a[0].GetInt32()];
+            case "covariance": return tt.Covariance[a[0].GetInt32(), a[1].GetInt32()];
+            case "mahalanobis": return tt.Mahalanobis(a[0].EnumerateArray().Select(ParseNum).ToArray());
+            case "inverse_cdf":
+            {
+                // args = [[p_1..p_dim+1], index]
+                var p = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                int idx = a[1].GetInt32();
+                return tt.InverseCDF(p)[idx];
             }
         }
     }
