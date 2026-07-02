@@ -227,27 +227,71 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   range. `ArchimedeanCopula.ValidateParameter`'s final branch instead does
   `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is valid");` -- a non-null
   exception object, even though the message says the parameter IS valid. Because `is null` is
-  therefore always false, `ParametersValid` is unconditionally `false` for every Archimedean-derived
-  copula (Clayton, AliMikhailHaq, Frank, Gumbel, Joe) regardless of whether theta is actually in
-  range. This does not affect `PDF`/`CDF`/`InverseCDF` or any fit -- the "valid" branch never
-  throws -- only the `ParametersValid` getter is wrong.
+  therefore always false, `ParametersValid` is unconditionally `false` for any Archimedean copula
+  that does NOT override `ValidateParameter` itself. **UPDATE (Task 8):** this affects Clayton,
+  Gumbel, and Joe, but NOT AliMikhailHaq (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each
+  have their own `ValidateParameter` override that is textually identical to
+  `ArchimedeanCopula`'s except the final branch correctly `return null;`, so `AMHCopula`/
+  `FrankCopula` instances get a correctly-working `ParametersValid`. (An earlier version of this
+  entry said the bug affected "every Archimedean-derived copula (Clayton, AliMikhailHaq, Frank,
+  Gumbel, Joe)" -- that blanket claim was wrong for AMH/Frank; corrected here after reading all
+  five concrete `.cs` files directly.) This does not affect `PDF`/`CDF`/`InverseCDF` or any fit for
+  any copula -- the "valid" branch never throws -- only the `ParametersValid` getter is wrong, and
+  only for Clayton/Gumbel/Joe.
 - **Evidence (reproduced against the real C# library):** `new ClaytonCopula(2.0).ParametersValid`
   returns `false` even though `theta_minimum = -1`, `theta_maximum = +inf`, and `2.0` is well
   within range; `ValidateParameter(2.0, false).Message` is `"Parameter is valid (Parameter
   'Theta')"` -- a non-null object. `new NormalCopula(0.5).ParametersValid` correctly returns `true`
   for the equivalent in-range case, confirming the divergence is specific to
-  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas.
-- **Port handling:** mirrored faithfully (`archimedean_copula.hpp`'s `validate_parameter` also
-  returns a non-nullopt "Parameter is valid" message in the final branch, so
-  `bivariate_copula.hpp`'s `set_theta` likewise always sets `parameters_valid_ = false` for
-  Archimedean copulas); documented in-header at both `bivariate_copula.hpp` and
-  `archimedean_copula.hpp`. No fixture asserts `parameters_valid` on an Archimedean copula (Clayton's
-  fixture omits that case) since the value is not independently informative once the bug is known.
+  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas. `AMHCopula.cs`/
+  `FrankCopula.cs` source inspection (Task 8) confirms their own overrides return `null` in range,
+  so `new AMHCopula(0.5).ParametersValid`/`new FrankCopula(5.0).ParametersValid` are expected `true`
+  (not independently re-verified against the built library for this entry, since PDF/CDF/fit
+  fidelity was the Task 8 verification priority, but the source override is unambiguous).
+- **Port handling:** mirrored faithfully. `archimedean_copula.hpp`'s `validate_parameter` still
+  returns a non-nullopt "Parameter is valid" message in the final branch (affecting
+  `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it), but
+  `amh_copula.hpp`/`frank_copula.hpp` (Task 8) each add their own correct override (`return
+  std::nullopt;` in range), matching their C# counterparts. Documented in-header at
+  `bivariate_copula.hpp`, `archimedean_copula.hpp`, and each of the five concrete copula headers.
+  No fixture asserts `parameters_valid` on any Archimedean copula since the value is not
+  independently informative once the bug (and which copulas it does/doesn't affect) is known.
 - **Suggested C# fix:** change `ArchimedeanCopula.ValidateParameter`'s final branch to `return
-  null;`, matching `NormalCopula`/`StudentTCopula`. This would flip `ParametersValid` from `false` to
-  `true` for every existing in-range Archimedean copula instance -- audit any downstream code
-  (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the (always-false)
-  value before shipping the fix.
+  null;`, matching `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`, and delete the
+  now-redundant overrides on `AMHCopula`/`FrankCopula`. This would flip `ParametersValid` from
+  `false` to `true` for every existing in-range Clayton/Gumbel/Joe instance -- audit any downstream
+  code (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the
+  (always-false, for those three types) value before shipping the fix.
+
+---
+
+## CONSISTENCY/API — JoeCopula has no SetThetaFromTau, unlike its Archimedean siblings
+
+- **Where:** `Numerics/Distributions/Bivariate Copulas/JoeCopula.cs`.
+- **What:** `ClaytonCopula`, `AMHCopula`, and `GumbelCopula` each implement a `SetThetaFromTau`
+  method-of-moments fit (Kendall's tau -> theta, closed-form for Clayton/Gumbel, Brent-solved for
+  AMH). `JoeCopula` has no such method -- confirmed by `grep -n SetThetaFromTau` across the entire
+  `Numerics/Distributions/Bivariate Copulas/` directory (three hits: Clayton, AMH, Gumbel; zero for
+  Joe) and by `Test_JoeCopula.cs` having every other concrete copula's `Test_MOM_Fit` test method
+  but not its own. This is not a wrong-output bug (nothing crashes or returns a bad value) --
+  it is a missing feature relative to sibling classes that otherwise share an (almost) identical
+  API surface, and there is no algorithmic reason Joe's tau could not be Brent-solved the same way
+  AMH's is (Joe's generator, like AMH's, has no closed-form tau inversion, but that has not stopped
+  the other three).
+- **Evidence:** direct inspection of all five `Bivariate Copulas/*.cs` files (Task 8); this is also
+  why the Phase 2 plan text and an earlier draft of `fixtures/README.md` incorrectly listed Joe as
+  tau-capable (both were apparently written from the class's general shape/expected symmetry with
+  Clayton/AMH/Gumbel rather than the actual source) -- corrected in both places during Task 8.
+- **Port handling:** `joe_copula.hpp` (Task 8) does NOT add a `set_theta_from_tau` method, matching
+  the C# source exactly; `joe_copula.json` has no `"tau"` fixture case, and the three
+  `set_theta_from_tau_dispatch` glue functions (`core/tests/test_fixtures.cpp`,
+  `bestfitr/src/copula.cpp`, `bestfitpy/src/bindings/copula.cpp`) plus the oracle emitter's
+  `SetThetaFromTauDispatch` have no `"Joe"` branch (each has a NOTE comment explaining the
+  omission).
+- **Suggested C# fix:** add `JoeCopula.SetThetaFromTau`, e.g. `Theta = Brent.Solve(t => { ... } -
+  tau, 1d, 100d)` mirroring `GumbelCopula`'s pattern but for Joe's tau relationship, for API parity
+  with Clayton/AMH/Gumbel. Not urgent -- MPL/IFM/MLE fits already work for Joe via the shared
+  `BivariateCopulaEstimation` path.
 
 ---
 

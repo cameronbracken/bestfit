@@ -179,7 +179,11 @@ changes (the one exception, the `"tau"` fit method, is explained below).
     member of each concrete Archimedean class, not `IBivariateCopula`/`IArchimedeanCopula` -- so
     every runner resolves it with a small per-target dispatch (one `if (target == "Clayton") ...`
     branch each; see `set_theta_from_tau_dispatch` in `core/tests/test_fixtures.cpp` and its R/Python/
-    emitter counterparts). Each new tau-capable copula (AliMikhailHaq, Gumbel, Joe) adds one branch.
+    emitter counterparts). Tau-capable copulas: Clayton, AliMikhailHaq (AMH), Gumbel. NOTE: an
+    earlier draft of this doc also listed Joe here, but `JoeCopula.cs` has no `SetThetaFromTau`
+    method (confirmed by grep across the whole "Bivariate Copulas" directory and by
+    `Test_JoeCopula.cs` having no `Test_MOM_Fit`) -- Joe has no "tau" fixture case and no dispatch
+    branch (Task 8, see `.superpowers/sdd/task-8-report.md`).
   - `"mpl"` (maximum pseudo likelihood): `"x"`/`"y"` must already be the **plotting positions** of
     the data (rank/(n+1) via `Statistics.RanksInPlace`), not the raw sample -- mirroring the C# test
     flow (`Test_MPL_Fit`), which computes plotting positions itself before calling
