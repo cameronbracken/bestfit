@@ -2,16 +2,22 @@
 //
 // Sample statistics needed by distribution estimation: product moments
 // (mean, stdev, bias-corrected skew & excess kurtosis), linear (L-)moments, and
-// rank statistics (ranks_in_place, which Correlation::spearman consumes).
+// rank statistics (ranks_in_place, which Correlation::spearman consumes). Phase 3 adds
+// `percentile` (~line 544), the single-`k` overload only -- its zero-based linear-
+// interpolation convention (R `quantile()` Type 7) is the oracle for MCMC posterior
+// median/credible-interval reporting.
 //
 // ranks_in_place ports only the single-return-value RanksInPlace(double[]) overload
 // (exact-equality tie runs); the RanksInPlace(double[], out ties) overload (tolerance-
 // based ties via AlmostEquals, returning a tie-count array) is omitted -- no caller
-// ported so far needs the tie-count output.
+// ported so far needs the tie-count output. The `Percentile(IList<double>, IList<double>
+// k, bool)` array overload and `FiveNumberSummary`/`SevenNumberSummary` are omitted too --
+// each caller ported so far needs only single-`k` calls; add them if a later target does.
 #pragma once
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace bestfit::numerics::data {
@@ -111,6 +117,35 @@ inline std::vector<double> ranks_in_place(const std::vector<double>& data) {
     ranks_ties(previous_index, n);
 
     return ranks;
+}
+
+// Returns the k-th percentile of `data` (k in [0, 1]) using zero-based linear
+// interpolation (R `quantile()` Type 7). If `data_is_sorted` is false (the default), a
+// sorted copy is taken first; pass true when `data` is already sorted to skip the copy.
+inline double percentile(const std::vector<double>& data, double k, bool data_is_sorted = false) {
+    int n = static_cast<int>(data.size());
+    if (n == 0) throw std::invalid_argument("Sequence contains no elements.");
+    if (k < 0.0 || k > 1.0) throw std::out_of_range("k must be in [0,1].");
+
+    std::vector<double> sorted_copy;
+    const std::vector<double>* sorted = &data;
+    if (!data_is_sorted) {
+        sorted_copy = data;
+        std::sort(sorted_copy.begin(), sorted_copy.end());
+        sorted = &sorted_copy;
+    }
+
+    // Trivial cases
+    if (n == 1 || k == 0.0) return (*sorted)[0];
+    if (k == 1.0) return (*sorted)[static_cast<std::size_t>(n - 1)];
+
+    // Zero-based linear interpolation (Type 7)
+    double h = (n - 1) * k;
+    int lower = static_cast<int>(std::floor(h));
+    int upper = static_cast<int>(std::ceil(h));
+    double w = h - lower;
+    return (*sorted)[static_cast<std::size_t>(lower)] +
+           w * ((*sorted)[static_cast<std::size_t>(upper)] - (*sorted)[static_cast<std::size_t>(lower)]);
 }
 
 }  // namespace bestfit::numerics::data

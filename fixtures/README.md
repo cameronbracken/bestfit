@@ -332,6 +332,29 @@ by a trailing solution index `i` (`n` solves `n^2 + n + 1 = len(args)`).
 The `Correlation.*` targets (`fixtures/special_functions/correlation.json`) take two equal-length samples
 flattened into `args` as `[x_1..x_n, y_1..y_n]`, split at the midpoint (`n = len(args) / 2`).
 
+The `LU.*` targets (`fixtures/special_functions/lu_decomposition.json`) reuse the exact Cholesky
+matrix-args convention above (same flattened-row-major-plus-trailing-indices shapes for
+`determinant`/`inverse_element`/`solve_element`), but -- unlike Cholesky, which requires a
+symmetric positive-definite matrix -- accept any square matrix, so its cases are deliberately
+non-symmetric to exercise LU's row-pivoting path.
+
+`Statistics.percentile` (`fixtures/special_functions/percentile.json`) takes
+`args = [data_1..data_n, k, data_is_sorted (0.0/1.0)]`, with `n = len(args) - 2`.
+
+The `Extensions.*`/`Mt.*` targets (`fixtures/special_functions/extension_methods.json`) exercise
+seeded-draw entry points with no upstream C# test literal to scrape, so every case is curated via
+`oracle_emitter --dump` (see Statefulness note below): `Extensions.next_doubles_grid` takes
+`args = [n, dim, seed, row, col]` (element `[row, col]` of `MersenneTwister(seed).NextDoubles(n,
+dim)`); `Extensions.next_integers_at` takes `args = [n, seed, i]`; `Mt.next_range` takes `args =
+[seed, min, max, i]` (the `i`-th, 0-based, call to `MersenneTwister(seed).Next(min, max)`).
+
+The `RunningCovariance.*` targets (`fixtures/special_functions/running_covariance.json`) take
+`args = [size, num_pushes, data_flat(num_pushes*size), trailing index/indices]` -- one row index
+for `mean_element`, `(i, j)` for `covariance_element`/`sample_covariance_element`/
+`sample_correlation_element`. The `RunningStatistics.*` targets
+(`fixtures/special_functions/running_statistics.json`) take `args` = the flat sample (the
+constructor pushes every element in order); each target reads one property off the result.
+
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.
 

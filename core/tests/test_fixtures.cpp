@@ -10,6 +10,7 @@
 // UnivariateDistributionBase + factory path, which is what new distributions plug into.
 // Special functions use a flat target->lambda map.
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -39,7 +40,11 @@
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
+#include "bestfit/numerics/data/running_covariance_matrix.hpp"
+#include "bestfit/numerics/data/running_statistics.hpp"
+#include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/vector.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
@@ -47,6 +52,8 @@
 #include "bestfit/numerics/math/special/erf.hpp"
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "bestfit/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
 
@@ -169,6 +176,8 @@ namespace la = bestfit::numerics::math::linalg;
 // Alias must not be named `stat` (collides with the MSVC/POSIX CRT symbol, like the
 // glibc `gamma` clash documented in .claude/CLAUDE.md).
 namespace bfdata = bestfit::numerics::data;
+namespace bfsamp = bestfit::numerics::sampling;
+namespace bfutil = bestfit::numerics::utilities;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -201,6 +210,21 @@ static int cholesky_solve_n(std::size_t len) {
 static la::Matrix cholesky_matrix_from_flat(const std::vector<double>& a, int n) {
     std::vector<double> flat(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n) * n);
     return la::Matrix(n, n, flat);
+}
+
+// RunningCovariance fixture args: [size, num_pushes, data_flat(num_pushes*size), trailing
+// index/indices] -- see fixtures/special_functions/running_covariance.json for the
+// convention. Builds a RunningCovarianceMatrix and replays `num_pushes` push()es of
+// `size`-length rows sliced from the flattened data.
+static bfdata::RunningCovarianceMatrix running_covariance_build(const std::vector<double>& a, int size,
+                                                                  int num_pushes) {
+    bfdata::RunningCovarianceMatrix rcm(size);
+    for (int p = 0; p < num_pushes; ++p) {
+        std::vector<double> row(a.begin() + 2 + static_cast<std::ptrdiff_t>(p) * size,
+                                 a.begin() + 2 + static_cast<std::ptrdiff_t>(p + 1) * size);
+        rcm.push(row);
+    }
+    return rcm;
 }
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
@@ -290,6 +314,120 @@ special_function_table() {
             correlation_split(a, x, y);
             return bfdata::kendalls_tau(x, y);
         }},
+        // LU family (args: flattened row-major matrix, n inferred from length -- reuses
+        // the Cholesky-fixture flatten helpers above, which are generic matrix-args
+        // conventions, not Cholesky-specific; see fixtures/special_functions/lu_decomposition.json)
+        {"LU.determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::LUDecomposition(cholesky_matrix_from_flat(a, n)).determinant();
+        }},
+        {"LU.inverse_element", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size() - 2);
+            la::LUDecomposition lu(cholesky_matrix_from_flat(a, n));
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n]);
+            int j = static_cast<int>(a[static_cast<std::size_t>(n) * n + 1]);
+            return lu.inverse_a()(i, j);
+        }},
+        {"LU.solve_element", [](const std::vector<double>& a) {
+            int n = cholesky_solve_n(a.size());
+            la::LUDecomposition lu(cholesky_matrix_from_flat(a, n));
+            std::vector<double> rhs(a.begin() + static_cast<std::ptrdiff_t>(n) * n,
+                                     a.begin() + static_cast<std::ptrdiff_t>(n) * n + n);
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n + static_cast<std::size_t>(n)]);
+            return lu.solve(la::Vector(std::move(rhs)))[i];
+        }},
+        // Percentile (args: [data_1..data_n, k, data_is_sorted (0.0/1.0)] -- see
+        // fixtures/special_functions/percentile.json for the convention)
+        {"Statistics.percentile", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            double k = a[n];
+            bool sorted = a[n + 1] != 0.0;
+            return bfdata::percentile(data, k, sorted);
+        }},
+        // Extensions/MersenneTwister ranged-draw family (see
+        // fixtures/special_functions/extension_methods.json for the conventions)
+        {"Extensions.next_doubles_grid", [](const std::vector<double>& a) {
+            // args: [n, dim, seed, row, col]
+            int n = static_cast<int>(a[0]);
+            int dim = static_cast<int>(a[1]);
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[2]));
+            int row = static_cast<int>(a[3]);
+            int col = static_cast<int>(a[4]);
+            auto grid = bfutil::next_doubles(rng, n, dim);
+            return grid[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)];
+        }},
+        {"Extensions.next_integers_at", [](const std::vector<double>& a) {
+            // args: [n, seed, i]
+            int n = static_cast<int>(a[0]);
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[1]));
+            int i = static_cast<int>(a[2]);
+            auto values = bfutil::next_integers(rng, n);
+            return static_cast<double>(values[static_cast<std::size_t>(i)]);
+        }},
+        {"Mt.next_range", [](const std::vector<double>& a) {
+            // args: [seed, min, max, i] -- draws next(min, max) (i+1) times, 0-based,
+            // returning the i-th draw.
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[0]));
+            int min_v = static_cast<int>(a[1]);
+            int max_v = static_cast<int>(a[2]);
+            int i = static_cast<int>(a[3]);
+            int result = 0;
+            for (int k = 0; k <= i; ++k) result = rng.next(min_v, max_v);
+            return static_cast<double>(result);
+        }},
+        // RunningCovarianceMatrix family (args: [size, num_pushes, data_flat, trailing
+        // index/indices] -- see fixtures/special_functions/running_covariance.json)
+        {"RunningCovariance.mean_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            return rcm.mean()(i, 0);
+        }},
+        {"RunningCovariance.covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.covariance()(i, j);
+        }},
+        {"RunningCovariance.sample_covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.sample_covariance()(i, j);
+        }},
+        {"RunningCovariance.sample_correlation_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.sample_correlation()(i, j);
+        }},
+        // RunningStatistics family (args: the flat sample; see
+        // fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.mean", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).mean(); }},
+        {"RunningStatistics.variance", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).variance(); }},
+        {"RunningStatistics.standard_deviation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).standard_deviation(); }},
+        {"RunningStatistics.population_variance", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_variance(); }},
+        {"RunningStatistics.population_standard_deviation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_standard_deviation(); }},
+        {"RunningStatistics.coefficient_of_variation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).coefficient_of_variation(); }},
+        {"RunningStatistics.skewness", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).skewness(); }},
+        {"RunningStatistics.population_skewness", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_skewness(); }},
+        {"RunningStatistics.kurtosis", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).kurtosis(); }},
+        {"RunningStatistics.population_kurtosis", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_kurtosis(); }},
+        {"RunningStatistics.minimum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).minimum(); }},
+        {"RunningStatistics.maximum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).maximum(); }},
+        {"RunningStatistics.count", [](const std::vector<double>& a) { return static_cast<double>(bfdata::RunningStatistics(a).count()); }},
     };
     return t;
 }

@@ -1,0 +1,128 @@
+{
+  "target": "LU.determinant",
+  "kind": "special_function",
+  "source": "Numerics/Mathematics/Linear Algebra/LUDecomposition.cs; the 3x3 case's matrix, rhs, and solution are scraped verbatim from Test_LUDecomposition.cs (Test_LUDecomp/Test_SolveVector/Test_Determinant/Test_Inverse); its determinant/inverse expected values were recomputed independently via exact rational arithmetic (Python fractions.Fraction, then converted to float64) rather than copied from the test's own (coarser, 1e-4-tolerance) literals, so this fixture's tighter 1e-9 tolerance has a trustworthy target.",
+  "reference": "Numerics @ a2c4dbf. Each case's `target` selects the dispatch function (falls back to the file-level `target` if a case omits it -- mirrors fixtures/special_functions/cholesky.json). Convention: matrices are passed as flattened row-major doubles; n is inferred from the args length exactly as documented in cholesky.json (n = sqrt(len) for determinant; n = sqrt(len-2) for inverse_element, whose last two args are the (i, j) indices; n solves n^2+n+1=len for solve_element, whose args are [flattened n*n matrix, n-length rhs vector, index i]). Unlike Cholesky (symmetric positive-definite only), LU handles general square matrices, so both the 3x3 (scraped) and 2x2 (curated) cases here are deliberately NON-symmetric -- exercising the row-pivoting/permutation path that a symmetric-only fixture would never touch. The 2x2 case (A = [[4,3],[6,3]], b = [10,12]) was chosen for a clean exact solution (x = [1,2]) and recomputed the same way (exact rational arithmetic, then float64), and both cases' values were confirmed reproducible against the real C# LUDecomposition by tools/verify_oracles.py.",
+  "cases": [
+    {
+      "name": "det_3x3",
+      "target": "LU.determinant",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1],
+      "assertions": [ { "method": "value", "expected": -21.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_00",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 0, 0],
+      "assertions": [ { "method": "value", "expected": 1.2857142857142858, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_01",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 0, 1],
+      "assertions": [ { "method": "value", "expected": -0.2857142857142857, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_02",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 0, 2],
+      "assertions": [ { "method": "value", "expected": -0.14285714285714285, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_10",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 1, 0],
+      "assertions": [ { "method": "value", "expected": -0.47619047619047616, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_11",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 1, 1],
+      "assertions": [ { "method": "value", "expected": 0.14285714285714285, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_12",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 1, 2],
+      "assertions": [ { "method": "value", "expected": 0.23809523809523808, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_20",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 2, 0],
+      "assertions": [ { "method": "value", "expected": 0.19047619047619047, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_21",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 2, 1],
+      "assertions": [ { "method": "value", "expected": 0.14285714285714285, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_3x3_22",
+      "target": "LU.inverse_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 2, 2],
+      "assertions": [ { "method": "value", "expected": -0.09523809523809523, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "solve_3x3_0",
+      "target": "LU.solve_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 6, -4, 27, 0],
+      "assertions": [ { "method": "value", "expected": 5.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "solve_3x3_1",
+      "target": "LU.solve_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 6, -4, 27, 1],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "solve_3x3_2",
+      "target": "LU.solve_element",
+      "args": [1, 1, 1, 0, 2, 5, 2, 5, -1, 6, -4, 27, 2],
+      "assertions": [ { "method": "value", "expected": -2.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "det_2x2",
+      "target": "LU.determinant",
+      "args": [4, 3, 6, 3],
+      "assertions": [ { "method": "value", "expected": -6.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_2x2_00",
+      "target": "LU.inverse_element",
+      "args": [4, 3, 6, 3, 0, 0],
+      "assertions": [ { "method": "value", "expected": -0.5, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_2x2_01",
+      "target": "LU.inverse_element",
+      "args": [4, 3, 6, 3, 0, 1],
+      "assertions": [ { "method": "value", "expected": 0.5, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_2x2_10",
+      "target": "LU.inverse_element",
+      "args": [4, 3, 6, 3, 1, 0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "inverse_2x2_11",
+      "target": "LU.inverse_element",
+      "args": [4, 3, 6, 3, 1, 1],
+      "assertions": [ { "method": "value", "expected": -0.6666666666666666, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "solve_2x2_0",
+      "target": "LU.solve_element",
+      "args": [4, 3, 6, 3, 10, 12, 0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "solve_2x2_1",
+      "target": "LU.solve_element",
+      "args": [4, 3, 6, 3, 10, 12, 1],
+      "assertions": [ { "method": "value", "expected": 2.0, "mode": "abs", "tol": 1e-9 } ]
+    }
+  ]
+}

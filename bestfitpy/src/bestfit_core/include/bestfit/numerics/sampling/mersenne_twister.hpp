@@ -11,9 +11,10 @@
 // and per-column reseeding consume; they draw from the same gen_rand_int32() stream in
 // the same order as C#, so seeded call sequences stay bit-exact across languages.
 //
-// Omitted: C# Next(int minInclusive, int maxExclusive) (a one-line forwarder,
-// `Next(maxExclusive - minInclusive) + minInclusive`) has no caller ported so far;
-// add it here (same forwarding form) if a later target needs it.
+// next(min_inclusive, max_exclusive) (Phase 3) adds the two-argument C# `Next(int
+// minInclusive, int maxExclusive)` -- a one-line forwarder to the single-argument
+// overload, `Next(maxExclusive - minInclusive) + minInclusive` -- that DEMCzs's
+// SnookerUpdate (chain-index sampling) and other MCMC samplers consume.
 #pragma once
 #include <cstdint>
 #include <limits>
@@ -102,6 +103,15 @@ class MersenneTwister {
         } while (r >= threshold);
 
         return static_cast<int>(r % max_u);
+    }
+
+    // Generates a random int on [min_inclusive, max_exclusive) (matches C# Next(int
+    // minInclusive, int maxExclusive), a one-line forwarder to next(max_exclusive -
+    // min_inclusive) + min_inclusive).
+    int next(int min_inclusive, int max_exclusive) {
+        if (min_inclusive >= max_exclusive)
+            throw std::invalid_argument("min_inclusive must be less than max_exclusive.");
+        return next(max_exclusive - min_inclusive) + min_inclusive;
     }
 
    private:

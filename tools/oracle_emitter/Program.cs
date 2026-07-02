@@ -10,6 +10,7 @@
 // GEV standard-error methods are reported as "skipped" (verified in Phase 0, not re-checked here).
 
 using System.Text.Json;
+using Numerics;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
@@ -374,8 +375,149 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
         var (x, y) = CorrelationSplit(a);
         return Correlation.KendallsTau(x, y);
     },
+    // LU family (args: flattened row-major matrix, n inferred from length -- reuses the
+    // Cholesky-fixture flatten helpers above, which are generic matrix-args conventions,
+    // not Cholesky-specific; see fixtures/special_functions/lu_decomposition.json)
+    "LU.determinant" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        return new LUDecomposition(CholeskyMatrixFromFlat(a, n)).Determinant();
+    },
+    "LU.inverse_element" => a =>
+    {
+        int n = CholeskySquareN(a.Length - 2);
+        var lu = new LUDecomposition(CholeskyMatrixFromFlat(a, n));
+        int i = (int)a[n * n];
+        int j = (int)a[n * n + 1];
+        return lu.InverseA()[i, j];
+    },
+    "LU.solve_element" => a =>
+    {
+        int n = CholeskySolveN(a.Length);
+        var lu = new LUDecomposition(CholeskyMatrixFromFlat(a, n));
+        var rhs = new double[n];
+        Array.Copy(a, n * n, rhs, 0, n);
+        int i = (int)a[n * n + n];
+        return lu.Solve(new Vector(rhs))[i];
+    },
+    // Percentile (args: [data_1..data_n, k, data_is_sorted (0.0/1.0)] -- see
+    // fixtures/special_functions/percentile.json for the convention)
+    "Statistics.percentile" => a =>
+    {
+        int n = a.Length - 2;
+        var data = a[..n];
+        double k = a[n];
+        bool sorted = a[n + 1] != 0.0;
+        return Statistics.Percentile(data, k, sorted);
+    },
+    // Extensions/MersenneTwister ranged-draw family (see
+    // fixtures/special_functions/extension_methods.json for the conventions)
+    "Extensions.next_doubles_grid" => a =>
+    {
+        // args: [n, dim, seed, row, col]
+        int n = (int)a[0];
+        int dim = (int)a[1];
+        var rng = new MersenneTwister((int)a[2]);
+        int row = (int)a[3];
+        int col = (int)a[4];
+        var grid = rng.NextDoubles(n, dim);
+        return grid[row, col];
+    },
+    "Extensions.next_integers_at" => a =>
+    {
+        // args: [n, seed, i]
+        int n = (int)a[0];
+        var rng = new MersenneTwister((int)a[1]);
+        int i = (int)a[2];
+        var values = rng.NextIntegers(n);
+        return values[i];
+    },
+    "Mt.next_range" => a =>
+    {
+        // args: [seed, min, max, i] -- draws Next(min, max) (i+1) times, 0-based,
+        // returning the i-th draw.
+        var rng = new MersenneTwister((int)a[0]);
+        int minV = (int)a[1];
+        int maxV = (int)a[2];
+        int i = (int)a[3];
+        int result = 0;
+        for (int k = 0; k <= i; k++) result = rng.Next(minV, maxV);
+        return (double)result;
+    },
+    // RunningCovarianceMatrix family (args: [size, num_pushes, data_flat, trailing
+    // index/indices] -- see fixtures/special_functions/running_covariance.json)
+    "RunningCovariance.mean_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        return rcm.Mean[i, 0];
+    },
+    "RunningCovariance.covariance_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        int j = (int)a[baseIdx + 1];
+        return rcm.Covariance[i, j];
+    },
+    "RunningCovariance.sample_covariance_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        int j = (int)a[baseIdx + 1];
+        return rcm.SampleCovariance[i, j];
+    },
+    "RunningCovariance.sample_correlation_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        int j = (int)a[baseIdx + 1];
+        return rcm.SampleCorrelation[i, j];
+    },
+    // RunningStatistics family (args: the flat sample; see
+    // fixtures/special_functions/running_statistics.json)
+    "RunningStatistics.mean" => a => new RunningStatistics(a).Mean,
+    "RunningStatistics.variance" => a => new RunningStatistics(a).Variance,
+    "RunningStatistics.standard_deviation" => a => new RunningStatistics(a).StandardDeviation,
+    "RunningStatistics.population_variance" => a => new RunningStatistics(a).PopulationVariance,
+    "RunningStatistics.population_standard_deviation" => a => new RunningStatistics(a).PopulationStandardDeviation,
+    "RunningStatistics.coefficient_of_variation" => a => new RunningStatistics(a).CoefficientOfVariation,
+    "RunningStatistics.skewness" => a => new RunningStatistics(a).Skewness,
+    "RunningStatistics.population_skewness" => a => new RunningStatistics(a).PopulationSkewness,
+    "RunningStatistics.kurtosis" => a => new RunningStatistics(a).Kurtosis,
+    "RunningStatistics.population_kurtosis" => a => new RunningStatistics(a).PopulationKurtosis,
+    "RunningStatistics.minimum" => a => new RunningStatistics(a).Minimum,
+    "RunningStatistics.maximum" => a => new RunningStatistics(a).Maximum,
+    "RunningStatistics.count" => a => (double)new RunningStatistics(a).Count,
     _ => null,
 };
+
+// RunningCovariance fixture args: [size, num_pushes, data_flat(num_pushes*size), trailing
+// index/indices] -- see fixtures/special_functions/running_covariance.json for the
+// convention. Builds a RunningCovarianceMatrix and replays `numPushes` Push()es of
+// `size`-length rows sliced from the flattened data.
+static RunningCovarianceMatrix RunningCovarianceBuild(double[] a, int size, int numPushes)
+{
+    var rcm = new RunningCovarianceMatrix(size);
+    for (int p = 0; p < numPushes; p++)
+    {
+        var row = new double[size];
+        Array.Copy(a, 2 + p * size, row, 0, size);
+        rcm.Push(row);
+    }
+    return rcm;
+}
 
 // --- multivariate_distribution branch -----------------------------------------------------
 // Mirrors the univariate Build/Dispatch split. Dirichlet/Multinomial/BivariateEmpirical have
@@ -789,13 +931,26 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
             var fn = ResolveSpecialFunction(sfTarget);
             if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
             string caseName = c.GetProperty("name").GetString()!;
-            var argList = c.GetProperty("args").EnumerateArray().Select(ParseNum).ToArray();
-            double actual;
-            try { actual = fn(argList); }
-            catch (Exception ex) { fail++; failures.Add($"{sfTarget}/{caseName}: {ex.Message}"); continue; }
+            var caseArgsJson = c.GetProperty("args").EnumerateArray().ToArray();
+            var argList = caseArgsJson.Select(ParseNum).ToArray();
+
             foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
             {
-                string where = $"{sfTarget}/{caseName}/{asrt.GetProperty("method").GetString()}";
+                string method = asrt.GetProperty("method").GetString()!;
+                string where = $"{sfTarget}/{caseName}/{method}";
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(sfTarget, caseName, method, caseArgsJson, () => (object)fn(argList));
+                    continue;
+                }
+
+                double actual;
+                try { actual = fn(argList); }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); continue; }
                 if (Compare(actual, asrt)) pass++;
                 else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
             }

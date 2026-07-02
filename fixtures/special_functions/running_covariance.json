@@ -1,0 +1,104 @@
+{
+  "target": "RunningCovariance.mean_element",
+  "kind": "special_function",
+  "source": "Numerics/Data/Statistics/RunningCovarianceMatrix.cs; the push sequence and Mean/Covariance expected values are scraped verbatim from Test_RunningStatistics.cs (Test_RunningMatrix_MultiplePush: five pushes of [1,1,1,1,1]..[5,5,5,5,5] into a size-5 matrix, expecting Mean = [3,3,3,3,3] and Covariance = 1*I + 10*ones(5,5)).",
+  "reference": "Numerics @ a2c4dbf. Args convention (this port's own): args = [size, num_pushes, data_flat(num_pushes*size), trailing index/indices]. mean_element appends one row index i (Mean is size x 1); covariance_element/sample_covariance_element/sample_correlation_element append (i, j). sample_covariance_element/sample_correlation_element are curated, not scraped (Test_RunningStatistics.cs only exercises Mean/Covariance, not the SampleCovariance/SampleCorrelation properties): SampleCovariance = Covariance / (N-1) = Covariance/4, an exact-in-binary division (11/4 = 2.75, 10/4 = 2.5); SampleCorrelation's off-diagonal entries reduce algebraically to (10/4)/(2.75) = 10/11 (a repeating binary fraction) since every diagonal entry of SampleCovariance is equal, but the actual code path computes it via Matrix::diagonal + Matrix::sqrt + Matrix::inverse (LUDecomposition) + two matrix multiplies rather than a direct division -- exercising the new LU-backed Matrix::inverse() -- so the curated expected value (0.9090909090909091) was cross-checked against tools/verify_oracles.py rather than assumed equal to the hand-derived ratio.",
+  "cases": [
+    {
+      "name": "mean_0",
+      "target": "RunningCovariance.mean_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "mean_1",
+      "target": "RunningCovariance.mean_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 1],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "mean_2",
+      "target": "RunningCovariance.mean_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 2],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "mean_3",
+      "target": "RunningCovariance.mean_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 3],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "mean_4",
+      "target": "RunningCovariance.mean_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 4],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_diag_0",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 0],
+      "assertions": [ { "method": "value", "expected": 11.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_diag_2",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 2, 2],
+      "assertions": [ { "method": "value", "expected": 11.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_diag_4",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 4, 4],
+      "assertions": [ { "method": "value", "expected": 11.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_offdiag_01",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 1],
+      "assertions": [ { "method": "value", "expected": 10.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_offdiag_04",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 4],
+      "assertions": [ { "method": "value", "expected": 10.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_offdiag_24",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 2, 4],
+      "assertions": [ { "method": "value", "expected": 10.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "covariance_offdiag_31",
+      "target": "RunningCovariance.covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 3, 1],
+      "assertions": [ { "method": "value", "expected": 10.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "sample_covariance_diag",
+      "target": "RunningCovariance.sample_covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 0],
+      "assertions": [ { "method": "value", "expected": 2.75, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "sample_covariance_offdiag",
+      "target": "RunningCovariance.sample_covariance_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 1],
+      "assertions": [ { "method": "value", "expected": 2.5, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "sample_correlation_diag",
+      "target": "RunningCovariance.sample_correlation_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 0],
+      "assertions": [ { "method": "value", "expected": 1.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "sample_correlation_offdiag",
+      "target": "RunningCovariance.sample_correlation_element",
+      "args": [5, 5, 1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3, 4,4,4,4,4, 5,5,5,5,5, 0, 1],
+      "assertions": [ { "method": "value", "expected": 0.9090909090909091, "mode": "abs", "tol": 1e-9 } ]
+    }
+  ]
+}
