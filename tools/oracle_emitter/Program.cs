@@ -559,7 +559,11 @@ static BivariateCopula BuildCopula(string target, JsonElement construct,
     var type = Enum.Parse<CopulaType>(target);
     BivariateCopula copula = type switch
     {
+        CopulaType.AliMikhailHaq => new AMHCopula(),
         CopulaType.Clayton => new ClaytonCopula(),
+        CopulaType.Frank => new FrankCopula(),
+        CopulaType.Gumbel => new GumbelCopula(),
+        CopulaType.Joe => new JoeCopula(),
         _ => throw new Exception($"copula type not yet ported: {target}")
     };
 
@@ -617,6 +621,10 @@ static BivariateCopula BuildCopula(string target, JsonElement construct,
 static void SetThetaFromTauDispatch(BivariateCopula copula, string target, double[] x, double[] y)
 {
     if (target == "Clayton") { ((ClaytonCopula)copula).SetThetaFromTau(x, y); return; }
+    if (target == "AliMikhailHaq") { ((AMHCopula)copula).SetThetaFromTau(x, y); return; }
+    if (target == "Gumbel") { ((GumbelCopula)copula).SetThetaFromTau(x, y); return; }
+    // NOTE: JoeCopula has no SetThetaFromTau in the C# source; intentionally not branched
+    // here (see joe_copula.hpp's file header and .superpowers/sdd/task-8-report.md).
     throw new Exception($"copula '{target}' has no tau-based method-of-moments fit");
 }
 

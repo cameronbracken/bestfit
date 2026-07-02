@@ -18,16 +18,28 @@
 #include <stdexcept>
 #include <string>
 
+#include "bestfit/numerics/distributions/copulas/amh_copula.hpp"
 #include "bestfit/numerics/distributions/copulas/base/bivariate_copula.hpp"
 #include "bestfit/numerics/distributions/copulas/base/copula_type.hpp"
 #include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/frank_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/gumbel_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/joe_copula.hpp"
 
 namespace bestfit::numerics::distributions::copulas {
 
 inline std::unique_ptr<BivariateCopula> create_copula(CopulaType type) {
     switch (type) {
+        case CopulaType::AliMikhailHaq:
+            return std::make_unique<AMHCopula>();
         case CopulaType::Clayton:
             return std::make_unique<ClaytonCopula>();
+        case CopulaType::Frank:
+            return std::make_unique<FrankCopula>();
+        case CopulaType::Gumbel:
+            return std::make_unique<GumbelCopula>();
+        case CopulaType::Joe:
+            return std::make_unique<JoeCopula>();
         default:
             throw std::invalid_argument("copula type not yet ported");
     }
@@ -36,7 +48,11 @@ inline std::unique_ptr<BivariateCopula> create_copula(CopulaType type) {
 // Construct from the C# CopulaType enum name (the value stored in fixtures' "target"
 // field).
 inline std::unique_ptr<BivariateCopula> create_copula(const std::string& name) {
+    if (name == "AliMikhailHaq") return create_copula(CopulaType::AliMikhailHaq);
     if (name == "Clayton") return create_copula(CopulaType::Clayton);
+    if (name == "Frank") return create_copula(CopulaType::Frank);
+    if (name == "Gumbel") return create_copula(CopulaType::Gumbel);
+    if (name == "Joe") return create_copula(CopulaType::Joe);
     throw std::invalid_argument("unknown copula name: " + name);
 }
 

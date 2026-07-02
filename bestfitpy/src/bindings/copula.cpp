@@ -20,9 +20,11 @@
 
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/copulas/amh_copula.hpp"
 #include "bestfit/numerics/distributions/copulas/base/bivariate_copula_estimation.hpp"
 #include "bestfit/numerics/distributions/copulas/base/copula_factory.hpp"
 #include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
+#include "bestfit/numerics/distributions/copulas/gumbel_copula.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
@@ -44,6 +46,16 @@ static void set_theta_from_tau_dispatch(cop::BivariateCopula& c, const std::stri
         dynamic_cast<cop::ClaytonCopula&>(c).set_theta_from_tau(x, y);
         return;
     }
+    if (type == "AliMikhailHaq") {
+        dynamic_cast<cop::AMHCopula&>(c).set_theta_from_tau(x, y);
+        return;
+    }
+    if (type == "Gumbel") {
+        dynamic_cast<cop::GumbelCopula&>(c).set_theta_from_tau(x, y);
+        return;
+    }
+    // NOTE: JoeCopula has no SetThetaFromTau in the C# source -- see joe_copula.hpp's file
+    // header; intentionally not branched here despite the Phase 2 plan/README listing it.
     throw py::value_error("copula '" + type + "' has no tau-based method-of-moments fit");
 }
 

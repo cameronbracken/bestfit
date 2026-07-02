@@ -702,6 +702,17 @@ static void set_theta_from_tau_dispatch(cop::BivariateCopula& copula, const std:
         dynamic_cast<cop::ClaytonCopula&>(copula).set_theta_from_tau(x, y);
         return;
     }
+    if (target == "AliMikhailHaq") {
+        dynamic_cast<cop::AMHCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    if (target == "Gumbel") {
+        dynamic_cast<cop::GumbelCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    // NOTE: JoeCopula has no SetThetaFromTau in the C# source (see joe_copula.hpp's file
+    // header) despite the Phase 2 plan/README listing it as tau-capable -- intentionally
+    // not branched here.
     throw std::runtime_error("copula '" + target + "' has no tau-based method-of-moments fit");
 }
 
