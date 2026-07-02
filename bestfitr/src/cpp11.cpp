@@ -320,6 +320,13 @@ extern "C" SEXP _bestfitr_bf_bve_cdf_(SEXP method, SEXP x1, SEXP x2, SEXP p_flat
     return cpp11::as_sexp(bf_bve_cdf_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(x1), cpp11::as_cpp<cpp11::decay_t<doubles>>(x2), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_flat), cpp11::as_cpp<cpp11::decay_t<int>>(nrow), cpp11::as_cpp<cpp11::decay_t<strings>>(transforms), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
   END_CPP11
 }
+// mvd.cpp
+double bf_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles args);
+extern "C" SEXP _bestfitr_bf_mvn_val_(SEXP method, SEXP mean, SEXP cov_flat, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mvn_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(mean), cpp11::as_cpp<cpp11::decay_t<doubles>>(cov_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
 // sobol.cpp
 doubles_matrix<by_column> bf_sobol_generate_(int dimension, int n_steps, std::string path);
 extern "C" SEXP _bestfitr_bf_sobol_generate_(SEXP dimension, SEXP n_steps, SEXP path) {
@@ -377,6 +384,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,             4},
     {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                3},
     {"_bestfitr_bf_multinomial_val_",          (DL_FUNC) &_bestfitr_bf_multinomial_val_,          4},
+    {"_bestfitr_bf_mvn_val_",                  (DL_FUNC) &_bestfitr_bf_mvn_val_,                  4},
     {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,           3},
     {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,            3},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},

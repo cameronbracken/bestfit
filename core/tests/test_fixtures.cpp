@@ -33,6 +33,7 @@
 #include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -571,6 +572,12 @@ static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const 
             std::move(x1), std::move(x2), std::move(p), parse_transform("x1_transform"),
             parse_transform("x2_transform"), parse_transform("p_transform"));
     }
+    if (target == "MultivariateNormal") {
+        std::vector<double> mean = parse_num_vec(construct["mean"]);
+        std::vector<std::vector<double>> cov;
+        for (const auto& row : construct["covariance"]) cov.push_back(parse_num_vec(row));
+        return std::make_unique<dist::MultivariateNormal>(std::move(mean), std::move(cov));
+    }
     throw std::runtime_error("unknown multivariate target: " + target);
 }
 
@@ -599,6 +606,16 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
     } else if (target == "BivariateEmpirical") {
         const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
         if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
+    } else if (target == "MultivariateNormal") {
+        const auto& nn = dynamic_cast<const dist::MultivariateNormal&>(d);
+        if (m == "mean") return nn.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "median") return nn.median()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return nn.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "sd") return nn.standard_deviation()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return nn.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return nn.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "mahalanobis") return nn.mahalanobis(parse_num_vec(a[0]));
+        if (m == "inverse_cdf") return nn.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
     }
     throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
 }

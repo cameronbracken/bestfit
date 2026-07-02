@@ -250,6 +250,11 @@ dispatch_multivariate <- function(target, construct, method, args) {
     )
     return(ns$bf_bve_cdf_(method, x1, x2, p_flat, length(x1), transforms, ar))
   }
+  if (target == "MultivariateNormal") {
+    mean <- vapply(construct$mean, parse_num, numeric(1))
+    cov_flat <- as.double(unlist(lapply(construct$covariance, function(row) vapply(row, parse_num, numeric(1)))))
+    return(ns$bf_mvn_val_(method, mean, cov_flat, ar))
+  }
   stop(sprintf("unknown multivariate target: %s", target))
 }
 

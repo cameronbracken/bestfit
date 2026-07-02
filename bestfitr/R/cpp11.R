@@ -180,6 +180,10 @@ bf_bve_cdf_ <- function(method, x1, x2, p_flat, nrow, transforms, args) {
   .Call(`_bestfitr_bf_bve_cdf_`, method, x1, x2, p_flat, nrow, transforms, args)
 }
 
+bf_mvn_val_ <- function(method, mean, cov_flat, args) {
+  .Call(`_bestfitr_bf_mvn_val_`, method, mean, cov_flat, args)
+}
+
 bf_sobol_generate_ <- function(dimension, n_steps, path) {
   .Call(`_bestfitr_bf_sobol_generate_`, dimension, n_steps, path)
 }

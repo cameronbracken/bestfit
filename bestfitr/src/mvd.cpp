@@ -14,6 +14,7 @@
 #include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 
 namespace mvd = bestfit::numerics::distributions;
 namespace data = bestfit::numerics::data;
@@ -101,4 +102,43 @@ double bf_bve_cdf_(std::string method, doubles x1, doubles x2, doubles p_flat, i
     if (method == "cdf") return bv.cdf(args[0], args[1]);
     if (method == "cdf_xy") return bv.cdf(args[0], args[1]);
     stop("unknown BivariateEmpirical fixture method '%s'", method.c_str());
+}
+
+// --- MultivariateNormal (deterministic methods) ---------------------------------------
+// Stateless per-call style: a fresh instance is constructed from (mean, cov_flat) on every
+// call. Covers everything that does not touch the seeded MVNUNI stream (mean, median,
+// mode, sd, variance, covariance, pdf, log_pdf, cdf for dim 1-2, mahalanobis,
+// inverse_cdf, dimension, parameters_valid). Seeded CDF (dim>=3) / MVNDST batches need a
+// single persistent instance across several calls -- see bf_mvn_cdf_seq_/
+// bf_mvn_mvndst_seq_ (added alongside the MVNDST port).
+
+[[cpp11::register]]
+double bf_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles args) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    std::vector<double> ar(args.begin(), args.end());
+    mvd::MultivariateNormal n(mu, cov);
+
+    if (method == "dimension") return n.dimension();
+    if (method == "parameters_valid") return n.parameters_valid() ? 1.0 : 0.0;
+    if (method == "mean") return n.mean()[static_cast<std::size_t>(ar[0])];
+    if (method == "median") return n.median()[static_cast<std::size_t>(ar[0])];
+    if (method == "mode") return n.mode()[static_cast<std::size_t>(ar[0])];
+    if (method == "sd") return n.standard_deviation()[static_cast<std::size_t>(ar[0])];
+    if (method == "variance") return n.variance()[static_cast<std::size_t>(ar[0])];
+    if (method == "covariance") return n.covariance(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
+    if (method == "pdf") return n.pdf(ar);
+    if (method == "log_pdf") return n.log_pdf(ar);
+    if (method == "cdf") return n.cdf(ar);
+    if (method == "mahalanobis") return n.mahalanobis(ar);
+    if (method == "inverse_cdf") {
+        // args = [p_1..p_dim, index]
+        std::vector<double> p(ar.begin(), ar.end() - 1);
+        int idx = static_cast<int>(ar.back());
+        return n.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+    }
+    stop("unknown MultivariateNormal fixture method '%s'", method.c_str());
 }

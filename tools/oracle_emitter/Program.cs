@@ -394,6 +394,18 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
         return new BivariateEmpirical(x1, x2, p, ParseT("x1_transform"), ParseT("x2_transform"),
                                        ParseT("p_transform"));
     }
+    if (target == "MultivariateNormal")
+    {
+        var mean = construct.GetProperty("mean").EnumerateArray().Select(ParseNum).ToArray();
+        var covRows = construct.GetProperty("covariance").EnumerateArray().ToArray();
+        var covariance = new double[covRows.Length, mean.Length];
+        for (int i = 0; i < covRows.Length; i++)
+        {
+            var row = covRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) covariance[i, j] = row[j];
+        }
+        return new MultivariateNormal(mean, covariance);
+    }
     throw new Exception($"unknown multivariate target: {target}");
 }
 
@@ -437,6 +449,27 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
     {
         var bb = (BivariateEmpirical)d;
         if (m == "cdf_xy") return bb.CDF(a[0].GetDouble(), a[1].GetDouble());
+    }
+    else if (target == "MultivariateNormal")
+    {
+        var nn = (MultivariateNormal)d;
+        switch (m)
+        {
+            case "mean": return nn.Mean[a[0].GetInt32()];
+            case "median": return nn.Median[a[0].GetInt32()];
+            case "mode": return nn.Mode[a[0].GetInt32()];
+            case "sd": return nn.StandardDeviation[a[0].GetInt32()];
+            case "variance": return nn.Variance[a[0].GetInt32()];
+            case "covariance": return nn.Covariance[a[0].GetInt32(), a[1].GetInt32()];
+            case "mahalanobis": return nn.Mahalanobis(a[0].EnumerateArray().Select(ParseNum).ToArray());
+            case "inverse_cdf":
+            {
+                // args = [[p_1..p_dim], index]
+                var p = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                int idx = a[1].GetInt32();
+                return nn.InverseCDF(p)[idx];
+            }
+        }
     }
     throw new Exception($"unknown multivariate fixture method: {target}/{m}");
 }

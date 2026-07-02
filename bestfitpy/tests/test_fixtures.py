@@ -226,13 +226,18 @@ def _dispatch_generic(target, params, method, args):
 def _flatten_mv_args(args: list) -> list[float]:
     """Flattens fixture assertion args to a flat float list.
 
-    Handles both conventions: a single nested vector argument (e.g. pdf args =
-    [[0.3, 0.4, 0.3]]) and flat scalar args (e.g. covariance args = [0, 1],
-    log_multivariate_beta args = [1.0, 1.0]).
+    Handles every convention seen in the multivariate fixtures: a single nested vector
+    argument (e.g. pdf args = [[0.3, 0.4, 0.3]]), flat scalar args (e.g. covariance args =
+    [0, 1], log_multivariate_beta args = [1.0, 1.0]), and a nested vector followed by a
+    trailing scalar (e.g. MultivariateNormal inverse_cdf args = [[p1, p2], index]).
     """
-    if len(args) == 1 and isinstance(args[0], list):
-        return [float(v) for v in args[0]]
-    return [float(v) for v in args]
+    out: list[float] = []
+    for v in args:
+        if isinstance(v, list):
+            out.extend(float(x) for x in v)
+        else:
+            out.append(float(v))
+    return out
 
 
 def _dispatch_multivariate(target: str, construct: dict, method: str, args: list):
@@ -254,6 +259,10 @@ def _dispatch_multivariate(target: str, construct: dict, method: str, args: list
             construct.get("p_transform", "None"),
         ]
         return _core.bve_cdf(method, x1, x2, p, transforms, ar)
+    if target == "MultivariateNormal":
+        mean = [float(v) for v in construct["mean"]]
+        cov = [[float(v) for v in row] for row in construct["covariance"]]
+        return _core.mvn_val(method, mean, cov, ar)
     raise KeyError(f"unknown multivariate target: {target}")
 
 

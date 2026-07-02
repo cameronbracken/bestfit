@@ -15,6 +15,7 @@
 #include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
 #include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
@@ -84,5 +85,38 @@ void register_multivariate(py::module_& m) {
         if (method == "cdf") return bv.cdf(args[0], args[1]);
         if (method == "cdf_xy") return bv.cdf(args[0], args[1]);
         throw py::value_error("unknown BivariateEmpirical fixture method: " + method);
+    });
+
+    // --- MultivariateNormal (deterministic methods) -------------------------------------
+    // Stateless per-call style: a fresh instance is constructed from (mean, covariance) on
+    // every call. Covers everything that does not touch the seeded MVNUNI stream (mean,
+    // median, mode, sd, variance, covariance, pdf, log_pdf, cdf for dim 1-2, mahalanobis,
+    // inverse_cdf, dimension, parameters_valid). Seeded CDF (dim>=3) / MVNDST batches need
+    // a single persistent instance across several calls -- see mvn_cdf_seq/mvn_mvndst_seq
+    // (added alongside the MVNDST port).
+    m.def("mvn_val", [](const std::string& method, const std::vector<double>& mean,
+                         const std::vector<std::vector<double>>& covariance,
+                         const std::vector<double>& args) {
+        mvd::MultivariateNormal n(mean, covariance);
+        if (method == "dimension") return static_cast<double>(n.dimension());
+        if (method == "parameters_valid") return n.parameters_valid() ? 1.0 : 0.0;
+        if (method == "mean") return n.mean()[static_cast<std::size_t>(args[0])];
+        if (method == "median") return n.median()[static_cast<std::size_t>(args[0])];
+        if (method == "mode") return n.mode()[static_cast<std::size_t>(args[0])];
+        if (method == "sd") return n.standard_deviation()[static_cast<std::size_t>(args[0])];
+        if (method == "variance") return n.variance()[static_cast<std::size_t>(args[0])];
+        if (method == "covariance")
+            return n.covariance(static_cast<int>(args[0]), static_cast<int>(args[1]));
+        if (method == "pdf") return n.pdf(args);
+        if (method == "log_pdf") return n.log_pdf(args);
+        if (method == "cdf") return n.cdf(args);
+        if (method == "mahalanobis") return n.mahalanobis(args);
+        if (method == "inverse_cdf") {
+            // args = [p_1..p_dim, index]
+            std::vector<double> p(args.begin(), args.end() - 1);
+            int idx = static_cast<int>(args.back());
+            return n.inverse_cdf(p)[static_cast<std::size_t>(idx)];
+        }
+        throw py::value_error("unknown MultivariateNormal fixture method: " + method);
     });
 }
