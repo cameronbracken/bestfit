@@ -576,7 +576,12 @@ static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const 
         std::vector<double> mean = parse_num_vec(construct["mean"]);
         std::vector<std::vector<double>> cov;
         for (const auto& row : construct["covariance"]) cov.push_back(parse_num_vec(row));
-        return std::make_unique<dist::MultivariateNormal>(std::move(mean), std::move(cov));
+        auto mvn = std::make_unique<dist::MultivariateNormal>(std::move(mean), std::move(cov));
+        if (construct.contains("seed")) mvn->set_mvnuni_seed(construct["seed"].get<int>());
+        if (construct.contains("max_evaluations")) mvn->set_max_evaluations(construct["max_evaluations"].get<int>());
+        if (construct.contains("abs_error")) mvn->set_absolute_error(construct["abs_error"].get<double>());
+        if (construct.contains("rel_error")) mvn->set_relative_error(construct["rel_error"].get<double>());
+        return mvn;
     }
     throw std::runtime_error("unknown multivariate target: " + target);
 }
@@ -616,6 +621,23 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "covariance") return nn.covariance(a[0].get<int>(), a[1].get<int>());
         if (m == "mahalanobis") return nn.mahalanobis(parse_num_vec(a[0]));
         if (m == "inverse_cdf") return nn.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
+        if (m == "interval") return nn.interval(parse_num_vec(a[0]), parse_num_vec(a[1]));
+        if (m == "mvndst") {
+            // args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+            int n = a[0].get<int>();
+            std::vector<double> lower = parse_num_vec(a[1]);
+            std::vector<double> upper = parse_num_vec(a[2]);
+            std::vector<int> infin;
+            for (const auto& v : a[3]) infin.push_back(v.get<int>());
+            std::vector<double> correl = parse_num_vec(a[4]);
+            int maxpts = a[5].get<int>();
+            double abseps = a[6].get<double>();
+            double releps = a[7].get<double>();
+            double error = 0, value = 0;
+            int inform = 0;
+            nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+            return value;
+        }
     }
     throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
 }

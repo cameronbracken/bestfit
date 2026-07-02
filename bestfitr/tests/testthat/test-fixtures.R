@@ -258,6 +258,73 @@ dispatch_multivariate <- function(target, construct, method, args) {
   stop(sprintf("unknown multivariate target: %s", target))
 }
 
+# --- MultivariateNormal seeded batches --------------------------------------------------
+# `cdf` (dim>=3), `interval`, and `mvndst` all draw from the seeded MVNUNI stream, so a
+# RUN of consecutive same-method assertions in a seeded case must be evaluated on ONE
+# persistent instance via the bf_mvn_*_seq_ glue in mvd.cpp, not dispatched one call at a
+# time (which would silently reset the seed between assertions). run_mvn_case() below
+# groups consecutive assertions of these methods and batches them; everything else (and
+# every case without a "seed") falls through to the stateless per-assertion dispatch
+# above, unchanged.
+
+kMvnSeededMethods <- c("cdf", "mvndst", "interval")
+
+flatten_num_list <- function(x) as.double(unlist(lapply(x, parse_num)))
+
+dispatch_mvn_seeded_seq <- function(construct, method, run) {
+  ns <- asNamespace("bestfitr")
+  seed <- as.integer(construct$seed)
+  mean <- vapply(construct$mean, parse_num, numeric(1))
+  cov_flat <- as.double(unlist(lapply(construct$covariance, function(row) vapply(row, parse_num, numeric(1)))))
+
+  if (method == "cdf") {
+    xs_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[1]])))
+    return(ns$bf_mvn_cdf_seq_(mean, cov_flat, seed, xs_flat, length(run)))
+  }
+  if (method == "interval") {
+    lowers_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[1]])))
+    uppers_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[2]])))
+    return(ns$bf_mvn_interval_seq_(mean, cov_flat, seed, lowers_flat, uppers_flat, length(run)))
+  }
+  if (method == "mvndst") {
+    # args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+    n_dim <- as.integer(run[[1]]$args[[1]])
+    lower_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[2]])))
+    upper_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[3]])))
+    infin_flat <- as.integer(unlist(lapply(run, function(a) unlist(a$args[[4]]))))
+    correl_flat <- unlist(lapply(run, function(a) flatten_num_list(a$args[[5]])))
+    maxpts_v <- as.integer(vapply(run, function(a) a$args[[6]], numeric(1)))
+    abseps_v <- as.double(vapply(run, function(a) a$args[[7]], numeric(1)))
+    releps_v <- as.double(vapply(run, function(a) a$args[[8]], numeric(1)))
+    return(ns$bf_mvn_mvndst_seq_(n_dim, seed, lower_flat, upper_flat, infin_flat, correl_flat,
+                                  maxpts_v, abseps_v, releps_v, length(run)))
+  }
+  stop(sprintf("unknown seeded MultivariateNormal method: %s", method))
+}
+
+run_mvn_case <- function(construct, assertions) {
+  seeded <- !is.null(construct$seed)
+  i <- 1
+  n <- length(assertions)
+  while (i <= n) {
+    a <- assertions[[i]]
+    method <- a$method
+    if (seeded && method %in% kMvnSeededMethods) {
+      j <- i
+      while (j <= n && identical(assertions[[j]]$method, method)) j <- j + 1
+      run <- assertions[i:(j - 1)]
+      actuals <- dispatch_mvn_seeded_seq(construct, method, run)
+      for (idx in seq_along(run)) check_assertion(actuals[idx], run[[idx]])
+      i <- j
+    } else {
+      args <- if (is.null(a$args)) list() else a$args
+      actual <- dispatch_multivariate("MultivariateNormal", construct, method, args)
+      check_assertion(actual, a)
+      i <- i + 1
+    }
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -271,10 +338,14 @@ test_that("oracle fixtures validate", {
     if (identical(spec$kind, "multivariate_distribution")) {
       target <- spec$target
       for (case in spec$cases) {
-        for (a in case$assertions) {
-          args <- if (is.null(a$args)) list() else a$args
-          actual <- dispatch_multivariate(target, case$construct, a$method, args)
-          check_assertion(actual, a)
+        if (identical(target, "MultivariateNormal")) {
+          run_mvn_case(case$construct, case$assertions)
+        } else {
+          for (a in case$assertions) {
+            args <- if (is.null(a$args)) list() else a$args
+            actual <- dispatch_multivariate(target, case$construct, a$method, args)
+            check_assertion(actual, a)
+          }
         }
       }
       next

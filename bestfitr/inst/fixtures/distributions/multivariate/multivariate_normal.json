@@ -7,27 +7,947 @@
   "cases": [
     {
       "name": "accord_2d_moments_pdf_cdf",
-      "construct": { "mean": [4.0, 2.0], "covariance": [[0.3, 0.1], [0.1, 0.7]] },
+      "construct": {
+        "mean": [
+          4.0,
+          2.0
+        ],
+        "covariance": [
+          [
+            0.3,
+            0.1
+          ],
+          [
+            0.1,
+            0.7
+          ]
+        ]
+      },
       "assertions": [
-        { "method": "mean", "args": [0], "expected": 4.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "mean", "args": [1], "expected": 2.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "median", "args": [0], "expected": 4.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "median", "args": [1], "expected": 2.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "mode", "args": [0], "expected": 4.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "mode", "args": [1], "expected": 2.0, "mode": "abs", "tol": 1e-4 },
-        { "method": "sd", "args": [0], "expected": 0.5477225575051661, "mode": "abs", "tol": 1e-4 },
-        { "method": "sd", "args": [1], "expected": 0.8366600265340756, "mode": "abs", "tol": 1e-4 },
-        { "method": "pdf", "args": [[2.0, 5.0]], "expected": 0.000000018917884164743237, "mode": "abs", "tol": 1e-4 },
-        { "method": "pdf", "args": [[4.0, 2.0]], "expected": 0.35588127170858852, "mode": "abs", "tol": 1e-4 },
-        { "method": "pdf", "args": [[3.0, 7.0]], "expected": 0.000000000036520107734505265, "mode": "abs", "tol": 1e-4 },
-        { "method": "cdf", "args": [[3.0, 5.0]], "expected": 0.033944035782101548, "mode": "abs", "tol": 1e-4 }
+        {
+          "method": "mean",
+          "args": [
+            0
+          ],
+          "expected": 4.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "mean",
+          "args": [
+            1
+          ],
+          "expected": 2.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "median",
+          "args": [
+            0
+          ],
+          "expected": 4.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "median",
+          "args": [
+            1
+          ],
+          "expected": 2.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "mode",
+          "args": [
+            0
+          ],
+          "expected": 4.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "mode",
+          "args": [
+            1
+          ],
+          "expected": 2.0,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "sd",
+          "args": [
+            0
+          ],
+          "expected": 0.5477225575051661,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "sd",
+          "args": [
+            1
+          ],
+          "expected": 0.8366600265340756,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "pdf",
+          "args": [
+            [
+              2.0,
+              5.0
+            ]
+          ],
+          "expected": 1.8917884164743237e-08,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "pdf",
+          "args": [
+            [
+              4.0,
+              2.0
+            ]
+          ],
+          "expected": 0.3558812717085885,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "pdf",
+          "args": [
+            [
+              3.0,
+              7.0
+            ]
+          ],
+          "expected": 3.6520107734505265e-11,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              3.0,
+              5.0
+            ]
+          ],
+          "expected": 0.03394403578210155,
+          "mode": "abs",
+          "tol": 0.0001
+        }
       ]
     },
     {
       "name": "log_pdf_non_finite_input",
-      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.0], [0.0, 1.0]] },
+      "construct": {
+        "mean": [
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0
+          ]
+        ]
+      },
       "assertions": [
-        { "method": "log_pdf", "args": [["inf", 0.0]], "expected": "-inf", "mode": "equal" }
+        {
+          "method": "log_pdf",
+          "args": [
+            [
+              "inf",
+              0.0
+            ]
+          ],
+          "expected": "-inf",
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "curated_2d_spot_values",
+      "construct": {
+        "mean": [
+          4.0,
+          2.0
+        ],
+        "covariance": [
+          [
+            0.3,
+            0.1
+          ],
+          [
+            0.1,
+            0.7
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "mahalanobis",
+          "args": [
+            [
+              4.0,
+              2.0
+            ]
+          ],
+          "expected": 0.0,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "mahalanobis",
+          "args": [
+            [
+              3.0,
+              5.0
+            ]
+          ],
+          "expected": 20.0,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "inverse_cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ],
+            0
+          ],
+          "expected": 4.0,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "inverse_cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ],
+            1
+          ],
+          "expected": 2.0,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "inverse_cdf",
+          "args": [
+            [
+              0.9,
+              0.1
+            ],
+            0
+          ],
+          "expected": 4.701934701054839,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "inverse_cdf",
+          "args": [
+            [
+              0.9,
+              0.1
+            ],
+            1
+          ],
+          "expected": 1.187595762135205,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "interval",
+          "args": [
+            [
+              3.0,
+              4.0
+            ],
+            [
+              5.0,
+              6.0
+            ]
+          ],
+          "expected": 0.007481584607100167,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    },
+    {
+      "name": "curated_bivariate_high_correlation",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.95
+          ],
+          [
+            0.95,
+            1.0
+          ]
+        ]
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ]
+          ],
+          "expected": 0.6469071953667896,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    },
+    {
+      "name": "curated_bivariate_high_correlation_negative",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            -0.95
+          ],
+          [
+            -0.95,
+            1.0
+          ]
+        ]
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ]
+          ],
+          "expected": 0.3829520842043984,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    },
+    {
+      "name": "curated_bivariate_extreme_correlation",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.999
+          ],
+          [
+            0.999,
+            1.0
+          ]
+        ]
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ]
+          ],
+          "expected": 0.6851807862330976,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    },
+    {
+      "name": "curated_bivariate_extreme_correlation_negative",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            -0.999
+          ],
+          [
+            -0.999,
+            1.0
+          ]
+        ]
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.5,
+              0.5
+            ]
+          ],
+          "expected": 0.38292492254802624,
+          "mode": "abs",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    },
+    {
+      "name": "fortran_mvndst_sequential",
+      "note": "Test_MultivariateNormalCDF_Fortran: 3 sequential MVNDST calls on ONE seeded instance (only INFIN[0] changes between calls, decrementing 1,0,-1); this is the Genz fidelity gate for the whole phase. ERROR/INFORM are asserted alongside VALUE in the C# test but are skipped here -- VALUE at this tolerance subsumes them.",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "mvndst",
+          "args": [
+            5,
+            [
+              0,
+              0,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              0,
+              1.5198,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              1,
+              2,
+              1,
+              1,
+              0
+            ],
+            [
+              -0.707107,
+              0.0,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.5
+            ],
+            50,
+            5e-05,
+            0
+          ],
+          "expected": 0.00286779150981026,
+          "mode": "abs",
+          "tol": 1e-05
+        },
+        {
+          "method": "mvndst",
+          "args": [
+            5,
+            [
+              0,
+              0,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              0,
+              1.5198,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              0,
+              2,
+              1,
+              1,
+              0
+            ],
+            [
+              -0.707107,
+              0.0,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.5
+            ],
+            50,
+            5e-05,
+            0
+          ],
+          "expected": 0.00111850297940743,
+          "mode": "abs",
+          "tol": 1e-05
+        },
+        {
+          "method": "mvndst",
+          "args": [
+            5,
+            [
+              0,
+              0,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              0,
+              1.5198,
+              1.7817,
+              1.4755,
+              1.5949
+            ],
+            [
+              -1,
+              2,
+              1,
+              1,
+              0
+            ],
+            [
+              -0.707107,
+              0.0,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.5
+            ],
+            50,
+            5e-05,
+            0
+          ],
+          "expected": 0.00397918930026649,
+          "mode": "abs",
+          "tol": 1e-05
+        }
+      ]
+    },
+    {
+      "name": "r_mvtnorm_4d_sequential",
+      "note": "Test_MultivariateNormalCDF_R: 11 sequential seeded CDF calls (dim 4, r=-0.33) on ONE instance, verified against R mvtnorm. zA/zB are Normal.StandardZ(0.25)/(0.35); the p=0.5 marginals are exactly 0.",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1,
+            -0.33,
+            -0.33,
+            -0.33
+          ],
+          [
+            -0.33,
+            1,
+            -0.33,
+            -0.33
+          ],
+          [
+            -0.33,
+            -0.33,
+            1,
+            -0.33
+          ],
+          [
+            -0.33,
+            -0.33,
+            -0.33,
+            1
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              -0.3853204664075676,
+              "inf",
+              "inf"
+            ]
+          ],
+          "expected": 0.05011069,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              "inf",
+              0.0,
+              "inf"
+            ]
+          ],
+          "expected": 0.0827451,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              "inf",
+              "inf",
+              0.0
+            ]
+          ],
+          "expected": 0.0827451,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              "inf",
+              -0.3853204664075676,
+              0.0,
+              "inf"
+            ]
+          ],
+          "expected": 0.1254504,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              "inf",
+              -0.3853204664075676,
+              "inf",
+              0.0
+            ]
+          ],
+          "expected": 0.1254504,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              "inf",
+              "inf",
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.1964756,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              -0.3853204664075676,
+              0.0,
+              "inf"
+            ]
+          ],
+          "expected": 0.005960125,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              -0.3853204664075676,
+              "inf",
+              0.0
+            ]
+          ],
+          "expected": 0.005964513,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              "inf",
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.0128066,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              "inf",
+              -0.3853204664075676,
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.02324389,
+          "mode": "abs",
+          "tol": 0.0001
+        },
+        {
+          "method": "cdf",
+          "args": [
+            [
+              -0.6744897501960817,
+              -0.3853204664075676,
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 3.593582e-13,
+          "mode": "abs",
+          "tol": 0.0001
+        }
+      ]
+    },
+    {
+      "name": "r_mvtnorm_3d_perfect_negative",
+      "note": "Test_MultivariateNormalCDF_R_PerfectNegative: verified against R mvtnorm. Offset from the -1/(D-1) boundary by 0.01 to keep the matrix positive-definite.",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            -0.49,
+            -0.49
+          ],
+          [
+            -0.49,
+            1.0,
+            -0.49
+          ],
+          [
+            -0.49,
+            -0.49,
+            1.0
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.002740932,
+          "mode": "abs",
+          "tol": 0.0001
+        }
+      ]
+    },
+    {
+      "name": "r_mvtnorm_3d_perfect_positive",
+      "note": "Test_MultivariateNormalCDF_R_PerfectPositive: verified against R mvtnorm.",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.99,
+            0.99
+          ],
+          [
+            0.99,
+            1.0,
+            0.99
+          ],
+          [
+            0.99,
+            0.99,
+            1.0
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.4661416,
+          "mode": "abs",
+          "tol": 0.0001
+        }
+      ]
+    },
+    {
+      "name": "r_mvtnorm_3d_independent",
+      "note": "Test_MultivariateNormalCDF_R_Independent: verified against R mvtnorm.",
+      "construct": {
+        "mean": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "covariance": [
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "seed": 12345
+      },
+      "assertions": [
+        {
+          "method": "cdf",
+          "args": [
+            [
+              0.0,
+              0.0,
+              0.0
+            ]
+          ],
+          "expected": 0.125,
+          "mode": "abs",
+          "tol": 0.0001
+        }
       ]
     }
   ]

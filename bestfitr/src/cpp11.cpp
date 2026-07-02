@@ -327,6 +327,27 @@ extern "C" SEXP _bestfitr_bf_mvn_val_(SEXP method, SEXP mean, SEXP cov_flat, SEX
     return cpp11::as_sexp(bf_mvn_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(mean), cpp11::as_cpp<cpp11::decay_t<doubles>>(cov_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
   END_CPP11
 }
+// mvd.cpp
+doubles bf_mvn_cdf_seq_(doubles mean, doubles cov_flat, int seed, doubles xs_flat, int k);
+extern "C" SEXP _bestfitr_bf_mvn_cdf_seq_(SEXP mean, SEXP cov_flat, SEXP seed, SEXP xs_flat, SEXP k) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mvn_cdf_seq_(cpp11::as_cpp<cpp11::decay_t<doubles>>(mean), cpp11::as_cpp<cpp11::decay_t<doubles>>(cov_flat), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(xs_flat), cpp11::as_cpp<cpp11::decay_t<int>>(k)));
+  END_CPP11
+}
+// mvd.cpp
+doubles bf_mvn_interval_seq_(doubles mean, doubles cov_flat, int seed, doubles lowers_flat, doubles uppers_flat, int k);
+extern "C" SEXP _bestfitr_bf_mvn_interval_seq_(SEXP mean, SEXP cov_flat, SEXP seed, SEXP lowers_flat, SEXP uppers_flat, SEXP k) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mvn_interval_seq_(cpp11::as_cpp<cpp11::decay_t<doubles>>(mean), cpp11::as_cpp<cpp11::decay_t<doubles>>(cov_flat), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(lowers_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(uppers_flat), cpp11::as_cpp<cpp11::decay_t<int>>(k)));
+  END_CPP11
+}
+// mvd.cpp
+doubles bf_mvn_mvndst_seq_(int n_dim, int seed, doubles lower_flat, doubles upper_flat, integers infin_flat, doubles correl_flat, integers maxpts_v, doubles abseps_v, doubles releps_v, int k);
+extern "C" SEXP _bestfitr_bf_mvn_mvndst_seq_(SEXP n_dim, SEXP seed, SEXP lower_flat, SEXP upper_flat, SEXP infin_flat, SEXP correl_flat, SEXP maxpts_v, SEXP abseps_v, SEXP releps_v, SEXP k) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mvn_mvndst_seq_(cpp11::as_cpp<cpp11::decay_t<int>>(n_dim), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(lower_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(upper_flat), cpp11::as_cpp<cpp11::decay_t<integers>>(infin_flat), cpp11::as_cpp<cpp11::decay_t<doubles>>(correl_flat), cpp11::as_cpp<cpp11::decay_t<integers>>(maxpts_v), cpp11::as_cpp<cpp11::decay_t<doubles>>(abseps_v), cpp11::as_cpp<cpp11::decay_t<doubles>>(releps_v), cpp11::as_cpp<cpp11::decay_t<int>>(k)));
+  END_CPP11
+}
 // sobol.cpp
 doubles_matrix<by_column> bf_sobol_generate_(int dimension, int n_steps, std::string path);
 extern "C" SEXP _bestfitr_bf_sobol_generate_(SEXP dimension, SEXP n_steps, SEXP path) {
@@ -344,54 +365,57 @@ extern "C" SEXP _bestfitr_bf_sobol_skip_to_(SEXP dimension, SEXP index, SEXP pat
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
-    {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                  7},
-    {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                   4},
-    {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,               3},
-    {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                   4},
-    {"_bestfitr_bf_cr_quantile_",              (DL_FUNC) &_bestfitr_bf_cr_quantile_,              4},
-    {"_bestfitr_bf_cr_valid_",                 (DL_FUNC) &_bestfitr_bf_cr_valid_,                 3},
-    {"_bestfitr_bf_dirichlet_val_",            (DL_FUNC) &_bestfitr_bf_dirichlet_val_,            3},
-    {"_bestfitr_bf_dist_cdf_",                 (DL_FUNC) &_bestfitr_bf_dist_cdf_,                 3},
-    {"_bestfitr_bf_dist_fit_",                 (DL_FUNC) &_bestfitr_bf_dist_fit_,                 3},
-    {"_bestfitr_bf_dist_linear_moments_",      (DL_FUNC) &_bestfitr_bf_dist_linear_moments_,      2},
-    {"_bestfitr_bf_dist_moments_",             (DL_FUNC) &_bestfitr_bf_dist_moments_,             2},
-    {"_bestfitr_bf_dist_pdf_",                 (DL_FUNC) &_bestfitr_bf_dist_pdf_,                 3},
-    {"_bestfitr_bf_dist_quantile_",            (DL_FUNC) &_bestfitr_bf_dist_quantile_,            3},
-    {"_bestfitr_bf_dist_valid_",               (DL_FUNC) &_bestfitr_bf_dist_valid_,               2},
-    {"_bestfitr_bf_emp_cdf_",                  (DL_FUNC) &_bestfitr_bf_emp_cdf_,                  4},
-    {"_bestfitr_bf_emp_moments_",              (DL_FUNC) &_bestfitr_bf_emp_moments_,              3},
-    {"_bestfitr_bf_emp_pdf_",                  (DL_FUNC) &_bestfitr_bf_emp_pdf_,                  4},
-    {"_bestfitr_bf_emp_quantile_",             (DL_FUNC) &_bestfitr_bf_emp_quantile_,             4},
-    {"_bestfitr_bf_emp_valid_",                (DL_FUNC) &_bestfitr_bf_emp_valid_,                3},
-    {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                  4},
-    {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                  2},
-    {"_bestfitr_bf_gev_linear_moments_",       (DL_FUNC) &_bestfitr_bf_gev_linear_moments_,       3},
-    {"_bestfitr_bf_gev_moments_",              (DL_FUNC) &_bestfitr_bf_gev_moments_,              3},
-    {"_bestfitr_bf_gev_parameter_covariance_", (DL_FUNC) &_bestfitr_bf_gev_parameter_covariance_, 4},
-    {"_bestfitr_bf_gev_pdf_",                  (DL_FUNC) &_bestfitr_bf_gev_pdf_,                  4},
-    {"_bestfitr_bf_gev_quantile_",             (DL_FUNC) &_bestfitr_bf_gev_quantile_,             4},
-    {"_bestfitr_bf_gev_quantile_gradient_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_gradient_,    4},
-    {"_bestfitr_bf_gev_quantile_variance_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_,    5},
-    {"_bestfitr_bf_gev_valid_",                (DL_FUNC) &_bestfitr_bf_gev_valid_,                3},
-    {"_bestfitr_bf_kde_cdf_",                  (DL_FUNC) &_bestfitr_bf_kde_cdf_,                  5},
-    {"_bestfitr_bf_kde_moments_",              (DL_FUNC) &_bestfitr_bf_kde_moments_,              4},
-    {"_bestfitr_bf_kde_pdf_",                  (DL_FUNC) &_bestfitr_bf_kde_pdf_,                  5},
-    {"_bestfitr_bf_kde_quantile_",             (DL_FUNC) &_bestfitr_bf_kde_quantile_,             5},
-    {"_bestfitr_bf_kde_valid_",                (DL_FUNC) &_bestfitr_bf_kde_valid_,                4},
-    {"_bestfitr_bf_mix_cdf_",                  (DL_FUNC) &_bestfitr_bf_mix_cdf_,                  4},
-    {"_bestfitr_bf_mix_moments_",              (DL_FUNC) &_bestfitr_bf_mix_moments_,              3},
-    {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                  4},
-    {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,             4},
-    {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                3},
-    {"_bestfitr_bf_multinomial_val_",          (DL_FUNC) &_bestfitr_bf_multinomial_val_,          4},
-    {"_bestfitr_bf_mvn_val_",                  (DL_FUNC) &_bestfitr_bf_mvn_val_,                  4},
-    {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,           3},
-    {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,            3},
-    {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},
-    {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,            4},
-    {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                5},
-    {"_bestfitr_bf_trunc_quantile_",           (DL_FUNC) &_bestfitr_bf_trunc_quantile_,           5},
-    {"_bestfitr_bf_trunc_valid_",              (DL_FUNC) &_bestfitr_bf_trunc_valid_,              4},
+    {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                   7},
+    {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                    4},
+    {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,                3},
+    {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                    4},
+    {"_bestfitr_bf_cr_quantile_",              (DL_FUNC) &_bestfitr_bf_cr_quantile_,               4},
+    {"_bestfitr_bf_cr_valid_",                 (DL_FUNC) &_bestfitr_bf_cr_valid_,                  3},
+    {"_bestfitr_bf_dirichlet_val_",            (DL_FUNC) &_bestfitr_bf_dirichlet_val_,             3},
+    {"_bestfitr_bf_dist_cdf_",                 (DL_FUNC) &_bestfitr_bf_dist_cdf_,                  3},
+    {"_bestfitr_bf_dist_fit_",                 (DL_FUNC) &_bestfitr_bf_dist_fit_,                  3},
+    {"_bestfitr_bf_dist_linear_moments_",      (DL_FUNC) &_bestfitr_bf_dist_linear_moments_,       2},
+    {"_bestfitr_bf_dist_moments_",             (DL_FUNC) &_bestfitr_bf_dist_moments_,              2},
+    {"_bestfitr_bf_dist_pdf_",                 (DL_FUNC) &_bestfitr_bf_dist_pdf_,                  3},
+    {"_bestfitr_bf_dist_quantile_",            (DL_FUNC) &_bestfitr_bf_dist_quantile_,             3},
+    {"_bestfitr_bf_dist_valid_",               (DL_FUNC) &_bestfitr_bf_dist_valid_,                2},
+    {"_bestfitr_bf_emp_cdf_",                  (DL_FUNC) &_bestfitr_bf_emp_cdf_,                   4},
+    {"_bestfitr_bf_emp_moments_",              (DL_FUNC) &_bestfitr_bf_emp_moments_,               3},
+    {"_bestfitr_bf_emp_pdf_",                  (DL_FUNC) &_bestfitr_bf_emp_pdf_,                   4},
+    {"_bestfitr_bf_emp_quantile_",             (DL_FUNC) &_bestfitr_bf_emp_quantile_,              4},
+    {"_bestfitr_bf_emp_valid_",                (DL_FUNC) &_bestfitr_bf_emp_valid_,                 3},
+    {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                   4},
+    {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                   2},
+    {"_bestfitr_bf_gev_linear_moments_",       (DL_FUNC) &_bestfitr_bf_gev_linear_moments_,        3},
+    {"_bestfitr_bf_gev_moments_",              (DL_FUNC) &_bestfitr_bf_gev_moments_,               3},
+    {"_bestfitr_bf_gev_parameter_covariance_", (DL_FUNC) &_bestfitr_bf_gev_parameter_covariance_,  4},
+    {"_bestfitr_bf_gev_pdf_",                  (DL_FUNC) &_bestfitr_bf_gev_pdf_,                   4},
+    {"_bestfitr_bf_gev_quantile_",             (DL_FUNC) &_bestfitr_bf_gev_quantile_,              4},
+    {"_bestfitr_bf_gev_quantile_gradient_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_gradient_,     4},
+    {"_bestfitr_bf_gev_quantile_variance_",    (DL_FUNC) &_bestfitr_bf_gev_quantile_variance_,     5},
+    {"_bestfitr_bf_gev_valid_",                (DL_FUNC) &_bestfitr_bf_gev_valid_,                 3},
+    {"_bestfitr_bf_kde_cdf_",                  (DL_FUNC) &_bestfitr_bf_kde_cdf_,                   5},
+    {"_bestfitr_bf_kde_moments_",              (DL_FUNC) &_bestfitr_bf_kde_moments_,               4},
+    {"_bestfitr_bf_kde_pdf_",                  (DL_FUNC) &_bestfitr_bf_kde_pdf_,                   5},
+    {"_bestfitr_bf_kde_quantile_",             (DL_FUNC) &_bestfitr_bf_kde_quantile_,              5},
+    {"_bestfitr_bf_kde_valid_",                (DL_FUNC) &_bestfitr_bf_kde_valid_,                 4},
+    {"_bestfitr_bf_mix_cdf_",                  (DL_FUNC) &_bestfitr_bf_mix_cdf_,                   4},
+    {"_bestfitr_bf_mix_moments_",              (DL_FUNC) &_bestfitr_bf_mix_moments_,               3},
+    {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                   4},
+    {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,              4},
+    {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                 3},
+    {"_bestfitr_bf_multinomial_val_",          (DL_FUNC) &_bestfitr_bf_multinomial_val_,           4},
+    {"_bestfitr_bf_mvn_cdf_seq_",              (DL_FUNC) &_bestfitr_bf_mvn_cdf_seq_,               5},
+    {"_bestfitr_bf_mvn_interval_seq_",         (DL_FUNC) &_bestfitr_bf_mvn_interval_seq_,          6},
+    {"_bestfitr_bf_mvn_mvndst_seq_",           (DL_FUNC) &_bestfitr_bf_mvn_mvndst_seq_,           10},
+    {"_bestfitr_bf_mvn_val_",                  (DL_FUNC) &_bestfitr_bf_mvn_val_,                   4},
+    {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,            3},
+    {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,             3},
+    {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                 5},
+    {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,             4},
+    {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                 5},
+    {"_bestfitr_bf_trunc_quantile_",           (DL_FUNC) &_bestfitr_bf_trunc_quantile_,            5},
+    {"_bestfitr_bf_trunc_valid_",              (DL_FUNC) &_bestfitr_bf_trunc_valid_,               4},
     {NULL, NULL, 0}
 };
 }

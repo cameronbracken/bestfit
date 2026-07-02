@@ -119,4 +119,59 @@ void register_multivariate(py::module_& m) {
         }
         throw py::value_error("unknown MultivariateNormal fixture method: " + method);
     });
+
+    // --- MultivariateNormal (seeded batch methods) ---------------------------------------
+    // `cdf` for dim>=3 and `interval` both draw from the seeded MVNUNI stream (via
+    // MVNDST); `mvndst` is the Fortran-oracle entry point itself. Each needs a SINGLE
+    // persistent instance across a whole run of k sequential calls -- rebuilding per call
+    // the way mvn_val does would silently reset the seeded RNG between assertions. The
+    // Python fixture runner groups consecutive same-method seeded assertions within a
+    // case and calls these once per run, comparing results element-wise (see
+    // test_fixtures.py).
+    m.def("mvn_cdf_seq", [](const std::vector<double>& mean,
+                             const std::vector<std::vector<double>>& covariance, int seed,
+                             const std::vector<std::vector<double>>& xs) {
+        mvd::MultivariateNormal n(mean, covariance);
+        n.set_mvnuni_seed(seed);
+        std::vector<double> out;
+        out.reserve(xs.size());
+        for (const auto& x : xs) out.push_back(n.cdf(x));
+        return out;
+    });
+
+    m.def("mvn_interval_seq", [](const std::vector<double>& mean,
+                                  const std::vector<std::vector<double>>& covariance, int seed,
+                                  const std::vector<std::vector<double>>& lowers,
+                                  const std::vector<std::vector<double>>& uppers) {
+        mvd::MultivariateNormal n(mean, covariance);
+        n.set_mvnuni_seed(seed);
+        std::vector<double> out;
+        out.reserve(lowers.size());
+        for (std::size_t i = 0; i < lowers.size(); ++i) out.push_back(n.interval(lowers[i], uppers[i]));
+        return out;
+    });
+
+    // n: the MVNDST `N` argument (also the dimension used to build the scratch instance
+    // -- an identity-covariance MultivariateNormal(n), matching the Fortran oracle test's
+    // `new MultivariateNormal(5)`). Each of lowers/uppers/infins/correls holds one
+    // per-call vector; maxpts_v/abseps_v/releps_v are one scalar per call.
+    m.def("mvn_mvndst_seq", [](int n, int seed, const std::vector<std::vector<double>>& lowers,
+                                const std::vector<std::vector<double>>& uppers,
+                                const std::vector<std::vector<int>>& infins,
+                                const std::vector<std::vector<double>>& correls,
+                                const std::vector<int>& maxpts_v, const std::vector<double>& abseps_v,
+                                const std::vector<double>& releps_v) {
+        mvd::MultivariateNormal mvn(n);
+        mvn.set_mvnuni_seed(seed);
+        std::vector<double> out;
+        out.reserve(lowers.size());
+        for (std::size_t c = 0; c < lowers.size(); ++c) {
+            double error = 0, value = 0;
+            int inform = 0;
+            mvn.mvndst(n, lowers[c], uppers[c], infins[c], correls[c], maxpts_v[c], abseps_v[c],
+                       releps_v[c], error, value, inform);
+            out.push_back(value);
+        }
+        return out;
+    });
 }

@@ -142,3 +142,87 @@ double bf_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles a
     }
     stop("unknown MultivariateNormal fixture method '%s'", method.c_str());
 }
+
+// --- MultivariateNormal (seeded batch methods) -----------------------------------------
+// `cdf` for dim>=3 and `interval` both draw from the seeded MVNUNI stream (via MVNDST);
+// `mvndst` is the Fortran-oracle entry point itself. Each needs a SINGLE persistent
+// instance across a whole run of k sequential calls -- rebuilding per call the way
+// bf_mvn_val_ does would silently reset the seeded RNG between assertions. The R fixture
+// runner groups consecutive same-method seeded assertions within a case and calls these
+// once per run, comparing results element-wise (see test-fixtures.R).
+
+[[cpp11::register]]
+doubles bf_mvn_cdf_seq_(doubles mean, doubles cov_flat, int seed, doubles xs_flat, int k) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    n.set_mvnuni_seed(seed);
+
+    writable::doubles out(k);
+    for (int c = 0; c < k; ++c) {
+        std::vector<double> x(dim);
+        for (std::size_t d = 0; d < dim; ++d)
+            x[d] = xs_flat[static_cast<int>(static_cast<std::size_t>(c) * dim + d)];
+        out[c] = n.cdf(x);
+    }
+    return out;
+}
+
+[[cpp11::register]]
+doubles bf_mvn_interval_seq_(doubles mean, doubles cov_flat, int seed, doubles lowers_flat,
+                              doubles uppers_flat, int k) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    n.set_mvnuni_seed(seed);
+
+    writable::doubles out(k);
+    for (int c = 0; c < k; ++c) {
+        std::vector<double> lo(dim), hi(dim);
+        for (std::size_t d = 0; d < dim; ++d) {
+            lo[d] = lowers_flat[static_cast<int>(static_cast<std::size_t>(c) * dim + d)];
+            hi[d] = uppers_flat[static_cast<int>(static_cast<std::size_t>(c) * dim + d)];
+        }
+        out[c] = n.interval(lo, hi);
+    }
+    return out;
+}
+
+// n_dim: the MVNDST `N` argument (also the dimension used to build the scratch instance
+// -- an identity-covariance MultivariateNormal(n_dim), matching the Fortran oracle test's
+// `new MultivariateNormal(5)`). Every per-call array is flattened k*n_dim (k*NL for
+// correl, NL = n_dim*(n_dim-1)/2); maxpts/abseps/releps are length-k (one per call).
+[[cpp11::register]]
+doubles bf_mvn_mvndst_seq_(int n_dim, int seed, doubles lower_flat, doubles upper_flat,
+                            integers infin_flat, doubles correl_flat, integers maxpts_v,
+                            doubles abseps_v, doubles releps_v, int k) {
+    mvd::MultivariateNormal mvn(n_dim);
+    mvn.set_mvnuni_seed(seed);
+    int nl = n_dim * (n_dim - 1) / 2;
+
+    writable::doubles out(k);
+    for (int c = 0; c < k; ++c) {
+        std::vector<double> lower(static_cast<std::size_t>(n_dim)), upper(static_cast<std::size_t>(n_dim));
+        std::vector<int> infin(static_cast<std::size_t>(n_dim));
+        std::vector<double> correl(static_cast<std::size_t>(nl));
+        for (int d = 0; d < n_dim; ++d) {
+            lower[static_cast<std::size_t>(d)] = lower_flat[c * n_dim + d];
+            upper[static_cast<std::size_t>(d)] = upper_flat[c * n_dim + d];
+            infin[static_cast<std::size_t>(d)] = infin_flat[c * n_dim + d];
+        }
+        for (int d = 0; d < nl; ++d) correl[static_cast<std::size_t>(d)] = correl_flat[c * nl + d];
+
+        double error = 0, value = 0;
+        int inform = 0;
+        mvn.mvndst(n_dim, lower, upper, infin, correl, maxpts_v[c], abseps_v[c], releps_v[c], error, value,
+                   inform);
+        out[c] = value;
+    }
+    return out;
+}

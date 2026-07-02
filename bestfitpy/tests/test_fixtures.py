@@ -266,6 +266,68 @@ def _dispatch_multivariate(target: str, construct: dict, method: str, args: list
     raise KeyError(f"unknown multivariate target: {target}")
 
 
+# --- MultivariateNormal seeded batches --------------------------------------------------
+# `cdf` (dim>=3), `interval`, and `mvndst` all draw from the seeded MVNUNI stream, so a
+# RUN of consecutive same-method assertions in a seeded case must be evaluated on ONE
+# persistent instance via the mvn_*_seq bindings in mvd.cpp, not dispatched one call at a
+# time (which would silently reset the seed between assertions). _run_mvn_case() below
+# groups consecutive assertions of these methods and batches them; everything else (and
+# every case without a "seed") falls through to the stateless per-assertion dispatch
+# above, unchanged.
+
+_MVN_SEEDED_METHODS = ("cdf", "mvndst", "interval")
+
+
+def _dispatch_mvn_seeded_seq(construct: dict, method: str, run: list):
+    seed = int(construct["seed"])
+    mean = [float(v) for v in construct["mean"]]
+    cov = [[float(v) for v in row] for row in construct["covariance"]]
+
+    if method == "cdf":
+        xs = [[_num(v) for v in a["args"][0]] for a in run]
+        return _core.mvn_cdf_seq(mean, cov, seed, xs)
+    if method == "interval":
+        lowers = [[_num(v) for v in a["args"][0]] for a in run]
+        uppers = [[_num(v) for v in a["args"][1]] for a in run]
+        return _core.mvn_interval_seq(mean, cov, seed, lowers, uppers)
+    if method == "mvndst":
+        # args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+        n_dim = int(run[0]["args"][0])
+        lowers = [[_num(v) for v in a["args"][1]] for a in run]
+        uppers = [[_num(v) for v in a["args"][2]] for a in run]
+        infins = [[int(v) for v in a["args"][3]] for a in run]
+        correls = [[_num(v) for v in a["args"][4]] for a in run]
+        maxpts_v = [int(a["args"][5]) for a in run]
+        abseps_v = [float(a["args"][6]) for a in run]
+        releps_v = [float(a["args"][7]) for a in run]
+        return _core.mvn_mvndst_seq(n_dim, seed, lowers, uppers, infins, correls, maxpts_v, abseps_v,
+                                     releps_v)
+    raise KeyError(f"unknown seeded MultivariateNormal method: {method}")
+
+
+def _run_mvn_case(construct: dict, assertions: list):
+    seeded = "seed" in construct
+    i = 0
+    n = len(assertions)
+    while i < n:
+        a = assertions[i]
+        method = a["method"]
+        if seeded and method in _MVN_SEEDED_METHODS:
+            j = i
+            while j < n and assertions[j]["method"] == method:
+                j += 1
+            run = assertions[i:j]
+            actuals = _dispatch_mvn_seeded_seq(construct, method, run)
+            for actual, assertion in zip(actuals, run):
+                _check(actual, assertion)
+            i = j
+        else:
+            args = a.get("args", [])
+            actual = _dispatch_multivariate("MultivariateNormal", construct, method, args)
+            _check(actual, a)
+            i += 1
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -310,10 +372,13 @@ CASES = _load_cases()
 )
 def test_fixture_case(kind, target, datasets, case):
     if kind == "multivariate_distribution":
-        for a in case["assertions"]:
-            args = a.get("args", [])
-            actual = _dispatch_multivariate(target, case["construct"], a["method"], args)
-            _check(actual, a)
+        if target == "MultivariateNormal":
+            _run_mvn_case(case["construct"], case["assertions"])
+        else:
+            for a in case["assertions"]:
+                args = a.get("args", [])
+                actual = _dispatch_multivariate(target, case["construct"], a["method"], args)
+                _check(actual, a)
         return
 
     is_gev = target == "GeneralizedExtremeValue"

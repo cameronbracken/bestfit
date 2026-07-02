@@ -184,6 +184,18 @@ bf_mvn_val_ <- function(method, mean, cov_flat, args) {
   .Call(`_bestfitr_bf_mvn_val_`, method, mean, cov_flat, args)
 }
 
+bf_mvn_cdf_seq_ <- function(mean, cov_flat, seed, xs_flat, k) {
+  .Call(`_bestfitr_bf_mvn_cdf_seq_`, mean, cov_flat, seed, xs_flat, k)
+}
+
+bf_mvn_interval_seq_ <- function(mean, cov_flat, seed, lowers_flat, uppers_flat, k) {
+  .Call(`_bestfitr_bf_mvn_interval_seq_`, mean, cov_flat, seed, lowers_flat, uppers_flat, k)
+}
+
+bf_mvn_mvndst_seq_ <- function(n_dim, seed, lower_flat, upper_flat, infin_flat, correl_flat, maxpts_v, abseps_v, releps_v, k) {
+  .Call(`_bestfitr_bf_mvn_mvndst_seq_`, n_dim, seed, lower_flat, upper_flat, infin_flat, correl_flat, maxpts_v, abseps_v, releps_v, k)
+}
+
 bf_sobol_generate_ <- function(dimension, n_steps, path) {
   .Call(`_bestfitr_bf_sobol_generate_`, dimension, n_steps, path)
 }

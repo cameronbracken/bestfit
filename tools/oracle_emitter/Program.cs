@@ -15,6 +15,7 @@ using Numerics.Data.Statistics;
 using Numerics.Distributions;
 using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
+using Numerics.Sampling;
 
 static double ParseNum(JsonElement v)
 {
@@ -404,7 +405,16 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
             var row = covRows[i].EnumerateArray().Select(ParseNum).ToArray();
             for (int j = 0; j < row.Length; j++) covariance[i, j] = row[j];
         }
-        return new MultivariateNormal(mean, covariance);
+        var mvn = new MultivariateNormal(mean, covariance);
+        if (construct.TryGetProperty("seed", out var seedEl))
+            mvn.MVNUNI = new MersenneTwister(seedEl.GetInt32());
+        if (construct.TryGetProperty("max_evaluations", out var maxEvalEl))
+            mvn.MaxEvaluations = maxEvalEl.GetInt32();
+        if (construct.TryGetProperty("abs_error", out var absErrEl))
+            mvn.AbsoluteError = absErrEl.GetDouble();
+        if (construct.TryGetProperty("rel_error", out var relErrEl))
+            mvn.RelativeError = relErrEl.GetDouble();
+        return mvn;
     }
     throw new Exception($"unknown multivariate target: {target}");
 }
@@ -469,14 +479,66 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
                 int idx = a[1].GetInt32();
                 return nn.InverseCDF(p)[idx];
             }
+            case "interval":
+            {
+                // args = [[lower...], [upper...]]
+                var lower = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return nn.Interval(lower, upper);
+            }
+            case "mvndst":
+            {
+                // args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+                int n = a[0].GetInt32();
+                var lower = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[2].EnumerateArray().Select(ParseNum).ToArray();
+                var infin = a[3].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var correl = a[4].EnumerateArray().Select(ParseNum).ToArray();
+                int maxpts = a[5].GetInt32();
+                double abseps = a[6].GetDouble();
+                double releps = a[7].GetDouble();
+                double error = 0, val = 0;
+                int inform = 0;
+                nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
+                return val;
+            }
         }
     }
     throw new Exception($"unknown multivariate fixture method: {target}/{m}");
 }
 
+// --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
+// Author a fixture case with placeholder "expected" values, run
+// `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
+// the printed actuals into the fixture, then re-run without --dump to verify. Kept small:
+// one helper that prints one JSON line per assertion instead of comparing.
+static void DumpLine(string target, string caseName, string method, JsonElement[] args, Func<object> compute)
+{
+    object actualOrError;
+    try { actualOrError = compute(); }
+    catch (Exception ex) { actualOrError = "ERROR: " + ex.Message; }
+    var line = new Dictionary<string, object?>
+    {
+        ["target"] = target,
+        ["case"] = caseName,
+        ["method"] = method,
+        ["args"] = args,
+        ["actual"] = actualOrError,
+    };
+    // PDF/CDF spot values can legitimately be +-Infinity (e.g. LogPDF of a non-finite
+    // input); System.Text.Json refuses to write those without this option.
+    var options = new JsonSerializerOptions
+    {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    };
+    Console.WriteLine(JsonSerializer.Serialize(line, options));
+}
+
 // --- main -------------------------------------------------------------------------------
 
-string fixturesDir = args.Length > 0 ? args[0]
+bool dump = args.Contains("--dump");
+string[] positional = args.Where(a => a != "--dump").ToArray();
+string fixturesDir = positional.Length > 0 ? positional[0]
     : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "fixtures");
 fixturesDir = Path.GetFullPath(fixturesDir);
 if (!Directory.Exists(fixturesDir))
@@ -597,6 +659,18 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                     ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
                 string where = $"{mvTarget}/{caseName}/{method}";
                 string mode = asrt.GetProperty("mode").GetString()!;
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(mvTarget, caseName, method, argList,
+                             () => mode == "bool" ? (object)mvDist.ParametersValid
+                                                   : (object)DispatchMultivariate(mvDist, mvTarget, method, argList));
+                    continue;
+                }
+
                 try
                 {
                     if (mode == "bool")

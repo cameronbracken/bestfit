@@ -44,6 +44,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -921,28 +922,40 @@ class MultivariateNormal : public MultivariateDistribution {
     // in Alan Genz, "Numerical Computation of Multivariate Normal Probabilities", J. of
     // Computational and Graphical Stat., 1(1992), pp. 141-149.
     //
-    // STUB (this commit): the Genz-Bretz MVNDST quasi-Monte-Carlo integrator (`mvndfn`,
-    // `mvndnt`, `mvnlms`, `covsrt`, `rcswp`, `dkbvrc`, `dksmrc` and their instance working
-    // storage) lands in the second commit of this task. Until then this always throws --
-    // the CDF dim>=3 dispatch arm and `interval()` above call it unconditionally (matching
-    // the C# dispatch structure exactly), so both simply fail until MVNDST is completed.
+    // Divergence note: `MVNDNT`'s C# return value is always 0 (the local `result` is
+    // never reassigned) -- `INFORM` is therefore always initialized to 0 by this call and
+    // only reassigned by `dkbvrc` in the N-INFIS>=2 branch below. Ported verbatim
+    // (`mvndnt` always returns 0.0); see the comment on `mvndnt` itself.
     void mvndst(int N, const std::vector<double>& LOWER, const std::vector<double>& UPPER,
                 const std::vector<int>& INFIN, const std::vector<double>& CORREL, int MAXPTS,
                 double ABSEPS, double RELEPS, double& ERROR, double& VALUE, int& INFORM) const {
-        (void)N;
-        (void)LOWER;
-        (void)UPPER;
-        (void)INFIN;
-        (void)CORREL;
-        (void)MAXPTS;
-        (void)ABSEPS;
-        (void)RELEPS;
-        (void)ERROR;
-        (void)VALUE;
-        (void)INFORM;
-        throw std::logic_error(
-            "MultivariateNormal::mvndst is not yet implemented (lands in Task 5 commit b: the "
-            "Genz-Bretz MVNDST quasi-Monte-Carlo integrator).");
+        int INFIS = 0, IVLS;
+        double D = 0, E = 0;
+        std::vector<double> Y(500, 0.0);
+
+        if (N > 500 || N < 1) {
+            INFORM = 2;
+            VALUE = 0;
+            ERROR = 1;
+        } else {
+            INFORM = static_cast<int>(mvndnt(N, CORREL, LOWER, UPPER, INFIN, INFIS, D, E, Y));
+            if (N - INFIS == 0) {
+                VALUE = 1;
+                ERROR = 0;
+            } else if (N - INFIS == 1) {
+                VALUE = E - D;
+                // This can sometimes produce very small, but negative values (approx. -5E-73)
+                if (VALUE < 0) VALUE = 0;
+                ERROR = 2E-16;
+            } else {
+                // Call the lattice rule integration subroutine.
+                IVLS = 0;
+                dkbvrc(
+                    N - INFIS - 1, IVLS, MAXPTS,
+                    [this](int n, const std::vector<double>& w) { return mvndfn(n, w); }, ABSEPS,
+                    RELEPS, ERROR, VALUE, INFORM);
+            }
+        }
     }
 
     // Creates a copy of the distribution.
@@ -998,6 +1011,554 @@ class MultivariateNormal : public MultivariateDistribution {
         correlation_matrix_created_ = true;
     }
 
+    // ==== Genz-Bretz MVNDST machinery (MVNDFN/MVNDNT/MVNLMS/COVSRT/RCSWP/DKBVRC/DKSMRC) ====
+    //
+    // Ported from Alan Genz's MVNDST (Numerical Computation of Multivariate Normal
+    // Probabilities, J. Comp. Graph. Stat. 1(1992)), via the C# translation in
+    // MultivariateNormal.cs. C# `goto`s are kept as C++ `goto` (legal; minimizes
+    // transcription risk on this densely-indexed lattice-rule code) and every
+    // integer/double modulo/index expression is preserved exactly, including several
+    // upstream oddities noted at their call sites below. `mvnlms`/`covsrt`/`rcswp`/
+    // `bvnmvn` don't reference instance state (the C# versions don't either -- they only
+    // read/write the arrays passed to them by reference) but are kept as ordinary member
+    // functions rather than hoisted to `static`, matching the C# access-modifier
+    // structure as closely as C++ allows.
+
+    // Integrand subroutine: evaluates the transformed integrand at one quasi-random point
+    // W, using and advancing the COVSRT-sorted instance working arrays.
+    //
+    // Note: this method's local `Y` (sized `nl_`) is UNRELATED to `mvndst`'s own local
+    // `Y` (sized 500) or `covsrt`'s `Y` OUT-parameter -- the C# source reuses the name
+    // `Y` for three distinct local/parameter variables across MVNDST/MVNDFN/COVSRT; kept
+    // as `Y` in each to mirror the source, since they're in disjoint C++ scopes.
+    double mvndfn(int N, const std::vector<double>& W) const {
+        double SUM, AI = 0, BI = 0, DI = 0, EI = 0;
+
+        std::vector<double> Y(static_cast<std::size_t>(nl_), 0.0);
+
+        double result = 1;
+        int INFA = 0;
+        int INFB = 0;
+        int IK = 0;
+        int IJ = 0;
+        for (int i = 0; i < N + 1; i++) {
+            SUM = 0;
+            for (int j = 0; j <= i - 1; j++) {
+                if (j < IK) {
+                    SUM += mvndfn_cov_[static_cast<std::size_t>(IJ)] * Y[static_cast<std::size_t>(j)];
+                }
+                IJ++;
+            }
+
+            if (mvndfn_infi_[static_cast<std::size_t>(i)] != 0) {
+                if (INFA == 1) {
+                    AI = std::max(AI, mvndfn_a_[static_cast<std::size_t>(i)] - SUM);
+                } else {
+                    AI = mvndfn_a_[static_cast<std::size_t>(i)] - SUM;
+                    INFA = 1;
+                }
+            }
+            if (mvndfn_infi_[static_cast<std::size_t>(i)] != 1) {
+                if (INFB == 1) {
+                    BI = std::min(BI, mvndfn_b_[static_cast<std::size_t>(i)] - SUM);
+                } else {
+                    BI = mvndfn_b_[static_cast<std::size_t>(i)] - SUM;
+                    INFB = 1;
+                }
+            }
+            IJ++;
+
+            if (i == (N) || mvndfn_cov_[static_cast<std::size_t>(IJ + IK + 1)] > 0) {
+                mvnlms(AI, BI, 2 * INFA + INFB - 1, DI, EI);
+
+                if (DI >= EI) {
+                    result = 0;
+                    break;
+                } else {
+                    result = result * (EI - DI);
+                    if (i <= N) {
+                        Y[static_cast<std::size_t>(IK)] =
+                            phinvs(DI + W[static_cast<std::size_t>(IK)] * (EI - DI));
+                    }
+                    IK = IK + 1;
+                    INFA = 0;
+                    INFB = 0;
+                }
+            }
+        }
+        return result;
+    }
+
+    // Divergence note: the C# `MVNDNT`'s local `result` is initialized to 0 and never
+    // reassigned anywhere in the method body -- it always returns 0.0. `mvndst` casts
+    // this return straight into `INFORM`, so `INFORM` is always (re)initialized to 0
+    // here regardless of what COVSRT/MVNLMS/BVNMVN computed; only the N-INFIS>=2 branch
+    // in `mvndst` (via `dkbvrc`) can set INFORM to anything else. Ported verbatim.
+    double mvndnt(int N, const std::vector<double>& CORREL, const std::vector<double>& LOWER,
+                  const std::vector<double>& UPPER, const std::vector<int>& INFIN, int& INFIS,
+                  double& D, double& E, std::vector<double>& Y) const {
+        double result = 0;
+
+        covsrt(N, LOWER, UPPER, CORREL, INFIN, Y, INFIS, mvndfn_a_, mvndfn_b_, mvndfn_cov_, mvndfn_infi_);
+
+        if (N - INFIS == 1) {
+            mvnlms(mvndfn_a_[0], mvndfn_b_[0], mvndfn_infi_[0], D, E);
+        } else if (N - INFIS == 2) {
+            if (std::fabs(mvndfn_cov_[2]) > 0) {
+                D = std::sqrt(1 + mvndfn_cov_[1] * mvndfn_cov_[1]);
+                if (mvndfn_infi_[1] != 0) {
+                    mvndfn_a_[1] = mvndfn_a_[1] / D;
+                }
+                if (mvndfn_infi_[1] != 1) {
+                    mvndfn_b_[1] = mvndfn_b_[1] / D;
+                }
+                E = bvnmvn(mvndfn_a_, mvndfn_b_, mvndfn_infi_, mvndfn_cov_[1] / D);
+                D = 0;
+            } else {
+                if (mvndfn_infi_[0] != 0) {
+                    if (mvndfn_infi_[1] != 0) {
+                        mvndfn_a_[0] = std::max(mvndfn_a_[0], mvndfn_a_[1]);
+                    }
+                } else {
+                    if (mvndfn_infi_[1] != 0) {
+                        mvndfn_a_[0] = mvndfn_a_[1];
+                    }
+                }
+
+                if (mvndfn_infi_[0] != 1) {
+                    if (mvndfn_infi_[1] != 1) {
+                        mvndfn_b_[0] = std::min(mvndfn_b_[0], mvndfn_b_[1]);
+                    }
+                } else {
+                    if (mvndfn_infi_[1] != 1) {
+                        mvndfn_b_[0] = mvndfn_b_[1];
+                    }
+                }
+
+                if (mvndfn_infi_[0] != mvndfn_infi_[1]) {
+                    mvndfn_infi_[0] = 2;
+                }
+                mvnlms(mvndfn_a_[0], mvndfn_b_[0], mvndfn_infi_[0], D, E);
+            }
+            INFIS++;
+        }
+
+        return result;
+    }
+
+    void mvnlms(double A, double B, int INFIN, double& LOWER, double& UPPER) const {
+        LOWER = 0;
+        UPPER = 1;
+        if (INFIN >= 0) {
+            if (INFIN != 0) {
+                LOWER = mvnphi(A);
+            }
+            if (INFIN != 1) {
+                UPPER = mvnphi(B);
+            }
+        }
+        UPPER = std::max(UPPER, LOWER);
+    }
+
+    // Subroutine to sort integration limits and determine Cholesky factor.
+    //
+    // Divergence-risk note (NOT fixed -- see docs/upstream-csharp-issues.md): the
+    // "permute limits and/or rows" loop below (`for (int j = i - 1; j < 0; j--)`) has an
+    // inverted loop condition -- for `i >= 1` the initial `j = i-1 >= 0` already fails
+    // `j < 0`, so the loop body never runs; it only runs (once) when `i == 0`, with
+    // `j == -1`, immediately indexing `COV[II + j]` with `II==0` and `j==-1`, i.e.
+    // `COV[-1]`. In C# this throws `IndexOutOfRangeException`; in this C++ port
+    // `std::vector::operator[]` performs no bounds check, so an out-of-range negative
+    // index is undefined behavior rather than a catchable exception. This path requires a
+    // degenerate zero (sub-EPS) effective covariance diagonal at the very first sorted
+    // pivot (i==0) after RCSWP; none of this task's fixture cases reach it. Ported
+    // verbatim per the task brief (transcribe, do not improve); flagged for a future
+    // upstream fix.
+    void covsrt(int N, const std::vector<double>& LOWER, const std::vector<double>& UPPER,
+                const std::vector<double>& CORREL, const std::vector<int>& INFIN, std::vector<double>& Y,
+                int& INFIS, std::vector<double>& A, std::vector<double>& B, std::vector<double>& COV,
+                std::vector<int>& INFI) const {
+        double SQTWPI = 2.506628274631001;
+        double EPS = 1E-10;
+
+        int IJ = 0;
+        int II = 0;
+        INFIS = 0;
+
+        for (int i = 0; i < N; i++) {
+            A[static_cast<std::size_t>(i)] = 0;
+            B[static_cast<std::size_t>(i)] = 0;
+            INFI[static_cast<std::size_t>(i)] = INFIN[static_cast<std::size_t>(i)];
+            if (INFI[static_cast<std::size_t>(i)] < 0) {
+                INFIS++;
+            } else {
+                if (INFI[static_cast<std::size_t>(i)] != 0) {
+                    A[static_cast<std::size_t>(i)] = LOWER[static_cast<std::size_t>(i)];
+                }
+                if (INFI[static_cast<std::size_t>(i)] != 1) {
+                    B[static_cast<std::size_t>(i)] = UPPER[static_cast<std::size_t>(i)];
+                }
+            }
+
+            for (int j = 0; j < i; j++) {
+                COV[static_cast<std::size_t>(IJ)] = CORREL[static_cast<std::size_t>(II)];
+                II++;
+                IJ++;
+            }
+            COV[static_cast<std::size_t>(IJ)] = 1;
+            IJ++;
+        }
+
+        // First move any doubly infinite limits to innermost positions.
+        if (INFIS < N) {
+            for (int i = N - 1; i >= N - INFIS; i--) {
+                if (INFI[static_cast<std::size_t>(i)] >= 0) {
+                    for (int j = 0; j < i - 1; j++) {
+                        if (INFI[static_cast<std::size_t>(j)] < 0) {
+                            rcswp(j, i, A, B, INFI, N, COV);
+                            goto ten;
+                        }
+                    }
+                }
+            }
+
+        ten:
+
+            // Sort remaining limits and determine Cholesky factor.
+            II = 0;
+            double AMIN = 0, BMIN = 0, DMIN, EMIN, CVDIAG, SUMSQ = 0, SUM, AJ = 0, BJ = 0, D = 0, E = 0, YL, YU;
+            int JMIN, IL, M;
+            for (int i = 0; i < N - INFIS; i++) {
+                // Determine the integration limits for variable with minimum expected
+                // probability and interchange that variable with Ith.
+
+                DMIN = 0;
+                EMIN = 1;
+                JMIN = i;
+                CVDIAG = 0;
+                IJ = II;
+
+                for (int j = i; j < N - INFIS; j++) {
+                    if (COV[static_cast<std::size_t>(IJ + j)] > EPS) {
+                        SUMSQ = std::sqrt(COV[static_cast<std::size_t>(IJ + j)]);
+                        SUM = 0;
+                        for (int k = 0; k < i; k++) {
+                            SUM += COV[static_cast<std::size_t>(IJ + k)] * Y[static_cast<std::size_t>(k)];
+                        }
+
+                        AJ = (A[static_cast<std::size_t>(j)] - SUM) / SUMSQ;
+                        BJ = (B[static_cast<std::size_t>(j)] - SUM) / SUMSQ;
+
+                        mvnlms(AJ, BJ, INFI[static_cast<std::size_t>(j)], D, E);
+
+                        if (EMIN + D >= E + DMIN) {
+                            JMIN = j;
+                            AMIN = AJ;
+                            BMIN = BJ;
+                            DMIN = D;
+                            EMIN = E;
+                            CVDIAG = SUMSQ;
+                        }
+                    }
+                    IJ += (j + 1);
+                }
+
+                if (JMIN > i) {
+                    rcswp(i, JMIN, A, B, INFI, N, COV);
+                }
+                COV[static_cast<std::size_t>(II + i)] = CVDIAG;
+
+                // Compute Ith column of Cholesky factor.
+                // Compute expected value for Ith integration variable and
+                // scale Ith covariance matrix row and limits.
+
+                if (CVDIAG > 0) {
+                    IL = II + (i + 1);
+                    for (int l = i + 2; l <= N - INFIS; l++) {
+                        COV[static_cast<std::size_t>(IL + i)] = COV[static_cast<std::size_t>(IL + i)] / CVDIAG;
+                        IJ = II + i;
+
+                        for (int j = i + 1; j < l; j++) {
+                            COV[static_cast<std::size_t>(IL + j)] =
+                                COV[static_cast<std::size_t>(IL + j)] -
+                                COV[static_cast<std::size_t>(IL + i)] * COV[static_cast<std::size_t>(IJ + i + 1)];
+                            IJ += j + 1;
+                        }
+                        IL += l;
+                    }
+
+                    if (EMIN > DMIN + EPS) {
+                        YL = 0;
+                        YU = 0;
+                        if (INFI[static_cast<std::size_t>(i)] != 0) {
+                            YL = -std::exp(-(AMIN * AMIN) / 2) / SQTWPI;
+                        }
+                        if (INFI[static_cast<std::size_t>(i)] != 1) {
+                            YU = -std::exp(-(BMIN * BMIN) / 2) / SQTWPI;
+                        }
+                        Y[static_cast<std::size_t>(i)] = (YU - YL) / (EMIN - DMIN);
+                    } else {
+                        if (INFI[static_cast<std::size_t>(i)] == 0) Y[static_cast<std::size_t>(i)] = BMIN;
+                        if (INFI[static_cast<std::size_t>(i)] == 1) Y[static_cast<std::size_t>(i)] = AMIN;
+                        if (INFI[static_cast<std::size_t>(i)] == 2) Y[static_cast<std::size_t>(i)] = (AMIN + BMIN) / 2;
+                    }
+                    for (int j = 0; j <= i; j++) {
+                        COV[static_cast<std::size_t>(II)] = COV[static_cast<std::size_t>(II)] / CVDIAG;
+                        II += 1;
+                    }
+                    A[static_cast<std::size_t>(i)] = A[static_cast<std::size_t>(i)] / CVDIAG;
+                    B[static_cast<std::size_t>(i)] = B[static_cast<std::size_t>(i)] / CVDIAG;
+                } else {
+                    IL = II + i;
+                    for (int l = i + 1; l < N - INFIS; l++) {
+                        COV[static_cast<std::size_t>(IL + i)] = 0;
+                        IL += l;
+                    }
+
+                    // If the covariance matrix diagonal entry is zero, permute limits
+                    // and/or rows, if necessary. (See the divergence-risk note above this
+                    // method -- this loop's condition never lets it iterate for i >= 1.)
+
+                    for (int j = i - 1; j < 0; j--) {
+                        if (std::fabs(COV[static_cast<std::size_t>(II + j)]) > EPS) {
+                            A[static_cast<std::size_t>(i)] = A[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];
+                            B[static_cast<std::size_t>(i)] = B[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];
+                            if (COV[static_cast<std::size_t>(II + j)] < 0) {
+                                std::swap(A[static_cast<std::size_t>(i)], B[static_cast<std::size_t>(i)]);
+                                if (INFI[static_cast<std::size_t>(i)] != 2) INFI[static_cast<std::size_t>(i)] = 1 - INFI[static_cast<std::size_t>(i)];
+                            }
+                            for (int l = 0; l < j; l++) {
+                                COV[static_cast<std::size_t>(II + l)] =
+                                    COV[static_cast<std::size_t>(II + l)] / COV[static_cast<std::size_t>(II + j)];
+                            }
+                            for (int l = j + 1; l < i - 1; l++) {
+                                if (COV[static_cast<std::size_t>((l - 1) * l / 2 + j + 1)] > 0) {
+                                    IJ = II;
+                                    for (int k = i - 1; k < l; k--) {
+                                        for (int m = 0; m < k; m++) {
+                                            std::swap(COV[static_cast<std::size_t>(IJ - k + m)],
+                                                      COV[static_cast<std::size_t>(IJ + m)]);
+                                        }
+                                        std::swap(A[static_cast<std::size_t>(k)], A[static_cast<std::size_t>(k + 1)]);
+                                        std::swap(B[static_cast<std::size_t>(k)], B[static_cast<std::size_t>(k + 1)]);
+                                        M = INFI[static_cast<std::size_t>(k)];
+                                        INFI[static_cast<std::size_t>(k)] = INFI[static_cast<std::size_t>(k + 1)];
+                                        INFI[static_cast<std::size_t>(k + 1)] = M;
+                                        IJ = IJ - k;
+                                    }
+                                    goto twenty;
+                                }
+                            }
+                            goto twenty;
+                        }
+                        COV[static_cast<std::size_t>(II + j)] = 0;
+                    }
+                twenty:
+                    II = II + i;
+                    Y[static_cast<std::size_t>(i)] = 0;
+                }
+            }
+        }
+    }
+
+    // Swaps rows and columns P and Q in situ, with P <= Q.
+    void rcswp(int P, int Q, std::vector<double>& A, std::vector<double>& B, std::vector<int>& INFIN,
+               int N, std::vector<double>& C) const {
+        int II, JJ;
+        std::swap(A[static_cast<std::size_t>(P)], A[static_cast<std::size_t>(Q)]);
+        std::swap(B[static_cast<std::size_t>(P)], B[static_cast<std::size_t>(Q)]);
+        int J = INFIN[static_cast<std::size_t>(P)];
+        INFIN[static_cast<std::size_t>(P)] = INFIN[static_cast<std::size_t>(Q)];
+        INFIN[static_cast<std::size_t>(Q)] = J;
+        JJ = (P * (P + 1)) / 2;
+        II = (Q * (Q + 1)) / 2;
+
+        std::swap(C[static_cast<std::size_t>(JJ + P)], C[static_cast<std::size_t>(II + Q)]);
+
+        for (int i = 0; i < P; i++) {
+            std::swap(C[static_cast<std::size_t>(JJ + i)], C[static_cast<std::size_t>(II + i)]);
+        }
+
+        JJ += (P + 1);
+        for (int i = P + 1; i < Q; i++) {
+            std::swap(C[static_cast<std::size_t>(JJ + P)], C[static_cast<std::size_t>(II + i)]);
+            JJ += (i + 1);
+        }
+
+        II += (Q + 1);
+        for (int i = Q + 1; i < N; i++) {
+            std::swap(C[static_cast<std::size_t>(II + P)], C[static_cast<std::size_t>(II + Q)]);
+            II += (i + 1);
+        }
+    }
+
+    // Automatic Multidimensional Integration Subroutine (Alan Genz). DKBVRC computes an
+    // approximation to the NDIM-dimensional integral of FUNCTN over the unit hypercube
+    // using randomized Korobov rules for the first 100 variables (Cranley & Patterson;
+    // Keast's optimal lattice parameters), falling back to Niederreiter's method beyond
+    // that. RNG draw order is sacred: `dksmrc` below draws (NK-1) shuffle values then
+    // NDIM shift values from `mvnuni_`, per sample.
+    //
+    // Divergence note: the C# `MINVLS` parameter is NOT `ref`/`out` (unlike the
+    // corresponding Fortran INOUT argument), so the `MINVLS = INTVLS;` reassignment at
+    // the very end of the C# method (and here) only mutates the local copy and is
+    // discarded on return -- the "continue a previous calculation" (negative MINVLS)
+    // re-entry protocol this exists to support is therefore unreachable through this
+    // class's only call site (`mvndst` always passes `IVLS = 0`). Ported verbatim
+    // (`MINVLS` taken by value, final reassignment kept as dead code).
+    void dkbvrc(int NDIM, int MINVLS, int MAXVLS,
+                const std::function<double(int, const std::vector<double>&)>& FUNCTN, double ABSEPS,
+                double RELEPS, double& ABSERR, double& FINEST, int& INFORM) const {
+        int PLIM = 28, NLIM = 1000, KLIM = 100, KLIMI, K, INTVLS, MINSMP = 8;
+
+        double DIFINT, FINVAL, VARSQR, VARPRD, VALUE = 0;
+        std::vector<double> X(static_cast<std::size_t>(2 * NLIM), 0.0);
+        std::vector<double> VK(static_cast<std::size_t>(NLIM), 0.0);
+
+        // DKBVRC SAVE P, C, SAMPLS, NP, VAREST (P/C are the static kDkbvrcP/kDkbvrcC
+        // tables below; SAMPLS/NP/VAREST are the mutable dkbvrc_sampls_/np_/varest_
+        // instance fields).
+        INFORM = 1;
+        INTVLS = 0;
+        KLIMI = KLIM;
+        if (MINVLS >= 0) {
+            FINEST = 0;
+            dkbvrc_varest_ = 0;
+            dkbvrc_sampls_ = MINSMP;
+            for (int i = std::min(NDIM, 10) - 1; i < PLIM; i++) {
+                dkbvrc_np_ = i;
+                if (MINVLS < 2 * dkbvrc_sampls_ * kDkbvrcP[i]) {
+                    goto ten;
+                }
+            }
+            dkbvrc_sampls_ = std::max(MINSMP, MINVLS / (2 * kDkbvrcP[dkbvrc_np_]));
+        }
+
+    ten:
+
+        VK[0] = 1.0 / kDkbvrcP[dkbvrc_np_];
+        K = 1;
+        for (int i = 1; i < NDIM; i++) {
+            if (i < KLIM) {
+                // Preserve C#'s double `%` (== std::fmod) exactly, per the task brief.
+                K = static_cast<int>(std::fmod(
+                    kDkbvrcC[dkbvrc_np_][std::min(NDIM - 1, KLIM - 1) - 1] * static_cast<double>(K),
+                    static_cast<double>(kDkbvrcP[dkbvrc_np_])));
+                VK[static_cast<std::size_t>(i)] = K * VK[0];
+            } else {
+                VK[static_cast<std::size_t>(i)] =
+                    static_cast<int>(std::pow(kDkbvrcP[dkbvrc_np_] * 2,
+                                               (static_cast<double>(i - KLIM) / (NDIM - KLIM + 1))));
+                VK[static_cast<std::size_t>(i)] = std::fmod(VK[static_cast<std::size_t>(i)] / kDkbvrcP[dkbvrc_np_], 1.0);
+            }
+        }
+
+        FINVAL = 0;
+        VARSQR = 0;
+
+        for (int i = 1; i <= dkbvrc_sampls_; i++) {
+            VALUE = 0;
+            dksmrc(NDIM, KLIMI, VALUE, kDkbvrcP[dkbvrc_np_], VK, FUNCTN, X);
+            DIFINT = (VALUE - FINVAL) / i;
+            FINVAL += DIFINT;
+            VARSQR = (i - 2) * VARSQR / i + DIFINT * DIFINT;
+        }
+
+        INTVLS = INTVLS + 2 * dkbvrc_sampls_ * kDkbvrcP[dkbvrc_np_];
+        VARPRD = dkbvrc_varest_ * VARSQR;
+        FINEST = FINEST + (FINVAL - FINEST) / (1 + VARPRD);
+        if (VARSQR > 0) dkbvrc_varest_ = (1 + VARPRD) / VARSQR;
+        ABSERR = 7 * std::sqrt(VARSQR / (1 + VARPRD)) / 2;
+
+        if (ABSERR > std::max(ABSEPS, std::fabs(FINEST) * RELEPS)) {
+            if (dkbvrc_np_ < PLIM - 1) {
+                dkbvrc_np_ = dkbvrc_np_ + 1;
+            } else {
+                dkbvrc_sampls_ = std::min(3 * dkbvrc_sampls_ / 2, (MAXVLS - INTVLS) / (2 * kDkbvrcP[dkbvrc_np_]));
+                dkbvrc_sampls_ = std::max(MINSMP, dkbvrc_sampls_);
+            }
+            if (INTVLS + 2 * dkbvrc_sampls_ * kDkbvrcP[dkbvrc_np_] <= MAXVLS) {
+                goto ten;
+            }
+        } else {
+            INFORM = 0;
+        }
+
+        MINVLS = INTVLS;  // dead store -- see the divergence note above (MINVLS is by-value)
+        (void)MINVLS;
+    }
+
+    // RNG draw order is sacred: (NK-1) shuffle draws then NDIM shift draws, both from
+    // `mvnuni_`, per sample -- any reordering here silently diverges the MersenneTwister
+    // stream from the C# reference and fails the seeded fixtures (that's the point of
+    // those fixtures: catching exactly this class of transcription slip).
+    void dksmrc(int NDIM, int KLIM, double& SUMKRO, int PRIME, std::vector<double>& VK,
+                const std::function<double(int, const std::vector<double>&)>& FUNCTN,
+                std::vector<double>& X) const {
+        double sampleValue;
+        double XT;
+        int JP;
+        SUMKRO = 0;
+        int NK = std::min(NDIM, KLIM);
+        for (int i = 0; i < NK - 1; i++) {
+            sampleValue = mvnuni_.next_double();
+            JP = static_cast<int>(i + sampleValue * (NK - i));
+            XT = VK[static_cast<std::size_t>(i)];
+            VK[static_cast<std::size_t>(i)] = VK[static_cast<std::size_t>(JP)];
+            VK[static_cast<std::size_t>(JP)] = XT;
+        }
+
+        for (int i = 0; i < NDIM; i++) {
+            X[static_cast<std::size_t>(NDIM + i)] = mvnuni_.next_double();
+        }
+
+        for (int i = 1; i <= PRIME; i++) {
+            for (int j = 0; j < NDIM; j++) {
+                X[static_cast<std::size_t>(j)] =
+                    std::fabs(2.0 * std::fmod(i * VK[static_cast<std::size_t>(j)] + X[static_cast<std::size_t>(NDIM + j)], 1.0) - 1);
+            }
+
+            SUMKRO += (FUNCTN(NDIM, X) - SUMKRO) / (2 * i - 1);
+
+            for (int j = 0; j < NDIM; j++) {
+                X[static_cast<std::size_t>(j)] = 1 - X[static_cast<std::size_t>(j)];
+            }
+            SUMKRO += (FUNCTN(NDIM, X) - SUMKRO) / (2 * i);
+        }
+    }
+
+    // A function for computing bivariate normal probabilities (used by mvndnt's
+    // N-INFIS==2 branch). See BVU for the general algorithm this specializes the
+    // integration-limits handling around.
+    double bvnmvn(const std::vector<double>& LOWER, const std::vector<double>& UPPER,
+                  const std::vector<int>& INFIN, double CORREL) const {
+        double result = 0;
+        if (INFIN[0] == 2 && INFIN[1] == 2) {
+            result = bvu(LOWER[0], LOWER[1], CORREL) - bvu(UPPER[0], LOWER[1], CORREL) -
+                     bvu(LOWER[0], UPPER[1], CORREL) + bvu(UPPER[0], UPPER[1], CORREL);
+        } else if (INFIN[0] == 2 && INFIN[1] == 1) {
+            result = bvu(LOWER[0], LOWER[1], CORREL) - bvu(UPPER[0], LOWER[1], CORREL);
+        } else if (INFIN[0] == 1 && INFIN[1] == 2) {
+            result = bvu(LOWER[0], LOWER[1], CORREL) - bvu(LOWER[0], UPPER[1], CORREL);
+        } else if (INFIN[0] == 2 && INFIN[1] == 0) {
+            result = bvu(-UPPER[0], -UPPER[1], CORREL) - bvu(-LOWER[0], -UPPER[1], CORREL);
+        } else if (INFIN[0] == 0 && INFIN[1] == 2) {
+            result = bvu(-UPPER[0], -UPPER[1], CORREL) - bvu(-UPPER[0], -LOWER[1], CORREL);
+        } else if (INFIN[0] == 1 && INFIN[1] == 0) {
+            result = bvu(LOWER[0], -UPPER[1], -CORREL);
+        } else if (INFIN[0] == 0 && INFIN[1] == 1) {
+            result = bvu(-UPPER[0], LOWER[1], -CORREL);
+        } else if (INFIN[0] == 1 && INFIN[1] == 1) {
+            result = bvu(LOWER[0], LOWER[1], CORREL);
+        } else if (INFIN[0] == 0 && INFIN[1] == 0) {
+            result = bvu(-UPPER[0], -UPPER[1], CORREL);
+        }
+
+        // This can sometimes produce very small, but negative values (approx. -5E-73)
+        if (result < 0.0) result = 0.0;
+        return result;
+    }
+
     static sampling::MersenneTwister make_clock_seeded() {
         auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
         return sampling::MersenneTwister(static_cast<std::uint32_t>(ticks));
@@ -1032,6 +1593,39 @@ class MultivariateNormal : public MultivariateDistribution {
     static constexpr double kBvndWn6[3] = {0.1713244923791705, 0.36076157304813838, 0.46791393457269043};
     static constexpr double kBvndXn6[3] = {-0.93246951420315216, -0.6612093864662647, -0.238619186083197};
 
+    // Optimal Parameters for Lattice Rules (Cranley-Patterson / Keast).
+    static constexpr int kDkbvrcP[28] = {31, 47, 73, 113, 173, 263, 397, 593, 907, 1361, 2053, 3079, 4621, 6947, 10427, 15641, 23473, 35221, 52837, 79259, 118891, 178349, 267523, 401287, 601943, 902933, 1354471, 2031713};
+    static constexpr int kDkbvrcC[28][99] = {
+    {12, 9, 9, 13, 12, 12, 12, 12, 12, 12, 12, 12, 3, 3, 3, 12, 7, 7, 12, 12, 12, 12, 12, 12, 12, 12, 12, 3, 3, 3, 12, 7, 7, 12, 12, 12, 12, 12, 12, 12, 12, 12, 3, 3, 3, 12, 7, 7, 12, 12, 12, 12, 12, 12, 12, 12, 12, 3, 3, 3, 12, 7, 7, 12, 12, 12, 12, 12, 12, 12, 12, 7, 3, 3, 3, 7, 7, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
+    {13, 11, 17, 10, 15, 15, 15, 15, 15, 15, 22, 15, 15, 6, 6, 6, 15, 15, 9, 13, 2, 2, 2, 13, 11, 11, 10, 15, 15, 15, 15, 15, 15, 15, 15, 15, 6, 6, 6, 15, 15, 9, 13, 2, 2, 2, 13, 11, 11, 10, 15, 15, 15, 15, 15, 15, 15, 15, 15, 6, 6, 6, 15, 15, 9, 13, 2, 2, 2, 13, 11, 11, 10, 10, 15, 15, 15, 15, 15, 15, 15, 15, 6, 2, 3, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
+    {27, 28, 10, 11, 11, 20, 11, 11, 28, 13, 13, 28, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 31, 31, 5, 5, 5, 31, 13, 11, 11, 11, 11, 11, 11, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 31, 31, 5, 5, 5, 11, 13, 11, 11, 11, 11, 11, 11, 11, 13, 13, 11, 13, 5, 5, 5, 5, 14, 13, 5, 5, 5, 5, 5, 5, 5, 5},
+    {35, 27, 27, 36, 22, 29, 29, 20, 45, 5, 5, 5, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 29, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 21, 27, 3, 3, 3, 24, 27, 27, 17, 29, 29, 29, 17, 5, 5, 5, 5, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 17, 17, 17, 6, 17, 17, 6, 3, 6, 6, 3, 3, 3, 3, 3},
+    {64, 66, 28, 28, 44, 44, 55, 67, 10, 10, 10, 10, 10, 10, 38, 38, 10, 10, 10, 10, 10, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 38, 38, 31, 4, 4, 31, 64, 4, 4, 4, 64, 45, 45, 45, 45, 45, 45, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 66, 11, 66, 66, 66, 66, 66, 66, 66, 66, 66, 45, 11, 7, 3, 2, 2, 2, 27, 5, 3, 3, 5, 5, 2, 2, 2, 2, 2, 2, 2},
+    {111, 42, 54, 118, 20, 31, 31, 72, 17, 94, 14, 14, 11, 14, 14, 14, 94, 10, 10, 10, 10, 14, 14, 14, 14, 14, 14, 14, 11, 11, 11, 8, 8, 8, 8, 8, 8, 8, 18, 18, 18, 18, 18, 113, 62, 62, 45, 45, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 113, 63, 63, 53, 63, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 51, 51, 51, 51, 51, 12, 51, 12, 51, 5, 3, 3, 2, 2, 5},
+    {163, 154, 83, 43, 82, 92, 150, 59, 76, 76, 47, 11, 11, 100, 131, 116, 116, 116, 116, 116, 116, 138, 138, 138, 138, 138, 138, 138, 138, 138, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 116, 116, 116, 116, 116, 116, 100, 100, 100, 100, 100, 138, 138, 138, 138, 138, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 38, 38, 38, 38, 38, 38, 38, 38, 3, 3, 3, 3, 3},
+    {246, 189, 242, 102, 250, 250, 102, 250, 280, 118, 196, 118, 191, 215, 121, 121, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 49, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 171, 161, 161, 161, 161, 161, 161, 161, 161, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 103, 10, 10, 10, 10, 5},
+    {347, 402, 322, 418, 215, 220, 339, 339, 339, 337, 218, 315, 315, 315, 315, 167, 167, 167, 167, 361, 201, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 124, 231, 231, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 48, 48, 48, 48, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 243, 243, 243, 243, 243, 243, 243, 243, 243, 243, 283, 283, 283, 283, 283, 283, 283, 283, 283, 16, 283, 16, 283, 283},
+    {505, 220, 601, 644, 612, 160, 206, 206, 206, 422, 134, 518, 134, 134, 518, 652, 382, 206, 158, 441, 179, 441, 56, 559, 559, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 101, 101, 56, 101, 101, 101, 101, 101, 101, 101, 101, 193, 193, 193, 193, 193, 193, 193, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 101, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 101, 101, 101, 101},
+    {794, 325, 960, 528, 247, 247, 338, 366, 847, 753, 753, 236, 334, 334, 461, 711, 652, 381, 381, 381, 652, 381, 381, 381, 381, 381, 381, 381, 226, 326, 326, 326, 326, 326, 326, 326, 126, 326, 326, 326, 326, 326, 326, 326, 326, 326, 326, 195, 195, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 195, 195, 195, 195, 195, 195, 195, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 387, 387, 387, 387, 387, 387, 387, 387, 387, 387, 387, 387, 387},
+    {1189, 888, 259, 1082, 725, 811, 636, 965, 497, 497, 1490, 1490, 392, 1291, 508, 508, 1291, 1291, 508, 1291, 508, 508, 867, 867, 867, 867, 934, 867, 867, 867, 867, 867, 867, 867, 1284, 1284, 1284, 1284, 1284, 1284, 1284, 1284, 1284, 563, 563, 563, 563, 1010, 1010, 1010, 208, 838, 563, 563, 563, 759, 759, 564, 759, 759, 801, 801, 801, 801, 759, 759, 759, 759, 759, 563, 563, 563, 563, 563, 563, 563, 563, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226, 226},
+    {1763, 1018, 1500, 432, 1332, 2203, 126, 2240, 1719, 1284, 878, 1983, 266, 266, 266, 266, 747, 747, 127, 127, 2074, 127, 2074, 1400, 1383, 1383, 1383, 1383, 1383, 1383, 1383, 1383, 1383, 1383, 1400, 1383, 1383, 1383, 1383, 1383, 1383, 1383, 507, 1073, 1073, 1073, 1073, 1990, 1990, 1990, 1990, 1990, 507, 507, 507, 507, 507, 507, 507, 507, 507, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 1073, 22, 22, 22, 22, 22, 22, 1073, 452, 452, 452, 452, 452, 452, 318, 301, 301, 301, 301, 86, 86, 15},
+    {2872, 3233, 1534, 2941, 2910, 393, 1796, 919, 446, 919, 919, 1117, 103, 103, 103, 103, 103, 103, 103, 2311, 3117, 1101, 3117, 3117, 1101, 1101, 1101, 1101, 1101, 2503, 2503, 2503, 2503, 2503, 2503, 2503, 2503, 429, 429, 429, 429, 429, 429, 429, 1702, 1702, 1702, 184, 184, 184, 184, 184, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 784, 784, 784, 784, 784, 784, 784, 784, 784, 784, 784, 784, 784},
+    {4309, 3758, 4034, 1963, 730, 642, 1502, 2246, 3834, 1511, 1102, 1102, 1522, 1522, 3427, 3427, 3928, 915, 915, 3818, 3818, 3818, 3818, 4782, 4782, 4782, 3818, 4782, 3818, 3818, 1327, 1327, 1327, 1327, 1327, 1327, 1327, 1387, 1387, 1387, 1387, 1387, 1387, 1387, 1387, 1387, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 2339, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 3148, 1776, 1776, 1776, 3354, 3354, 3354, 925, 3354, 3354, 925, 925, 925, 925, 925, 2133, 2133, 2133, 2133, 2133, 2133, 2133, 2133},
+    {6610, 6977, 1686, 3819, 2314, 5647, 3953, 3614, 5115, 423, 423, 5408, 7426, 423, 423, 487, 6227, 2660, 6227, 1221, 3811, 197, 4367, 351, 1281, 1221, 351, 351, 351, 7245, 1984, 2999, 2999, 2999, 2999, 2999, 2999, 3995, 2063, 2063, 2063, 2063, 1644, 2063, 2077, 2512, 2512, 2512, 2077, 2077, 2077, 2077, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 754, 1097, 1097, 754, 754, 754, 754, 248, 754, 1097, 1097, 1097, 1097, 222, 222, 222, 222, 754, 1982, 1982, 1982, 1982, 1982, 1982, 1982, 1982, 1982, 1982, 1982},
+    {9861, 3647, 4073, 2535, 3430, 9865, 2830, 9328, 4320, 5913, 10365, 8272, 3706, 6186, 7806, 7806, 7806, 8610, 2563, 11558, 11558, 9421, 1181, 9421, 1181, 1181, 1181, 9421, 1181, 1181, 10574, 10574, 3534, 3534, 3534, 3534, 3534, 2898, 2898, 2898, 3450, 2141, 2141, 2141, 2141, 2141, 2141, 2141, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 7055, 2831, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 8204, 4688, 4688, 4688, 2831, 2831, 2831, 2831, 2831, 2831, 2831, 2831},
+    {10327, 7582, 7124, 8214, 9600, 10271, 10193, 10800, 9086, 2365, 4409, 13812, 5661, 9344, 9344, 10362, 9344, 9344, 8585, 11114, 13080, 13080, 13080, 6949, 3436, 3436, 3436, 13213, 6130, 6130, 8159, 8159, 11595, 8159, 3436, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 7096, 4377, 7096, 4377, 4377, 4377, 4377, 4377, 5410, 5410, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 4377, 440, 440, 1199, 1199, 1199},
+    {19540, 19926, 11582, 11113, 24585, 8726, 17218, 419, 4918, 4918, 4918, 15701, 17710, 4037, 4037, 15808, 11401, 19398, 25950, 25950, 4454, 24987, 11719, 8697, 1452, 1452, 1452, 1452, 1452, 8697, 8697, 6436, 21475, 6436, 22913, 6434, 18497, 11089, 11089, 11089, 11089, 3036, 3036, 14208, 14208, 14208, 14208, 12906, 12906, 12906, 12906, 12906, 12906, 12906, 12906, 7614, 7614, 7614, 7614, 5021, 5021, 5021, 5021, 5021, 5021, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 10145, 4544, 4544, 4544, 4544, 4544, 4544, 8394, 8394, 8394, 8394},
+    {34566, 9579, 12654, 26856, 37873, 38806, 29501, 17271, 3663, 10763, 18955, 1298, 26560, 17132, 17132, 4753, 4753, 8713, 18624, 13082, 6791, 1122, 19363, 34695, 18770, 18770, 18770, 18770, 15628, 18770, 18770, 18770, 18770, 33766, 20837, 20837, 20837, 20837, 20837, 20837, 6545, 6545, 6545, 6545, 6545, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 30483, 30483, 30483, 30483, 30483, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 12138, 9305, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 11107, 9305, 9305},
+    {31929, 49367, 10982, 3527, 27066, 13226, 56010, 18911, 40574, 20767, 20767, 9686, 47603, 47603, 11736, 11736, 41601, 12888, 32948, 30801, 44243, 53351, 53351, 16016, 35086, 35086, 32581, 2464, 2464, 49554, 2464, 2464, 49554, 49554, 2464, 81, 27260, 10681, 2185, 2185, 2185, 2185, 2185, 2185, 2185, 18086, 18086, 18086, 18086, 18086, 17631, 17631, 18086, 18086, 18086, 37335, 37774, 37774, 37774, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 26401, 12982, 40398, 40398, 40398, 40398, 40398, 40398, 3518, 3518, 3518, 37799, 37799, 37799, 37799, 37799, 37799, 37799, 37799, 37799, 4721, 4721, 4721, 4721, 7067, 7067, 7067, 7067},
+    {40701, 69087, 77576, 64590, 39397, 33179, 10858, 38935, 43129, 35468, 35468, 5279, 61518, 61518, 27945, 70975, 70975, 86478, 86478, 20514, 20514, 73178, 73178, 43098, 43098, 4701, 59979, 59979, 58556, 69916, 15170, 15170, 4832, 4832, 43064, 71685, 4832, 15170, 15170, 15170, 27679, 27679, 27679, 60826, 60826, 6187, 6187, 4264, 4264, 4264, 4264, 4264, 45567, 32269, 32269, 32269, 32269, 62060, 62060, 62060, 62060, 62060, 62060, 62060, 62060, 62060, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 1803, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 51108, 55315, 55315, 54140, 54140, 54140, 54140, 54140, 13134},
+    {103650, 125480, 59978, 46875, 77172, 83021, 126904, 14541, 56299, 43636, 11655, 52680, 88549, 29804, 101894, 113675, 48040, 113675, 34987, 48308, 97926, 5475, 49449, 6850, 62545, 62545, 9440, 33242, 9440, 33242, 9440, 33242, 9440, 62850, 9440, 9440, 9440, 90308, 90308, 90308, 47904, 47904, 47904, 47904, 47904, 47904, 47904, 47904, 47904, 41143, 41143, 41143, 41143, 41143, 41143, 41143, 36114, 36114, 36114, 36114, 36114, 24997, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 65162, 47650, 47650, 47650, 47650, 47650, 47650, 47650, 40586, 40586, 40586, 40586, 40586, 40586, 40586, 38725, 38725, 38725, 38725, 88329, 88329, 88329, 88329, 88329},
+    {165843, 90647, 59925, 189541, 67647, 74795, 68365, 167485, 143918, 74912, 167289, 75517, 8148, 172106, 126159, 35867, 35867, 35867, 121694, 52171, 95354, 113969, 113969, 76304, 123709, 123709, 144615, 123709, 64958, 64958, 32377, 193002, 193002, 25023, 40017, 141605, 189165, 189165, 141605, 189165, 189165, 141605, 141605, 141605, 189165, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127047, 127785, 127785, 127785, 127785, 127785, 127785, 127785, 127785, 127785, 127785, 80822, 80822, 80822, 80822, 80822, 80822, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 131661, 7114, 131661},
+    {130365, 236711, 110235, 125699, 56483, 93735, 234469, 60549, 1291, 93937, 245291, 196061, 258647, 162489, 176631, 204895, 73353, 172319, 28881, 136787, 122081, 122081, 275993, 64673, 211587, 211587, 211587, 282859, 282859, 211587, 242821, 256865, 256865, 256865, 122203, 291915, 122203, 291915, 291915, 122203, 25639, 25639, 291803, 245397, 284047, 245397, 245397, 245397, 245397, 245397, 245397, 245397, 94241, 66575, 66575, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 217673, 210249, 210249, 210249, 210249, 210249, 210249, 210249, 210249, 210249, 210249, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453, 94453},
+    {333459, 375354, 102417, 383544, 292630, 41147, 374614, 48032, 435453, 281493, 358168, 114121, 346892, 238990, 317313, 164158, 35497, 70530, 70530, 434839, 24754, 24754, 24754, 393656, 118711, 118711, 148227, 271087, 355831, 91034, 417029, 417029, 91034, 91034, 417029, 91034, 299843, 299843, 413548, 413548, 308300, 413548, 413548, 413548, 308300, 308300, 308300, 413548, 308300, 308300, 308300, 308300, 308300, 15311, 15311, 15311, 15311, 176255, 176255, 23613, 23613, 23613, 23613, 23613, 23613, 172210, 204328, 204328, 204328, 204328, 121626, 121626, 121626, 121626, 121626, 200187, 200187, 200187, 200187, 200187, 121551, 121551, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 248492, 13942, 13942, 13942, 13942, 13942},
+    {500884, 566009, 399251, 652979, 355008, 430235, 328722, 670680, 405585, 405585, 424646, 670180, 670180, 641587, 215580, 59048, 633320, 81010, 20789, 389250, 389250, 638764, 638764, 389250, 389250, 398094, 80846, 147776, 147776, 296177, 398094, 398094, 147776, 147776, 396313, 578233, 578233, 578233, 19482, 620706, 187095, 620706, 187095, 126467, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 241663, 321632, 23210, 23210, 394484, 394484, 394484, 78101, 78101, 78101, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 542095, 277743, 277743, 277743, 457259, 457259, 457259, 457259, 457259, 457259, 457259, 457259, 457259, 457259, 457259, 457259},
+    {858339, 918142, 501970, 234813, 460565, 31996, 753018, 256150, 199809, 993599, 245149, 794183, 121349, 150619, 376952, 809123, 809123, 804319, 67352, 969594, 434796, 969594, 804319, 391368, 761041, 754049, 466264, 754049, 754049, 466264, 754049, 754049, 282852, 429907, 390017, 276645, 994856, 250142, 144595, 907454, 689648, 687580, 687580, 687580, 687580, 978368, 687580, 552742, 105195, 942843, 768249, 307142, 307142, 307142, 307142, 880619, 880619, 880619, 880619, 880619, 880619, 880619, 117185, 117185, 117185, 117185, 117185, 117185, 117185, 117185, 117185, 117185, 117185, 60731, 60731, 60731, 60731, 60731, 60731, 60731, 60731, 60731, 60731, 60731, 178309, 178309, 178309, 178309, 74373, 74373, 74373, 74373, 74373, 74373, 74373, 74373, 214965, 214965, 214965},
+    };
+
     // --- Fields (mirrors the C# field declaration order) ---
 
     bool parameters_valid_ = true;  // dead state -- see file header divergence note
@@ -1060,10 +1654,23 @@ class MultivariateNormal : public MultivariateDistribution {
     bool cov_srted_ = false;  // dead field -- see file header divergence note
 
     // SAVE A, B, INFI, COV / NL = 500 default, reassigned per-instance in set_parameters
-    // (see the NL-quirk comment there). The fixed-500/125250-sized MVNDST working-storage
-    // arrays that this field originally sizes (MVNDFN_A/B/INFI/COV) and the DKBVRC lattice
-    // state (SAMPLS/NP/VAREST) are added in the second commit of this task.
+    // (see the NL-quirk comment there).
     int nl_ = 500;
+
+    // MVNDST working storage (C# `//SAVE A, B, INFI, COV`; NL = 500 default). Sized fixed
+    // at 500 / 500*501/2 = 125250 regardless of `dimension_`/`nl_` -- `mvndfn` only reads
+    // the first N+1 / NL entries actually populated by `covsrt` for the current call, so
+    // the surplus capacity is simply unused headroom (matches the C# fixed-size arrays).
+    // Not copied by clone() -- matches the C# `Clone()`, which also omits them (they are
+    // reentrant scratch space, rebuilt by `covsrt` on every `mvndst` call).
+    mutable std::vector<double> mvndfn_a_ = std::vector<double>(500, 0.0);
+    mutable std::vector<double> mvndfn_b_ = std::vector<double>(500, 0.0);
+    mutable std::vector<int> mvndfn_infi_ = std::vector<int>(500, 0);
+    mutable std::vector<double> mvndfn_cov_ = std::vector<double>(125250, 0.0);  // NL*(NL+1)/2 at NL=500
+
+    mutable int dkbvrc_sampls_ = 0;
+    mutable int dkbvrc_np_ = 0;
+    mutable double dkbvrc_varest_ = 0.0;
 };
 
 }  // namespace bestfit::numerics::distributions
