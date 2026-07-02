@@ -132,18 +132,10 @@ inline double sum(const std::vector<double>& values, const std::vector<int>& ind
     return s;
 }
 
-// Tools.Product(IList<double>) narrow port.
-inline double product(const std::vector<double>& values) {
-    double p = values[0];
-    if (p == 0.0) return 0.0;
-    for (std::size_t i = 1; i < values.size(); ++i) {
-        p *= values[i];
-        if (p == 0.0) return 0.0;
-    }
-    return p;
-}
-
-// Tools.Product(IList<double>, IList<int>, useComplement=false) narrow port.
+// Tools.Product(IList<double>, IList<int>, useComplement=false) narrow port. (Note: the
+// 1-arg `Tools.Product(IList<double>)` overload is NOT ported here -- no member reached
+// from CompetingRisks.cs calls it; `IndependentJointProbability(IList<double>)` below
+// inlines its own product loop in the C# source rather than calling `Tools.Product`.)
 inline double product(const std::vector<double>& values, const std::vector<int>& indicators) {
     double p = 1.0;
     for (std::size_t i = 0; i < values.size(); ++i) {

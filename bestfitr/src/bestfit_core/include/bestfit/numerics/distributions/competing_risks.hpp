@@ -365,6 +365,30 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
                 for (int j = 0; j < D; ++j)
                     sigma[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = (i == j) ? 1.0 : rho;
         } else {
+            // Divergence note: C#'s equivalent loop indexes `CorrelationMatrix[i, j]`
+            // directly. If a caller sets `dependency = CorrelationMatrix` without ever
+            // calling the `CorrelationMatrix` setter (the field defaults to null), C#
+            // throws a catchable `NullReferenceException` on first access; if a caller
+            // supplies a matrix sized for a different component count, C# throws
+            // `IndexOutOfRangeException`. `std::vector::operator[]` performs no bounds
+            // check, so a verbatim transcription would be undefined behavior (an
+            // out-of-bounds read, observed to crash the process) in the same misuse
+            // scenario instead of a catchable exception. The guard below throws
+            // `std::out_of_range` before the first out-of-range access, reproducing the
+            // C# observable behavior (a thrown exception on misuse) without restructuring
+            // the loop.
+            if (correlation_matrix_.size() != static_cast<std::size_t>(D)) {
+                throw std::out_of_range(
+                    "CorrelationMatrix must be set and sized to match the number of "
+                    "components before using dependency = CorrelationMatrix.");
+            }
+            for (int i = 0; i < D; ++i) {
+                if (correlation_matrix_[static_cast<std::size_t>(i)].size() != static_cast<std::size_t>(D)) {
+                    throw std::out_of_range(
+                        "CorrelationMatrix must be set and sized to match the number of "
+                        "components before using dependency = CorrelationMatrix.");
+                }
+            }
             for (int i = 0; i < D; ++i)
                 for (int j = 0; j < D; ++j)
                     sigma[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
