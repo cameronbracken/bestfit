@@ -217,6 +217,46 @@ def _dispatch_generic(target, params, method, args):
     raise KeyError(f"unknown fixture method: {method}")
 
 
+# --- multivariate_distribution path -----------------------------------------------------
+# Dirichlet/Multinomial/BivariateEmpirical dispatch to the bespoke _core.dirichlet_val/
+# _core.multinomial_val/_core.bve_cdf functions (method + flat numeric args in, double
+# out). Extensible: MultivariateNormal/MultivariateStudentT add a branch here plus their
+# own _core.<name>_val entry point.
+
+def _flatten_mv_args(args: list) -> list[float]:
+    """Flattens fixture assertion args to a flat float list.
+
+    Handles both conventions: a single nested vector argument (e.g. pdf args =
+    [[0.3, 0.4, 0.3]]) and flat scalar args (e.g. covariance args = [0, 1],
+    log_multivariate_beta args = [1.0, 1.0]).
+    """
+    if len(args) == 1 and isinstance(args[0], list):
+        return [float(v) for v in args[0]]
+    return [float(v) for v in args]
+
+
+def _dispatch_multivariate(target: str, construct: dict, method: str, args: list):
+    ar = _flatten_mv_args(args)
+    if target == "Dirichlet":
+        alpha = [float(v) for v in construct["alpha"]]
+        return _core.dirichlet_val(method, alpha, ar)
+    if target == "Multinomial":
+        n = int(construct["n"])
+        p = [float(v) for v in construct["p"]]
+        return _core.multinomial_val(method, n, p, ar)
+    if target == "BivariateEmpirical":
+        x1 = [float(v) for v in construct["x1"]]
+        x2 = [float(v) for v in construct["x2"]]
+        p = [[float(v) for v in row] for row in construct["p"]]
+        transforms = [
+            construct.get("x1_transform", "None"),
+            construct.get("x2_transform", "None"),
+            construct.get("p_transform", "None"),
+        ]
+        return _core.bve_cdf(method, x1, x2, p, transforms, ar)
+    raise KeyError(f"unknown multivariate target: {target}")
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -242,12 +282,14 @@ def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
         spec = json.loads(fx.read_text())
-        # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
-        # which are validated in C++ only and are not exposed to the Python package.
-        if spec.get("kind") != "univariate_distribution":
+        # Only validate univariate_distribution / multivariate_distribution fixtures; skip
+        # other kinds (e.g. special_function) which are validated in C++ only and are not
+        # exposed to the Python package.
+        kind = spec.get("kind")
+        if kind not in ("univariate_distribution", "multivariate_distribution"):
             continue
         for case in spec["cases"]:
-            out.append((spec["target"], spec.get("datasets", {}), case))
+            out.append((kind, spec["target"], spec.get("datasets", {}), case))
     return out
 
 
@@ -255,9 +297,16 @@ CASES = _load_cases()
 
 
 @pytest.mark.parametrize(
-    "target,datasets,case", CASES, ids=[f"{t}:{c['name']}" for t, _, c in CASES]
+    "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
-def test_fixture_case(target, datasets, case):
+def test_fixture_case(kind, target, datasets, case):
+    if kind == "multivariate_distribution":
+        for a in case["assertions"]:
+            args = a.get("args", [])
+            actual = _dispatch_multivariate(target, case["construct"], a["method"], args)
+            _check(actual, a)
+        return
+
     is_gev = target == "GeneralizedExtremeValue"
     is_composite = target in _COMPOSITE_TARGETS
     if is_gev:

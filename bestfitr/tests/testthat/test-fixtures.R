@@ -211,6 +211,48 @@ dispatch_composite <- function(target, cd, method, args) {
   stop(sprintf("unknown composite target: %s", target))
 }
 
+# --- multivariate_distribution path -----------------------------------------------------
+# Dirichlet/Multinomial/BivariateEmpirical dispatch to the bespoke bf_dirichlet_val_/
+# bf_multinomial_val_/bf_bve_cdf_ glue in mvd.cpp (method + flat numeric args in, double
+# out). Extensible: MultivariateNormal/MultivariateStudentT add a branch here plus their
+# own bf_<name>_val_ entry point.
+
+# Flattens fixture assertion args to a numeric vector. Handles both conventions: a single
+# nested vector argument (e.g. pdf args = [[0.3, 0.4, 0.3]]) and flat scalar args (e.g.
+# covariance args = [0, 1], log_multivariate_beta args = [1.0, 1.0]).
+flatten_mv_args <- function(args) {
+  if (length(args) == 1 && is.list(args[[1]])) {
+    return(as.double(unlist(args[[1]])))
+  }
+  as.double(unlist(args))
+}
+
+dispatch_multivariate <- function(target, construct, method, args) {
+  ns <- asNamespace("bestfitr")
+  ar <- flatten_mv_args(args)
+  if (target == "Dirichlet") {
+    alpha <- vapply(construct$alpha, parse_num, numeric(1))
+    return(ns$bf_dirichlet_val_(method, alpha, ar))
+  }
+  if (target == "Multinomial") {
+    n <- as.integer(construct$n)
+    p <- vapply(construct$p, parse_num, numeric(1))
+    return(ns$bf_multinomial_val_(method, n, p, ar))
+  }
+  if (target == "BivariateEmpirical") {
+    x1 <- vapply(construct$x1, parse_num, numeric(1))
+    x2 <- vapply(construct$x2, parse_num, numeric(1))
+    p_flat <- as.double(unlist(lapply(construct$p, function(row) vapply(row, parse_num, numeric(1)))))
+    transforms <- c(
+      if (!is.null(construct$x1_transform)) construct$x1_transform else "None",
+      if (!is.null(construct$x2_transform)) construct$x2_transform else "None",
+      if (!is.null(construct$p_transform)) construct$p_transform else "None"
+    )
+    return(ns$bf_bve_cdf_(method, x1, x2, p_flat, length(x1), transforms, ar))
+  }
+  stop(sprintf("unknown multivariate target: %s", target))
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -218,8 +260,20 @@ test_that("oracle fixtures validate", {
   expect_gt(length(files), 0)
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
-    # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
-    # which are validated in C++ only and are not exposed to the R package.
+    # Only validate univariate_distribution and multivariate_distribution fixtures; skip
+    # other kinds (e.g. special_function) which are validated in C++ only and are not
+    # exposed to the R package.
+    if (identical(spec$kind, "multivariate_distribution")) {
+      target <- spec$target
+      for (case in spec$cases) {
+        for (a in case$assertions) {
+          args <- if (is.null(a$args)) list() else a$args
+          actual <- dispatch_multivariate(target, case$construct, a$method, args)
+          check_assertion(actual, a)
+        }
+      }
+      next
+    }
     if (!identical(spec$kind, "univariate_distribution")) next
     target <- spec$target
     datasets <- spec$datasets

@@ -4,4 +4,5 @@
 #include <pybind11/pybind11.h>
 
 void register_distributions(pybind11::module_& m);
+void register_multivariate(pybind11::module_& m);
 void register_sobol(pybind11::module_& m);

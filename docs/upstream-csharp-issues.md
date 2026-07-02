@@ -132,6 +132,31 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested action:** verify the intent; consider renaming one overload (e.g.
   `CentralMomentsBySteps` / `CentralMomentsByTolerance`) to remove the ambiguity.
 
+## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear
+
+- **Where:** `Numerics/Distributions/Multivariate/BivariateEmpirical.cs`, `SetParameters` /
+  `CDF(double, double)`.
+- **What:** `CDF` lazily builds the `bilinear` field only `if (bilinear == null)`. Calling
+  `SetParameters` a second time (new grid) after a `CDF` call has already run does not reset
+  `bilinear` to null, so subsequent `CDF` calls keep interpolating against the OLD grid.
+- **Evidence:** read from source; not exercised by the ported fixture (constructed once, `CDF`
+  called several times against the same grid, per `Test_BivariateEmpirical.Test_BivariateEmp`).
+- **Port handling:** mirrored faithfully (`bilinear_` is likewise never reset in `set_parameters()`).
+- **Suggested C# fix:** set `bilinear = null;` at the end of `SetParameters`.
+
+## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform
+
+- **Where:** `Numerics/Data/Interpolation/Linear.cs` (`Tools.Log10`, clamps values `< 1E-16` to
+  `1E-16`) vs. `Numerics/Data/Interpolation/Bilinear.cs` (`Math.Log10` directly, no clamp).
+- **What:** the two interpolation classes apply the Logarithmic transform inconsistently: Linear
+  is guarded against `log(0)`/`log(negative)` producing `-Inf`/`NaN`; Bilinear is not, despite
+  Bilinear internally reusing Linear instances for its search machinery.
+- **Port handling:** mirrored faithfully (`Linear::base_interpolate`/`extrapolate` use
+  `bestfit::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
+  at both call sites.
+- **Suggested C# fix:** have `Bilinear` call `Tools.Log10` for consistency, unless the lack of
+  clamping there is intentional (e.g. grids are assumed always positive).
+
 ## ROBUSTNESS — NoncentralT moments use AdaptiveGaussKronrod (heavy) with no analytic fallback
 
 - **Where:** `Numerics/Distributions/Univariate/NoncentralT.cs`, `Skewness`/`Kurtosis` via
@@ -148,6 +173,11 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   translation artifact). Harmless.
 - Several distributions declare a member-field initializer (e.g. a scale of `0.0`) that the
   constructor immediately overwrites — harmless but misleading.
+- `Numerics/Data/Interpolation/Support/Interpolater.cs`: `deltaStart = Math.Min(1,
+  (int)Math.Pow(Count, 0.25))` always evaluates to `1` for any `Count >= 2` (`Math.Pow(2, 0.25)`
+  already truncates to `>= 1`, and `Math.Min` caps at `1`), so the "correlated" hunt-vs-bisection
+  search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
+  the formula suggests. Ported verbatim (see `core/include/bestfit/numerics/data/interpolation/interpolater.hpp`).
 
 ---
 

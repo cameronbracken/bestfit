@@ -168,6 +168,18 @@ bf_gev_parameter_covariance_ <- function(location, scale, shape, sample_size) {
   .Call(`_bestfitr_bf_gev_parameter_covariance_`, location, scale, shape, sample_size)
 }
 
+bf_dirichlet_val_ <- function(method, alpha, args) {
+  .Call(`_bestfitr_bf_dirichlet_val_`, method, alpha, args)
+}
+
+bf_multinomial_val_ <- function(method, n, p, args) {
+  .Call(`_bestfitr_bf_multinomial_val_`, method, n, p, args)
+}
+
+bf_bve_cdf_ <- function(method, x1, x2, p_flat, nrow, transforms, args) {
+  .Call(`_bestfitr_bf_bve_cdf_`, method, x1, x2, p_flat, nrow, transforms, args)
+}
+
 bf_sobol_generate_ <- function(dimension, n_steps, path) {
   .Call(`_bestfitr_bf_sobol_generate_`, dimension, n_steps, path)
 }

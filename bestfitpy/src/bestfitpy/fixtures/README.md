@@ -41,6 +41,57 @@ verbatim copy; a CI `--check` run fails on drift.
 }
 ```
 
+### `multivariate_distribution`
+
+```jsonc
+{
+  "target":  "Dirichlet",                   // "Dirichlet" | "Multinomial" | "BivariateEmpirical"
+                                             // (later: "MultivariateNormal", "MultivariateStudentT")
+  "kind":    "multivariate_distribution",
+  "source":  "Numerics/.../Test_Dirichlet.cs",
+  "cases": [
+    {
+      "name": "pdf_uniform",
+      "construct": { "alpha": [1.0, 1.0, 1.0] },
+      "assertions": [
+        { "method": "pdf", "args": [[0.333333333333333, 0.333333333333333, 0.333333333333333]],
+          "expected": 2.0, "mode": "abs", "tol": 1e-6 }
+      ]
+    }
+  ]
+}
+```
+
+Per-case `construct` is target-specific:
+- `Dirichlet`: `{"alpha": [..]}` (a symmetric Dir(K, alpha) case is just alpha repeated K times).
+- `Multinomial`: `{"n": 10, "p": [..]}`.
+- `BivariateEmpirical`: `{"x1": [..], "x2": [..], "p": [[..], [..]]}` (`p` is a 2D array, row `i`
+  = `x1[i]`, column `j` = `x2[j]`) plus optional `"x1_transform"`/`"x2_transform"`/`"p_transform"`
+  strings (`"None"`, `"Logarithmic"`, `"NormalZ"`; default `"None"`).
+- `MultivariateNormal`/`MultivariateStudentT` (design only, implemented by their own tasks): adds
+  `{"mean": [..], "covariance": [[..]], "seed": <int>}` and a statefulness contract -- within a
+  case, assertions run in listed order against ONE instance (needed for seeded sampling draws).
+
+Assertions use the same `{method, args, expected, mode, tol}` shape as `univariate_distribution`
+(modes `abs`/`rel`/`equal`/`bool`). `args` may contain a nested array for a single vector-valued
+argument (e.g. `"pdf"` args `[[0.3, 0.4, 0.3]]` is one 3-vector, not three scalars). Methods:
+
+- `pdf`, `log_pdf`, `cdf` (vector arg: `args: [[x1, x2, ...]]`) -- dispatch to the distribution's
+  own PDF/LogPDF/CDF.
+- `mean [i]`, `variance [i]`, `mode [i]` -- vector-returning members, asserted element-wise via the
+  trailing index arg (0-based).
+- `covariance [i, j]` -- pairwise covariance.
+- `dimension`, `parameters_valid` (`mode: "bool"`) -- generic to every target.
+- `log_multivariate_beta [alpha...]` (Dirichlet only; static, flat `args` = the alpha vector --
+  independent of the case's own `construct.alpha`).
+- `cdf_xy [x1, x2]` (BivariateEmpirical only; the scalar-pair CDF overload, equivalent to
+  `cdf([x1, x2])` but exercises the two-argument entry point directly).
+
+**Statefulness:** Dirichlet/Multinomial/BivariateEmpirical are stateless per case (every assertion
+is independent). MultivariateNormal/MultivariateStudentT's seeded-sampling assertions are not --
+within one case, assertions run in the listed order against a single constructed instance, so a
+`random_value`/`lhs_value`-style method can depend on prior draws in the same case.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners

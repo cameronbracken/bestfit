@@ -351,6 +351,96 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     _ => null,
 };
 
+// --- multivariate_distribution branch -----------------------------------------------------
+// Mirrors the univariate Build/Dispatch split. Dirichlet/Multinomial/BivariateEmpirical have
+// no common Mean/Variance/Covariance signature (unlike UnivariateDistributionBase), so
+// DispatchMultivariate downcasts to the concrete type for anything beyond
+// Dimension/PDF/LogPDF/CDF/ParametersValid. Extensible: MultivariateNormal/
+// MultivariateStudentT add a case to each of Build/Dispatch.
+
+static MultivariateDistribution BuildMultivariate(string target, JsonElement construct)
+{
+    if (target == "Dirichlet")
+    {
+        var alpha = construct.GetProperty("alpha").EnumerateArray().Select(ParseNum).ToArray();
+        return new Dirichlet(alpha);
+    }
+    if (target == "Multinomial")
+    {
+        int n = construct.GetProperty("n").GetInt32();
+        var p = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
+        return new Multinomial(n, p);
+    }
+    if (target == "BivariateEmpirical")
+    {
+        var x1 = construct.GetProperty("x1").EnumerateArray().Select(ParseNum).ToArray();
+        var x2 = construct.GetProperty("x2").EnumerateArray().Select(ParseNum).ToArray();
+        var pRows = construct.GetProperty("p").EnumerateArray().ToArray();
+        var p = new double[pRows.Length, x2.Length];
+        for (int i = 0; i < pRows.Length; i++)
+        {
+            var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
+        }
+        Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
+            ? t.GetString() switch
+            {
+                "None" => Transform.None,
+                "Logarithmic" => Transform.Logarithmic,
+                "NormalZ" => Transform.NormalZ,
+                var s => throw new Exception($"unknown transform: {s}")
+            }
+            : Transform.None;
+        return new BivariateEmpirical(x1, x2, p, ParseT("x1_transform"), ParseT("x2_transform"),
+                                       ParseT("p_transform"));
+    }
+    throw new Exception($"unknown multivariate target: {target}");
+}
+
+static double DispatchMultivariate(MultivariateDistribution d, string target, string m, JsonElement[] a)
+{
+    switch (m)
+    {
+        case "dimension": return d.Dimension;
+        // The C# property for the PMF/PDF is PDF(double[]); LogPMF is a Multinomial-only
+        // method that LogPDF forwards to, so LogPDF works generically across all three.
+        case "pdf": return d.PDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+        case "log_pdf": return d.LogPDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+        case "cdf": return d.CDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+    }
+    if (target == "Dirichlet")
+    {
+        var dd = (Dirichlet)d;
+        switch (m)
+        {
+            case "alpha": return dd.Alpha[a[0].GetInt32()];
+            case "alpha_sum": return dd.AlphaSum;
+            case "mean": return dd.Mean[a[0].GetInt32()];
+            case "variance": return dd.Variance[a[0].GetInt32()];
+            case "mode": return dd.Mode[a[0].GetInt32()];
+            case "covariance": return dd.Covariance(a[0].GetInt32(), a[1].GetInt32());
+            case "log_multivariate_beta": return Dirichlet.LogMultivariateBeta(a.Select(ParseNum).ToArray());
+        }
+    }
+    else if (target == "Multinomial")
+    {
+        var mm = (Multinomial)d;
+        switch (m)
+        {
+            case "number_of_trials": return mm.NumberOfTrials;
+            case "mean": return mm.Mean[a[0].GetInt32()];
+            case "variance": return mm.Variance[a[0].GetInt32()];
+            case "covariance": return mm.Covariance(a[0].GetInt32(), a[1].GetInt32());
+        }
+    }
+    else if (target == "BivariateEmpirical")
+    {
+        var bb = (BivariateEmpirical)d;
+        if (m == "cdf_xy") return bb.CDF(a[0].GetDouble(), a[1].GetDouble());
+    }
+    throw new Exception($"unknown multivariate fixture method: {target}/{m}");
+}
+
 // --- main -------------------------------------------------------------------------------
 
 string fixturesDir = args.Length > 0 ? args[0]
@@ -451,6 +541,42 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 string where = $"gof/{caseName}";
                 if (Compare(actual, asrt)) pass++;
                 else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- multivariate_distribution branch ------------------------------------------------
+    if (kindStr == "multivariate_distribution")
+    {
+        string mvTarget = root.GetProperty("target").GetString()!;
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            MultivariateDistribution mvDist;
+            try { mvDist = BuildMultivariate(mvTarget, c.GetProperty("construct")); }
+            catch (Exception ex) { failures.Add($"{mvTarget}/{caseName}: build failed: {ex.Message}"); fail++; continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{mvTarget}/{caseName}/{method}";
+                string mode = asrt.GetProperty("mode").GetString()!;
+                try
+                {
+                    if (mode == "bool")
+                    {
+                        bool ok = mvDist.ParametersValid == asrt.GetProperty("expected").GetBoolean();
+                        if (ok) pass++; else { fail++; failures.Add(where + ": bool mismatch"); }
+                        continue;
+                    }
+                    double actual = DispatchMultivariate(mvDist, mvTarget, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
             }
         }
         continue;

@@ -29,6 +29,10 @@
 #include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/competing_risks.hpp"
 #include "bestfit/numerics/distributions/mixture.hpp"
+#include "bestfit/numerics/distributions/multivariate/base/multivariate_distribution.hpp"
+#include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
+#include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
+#include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -524,6 +528,98 @@ static void run_goodness_of_fit(const json& spec) {
     }
 }
 
+// --- multivariate_distribution path -----------------------------------------------------
+//
+// Mirrors the univariate build_generic/dispatch_generic split, but multivariate targets
+// have no shared arithmetic surface beyond dimension/pdf/log_pdf/cdf/parameters_valid (no
+// factory, no common Mean/Variance/Covariance signature across Dirichlet/Multinomial/
+// BivariateEmpirical), so dispatch_multivariate dynamic_casts to the concrete type for
+// everything else. Extensible: MultivariateNormal/MultivariateStudentT add a case to each
+// of build_multivariate/dispatch_multivariate.
+
+static std::vector<double> parse_num_vec(const json& arr) {
+    std::vector<double> v;
+    for (const auto& e : arr) v.push_back(parse_num(e));
+    return v;
+}
+
+static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const std::string& target,
+                                                                           const json& construct) {
+    if (target == "Dirichlet") {
+        return std::make_unique<dist::Dirichlet>(parse_num_vec(construct["alpha"]));
+    }
+    if (target == "Multinomial") {
+        int n = construct["n"].get<int>();
+        return std::make_unique<dist::Multinomial>(n, parse_num_vec(construct["p"]));
+    }
+    if (target == "BivariateEmpirical") {
+        std::vector<double> x1 = parse_num_vec(construct["x1"]);
+        std::vector<double> x2 = parse_num_vec(construct["x2"]);
+        std::vector<std::vector<double>> p;
+        for (const auto& row : construct["p"]) p.push_back(parse_num_vec(row));
+        auto parse_transform = [&](const char* key) {
+            stat::Transform t = stat::Transform::None;
+            if (!construct.contains(key)) return t;
+            std::string s = construct[key].get<std::string>();
+            if (s == "None") t = stat::Transform::None;
+            else if (s == "Logarithmic") t = stat::Transform::Logarithmic;
+            else if (s == "NormalZ") t = stat::Transform::NormalZ;
+            else throw std::runtime_error("unknown transform: " + s);
+            return t;
+        };
+        return std::make_unique<dist::BivariateEmpirical>(
+            std::move(x1), std::move(x2), std::move(p), parse_transform("x1_transform"),
+            parse_transform("x2_transform"), parse_transform("p_transform"));
+    }
+    throw std::runtime_error("unknown multivariate target: " + target);
+}
+
+static double dispatch_multivariate(const dist::MultivariateDistribution& d, const std::string& target,
+                                    const std::string& m, const json& a) {
+    if (m == "dimension") return d.dimension();
+    if (m == "pdf") return d.pdf(parse_num_vec(a[0]));
+    if (m == "log_pdf") return d.log_pdf(parse_num_vec(a[0]));
+    if (m == "cdf") return d.cdf(parse_num_vec(a[0]));
+
+    if (target == "Dirichlet") {
+        const auto& dd = dynamic_cast<const dist::Dirichlet&>(d);
+        if (m == "alpha") return dd.alpha()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "alpha_sum") return dd.alpha_sum();
+        if (m == "mean") return dd.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return dd.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return dd.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return dd.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "log_multivariate_beta") return dist::Dirichlet::log_multivariate_beta(parse_num_vec(a));
+    } else if (target == "Multinomial") {
+        const auto& mm = dynamic_cast<const dist::Multinomial&>(d);
+        if (m == "number_of_trials") return mm.number_of_trials();
+        if (m == "mean") return mm.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return mm.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return mm.covariance(a[0].get<int>(), a[1].get<int>());
+    } else if (target == "BivariateEmpirical") {
+        const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
+        if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
+    }
+    throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
+}
+
+static void run_multivariate(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    for (const auto& c : spec["cases"]) {
+        auto d = build_multivariate(target, c["construct"]);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            if (as["mode"].get<std::string>() == "bool")
+                check_bool(d->parameters_valid(), as, where);
+            else
+                check_value(dispatch_multivariate(*d, target, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -545,6 +641,8 @@ int main(int argc, char** argv) {
                 run_gev(spec);
             else
                 run_generic(spec);
+        } else if (kind == "multivariate_distribution") {
+            run_multivariate(spec);
         }
     }
     if (files == 0) {

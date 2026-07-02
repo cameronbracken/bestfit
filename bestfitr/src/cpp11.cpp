@@ -299,6 +299,27 @@ extern "C" SEXP _bestfitr_bf_gev_parameter_covariance_(SEXP location, SEXP scale
     return cpp11::as_sexp(bf_gev_parameter_covariance_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size)));
   END_CPP11
 }
+// mvd.cpp
+double bf_dirichlet_val_(std::string method, doubles alpha, doubles args);
+extern "C" SEXP _bestfitr_bf_dirichlet_val_(SEXP method, SEXP alpha, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_dirichlet_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(alpha), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
+// mvd.cpp
+double bf_multinomial_val_(std::string method, int n, doubles p, doubles args);
+extern "C" SEXP _bestfitr_bf_multinomial_val_(SEXP method, SEXP n, SEXP p, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_multinomial_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<int>>(n), cpp11::as_cpp<cpp11::decay_t<doubles>>(p), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
+// mvd.cpp
+double bf_bve_cdf_(std::string method, doubles x1, doubles x2, doubles p_flat, int nrow, strings transforms, doubles args);
+extern "C" SEXP _bestfitr_bf_bve_cdf_(SEXP method, SEXP x1, SEXP x2, SEXP p_flat, SEXP nrow, SEXP transforms, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_bve_cdf_(cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(x1), cpp11::as_cpp<cpp11::decay_t<doubles>>(x2), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_flat), cpp11::as_cpp<cpp11::decay_t<int>>(nrow), cpp11::as_cpp<cpp11::decay_t<strings>>(transforms), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
 // sobol.cpp
 doubles_matrix<by_column> bf_sobol_generate_(int dimension, int n_steps, std::string path);
 extern "C" SEXP _bestfitr_bf_sobol_generate_(SEXP dimension, SEXP n_steps, SEXP path) {
@@ -316,11 +337,13 @@ extern "C" SEXP _bestfitr_bf_sobol_skip_to_(SEXP dimension, SEXP index, SEXP pat
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
+    {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                  7},
     {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                   4},
     {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,               3},
     {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                   4},
     {"_bestfitr_bf_cr_quantile_",              (DL_FUNC) &_bestfitr_bf_cr_quantile_,              4},
     {"_bestfitr_bf_cr_valid_",                 (DL_FUNC) &_bestfitr_bf_cr_valid_,                 3},
+    {"_bestfitr_bf_dirichlet_val_",            (DL_FUNC) &_bestfitr_bf_dirichlet_val_,            3},
     {"_bestfitr_bf_dist_cdf_",                 (DL_FUNC) &_bestfitr_bf_dist_cdf_,                 3},
     {"_bestfitr_bf_dist_fit_",                 (DL_FUNC) &_bestfitr_bf_dist_fit_,                 3},
     {"_bestfitr_bf_dist_linear_moments_",      (DL_FUNC) &_bestfitr_bf_dist_linear_moments_,      2},
@@ -353,6 +376,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                  4},
     {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,             4},
     {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                3},
+    {"_bestfitr_bf_multinomial_val_",          (DL_FUNC) &_bestfitr_bf_multinomial_val_,          4},
     {"_bestfitr_bf_sobol_generate_",           (DL_FUNC) &_bestfitr_bf_sobol_generate_,           3},
     {"_bestfitr_bf_sobol_skip_to_",            (DL_FUNC) &_bestfitr_bf_sobol_skip_to_,            3},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},

@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(pybind11 CONFIG REQUIRED)
 
-pybind11_add_module(_core src/bindings/gev.cpp src/bindings/dist.cpp src/bindings/sobol.cpp)
+pybind11_add_module(_core src/bindings/gev.cpp src/bindings/dist.cpp src/bindings/mvd.cpp src/bindings/sobol.cpp)
 target_include_directories(_core PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src/bestfit_core/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src/bindings)
