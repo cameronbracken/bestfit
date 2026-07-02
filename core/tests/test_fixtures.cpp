@@ -53,6 +53,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 namespace dist = bestfit::numerics::distributions;
+namespace prob = bestfit::numerics::data::probability;
 using dist::EstimationMethod;
 using dist::GeneralizedExtremeValue;
 
@@ -343,6 +344,15 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_generic(const std
     return d;
 }
 
+// Parses a "dependency" fixture string into a Probability::DependencyType (CompetingRisks).
+static prob::DependencyType parse_dependency(const std::string& d) {
+    if (d == "Independent") return prob::DependencyType::Independent;
+    if (d == "PerfectlyPositive") return prob::DependencyType::PerfectlyPositive;
+    if (d == "PerfectlyNegative") return prob::DependencyType::PerfectlyNegative;
+    if (d == "CorrelationMatrix") return prob::DependencyType::CorrelationMatrix;
+    throw std::runtime_error("unknown dependency type: " + d);
+}
+
 // --- Composite distribution path (TruncatedDistribution, and future Empirical/Kernel/Mixture/CR) ---
 
 // build_component: create a sub-distribution from {"target": "...", "params": [...]} (or "fit").
@@ -430,6 +440,17 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         auto cr = std::make_unique<dist::CompetingRisks>(std::move(comps));
         if (construct.contains("minimum_of_random_variables"))
             cr->minimum_of_random_variables = construct["minimum_of_random_variables"].get<bool>();
+        if (construct.contains("dependency"))
+            cr->dependency = parse_dependency(construct["dependency"].get<std::string>());
+        if (construct.contains("correlation")) {
+            prob::Matrix2D corr;
+            for (const auto& row : construct["correlation"]) {
+                std::vector<double> r;
+                for (const auto& v : row) r.push_back(parse_num(v));
+                corr.push_back(std::move(r));
+            }
+            cr->set_correlation_matrix(std::move(corr));
+        }
         return cr;
     }
     throw std::runtime_error("unknown composite target: " + target);
@@ -451,6 +472,7 @@ static double dispatch_generic(const dist::UnivariateDistributionBase& d, const 
     if (m == "minimum") return d.minimum();
     if (m == "maximum") return d.maximum();
     if (m == "pdf") return d.pdf(a[0].get<double>());
+    if (m == "log_pdf") return d.log_pdf(a[0].get<double>());
     if (m == "cdf") return d.cdf(a[0].get<double>());
     if (m == "quantile") return d.inverse_cdf(a[0].get<double>());
     if (m == "param") return d.get_parameters()[a[0].get<int>()];

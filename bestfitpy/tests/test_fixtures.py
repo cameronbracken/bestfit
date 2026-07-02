@@ -115,8 +115,11 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
         min_of_rv = bool(construct.get("minimum_of_random_variables", True))
+        dependency = construct.get("dependency", "Independent")
+        correlation = [[float(v) for v in row] for row in construct.get("correlation", [])]
         return {"comp_targets": comp_targets, "comp_params": comp_params,
-                "minimum_of_rv": min_of_rv}
+                "minimum_of_rv": min_of_rv, "dependency": dependency,
+                "correlation": correlation}
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -175,16 +178,19 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         raise KeyError(f"unknown fixture method for Mixture: {method}")
     if target == "CompetingRisks":
         ct, cp, min_rv = cd["comp_targets"], cd["comp_params"], cd["minimum_of_rv"]
+        dep, corr = cd["dependency"], cd["correlation"]
         if method in _MOMENTS:
-            return _core.cr_moments(ct, cp, min_rv)[method]
+            return _core.cr_moments(ct, cp, min_rv, dep, corr)[method]
         if method == "pdf":
-            return _core.cr_pdf(ct, cp, min_rv, args[0])
+            return _core.cr_pdf(ct, cp, min_rv, dep, corr, args[0])
+        if method == "log_pdf":
+            return _core.cr_log_pdf(ct, cp, min_rv, dep, corr, args[0])
         if method == "cdf":
-            return _core.cr_cdf(ct, cp, min_rv, args[0])
+            return _core.cr_cdf(ct, cp, min_rv, dep, corr, args[0])
         if method == "quantile":
-            return _core.cr_quantile(ct, cp, min_rv, args[0])
+            return _core.cr_quantile(ct, cp, min_rv, dep, corr, args[0])
         if method == "parameters_valid":
-            return _core.cr_valid(ct, cp, min_rv)
+            return _core.cr_valid(ct, cp, min_rv, dep, corr)
         raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
     raise KeyError(f"unknown composite target: {target}")
 

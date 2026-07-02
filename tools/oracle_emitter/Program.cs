@@ -130,6 +130,29 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
         var cr = new CompetingRisks(comps);
         if (construct.TryGetProperty("minimum_of_random_variables", out var minOfRV))
             cr.MinimumOfRandomVariables = minOfRV.GetBoolean();
+        if (construct.TryGetProperty("dependency", out var depEl))
+        {
+            cr.Dependency = depEl.GetString() switch
+            {
+                "Independent" => Probability.DependencyType.Independent,
+                "PerfectlyPositive" => Probability.DependencyType.PerfectlyPositive,
+                "PerfectlyNegative" => Probability.DependencyType.PerfectlyNegative,
+                "CorrelationMatrix" => Probability.DependencyType.CorrelationMatrix,
+                var s => throw new Exception($"unknown dependency type: {s}")
+            };
+        }
+        if (construct.TryGetProperty("correlation", out var corrEl))
+        {
+            var rows = corrEl.EnumerateArray().ToArray();
+            int n = rows.Length;
+            var corr = new double[n, n];
+            for (int i = 0; i < n; i++)
+            {
+                var row = rows[i].EnumerateArray().ToArray();
+                for (int j = 0; j < row.Length; j++) corr[i, j] = ParseNum(row[j]);
+            }
+            cr.CorrelationMatrix = corr;
+        }
         return cr;
     }
     throw new Exception($"unknown composite target: {target}");
@@ -178,6 +201,7 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
         case "minimum": return d.Minimum;
         case "maximum": return d.Maximum;
         case "pdf": return d.PDF(a[0].GetDouble());
+        case "log_pdf": return d.LogPDF(a[0].GetDouble());
         case "cdf": return d.CDF(a[0].GetDouble());
         case "quantile": return d.InverseCDF(a[0].GetDouble());
         case "param":
@@ -959,6 +983,22 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
             string where = $"{target}/{caseName}/{method}";
             string mode = asrt.GetProperty("mode").GetString()!;
+
+            // --dump: the curation path. Print target/case/method/args and the actual
+            // C#-computed value as a JSON line instead of comparing against the
+            // fixture's (possibly still-placeholder) "expected". See DumpLine().
+            if (dump)
+            {
+                DumpLine(target, caseName, method, argList,
+                         () =>
+                         {
+                             if (mode == "bool") return (object)dist.ParametersValid;
+                             double? v = Dispatch(dist, method, argList);
+                             return v is null ? (object)"SKIPPED" : (object)v.Value;
+                         });
+                continue;
+            }
+
             try
             {
                 if (mode == "bool")

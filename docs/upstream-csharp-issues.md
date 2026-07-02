@@ -295,6 +295,94 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## CONSISTENCY/API — CompetingRisks' correlated CDF never touches MultivariateNormal.CDF()
+
+- **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CDF(double)` /
+  `CumulativeIncidenceFunctions`, calling `Numerics/Data/Statistics/Probability.cs`.
+- **What:** for the `PerfectlyNegative`/`CorrelationMatrix` dependency modes, `CDF` builds a
+  `MultivariateNormal` (`CreateMultivariateNormal()`) and calls `Probability.UnionPCM(cdf,
+  _mvn.Covariance)` / `Probability.JointProbability(cdf, ind, _mvn.Covariance)`. The second call's
+  3rd argument is a `double[,]` (`_mvn.Covariance`), which only matches the overload
+  `JointProbability(IList<double>, int[], double[,]? correlationMatrix = null, DependencyType
+  dependency = DependencyType.CorrelationMatrix)` — there is no `JointProbability(IList<double>,
+  int[], MultivariateNormal)` overload. With a non-null `correlationMatrix` and the default
+  (`CorrelationMatrix`) dependency, that overload unconditionally dispatches to
+  `JointProbabilityHPCM` ("Haden Smith's modification of Pandey's Product of Conditional
+  Marginals"), never to `JointProbabilityMVN`. `UnionPCM` reaches the same 3-arg overload
+  internally for every inclusion-exclusion term. The upshot: the `MultivariateNormal` instance
+  `CompetingRisks` constructs is used ONLY to hold/validate a mu/sigma covariance matrix — its
+  `.CDF()` (the seeded Genz-Bretz MVNDST quasi-Monte-Carlo integrator for dimension >= 3) is never
+  invoked anywhere in `CompetingRisks.cs`. This is surprising given the class name and the
+  presence of a full `MultivariateNormal` instance, but is unambiguous from static C# overload
+  resolution (confirmed by direct inspection, not runtime reflection, since C# overload binding is
+  determined entirely by argument types at compile time).
+- **Consequence for the port:** the correlated CDF/PDF paths this task un-defers are fully
+  deterministic (no RNG) for any number of components — only `MultivariateNormal.BivariateCDF`
+  (Drezner/Genz closed-form bivariate normal CDF) is used. This differs from the original task
+  brief's assumption that CompetingRisks reaches "the MVN-backed joint path" (`JointProbabilityMVN`)
+  and would need to worry about the C# `MultivariateNormal._MVNUNI` clock-seeded default (the
+  concern Task 6's carry-forward note flagged for MultivariateStudentT/MultivariateNormal's own
+  `dimension >= 3` `CDF()`, a genuinely different code path). Governed here by "the actual C#
+  source over any brief or plan text" (this repo's standing rule): `core/include/bestfit/numerics/
+  data/probability.hpp` ports `JointProbabilityHPCM`/`UnionPCM`, not `JointProbabilityMVN`/
+  `UnionMVN`, which remain unported (no reachable caller).
+- **Port handling:** mirrored faithfully; documented at length in `probability.hpp`'s header
+  comment and `competing_risks.hpp`'s CDF comment.
+- **Suggested action:** none required (not a bug — HPCM is a legitimate, if approximate,
+  alternative to direct MVN-CDF integration) — flagged here purely so a future reader tracing
+  "why does CompetingRisks build a MultivariateNormal but never call its CDF" doesn't need to
+  re-derive the overload-resolution chain from scratch.
+
+## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1
+
+- **Where:** `Numerics/Data/Statistics/Probability.cs`, `JointProbabilityHPCM`.
+- **What:** the "First cycle" block computes `cdf = Normal.StandardCDF(z1);` and then has a
+  commented-out line `//if (cdf < 1e-300) cdf = 1e-300;` immediately before `A = pdf / cdf;` (a
+  potential division by a near-zero `cdf`). The "Remaining cycles" loop (only reached when the
+  number of correlated events `n >= 3`) recomputes the analogous `cdf` and keeps the identical
+  guard ACTIVE (not commented out) right before the same `A = pdf / cdf;` division. This asymmetry
+  — a guard present in one loop and disabled (via comment) in a structurally identical one three
+  lines apart — looks like an accidental omission (e.g. a guard added later to fix a NaN/Infinity
+  seen only in the multi-cycle case, never back-ported to cycle 1) rather than an intentional
+  design choice.
+- **Evidence:** direct inspection of `Probability.cs`; not hit by any CompetingRisks fixture
+  (`R[0,0] = Normal.StandardZ(probabilities[0])` is never so extreme that
+  `Normal.StandardCDF(R[0,0])` underflows below `1e-300` for any component/x combination the
+  fixtures exercise — the two closest CompetingRisks fixture cases keep `z1` well within a few
+  standard deviations of the median).
+- **Port handling:** mirrored faithfully (`joint_probability_hpcm` in `probability.hpp` leaves the
+  guard commented out in the analogous "First cycle" block, applies it in "Remaining cycles"),
+  documented in-header at both the file comment and the function itself.
+- **Suggested C# fix:** either add the matching `if (cdf < 1e-300) cdf = 1e-300;` guard to the
+  first cycle (for consistency and to avoid a potential `A = pdf / 0` -> `Infinity`/`NaN` if `z1`
+  is extreme enough), or confirm the omission is deliberate (e.g. cycle 1's `cdf` is provably
+  bounded away from zero by some invariant not obvious from the code) and document why.
+
+## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)
+
+- **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CreateMultivariateNormal()`.
+- **What:** in the `PerfectlyNegative` branch, the method does `CorrelationMatrix = new double[D,
+  D];` (assigning a FRESH all-zero `D x D` matrix through the public property setter) and then
+  fills a SEPARATE local `sigma` array with the actual synthetic rho matrix
+  (`rho = -1/(D-1) + sqrt(ε)`) that gets passed to `new MultivariateNormal(mu, sigma)`. The public
+  `CorrelationMatrix` getter therefore reads back all zeros after any CDF/PDF call in
+  `PerfectlyNegative` mode — not the rho matrix the MVN's `.Covariance` actually holds. This looks
+  like a leftover from refactoring (the zero matrix was probably meant to be a scratch buffer, not
+  assigned to the public property) rather than intentional API design.
+- **Evidence:** direct inspection; not exercised by any fixture assertion (no fixture reads
+  `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call — the fixtures only check
+  CDF/PDF/moments values, which are unaffected since the MVN itself uses the correct local
+  `sigma`).
+- **Port handling:** mirrored faithfully (`create_multivariate_normal()` in `competing_risks.hpp`
+  likewise overwrites the mutable `correlation_matrix_` field with zeros in the `PerfectlyNegative`
+  branch), documented in-header.
+- **Suggested C# fix:** use a local scratch array (e.g. `var scratchCorr = new double[D, D];`)
+  instead of assigning through the public `CorrelationMatrix` property, so
+  `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
+  silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

@@ -131,8 +131,11 @@ build_composite_data <- function(target, construct, datasets = list()) {
     comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
     min_of_rv    <- if (!is.null(construct$minimum_of_random_variables))
                       as.logical(construct$minimum_of_random_variables) else TRUE
+    dependency   <- if (!is.null(construct$dependency)) construct$dependency else "Independent"
+    correlation  <- if (!is.null(construct$correlation))
+                      lapply(construct$correlation, function(r) as.double(unlist(r))) else list()
     return(list(comp_targets = comp_targets, comp_params = comp_params,
-                minimum_of_rv = min_of_rv))
+                minimum_of_rv = min_of_rv, dependency = dependency, correlation = correlation))
   }
   stop(sprintf("unknown composite target: %s", target))
 }
@@ -197,14 +200,16 @@ dispatch_composite <- function(target, cd, method, args) {
   }
   if (target == "CompetingRisks") {
     ct <- cd$comp_targets; cp <- cd$comp_params; min_rv <- cd$minimum_of_rv
+    dep <- cd$dependency; corr <- cd$correlation
     if (method %in% moment_names) {
-      return(unname(ns$bf_cr_moments_(ct, cp, min_rv)[[method]]))
+      return(unname(ns$bf_cr_moments_(ct, cp, min_rv, dep, corr)[[method]]))
     }
     return(switch(method,
-      pdf              = ns$bf_cr_pdf_(ct, cp, min_rv, as.double(args[[1]])),
-      cdf              = ns$bf_cr_cdf_(ct, cp, min_rv, as.double(args[[1]])),
-      quantile         = ns$bf_cr_quantile_(ct, cp, min_rv, as.double(args[[1]])),
-      parameters_valid = ns$bf_cr_valid_(ct, cp, min_rv),
+      pdf              = ns$bf_cr_pdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
+      log_pdf          = ns$bf_cr_log_pdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
+      cdf              = ns$bf_cr_cdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
+      quantile         = ns$bf_cr_quantile_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
+      parameters_valid = ns$bf_cr_valid_(ct, cp, min_rv, dep, corr),
       stop(sprintf("unknown fixture method for CompetingRisks: %s", method))
     ))
   }

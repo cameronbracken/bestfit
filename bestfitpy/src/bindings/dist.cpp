@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "bestfit/numerics/data/probability.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -261,13 +262,27 @@ void register_distributions(py::module_& m) {
     });
 
     // --- Composite glue: CompetingRisks -----------------------------------------------
-    // Accepts (comp_targets, comp_params, minimum_of_rv) where comp_params is a list of
-    // param vectors (one per component). minimum_of_rv=true → min-of-components (default);
-    // false → max-of-components.
+    // Accepts (comp_targets, comp_params, minimum_of_rv, dependency, correlation) where
+    // comp_params is a list of param vectors (one per component). minimum_of_rv=true ->
+    // min-of-components (default); false -> max-of-components. dependency is one of
+    // "Independent"/"PerfectlyPositive"/"PerfectlyNegative"/"CorrelationMatrix";
+    // correlation is a list of row vectors (only consulted when dependency ==
+    // "CorrelationMatrix", may be empty otherwise).
 
-    auto make_competing_risks = [](const std::vector<std::string>& comp_targets,
-                                    const std::vector<std::vector<double>>& comp_params,
-                                    bool minimum_of_rv) {
+    auto parse_dependency = [](const std::string& d) {
+        namespace prob = bestfit::numerics::data::probability;
+        if (d == "Independent") return prob::DependencyType::Independent;
+        if (d == "PerfectlyPositive") return prob::DependencyType::PerfectlyPositive;
+        if (d == "PerfectlyNegative") return prob::DependencyType::PerfectlyNegative;
+        if (d == "CorrelationMatrix") return prob::DependencyType::CorrelationMatrix;
+        throw py::value_error("unknown dependency type '" + d + "'");
+    };
+
+    auto make_competing_risks = [parse_dependency](
+                                     const std::vector<std::string>& comp_targets,
+                                     const std::vector<std::vector<double>>& comp_params,
+                                     bool minimum_of_rv, const std::string& dependency,
+                                     const std::vector<std::vector<double>>& correlation) {
         int K = static_cast<int>(comp_targets.size());
         std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
         comps.reserve(K);
@@ -278,13 +293,16 @@ void register_distributions(py::module_& m) {
         }
         dist::CompetingRisks cr(std::move(comps));
         cr.minimum_of_random_variables = minimum_of_rv;
+        cr.dependency = parse_dependency(dependency);
+        if (dependency == "CorrelationMatrix") cr.set_correlation_matrix(correlation);
         return cr;
     };
 
     m.def("cr_moments", [make_competing_risks](const std::vector<std::string>& ct,
                                                 const std::vector<std::vector<double>>& cp,
-                                                bool minimum_of_rv) {
-        auto d = make_competing_risks(ct, cp, minimum_of_rv);
+                                                bool minimum_of_rv, const std::string& dependency,
+                                                const std::vector<std::vector<double>>& correlation) {
+        auto d = make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation);
         return std::map<std::string, double>{
             {"mean", d.mean()},         {"median", d.median()},
             {"mode", d.mode()},         {"sd", d.standard_deviation()},
@@ -293,22 +311,36 @@ void register_distributions(py::module_& m) {
     });
     m.def("cr_pdf", [make_competing_risks](const std::vector<std::string>& ct,
                                             const std::vector<std::vector<double>>& cp,
-                                            bool minimum_of_rv, double x) {
-        return make_competing_risks(ct, cp, minimum_of_rv).pdf(x);
+                                            bool minimum_of_rv, const std::string& dependency,
+                                            const std::vector<std::vector<double>>& correlation,
+                                            double x) {
+        return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).pdf(x);
+    });
+    m.def("cr_log_pdf", [make_competing_risks](const std::vector<std::string>& ct,
+                                                const std::vector<std::vector<double>>& cp,
+                                                bool minimum_of_rv, const std::string& dependency,
+                                                const std::vector<std::vector<double>>& correlation,
+                                                double x) {
+        return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).log_pdf(x);
     });
     m.def("cr_cdf", [make_competing_risks](const std::vector<std::string>& ct,
                                             const std::vector<std::vector<double>>& cp,
-                                            bool minimum_of_rv, double x) {
-        return make_competing_risks(ct, cp, minimum_of_rv).cdf(x);
+                                            bool minimum_of_rv, const std::string& dependency,
+                                            const std::vector<std::vector<double>>& correlation,
+                                            double x) {
+        return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).cdf(x);
     });
     m.def("cr_quantile", [make_competing_risks](const std::vector<std::string>& ct,
                                                   const std::vector<std::vector<double>>& cp,
-                                                  bool minimum_of_rv, double prob) {
-        return make_competing_risks(ct, cp, minimum_of_rv).inverse_cdf(prob);
+                                                  bool minimum_of_rv, const std::string& dependency,
+                                                  const std::vector<std::vector<double>>& correlation,
+                                                  double prob) {
+        return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).inverse_cdf(prob);
     });
     m.def("cr_valid", [make_competing_risks](const std::vector<std::string>& ct,
                                               const std::vector<std::vector<double>>& cp,
-                                              bool minimum_of_rv) {
-        return make_competing_risks(ct, cp, minimum_of_rv).parameters_valid();
+                                              bool minimum_of_rv, const std::string& dependency,
+                                              const std::vector<std::vector<double>>& correlation) {
+        return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).parameters_valid();
     });
 }

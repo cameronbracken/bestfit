@@ -135,6 +135,11 @@ class Normal : public UnivariateDistributionBase,
 
     // --- Standard normal helpers (static, mirror the C# public API) ---
 
+    // Standard normal PDF φ(z). Mirrors Normal.StandardPDF(Z) in C#.
+    static double standard_pdf(double z) {
+        return std::exp(-0.5 * z * z) / kSqrt2PI;
+    }
+
     // Standard normal CDF Φ(z). Mirrors Normal.StandardCDF(Z) in C#.
     static double standard_cdf(double z) {
         return 0.5 * (1.0 + std::erf(z / kSqrt2));

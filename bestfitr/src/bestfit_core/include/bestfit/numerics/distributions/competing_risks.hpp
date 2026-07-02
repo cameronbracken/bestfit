@@ -5,9 +5,12 @@
 // Two modes via minimum_of_random_variables (default true, mirrors C#):
 //   true  → min-of-components: CDF = Union   = 1 − ∏ Si(x) = 1 − ∏(1−Fi(x))
 //   false → max-of-components: CDF = Product = ∏ Fi(x)
-// PDF (min-rule): f(x) = [Σ hᵢ(x)] · S(x) where hᵢ=fᵢ/Sᵢ, S=∏Sᵢ  (exact for Independent)
-// PDF (max-rule): f(x) = [Σ fᵢ/Fᵢ] · ∏Fᵢ                           (exact for Independent)
-// LogPDF: numerically stable log-space versions using log-sum-exp (mirrors C#).
+// PDF (min-rule, Independent): f(x) = [Σ hᵢ(x)] · S(x) where hᵢ=fᵢ/Sᵢ, S=∏Sᵢ
+// PDF (max-rule, Independent): f(x) = [Σ fᵢ/Fᵢ] · ∏Fᵢ
+// LogPDF (Independent): numerically stable log-space versions using log-sum-exp.
+// PDF/LogPDF for any non-Independent dependency: central-difference numerical derivative
+//   of cdf() (mirrors C# NumericalDerivative.Derivative -- narrow port of just
+//   CentralDifference + CalculateStepSize(order=1), see numerical_derivative() below).
 // InverseCDF: Brent root-finding on CDF(y) − p = 0; bracket from per-component quantiles.
 //   On solve failure, falls back to bisection on [minimum, maximum].
 // Moments: AGK numerical integration over [InverseCDF(1e-8), InverseCDF(1-1e-8)],
@@ -15,10 +18,21 @@
 // IEstimation: MLE via Nelder-Mead on total log-likelihood (mirrors C# MLE()); initial
 //   values from per-component estimate() if available, else sample statistics.
 //   Only MaximumLikelihood is supported; others throw (mirrors C# Estimate()).
-// SCOPE NOTE: only the Independent dependency mode is implemented. The PerfectlyPositive,
-//   PerfectlyNegative, and CorrelationMatrix modes require a ported MultivariateNormal
-//   distribution (Phase 3). If a fixture or oracle requires those modes, cover Independent
-//   only and note the deferral here.
+//
+// DEPENDENCY MODES (this task): all four Probability.DependencyType modes are now
+// supported -- `dependency` (mirrors the C# `Dependency` property) plus
+// `correlation_matrix()`/`set_correlation_matrix()` (mirrors `CorrelationMatrix`, whose
+// setter side effect -- invalidating the lazily-cached MVN -- is preserved). CDF/PDF for
+// Independent and PerfectlyPositive route through probability::union_probability /
+// probability::joint_probability (the 2-arg dependency-dispatch overloads, no
+// correlation matrix needed). PerfectlyNegative and CorrelationMatrix lazily build a
+// MultivariateNormal via create_multivariate_normal() (mirrors C#
+// CreateMultivariateNormal()) purely to hold a mu/sigma-validated covariance matrix, then
+// route through probability::union_pcm / probability::joint_probability(..., &cov) (the
+// HPCM engine). See probability.hpp's header comment for the full trace showing this path
+// is deterministic (no RNG) regardless of component count. Only 2- and 3-component
+// configurations are fixture-covered (see fixtures/distributions/univariate/
+// competing_risks.json); the algorithm itself is a verbatim, dimension-general port.
 // type() returns UnivariateDistributionType::CompetingRisks (mirrors C#).
 // Not wired into the flat factory (composite-only, like Mixture).
 #pragma once
@@ -30,17 +44,21 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bestfit/numerics/data/probability.hpp"
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
+
+namespace prob = bestfit::numerics::data::probability;
 
 class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
    public:
@@ -61,6 +79,20 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     // Whether the composite is min-of-components (true, default) or max-of-components (false).
     // Mirrors C# MinimumOfRandomVariables property.
     bool minimum_of_random_variables = true;
+
+    // The dependency between the marginal distributions. Mirrors C# Dependency property
+    // (a plain auto-property with no side effects, hence the plain public field, same
+    // convention as minimum_of_random_variables above).
+    prob::DependencyType dependency = prob::DependencyType::Independent;
+
+    // The correlation matrix used for modeling dependency between the marginal
+    // distributions. Only used when dependency == CorrelationMatrix. Mirrors C#
+    // CorrelationMatrix property.
+    const prob::Matrix2D& correlation_matrix() const { return correlation_matrix_; }
+    void set_correlation_matrix(prob::Matrix2D m) {
+        correlation_matrix_ = std::move(m);
+        mvn_created_ = false;
+    }
 
     // Accessors.
     int component_count() const { return static_cast<int>(components_.size()); }
@@ -99,6 +131,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         }
         parameters_valid_ = validate_components();
         moments_computed_ = false;
+        mvn_created_ = false;
     }
 
     // --- Moments / support ---
@@ -148,48 +181,66 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     }
 
     // --- Distribution functions ---
-    // Mirrors C# PDF: exact for Independent; falls back to numerical derivative otherwise.
+    // Mirrors C# PDF: exact for Independent; numerical derivative of cdf() for every
+    // other dependency mode (PerfectlyPositive/PerfectlyNegative/CorrelationMatrix).
     // Returns at least kMinDensity to prevent log-likelihood issues (mirrors C#).
     double pdf(double x) const override {
         if (components_.size() == 1) return components_[0]->pdf(x);
-        double f = minimum_of_random_variables
-            ? pdf_min_independent(x)
-            : pdf_max_independent(x);
+        double f;
+        if (dependency == prob::DependencyType::Independent) {
+            f = minimum_of_random_variables ? pdf_min_independent(x) : pdf_max_independent(x);
+        } else {
+            f = numerical_derivative(x);
+        }
         return f < kMinDensity ? kMinDensity : f;
     }
 
-    // Mirrors C# LogPDF: numerically stable log-space computation for Independent.
+    // Mirrors C# LogPDF: numerically stable log-space computation for Independent; falls
+    // back to log(numerical derivative of cdf()) for every other dependency mode.
     double log_pdf(double x) const override {
         if (components_.size() == 1) return components_[0]->log_pdf(x);
-        if (minimum_of_random_variables)
-            return log_pdf_min_independent(x);
-        else
-            return log_pdf_max_independent(x);
+        if (dependency == prob::DependencyType::Independent) {
+            return minimum_of_random_variables ? log_pdf_min_independent(x)
+                                                : log_pdf_max_independent(x);
+        }
+        double pdf_val = numerical_derivative(x);
+        return pdf_val > kMinDensity ? std::log(pdf_val) : -std::numeric_limits<double>::infinity();
     }
 
-    // Mirrors C# CDF (Independent mode):
-    //   min-rule: CDF = 1 − ∏(1−Fi(x)) = Union
-    //   max-rule: CDF = ∏Fi(x) = JointProbability
+    // Mirrors C# CDF verbatim, including its dependency-mode dispatch:
+    //   min-rule, Independent/PerfectlyPositive: Probability.Union
+    //   min-rule, PerfectlyNegative/CorrelationMatrix: Probability.UnionPCM(cov)
+    //   max-rule, Independent/PerfectlyPositive: Probability.JointProbability(dependency)
+    //   max-rule, PerfectlyNegative/CorrelationMatrix: Probability.JointProbability(ind, cov)
+    // See probability.hpp's header comment: the PerfectlyNegative/CorrelationMatrix paths
+    // route through JointProbabilityHPCM (deterministic, no RNG), never MultivariateNormal
+    // .CDF()'s seeded Genz-Bretz integrator.
     double cdf(double x) const override {
         if (components_.size() == 1) return components_[0]->cdf(x);
+        std::size_t n = components_.size();
+        std::vector<int> ind(n, 1);
+        std::vector<double> cdf_vals(n);
+        for (std::size_t i = 0; i < n; ++i) cdf_vals[i] = components_[i]->cdf(x);
+
+        bool correlated = dependency == prob::DependencyType::PerfectlyNegative ||
+                           dependency == prob::DependencyType::CorrelationMatrix;
         double p;
         if (minimum_of_random_variables) {
-            // 1 − ∏ Sᵢ(x)
-            double prod_survival = 1.0;
-            for (const auto& c : components_) {
-                double si = 1.0 - c->cdf(x);
-                if (si == 0.0) return 1.0;
-                prod_survival *= si;
+            if (correlated) {
+                if (!mvn_created_) create_multivariate_normal();
+                prob::Matrix2D cov = mvn_->covariance();
+                p = prob::union_pcm(cdf_vals, cov);
+            } else {
+                p = prob::union_probability(cdf_vals, dependency);
             }
-            p = 1.0 - prod_survival;
         } else {
-            // ∏ Fᵢ(x)
-            double prod_cdf = 1.0;
-            for (const auto& c : components_) {
-                prod_cdf *= c->cdf(x);
-                if (prod_cdf == 0.0) return 0.0;
+            if (correlated) {
+                if (!mvn_created_) create_multivariate_normal();
+                prob::Matrix2D cov = mvn_->covariance();
+                p = prob::joint_probability(cdf_vals, ind, &cov);
+            } else {
+                p = prob::joint_probability(cdf_vals, dependency);
             }
-            p = prod_cdf;
         }
         return p < 0.0 ? 0.0 : p > 1.0 ? 1.0 : p;
     }
@@ -255,6 +306,9 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         for (const auto& c : components_) cloned.push_back(c->clone());
         auto cr = std::make_unique<CompetingRisks>(std::move(cloned));
         cr->minimum_of_random_variables = minimum_of_random_variables;
+        cr->dependency = dependency;
+        // Mirrors C# Clone(): `if (CorrelationMatrix != null) cr.CorrelationMatrix = ...`.
+        if (!correlation_matrix_.empty()) cr->set_correlation_matrix(correlation_matrix_);
         return cr;
     }
 
@@ -265,6 +319,13 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     mutable bool moments_computed_ = false;
     mutable double u_[4] = {kNaN, kNaN, kNaN, kNaN};  // [mean, sd, skewness, kurtosis]
 
+    // User-supplied correlation matrix (CorrelationMatrix dependency mode) and the lazily-
+    // built MultivariateNormal cache (mirrors C# _correlationMatrix/_mvnCreated/_mvn).
+    // `mutable` because create_multivariate_normal() is called lazily from const cdf().
+    mutable prob::Matrix2D correlation_matrix_;
+    mutable bool mvn_created_ = false;
+    mutable std::unique_ptr<MultivariateNormal> mvn_;
+
     // Soft floor used in tail arithmetic (mirrors C# _minDensity / _logZero).
     static constexpr double kMinDensity = 1E-300;
     static constexpr double kLogZero = -745.0;
@@ -272,6 +333,45 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     void validate_and_set() {
         parameters_valid_ = !components_.empty() && validate_components();
         moments_computed_ = false;
+    }
+
+    // Central-difference numerical derivative of cdf() at x. Narrow port of C#
+    // NumericalDerivative.Derivative(f, point) = CentralDifference(f, point,
+    // CalculateStepSize(point, order=1)), the only NumericalDerivative member
+    // CompetingRisks.cs calls (via `NumericalDerivative.Derivative(CDF, x)`).
+    double numerical_derivative(double x) const {
+        double h = std::sqrt(kDoubleMachineEpsilon) * (1.0 + std::fabs(x));
+        return (cdf(x + h) - cdf(x - h)) / (2.0 * h);
+    }
+
+    // Lazily builds the MultivariateNormal instance used to hold the correlation matrix
+    // for PerfectlyNegative/CorrelationMatrix dependency. Mirrors C#
+    // CreateMultivariateNormal() verbatim, INCLUDING a C# quirk: in the PerfectlyNegative
+    // branch, `CorrelationMatrix = new double[D, D];` overwrites the (public,
+    // user-visible) correlation matrix with a fresh all-zero D x D matrix, while the
+    // ACTUAL rho matrix passed to the MVN is built separately into the local `sigma`
+    // array below -- so after this call, correlation_matrix() reads back zeros, not the
+    // rho matrix the MVN's covariance actually holds. Faithful to observable C# behavior
+    // (not exercised by any fixture assertion); see docs/upstream-csharp-issues.md.
+    void create_multivariate_normal() const {
+        int D = component_count();
+        std::vector<double> mu(static_cast<std::size_t>(D), 0.0);
+        prob::Matrix2D sigma(static_cast<std::size_t>(D), std::vector<double>(static_cast<std::size_t>(D), 0.0));
+        if (dependency == prob::DependencyType::PerfectlyNegative) {
+            correlation_matrix_.assign(static_cast<std::size_t>(D),
+                                        std::vector<double>(static_cast<std::size_t>(D), 0.0));
+            double rho = -1.0 / (D - 1.0) + std::sqrt(kDoubleMachineEpsilon);
+            for (int i = 0; i < D; ++i)
+                for (int j = 0; j < D; ++j)
+                    sigma[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = (i == j) ? 1.0 : rho;
+        } else {
+            for (int i = 0; i < D; ++i)
+                for (int j = 0; j < D; ++j)
+                    sigma[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                        correlation_matrix_[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        }
+        mvn_ = std::make_unique<MultivariateNormal>(std::move(mu), std::move(sigma));
+        mvn_created_ = true;
     }
 
     bool validate_components() const {

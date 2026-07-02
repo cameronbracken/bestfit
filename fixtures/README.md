@@ -41,6 +41,40 @@ verbatim copy; a CI `--check` run fails on drift.
 }
 ```
 
+#### Composite `univariate_distribution` targets
+
+Five `univariate_distribution` targets are composites over other distributions and use a
+structured `construct` instead of flat `"params"`/`"fit"`. Each of the four runners (C++
+`build_composite` in `core/tests/test_fixtures.cpp`, R `build_composite_data`/
+`dispatch_composite` in `bestfitr/tests/testthat/test-fixtures.R`, Python `_build_composite`/
+`_dispatch_composite` in `bestfitpy/tests/test_fixtures.py`, and the emitter's `BuildComposite`
+in `tools/oracle_emitter/Program.cs`) implements the same schema:
+
+- `TruncatedDistribution`: `{"base": {"target": ..., "params": [...]}, "bounds": [lo, hi]}`.
+- `Empirical`: `{"x": [...], "p": [...], "p_transform": "None" | "NormalZ"}` (`p_transform`
+  optional, default `"NormalZ"`).
+- `KernelDensity`: `{"data": "<dataset name>", "kernel": "Gaussian" | "Epanechnikov" |
+  "Triangular" | "Uniform", "bandwidth": <double>, "bounded_by_data": <bool>}` (`kernel`,
+  `bandwidth`, `bounded_by_data` all optional).
+- `Mixture`: `{"components": [{"target": ..., "params": [...]}, ...], "weights": [...]}`.
+  `components` entries may also use `{"fit": {"dataset": ..., "method": ...}}` instead of
+  `"params"` (recursive `build_component`).
+- `CompetingRisks`: `{"components": [{"target": ..., "params": [...]}, ...],
+  "minimum_of_random_variables": <bool>, "dependency": "Independent" | "PerfectlyPositive" |
+  "PerfectlyNegative" | "CorrelationMatrix", "correlation": [[...], ...]}`.
+  - `minimum_of_random_variables` (default `true`): `true` = min-of-components (series system);
+    `false` = max-of-components (parallel system).
+  - `dependency` (default `"Independent"`): the four `Probability.DependencyType` modes. Only
+    `Independent`/`PerfectlyPositive` are closed-form; `PerfectlyNegative`/`CorrelationMatrix`
+    route through a Product-of-Conditional-Marginals (HPCM) engine that lazily builds a
+    `MultivariateNormal` purely to hold/validate a covariance matrix (see
+    `core/include/bestfit/numerics/data/probability.hpp`'s header comment and
+    `docs/upstream-csharp-issues.md` for why this path is fully deterministic, unlike
+    `MultivariateNormal.CDF()`'s own seeded Genz-Bretz integrator for dimension >= 3).
+  - `correlation` (optional, default `[]`): a square matrix, one row per component. Only
+    consulted when `dependency == "CorrelationMatrix"` (ignored, and may be omitted, for the
+    other three modes -- `PerfectlyNegative` synthesizes its own correlation internally).
+
 ### `multivariate_distribution`
 
 ```jsonc
