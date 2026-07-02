@@ -66,6 +66,19 @@ skip files with this kind; only the C++ runner and the dotnet oracle gate proces
 The dispatch key maps to a free function: `"Erf.function"` → `bestfit::numerics::math::special::erf::function(x)`.
 Each case has a flat `args` array (not nested in `construct`); the single assertion method is always `"value"`.
 
+Most files dispatch every case through that one file-level `target`. A file may instead group
+several related dispatch keys and let individual cases override it with their own `"target"`; a
+case without one falls back to the file-level `target`, so single-target files are unaffected. See
+`fixtures/special_functions/cholesky.json`, whose cases select among `Cholesky.determinant`,
+`Cholesky.log_determinant`, `Cholesky.inverse_element`, `Cholesky.solve_element`, and
+`Cholesky.is_positive_definite`.
+
+The `Cholesky.*` targets take a matrix flattened to row-major doubles in `args`, with `n` inferred
+from the argument count: `n = sqrt(len(args))` for `determinant`/`log_determinant`/
+`is_positive_definite`; `inverse_element` appends two trailing `(i, j)` indices
+(`n = sqrt(len(args) - 2)`); `solve_element` appends an `n`-length right-hand-side vector followed
+by a trailing solution index `i` (`n` solves `n^2 + n + 1 = len(args)`).
+
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.
 

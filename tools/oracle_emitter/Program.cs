@@ -278,6 +278,23 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
         int i = (int)a[n * n + n];
         return chol.Solve(new Vector(rhs))[i];
     },
+    // Returns 1.0 if the matrix is positive-definite (construction succeeds), 0.0 if the
+    // ctor throws. Upstream CholeskyDecomposition.cs throws a bare `new Exception(...)`
+    // for the non-PD/NaN case (no dedicated exception type), so this must catch the
+    // general `Exception`, unlike the C++ port's narrower `std::runtime_error` catch.
+    "Cholesky.is_positive_definite" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        try
+        {
+            var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+            return chol.IsPositiveDefinite ? 1.0 : 0.0;
+        }
+        catch (Exception)
+        {
+            return 0.0;
+        }
+    },
     // Erf family
     "Erf.function"     => a => Erf.Function(a[0]),
     "Erf.erfc"         => a => Erf.Erfc(a[0]),
@@ -344,7 +361,7 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
             var fn = ResolveSpecialFunction(sfTarget);
             if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
             string caseName = c.GetProperty("name").GetString()!;
-            var argList = c.GetProperty("args").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+            var argList = c.GetProperty("args").EnumerateArray().Select(ParseNum).ToArray();
             double actual;
             try { actual = fn(argList); }
             catch (Exception ex) { fail++; failures.Add($"{sfTarget}/{caseName}: {ex.Message}"); continue; }

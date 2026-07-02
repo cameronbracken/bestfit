@@ -2,11 +2,12 @@
 //
 // Minimal dense vector: storage, length, indexed access, and array conversion -- the
 // subset that Matrix and CholeskyDecomposition actually call. Omitted (not needed by
-// either): the `Header` UI-metadata property, `Clone`/`Clear`/`CopyFrom`/`ToList`,
-// `Sum`/`Norm`/`NormSquared`, the static `Distance`/`DotProduct`/`Project` helpers, all
-// arithmetic (`Add`/`Subtract`/`Multiply`/`Divide`) and their operator overloads. None of
-// Matrix's or CholeskyDecomposition's own methods call them; add them when a later Phase
-// 2 target (e.g. MultivariateNormal) needs one.
+// either): the `Header` UI-metadata property, `Array` (raw-array reference property;
+// `to_array()`/`ToArray()`, a copy, is provided instead), `Clone`/`Clear`/`CopyFrom`/
+// `ToList`, `Sum`/`Norm`/`NormSquared`, the static `Distance`/`DotProduct`/`Project`
+// helpers, all arithmetic (`Add`/`Subtract`/`Multiply`/`Divide`) and their operator
+// overloads. None of Matrix's or CholeskyDecomposition's own methods call them; add them
+// when a later Phase 2 target (e.g. MultivariateNormal) needs one.
 #pragma once
 #include <utility>
 #include <vector>

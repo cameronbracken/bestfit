@@ -209,6 +209,19 @@ special_function_table() {
             int i = static_cast<int>(a[static_cast<std::size_t>(n) * n + static_cast<std::size_t>(n)]);
             return chol.solve(la::Vector(std::move(rhs)))[i];
         }},
+        // Returns 1.0 if the matrix is positive-definite (construction succeeds), 0.0 if
+        // the ctor throws std::runtime_error (non-PD or NaN diagonal) -- pins the
+        // exception condition against the real C# behavior (see Program.cs's resolver).
+        {"Cholesky.is_positive_definite", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            try {
+                return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).is_positive_definite()
+                           ? 1.0
+                           : 0.0;
+            } catch (const std::runtime_error&) {
+                return 0.0;
+            }
+        }},
         // Erf family
         {"Erf.function",      [](const std::vector<double>& a) { return sf::erf::function(a[0]); }},
         {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},

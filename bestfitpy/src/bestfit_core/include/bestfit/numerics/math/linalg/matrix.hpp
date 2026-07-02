@@ -14,13 +14,17 @@
 // row-major `args` (see `fixtures/special_functions/cholesky.json`).
 //
 // Omitted (UI/serialization or not yet needed by Phase 2; add if a later target needs
-// them): `Header`, `ToXElement`/XElement ctor, the single-column-array/`List<double[]>`
-// ctors, `Row`/`Column`, `UpperTriangle`/`LowerTriangle`/`Trace`, `ColumnMeans`, `Apply`/
-// `Sqr`/`Log`/`Exp`, `Sum`, `Outer`, `Add`/`Subtract` (+ their operators), the
-// scalar `Multiply`/`Divide` (+ their operators), and `Matrix.Determinant()`/
-// `Matrix.Inverse()` (+ `operator!`/`operator~`) which depend on the not-yet-ported
-// `LUDecomposition` -- CholeskyDecomposition computes its own determinant/inverse
-// directly from `L` without needing them.
+// them): `Header`, `Array` (raw-array reference property; `to_array()`/`ToArray()`, a
+// copy, is provided instead), `ToXElement`/XElement ctor, the single-column-array/
+// `List<double[]>` ctors, `Row`/`Column`, `UpperTriangle`/`LowerTriangle`/`Trace`,
+// `ColumnMeans`, `Apply`/`Sqr`/`Log`/`Exp`, `Sum`, `Outer`, `Add`/`Subtract` (+ their
+// operators), and the scalar `Multiply`/`Divide` (+ their operators). Also omitted,
+// because they depend on the not-yet-ported `LUDecomposition`: `Matrix.Determinant()`/
+// `Matrix.Inverse()` and `operator!` -- CholeskyDecomposition computes its own
+// determinant/inverse directly from `L` without needing them. `operator~` (the C#
+// transpose alias) is omitted too, but for an unrelated reason: it has no LU dependency
+// -- it is just a spelling for the already-ported `transpose()` below -- and is left out
+// only because no caller needs the operator form yet.
 #pragma once
 #include <algorithm>
 #include <cmath>

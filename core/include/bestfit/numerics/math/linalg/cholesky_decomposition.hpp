@@ -7,7 +7,6 @@
 // `Backward` before `Forward`, which differs from the task brief's prose order.
 #pragma once
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
