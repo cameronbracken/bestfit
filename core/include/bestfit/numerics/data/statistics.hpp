@@ -13,6 +13,12 @@
 // ported so far needs the tie-count output. The `Percentile(IList<double>, IList<double>
 // k, bool)` array overload and `FiveNumberSummary`/`SevenNumberSummary` are omitted too --
 // each caller ported so far needs only single-`k` calls; add them if a later target does.
+//
+// P3.3 adds `mean()`, the plain `Statistics.Mean(IList<double>)` overload -- distinct from
+// product_moments()'s internal mean, which requires N>=4 and returns NaN below that floor.
+// Fourier::autocorrelation (math/fourier/fourier.hpp) needs a mean with no minimum-sample-
+// size requirement, matching the C# call site (`Statistics.Mean(series)`, not
+// `Statistics.ProductMoments`). ParallelMean and the other overloads are not ported.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -21,6 +27,15 @@
 #include <vector>
 
 namespace bestfit::numerics::data {
+
+// Computes the arithmetic sample mean. Returns NaN for an empty sequence (mirrors
+// Statistics.Mean's `IList<double>` overload).
+inline double mean(const std::vector<double>& data) {
+    if (data.empty()) return std::numeric_limits<double>::quiet_NaN();
+    double sum = 0.0;
+    for (double x : data) sum += x;
+    return sum / static_cast<double>(data.size());
+}
 
 // Returns {mean, stdev (sample), bias-corrected skewness, bias-corrected excess kurtosis}.
 inline std::vector<double> product_moments(const std::vector<double>& data) {

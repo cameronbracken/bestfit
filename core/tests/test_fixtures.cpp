@@ -22,6 +22,9 @@
 
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
+#include "bestfit/numerics/data/histogram.hpp"
+#include "bestfit/numerics/data/interpolation/search.hpp"
+#include "bestfit/numerics/data/plotting_positions.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -39,10 +42,13 @@
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
+#include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/data/running_covariance_matrix.hpp"
 #include "bestfit/numerics/data/running_statistics.hpp"
 #include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/math/differentiation/numerical_derivative.hpp"
+#include "bestfit/numerics/math/fourier/fourier.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -178,6 +184,8 @@ namespace la = bestfit::numerics::math::linalg;
 namespace bfdata = bestfit::numerics::data;
 namespace bfsamp = bestfit::numerics::sampling;
 namespace bfutil = bestfit::numerics::utilities;
+namespace bffourier = bestfit::numerics::math::fourier;
+namespace bfdiff = bestfit::numerics::math::differentiation;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -239,6 +247,128 @@ static bfdata::RunningStatistics running_statistics_combined(const std::vector<d
     std::vector<double> sample1(a.begin() + 1, a.begin() + 1 + static_cast<std::ptrdiff_t>(n1));
     std::vector<double> sample2(a.begin() + 1 + static_cast<std::ptrdiff_t>(n1), a.end());
     return bfdata::RunningStatistics(sample1) + bfdata::RunningStatistics(sample2);
+}
+
+// Fourier fixture args conventions (fixtures/special_functions/fourier.json):
+//  - Fourier.fft_at / Fourier.real_fft_at: args = [data..., inverse (0/1), index] -- n =
+//    len(args) - 2; runs fft()/real_fft() in place on a copy of `data`, returns data[index].
+//  - Fourier.correlation_at: args = [data1..., data2..., index] -- equal-length data1/data2
+//    concatenated (n = (len(args)-1)/2), returns correlation(data1, data2)[index].
+//  - Fourier.autocorrelation_at: args = [series..., lag_max, lag] -- n = len(args) - 2;
+//    autocorrelation(series, (int)lag_max) (lag_max == -1 triggers the default auto-lag),
+//    returns the acf value (column 1) at row `lag`.
+static double fourier_fft_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    bool inverse = a[n] != 0.0;
+    int index = static_cast<int>(a[n + 1]);
+    bffourier::fft(data, inverse);
+    return data[static_cast<std::size_t>(index)];
+}
+static double fourier_real_fft_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    bool inverse = a[n] != 0.0;
+    int index = static_cast<int>(a[n + 1]);
+    bffourier::real_fft(data, inverse);
+    return data[static_cast<std::size_t>(index)];
+}
+static double fourier_correlation_at(const std::vector<double>& a) {
+    std::size_t n = (a.size() - 1) / 2;
+    std::vector<double> data1(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    std::vector<double> data2(a.begin() + static_cast<std::ptrdiff_t>(n),
+                               a.begin() + static_cast<std::ptrdiff_t>(2 * n));
+    int index = static_cast<int>(a[2 * n]);
+    auto corr = bffourier::correlation(data1, data2);
+    return corr[static_cast<std::size_t>(index)];
+}
+static double fourier_autocorrelation_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> series(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    int lag_max = static_cast<int>(a[n]);
+    int lag = static_cast<int>(a[n + 1]);
+    auto acf = bffourier::autocorrelation(series, lag_max);
+    if (!acf) throw std::runtime_error("Fourier.autocorrelation_at: autocorrelation returned no value");
+    return (*acf)[static_cast<std::size_t>(lag)][1];
+}
+
+// Closed registry of named functions for the numerical_derivative fixture -- MUST match
+// tools/oracle_emitter/Program.cs's resolver exactly (the emitter runs the REAL C#
+// NumericalDerivative against these same two functions):
+//  - "quadratic": f(x) = sum_i (x_i - i)^2, i 0-based; analytic gradient 2*(x_i - i),
+//    analytic Hessian 2*I (diagonal only) -- a smooth, unbounded-friendly sanity check.
+//  - "normal_loglik": Normal(mu=x0, sigma=x1).LogLikelihood(sample) on a small embedded
+//    5-point sample -- the exact shape (a 2-parameter log-likelihood) MCMC's default
+//    HMC/NUTS gradient differentiates.
+static const std::vector<double>& numerical_derivative_normal_sample() {
+    static const std::vector<double> sample = {9.0, 10.0, 11.0, 12.0, 13.0};
+    return sample;
+}
+static double numerical_derivative_quadratic(const std::vector<double>& x) {
+    double s = 0.0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        double d = x[i] - static_cast<double>(i);
+        s += d * d;
+    }
+    return s;
+}
+static double numerical_derivative_normal_loglik(const std::vector<double>& x) {
+    dist::Normal n(x[0], x[1]);
+    return n.log_likelihood(numerical_derivative_normal_sample());
+}
+
+// numerical_derivative fixture args convention
+// (fixtures/special_functions/numerical_derivative.json):
+//   gradient_element: args = [p, theta(p values), lower(p values), upper(p values), index]
+//   hessian_element:  args = [p, theta(p values), lower(p values), upper(p values), i, j]
+// `p` is an explicit leading arg (not inferred from length, matching the
+// Extensions.next_doubles_grid convention) for clarity. lower/upper always carry an
+// explicit p-length bound array using the JSON "-inf"/"inf" literals for "unbounded"
+// dimensions, rather than a presence flag -- AvailableLeft/AvailableRight's null-vs-value
+// behavior is bitwise identical to a value of +-infinity (theta[j] - (-inf) == +inf either
+// way), so this is a behavior-preserving flattening of the C# nullable-array API onto a
+// flat numeric args convention. rel_step/abs_step/max_backtrack always use the library
+// defaults (not fixture-configurable), matching every real call site (HMC.cs's Gradient
+// call and Optimizer.cs's Hessian call both omit them).
+static void numerical_derivative_parse(const std::vector<double>& a, std::vector<double>& theta,
+                                        std::vector<double>& lower, std::vector<double>& upper,
+                                        std::size_t& next) {
+    std::size_t p = static_cast<std::size_t>(a[0]);
+    theta.assign(a.begin() + 1, a.begin() + 1 + static_cast<std::ptrdiff_t>(p));
+    lower.assign(a.begin() + 1 + static_cast<std::ptrdiff_t>(p), a.begin() + 1 + 2 * static_cast<std::ptrdiff_t>(p));
+    upper.assign(a.begin() + 1 + 2 * static_cast<std::ptrdiff_t>(p),
+                  a.begin() + 1 + 3 * static_cast<std::ptrdiff_t>(p));
+    next = 1 + 3 * p;
+}
+static double numerical_derivative_gradient_element(const bfdiff::ScalarFunction& f, const std::vector<double>& a) {
+    std::vector<double> theta, lower, upper;
+    std::size_t next;
+    numerical_derivative_parse(a, theta, lower, upper, next);
+    int index = static_cast<int>(a[next]);
+    auto grad = bfdiff::gradient(f, theta, lower, upper);
+    return grad[static_cast<std::size_t>(index)];
+}
+static double numerical_derivative_hessian_element(const bfdiff::ScalarFunction& f, const std::vector<double>& a) {
+    std::vector<double> theta, lower, upper;
+    std::size_t next;
+    numerical_derivative_parse(a, theta, lower, upper, next);
+    int i = static_cast<int>(a[next]);
+    int j = static_cast<int>(a[next + 1]);
+    auto hess = bfdiff::hessian(f, theta, lower, upper);
+    return hess[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+}
+
+// Histogram fixture args convention (fixtures/special_functions/histogram.json): args =
+// [explicit_bins, data...] for the whole-histogram scalar targets (explicit_bins == 0 uses
+// the Rice-Rule ctor; explicit_bins > 0 uses the explicit-bin-count ctor). The
+// bin_*_at/get_bin_index_of element-lookup targets append one trailing probe value (a bin
+// index, or an x value to look up) after `data`; `trailing` tells histogram_build() how
+// many args at the end of `a` are NOT part of `data`.
+static bfdata::Histogram histogram_build(const std::vector<double>& a, std::size_t trailing) {
+    int explicit_bins = static_cast<int>(a[0]);
+    std::vector<double> data(a.begin() + 1, a.end() - static_cast<std::ptrdiff_t>(trailing));
+    if (explicit_bins > 0) return bfdata::Histogram(data, explicit_bins);
+    return bfdata::Histogram(data);
 }
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
@@ -470,6 +600,78 @@ special_function_table() {
         {"RunningStatistics.combined_coefficient_of_variation", [](const std::vector<double>& a) { return running_statistics_combined(a).coefficient_of_variation(); }},
         {"RunningStatistics.combined_skewness", [](const std::vector<double>& a) { return running_statistics_combined(a).skewness(); }},
         {"RunningStatistics.combined_kurtosis", [](const std::vector<double>& a) { return running_statistics_combined(a).kurtosis(); }},
+        // Fourier family (see fourier_*_at() above for the args conventions)
+        {"Fourier.fft_at", fourier_fft_at},
+        {"Fourier.real_fft_at", fourier_real_fft_at},
+        {"Fourier.correlation_at", fourier_correlation_at},
+        {"Fourier.autocorrelation_at", fourier_autocorrelation_at},
+        // NumericalDerivative family (closed function registry; see
+        // numerical_derivative_{quadratic,normal_loglik} and the args convention above)
+        {"NumericalDerivative.gradient_element_quadratic", [](const std::vector<double>& a) {
+            return numerical_derivative_gradient_element(numerical_derivative_quadratic, a);
+        }},
+        {"NumericalDerivative.gradient_element_normal_loglik", [](const std::vector<double>& a) {
+            return numerical_derivative_gradient_element(numerical_derivative_normal_loglik, a);
+        }},
+        {"NumericalDerivative.hessian_element_quadratic", [](const std::vector<double>& a) {
+            return numerical_derivative_hessian_element(numerical_derivative_quadratic, a);
+        }},
+        {"NumericalDerivative.hessian_element_normal_loglik", [](const std::vector<double>& a) {
+            return numerical_derivative_hessian_element(numerical_derivative_normal_loglik, a);
+        }},
+        // Histogram family (args: [explicit_bins, data..., trailing probe?] -- see
+        // histogram_build() above and fixtures/special_functions/histogram.json)
+        {"Histogram.number_of_bins", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 0).number_of_bins());
+        }},
+        {"Histogram.bin_width", [](const std::vector<double>& a) { return histogram_build(a, 0).bin_width(); }},
+        {"Histogram.lower_bound", [](const std::vector<double>& a) { return histogram_build(a, 0).lower_bound(); }},
+        {"Histogram.upper_bound", [](const std::vector<double>& a) { return histogram_build(a, 0).upper_bound(); }},
+        {"Histogram.data_count", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 0).data_count());
+        }},
+        {"Histogram.mean", [](const std::vector<double>& a) { return histogram_build(a, 0).mean(); }},
+        {"Histogram.median", [](const std::vector<double>& a) { return histogram_build(a, 0).median(); }},
+        {"Histogram.mode", [](const std::vector<double>& a) { return histogram_build(a, 0).mode(); }},
+        {"Histogram.standard_deviation", [](const std::vector<double>& a) {
+            return histogram_build(a, 0).standard_deviation();
+        }},
+        {"Histogram.bin_lower_bound_at", [](const std::vector<double>& a) {
+            return histogram_build(a, 1).bin(static_cast<int>(a.back())).lower_bound;
+        }},
+        {"Histogram.bin_upper_bound_at", [](const std::vector<double>& a) {
+            return histogram_build(a, 1).bin(static_cast<int>(a.back())).upper_bound;
+        }},
+        {"Histogram.bin_frequency_at", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 1).bin(static_cast<int>(a.back())).frequency);
+        }},
+        {"Histogram.get_bin_index_of", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 1).get_bin_index_of(a.back()));
+        }},
+        // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
+        // weibull_at -- see fixtures/special_functions/plotting_positions.json)
+        {"PlottingPositions.function_at", [](const std::vector<double>& a) {
+            auto pp = bfdata::plotting_positions::function(static_cast<int>(a[0]), a[1]);
+            return pp[static_cast<std::size_t>(static_cast<int>(a[2]))];
+        }},
+        {"PlottingPositions.weibull_at", [](const std::vector<double>& a) {
+            auto pp = bfdata::plotting_positions::weibull(static_cast<int>(a[0]));
+            return pp[static_cast<std::size_t>(static_cast<int>(a[1]))];
+        }},
+        // Search family (args: [values..., x, start] -- see
+        // fixtures/special_functions/search.json)
+        {"Search.sequential", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(
+                bfdata::search::sequential(a[n], values, static_cast<int>(a[n + 1])));
+        }},
+        {"Search.bisection", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(
+                bfdata::search::bisection(a[n], values, static_cast<int>(a[n + 1])));
+        }},
     };
     return t;
 }

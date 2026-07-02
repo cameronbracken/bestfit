@@ -15,6 +15,7 @@ using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
 using Numerics.Distributions.Copulas;
+using Numerics.Mathematics;
 using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
@@ -530,6 +531,40 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "RunningStatistics.combined_coefficient_of_variation" => a => RunningStatisticsCombined(a).CoefficientOfVariation,
     "RunningStatistics.combined_skewness" => a => RunningStatisticsCombined(a).Skewness,
     "RunningStatistics.combined_kurtosis" => a => RunningStatisticsCombined(a).Kurtosis,
+    // Fourier family (see Fourier*At() below for the args conventions -- mirrors
+    // fourier_*_at() in core/tests/test_fixtures.cpp exactly)
+    "Fourier.fft_at" => FourierFftAt,
+    "Fourier.real_fft_at" => FourierRealFftAt,
+    "Fourier.correlation_at" => FourierCorrelationAt,
+    "Fourier.autocorrelation_at" => FourierAutocorrelationAt,
+    // NumericalDerivative family (closed function registry; MUST match
+    // numerical_derivative_{quadratic,normal_loglik} in core/tests/test_fixtures.cpp)
+    "NumericalDerivative.gradient_element_quadratic" => a => NumericalDerivativeGradientElement(NumericalDerivativeQuadratic, a),
+    "NumericalDerivative.gradient_element_normal_loglik" => a => NumericalDerivativeGradientElement(NumericalDerivativeNormalLoglik, a),
+    "NumericalDerivative.hessian_element_quadratic" => a => NumericalDerivativeHessianElement(NumericalDerivativeQuadratic, a),
+    "NumericalDerivative.hessian_element_normal_loglik" => a => NumericalDerivativeHessianElement(NumericalDerivativeNormalLoglik, a),
+    // Histogram family (args: [explicit_bins, data..., trailing probe?] -- see
+    // HistogramBuild() below and fixtures/special_functions/histogram.json)
+    "Histogram.number_of_bins" => a => (double)HistogramBuild(a, 0).NumberOfBins,
+    "Histogram.bin_width" => a => HistogramBuild(a, 0).BinWidth,
+    "Histogram.lower_bound" => a => HistogramBuild(a, 0).LowerBound,
+    "Histogram.upper_bound" => a => HistogramBuild(a, 0).UpperBound,
+    "Histogram.data_count" => a => (double)HistogramBuild(a, 0).DataCount,
+    "Histogram.mean" => a => HistogramBuild(a, 0).Mean,
+    "Histogram.median" => a => HistogramBuild(a, 0).Median,
+    "Histogram.mode" => a => HistogramBuild(a, 0).Mode,
+    "Histogram.standard_deviation" => a => HistogramBuild(a, 0).StandardDeviation,
+    "Histogram.bin_lower_bound_at" => a => HistogramBuild(a, 1)[(int)a[^1]].LowerBound,
+    "Histogram.bin_upper_bound_at" => a => HistogramBuild(a, 1)[(int)a[^1]].UpperBound,
+    "Histogram.bin_frequency_at" => a => (double)HistogramBuild(a, 1)[(int)a[^1]].Frequency,
+    "Histogram.get_bin_index_of" => a => (double)HistogramBuild(a, 1).GetBinIndexOf(a[^1]),
+    // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
+    // weibull_at -- see fixtures/special_functions/plotting_positions.json)
+    "PlottingPositions.function_at" => a => PlottingPositions.Function((int)a[0], a[1])[(int)a[2]],
+    "PlottingPositions.weibull_at" => a => PlottingPositions.Weibull((int)a[0])[(int)a[1]],
+    // Search family (args: [values..., x, start] -- see fixtures/special_functions/search.json)
+    "Search.sequential" => a => Search.Sequential(a[^2], a[..^2], (int)a[^1]),
+    "Search.bisection" => a => Search.Bisection(a[^2], a[..^2], (int)a[^1]),
     _ => null,
 };
 
@@ -562,6 +597,101 @@ static RunningStatistics RunningStatisticsCombined(double[] a)
     var sample1 = a[1..(1 + n1)];
     var sample2 = a[(1 + n1)..];
     return new RunningStatistics(sample1) + new RunningStatistics(sample2);
+}
+
+// Fourier fixture args conventions -- MUST mirror fourier_*_at() in
+// core/tests/test_fixtures.cpp exactly (see fixtures/special_functions/fourier.json).
+static double FourierFftAt(double[] a)
+{
+    int n = a.Length - 2;
+    var data = a[..n];
+    bool inverse = a[n] != 0.0;
+    int index = (int)a[n + 1];
+    Fourier.FFT(data, inverse);
+    return data[index];
+}
+static double FourierRealFftAt(double[] a)
+{
+    int n = a.Length - 2;
+    var data = a[..n];
+    bool inverse = a[n] != 0.0;
+    int index = (int)a[n + 1];
+    Fourier.RealFFT(data, inverse);
+    return data[index];
+}
+static double FourierCorrelationAt(double[] a)
+{
+    int n = (a.Length - 1) / 2;
+    var data1 = a[..n];
+    var data2 = a[n..(2 * n)];
+    int index = (int)a[2 * n];
+    var corr = Fourier.Correlation(data1, data2);
+    return corr[index];
+}
+static double FourierAutocorrelationAt(double[] a)
+{
+    int n = a.Length - 2;
+    var series = a[..n];
+    int lagMax = (int)a[n];
+    int lag = (int)a[n + 1];
+    var acf = Fourier.Autocorrelation(series, lagMax);
+    if (acf is null) throw new Exception("Fourier.autocorrelation_at: Autocorrelation returned null");
+    return acf[lag, 1];
+}
+
+// Closed registry of named functions for the numerical_derivative fixture -- MUST match
+// numerical_derivative_{quadratic,normal_loglik} in core/tests/test_fixtures.cpp exactly.
+// (A top-level-statements Program.cs cannot declare a `static readonly` field outside a
+// type, so the embedded sample is a local function returning a fresh array each call,
+// mirroring the C++ side's static-local-inside-a-function pattern.)
+static double[] NumericalDerivativeNormalSample() => [9.0, 10.0, 11.0, 12.0, 13.0];
+static double NumericalDerivativeQuadratic(double[] x)
+{
+    double s = 0;
+    for (int i = 0; i < x.Length; i++) { double d = x[i] - i; s += d * d; }
+    return s;
+}
+static double NumericalDerivativeNormalLoglik(double[] x)
+{
+    var n = new Normal(x[0], x[1]);
+    return n.LogLikelihood(NumericalDerivativeNormalSample());
+}
+
+// numerical_derivative fixture args convention -- MUST mirror
+// numerical_derivative_parse()/gradient_element()/hessian_element() in
+// core/tests/test_fixtures.cpp exactly.
+static void NumericalDerivativeParse(double[] a, out double[] theta, out double[] lower,
+                                      out double[] upper, out int next)
+{
+    int p = (int)a[0];
+    theta = a[1..(1 + p)];
+    lower = a[(1 + p)..(1 + 2 * p)];
+    upper = a[(1 + 2 * p)..(1 + 3 * p)];
+    next = 1 + 3 * p;
+}
+static double NumericalDerivativeGradientElement(Func<double[], double> f, double[] a)
+{
+    NumericalDerivativeParse(a, out var theta, out var lower, out var upper, out int next);
+    int index = (int)a[next];
+    var grad = NumericalDerivative.Gradient(f, theta, lower, upper);
+    return grad[index];
+}
+static double NumericalDerivativeHessianElement(Func<double[], double> f, double[] a)
+{
+    NumericalDerivativeParse(a, out var theta, out var lower, out var upper, out int next);
+    int i = (int)a[next];
+    int j = (int)a[next + 1];
+    var hess = NumericalDerivative.Hessian(f, theta, lower, upper);
+    return hess[i, j];
+}
+
+// Histogram fixture args convention -- MUST mirror histogram_build() in
+// core/tests/test_fixtures.cpp exactly.
+static Histogram HistogramBuild(double[] a, int trailing)
+{
+    int explicitBins = (int)a[0];
+    var data = a[1..(a.Length - trailing)];
+    return explicitBins > 0 ? new Histogram(data, explicitBins) : new Histogram(data);
 }
 
 // --- multivariate_distribution branch -----------------------------------------------------
