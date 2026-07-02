@@ -10,7 +10,11 @@
 // BackwardDifference/CentralDifference/Derivative/RiddersMethod) and the CalculateStepSize
 // helper only they use, both Jacobian overloads (fixed-step and bound-aware), and IsBad
 // (private to the bound-aware Jacobian overload) -- no caller in this port's scope needs
-// them; add them if a later task does.
+// them; add them if a later task does. Also NOT ported: the "Second Derivatives - Single
+// Variable" region's SecondDerivative/SecondDerivativeForward/SecondDerivativeBackward
+// (lines ~252-306) -- grep-confirmed zero callers anywhere in Numerics or RMC-BestFit
+// (only Test_Differentiation.cs and docs/mathematics/differentiation.md reference them);
+// add them if a later task does.
 //
 // `lowerBounds`/`upperBounds` are nullable `double[]` in C#, defaulting to null
 // (unbounded). This port represents "unbounded" as an empty vector (`{}`) rather than a

@@ -223,15 +223,15 @@
         10.0,
         20.0,
         50.0,
-        25.0,
+        7.0,
         3
       ],
       "assertions": [
         {
           "method": "value",
-          "expected": 3,
+          "expected": 2,
           "mode": "equal",
-          "source": "curated via oracle_emitter --dump"
+          "source": "curated via oracle_emitter --dump; genuinely start-sensitive: x=7's true bracket is index 1 (between values[1]=5 and values[2]=10, the answer a start=0 scan finds), but scanning forward from start=3 skips it -- the loop's first hit is i=3 (values[3]=20 >= 7), returning i-1=2"
         }
       ]
     },
@@ -244,7 +244,7 @@
         10.0,
         20.0,
         50.0,
-        25.0,
+        7.0,
         3
       ],
       "assertions": [
@@ -252,7 +252,7 @@
           "method": "value",
           "expected": 3,
           "mode": "equal",
-          "source": "curated via oracle_emitter --dump"
+          "source": "curated via oracle_emitter --dump; genuinely start-sensitive: with start=0, bisection would correctly bracket x=7 at index 1, but xlo is seeded at start=3 and the loop only ever narrows xhi toward it (never revisits indices below start), so it returns 3"
         }
       ]
     }
