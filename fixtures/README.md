@@ -362,6 +362,65 @@ upstream `Test_Combine`/`Test_Add` literals split their 69-value sample into UNE
 sub-samples, so a fixed midpoint doesn't apply. Each target builds `RunningStatistics(sample1) +
 RunningStatistics(sample2)` and reads one property off the merged result.
 
+The `Fourier.*` targets (`fixtures/special_functions/fourier.json`) take: `fft_at`/`real_fft_at`
+`args = [data..., inverse (0/1), index]` (n = len(args) - 2; runs `FFT`/`RealFFT` in place on a
+copy of `data`, returns `data[index]`); `correlation_at` `args = [data1..., data2..., index]`
+(equal-length `data1`/`data2` concatenated, n = (len(args) - 1) / 2); `autocorrelation_at`
+`args = [series..., lag_max, lag]` (n = len(args) - 2; `lag_max == -1` triggers the default
+auto-lag `floor(min(10*log10(n), n-1))`, returns the acf value at row `lag`). The FFT/RealFFT and
+200-point-series autocorrelation cases are scraped verbatim from `Test_FastFourierTransform.cs`;
+`correlation_at` and the explicit-`lag_max` autocorrelation cases have no upstream literal and are
+curated via `oracle_emitter --dump`.
+
+The `NumericalDerivative.*` targets (`fixtures/special_functions/numerical_derivative.json`)
+dispatch through a **closed registry of two named functions**, implemented identically in
+`core/tests/test_fixtures.cpp` (`numerical_derivative_quadratic`/`numerical_derivative_normal_loglik`)
+and `tools/oracle_emitter/Program.cs` (`NumericalDerivativeQuadratic`/`NumericalDerivativeNormalLoglik`)
+so the emitter runs the REAL C# `NumericalDerivative` against the same functions the C++ runner
+does: `"quadratic"` is `f(x) = sum_i (x_i - i)^2` (0-based `i`); `"normal_loglik"` is
+`Normal(mu=x0, sigma=x1).LogLikelihood(sample)` on an embedded 5-point sample `{9,10,11,12,13}` --
+the exact 2-parameter log-likelihood shape MCMC's default HMC/NUTS gradient differentiates. Target
+names encode the function: `gradient_element_quadratic`, `hessian_element_normal_loglik`, etc.
+`args` for `gradient_element_<fn>` = `[p, theta(p values), lower(p values), upper(p values),
+index]`; for `hessian_element_<fn>` = `[p, theta(p values), lower(p values), upper(p values), i,
+j]`. `lower`/`upper` always carry a full `p`-length bound array, using the `"-inf"`/`"inf"` string
+literals (see Special values below) for unbounded dimensions rather than omitting the array --
+`AvailableLeft`/`AvailableRight` treat an explicit `+-infinity` bound identically to a null one, so
+this is a behavior-preserving flattening of the C#'s nullable-array API onto a flat numeric `args`
+convention. `rel_step`/`abs_step`/`max_backtrack` always use the library defaults, matching every
+real call site (`HMC.cs`'s `Gradient` call and `Optimizer.cs`'s `Hessian` call both omit them).
+Every case is curated via `oracle_emitter --dump` (no upstream `Test_NumericalDerivative.cs`
+exists); the `_near_bound` cases put a bound within one default step of `theta`, forcing the
+one-sided (forward/backward, or one-sided-mixed-partial for Hessian) branch instead of central; the
+`_pinned` gradient case sets `lower == upper == theta` (zero room on either side), exercising the
+"every backtrack attempt fails -> derivative set to 0" fallback.
+
+The `Histogram.*` targets (`fixtures/special_functions/histogram.json`) take
+`args = [explicit_bins, data...]` for the whole-histogram scalar targets (`number_of_bins`,
+`bin_width`, `lower_bound`, `upper_bound`, `data_count`, `mean`, `median`, `mode`,
+`standard_deviation`; `explicit_bins == 0` selects the Rice-Rule ctor, `explicit_bins > 0` selects
+the explicit-bin-count ctor); the `bin_lower_bound_at`/`bin_upper_bound_at`/`bin_frequency_at`/
+`get_bin_index_of` element-lookup targets append one trailing probe value (a 0-based bin index, or
+an x value to look up) after `data`. The 69-value sample and its Rice-rule/explicit-20-bin
+lower/upper/frequency arrays are scraped from `Test_Histogram.cs`; `mean`/`median`/`mode`/
+`standard_deviation` were independently recomputed in Python from that test's own closed-form
+formulas (1e-6 tolerance, matching); `get_bin_index_of` cases port `Test_Indexing`'s invariant
+(`GetBinIndexOf(bin[i].Midpoint) == i`) with the midpoint recomputed from the identical
+bin-construction arithmetic.
+
+The `PlottingPositions.*` targets (`fixtures/special_functions/plotting_positions.json`) take
+`weibull_at` `args = [N, i]` (0-based `i`, analytic `PP[i] = (i+1)/(N+1)`) and `function_at`
+`args = [N, alpha, i]` (analytic `PP[i] = (i+1-alpha)/(N+1-2*alpha)`); both scraped from
+`Test_PlottingPositions.cs` (`N=30`, `alpha=0.1`).
+
+The `Search.*` targets (`fixtures/special_functions/search.json`) take
+`args = [values..., x, start]` (n = len(args) - 2), the default `SortOrder.Ascending` only -- the
+only order any real caller uses (SNIS's `Search.Sequential` call and Histogram's
+`Search.Bisection` call both omit the `order` argument). No upstream `Test_Search.cs` exists, so
+every case is curated via `oracle_emitter --dump`; probes cover both boundary sentinels
+(below/above the range, exact first/last-element match) and interior lookups, including one with a
+non-zero `start`.
+
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.
 

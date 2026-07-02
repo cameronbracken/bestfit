@@ -381,6 +381,60 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
   silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
+## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code
+
+- **Where:** `Numerics/Data/Statistics/Histogram.cs`, `AddData(double data)`.
+- **What:** the XML doc comment promises "If the data value falls outside the range of the
+  histogram, the start or end bin will automatically adapt," and the method body has branches
+  (`data <= LowerBound` / `data >= UpperBound`) that look like they implement this by widening
+  the first/last bin. But the method calls `GetBinIndexOf(data)` **unconditionally**, before
+  either branch is checked — and `GetBinIndexOf` itself throws `ArgumentException` for any value
+  strictly outside `[_bins.First().LowerBound, _bins.Last().UpperBound]` (which track the same
+  bounds as the histogram's own `LowerBound`/`UpperBound`). So a point that would need the
+  histogram to "auto-adapt" throws instead, before the adapting branch is ever reached. The two
+  branches are only reachable at an **exact boundary match** (`data == LowerBound` or
+  `data == UpperBound`), where the "expansion" is a no-op (each sets a bound to the value it
+  already equals).
+- **Evidence:** direct inspection of the method body's statement order (`SortBins(); int index =
+  GetBinIndexOf(data); if (data <= LowerBound) {...}`); confirmed by tracing `GetBinIndexOf`'s own
+  guard (`if (value < _bins.First().LowerBound || value > _bins.Last().UpperBound) throw ...`).
+  Not exercised by any Test_Histogram.cs test (none call `AddData` a second time with an
+  out-of-range point after construction).
+- **Port handling:** mirrored faithfully — `histogram.hpp`'s `add_data(double)` calls
+  `get_bin_index_of()` first and lets it throw, exactly like the C#; documented in the file
+  header and at the call site.
+- **Suggested C# fix:** reorder the method to check `data <= LowerBound` / `data >= UpperBound`
+  **before** calling `GetBinIndexOf`, so the intended auto-adapt behavior is reachable; or, if the
+  auto-adapt behavior was never actually intended (a histogram's bins are usually meant to be
+  fixed once constructed), update the doc comment and let `AddData` throw for genuinely
+  out-of-range points instead of silently documenting a promise it can't keep.
+
+## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator)
+
+- **Where:** `Numerics/Data/Interpolation/Support/Search.cs`, `Bisection(double x, IList<double>
+  values, int start, SortOrder order)` (all three overloads share the same loop body).
+- **What:** the bisection loop's branch condition is `x >= values[xm] && order ==
+  SortOrder.Ascending` — a logical AND against the order flag, not the `(x >= values[xm]) ==
+  ascending` equality test the algorithm needs to work in both directions (compare
+  `Interpolater.cs`'s own `BisectionSearch`, which correctly uses the `==`-style test, or
+  `Search.Hunt`'s analogous loop in the same file, which also gets it right via a boolean `ASCND`
+  compared with `==`). For `order == SortOrder.Descending`, `order == SortOrder.Ascending` is
+  always `false`, so the whole condition is always `false` regardless of `x` — the loop only ever
+  shrinks `xhi`, `xlo` never advances past `start`, and `Bisection` returns `start` unconditionally
+  instead of the correct bracketing index.
+- **Evidence:** direct inspection of the loop body; reproduced independently in a standalone
+  Python re-implementation of the exact algorithm during the P3.3 port (a 5-element descending
+  array bisected for a midrange value returns `start` regardless of where the value actually
+  falls, while `Search.Sequential` on the same inputs returns the correct index).
+- **Port handling:** mirrored faithfully (verbatim, not "fixed") — `search.hpp`'s `bisection()`
+  keeps the same `&&`-against-`SortOrder::Ascending` condition; documented at length in the file
+  header, including a warning that it's dead code for every current caller (Histogram and SNIS
+  both only ever call with the default `Ascending` order) but a live bug if a future caller passes
+  `Descending`.
+- **Suggested C# fix:** change the condition to `(x >= values[xm]) == (order ==
+  SortOrder.Ascending)`, matching `Interpolater.BisectionSearch`'s already-correct phrasing of the
+  same test.
+
 ---
 
 ## How to work this list later
