@@ -1,6 +1,7 @@
 // ported from: Numerics/Utilities/Tools.cs @ a2c4dbf
-// Shared numerical constants.
+// Shared numerical constants (+ Tools.Log10, the one Tools.cs function this port needs).
 #pragma once
+#include <cmath>
 
 namespace bestfit::numerics {
 
@@ -12,5 +13,15 @@ inline constexpr double kSqrt2PI = 2.50662827463100050242E0;
 inline constexpr double kLogSqrt2PI = 0.91893853320467274178032973640562;
 inline constexpr double kLog2 = 0.69314718055994530941723212145818;  // ln(2) — L-moment estimation
 inline constexpr double kE    = 2.71828182845904523536028747135266;  // e = exp(1)
+
+// Clamped base-10 logarithm: ported from Tools.Log10. Values below 1E-16 that are not
+// negative are clamped to 1E-16 before taking the log, avoiding -inf for near-zero
+// inputs. Used by Linear's transform path (bestfit/numerics/data/interpolation/linear.hpp);
+// Bilinear instead calls plain std::log10, matching that split in the C# source itself
+// (see docs/upstream-csharp-issues.md).
+inline double clamped_log10(double x) {
+    if (x < 1E-16 && x >= 0.0) x = 1E-16;
+    return std::log10(x);
+}
 
 }  // namespace bestfit::numerics
