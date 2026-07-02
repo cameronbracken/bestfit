@@ -320,6 +320,13 @@ extern "C" SEXP _bestfitr_bf_gev_parameter_covariance_(SEXP location, SEXP scale
     return cpp11::as_sexp(bf_gev_parameter_covariance_(cpp11::as_cpp<cpp11::decay_t<double>>(location), cpp11::as_cpp<cpp11::decay_t<double>>(scale), cpp11::as_cpp<cpp11::decay_t<double>>(shape), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size)));
   END_CPP11
 }
+// mcmc.cpp
+list bf_mcmc_run_(std::string sampler_type, std::string model_name, std::string family, doubles dataset, list settings);
+extern "C" SEXP _bestfitr_bf_mcmc_run_(SEXP sampler_type, SEXP model_name, SEXP family, SEXP dataset, SEXP settings) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mcmc_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(sampler_type), cpp11::as_cpp<cpp11::decay_t<std::string>>(model_name), cpp11::as_cpp<cpp11::decay_t<std::string>>(family), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<list>>(settings)));
+  END_CPP11
+}
 // mvd.cpp
 double bf_dirichlet_val_(std::string method, doubles alpha, doubles args);
 extern "C" SEXP _bestfitr_bf_dirichlet_val_(SEXP method, SEXP alpha, SEXP args) {
@@ -430,6 +437,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_kde_pdf_",                  (DL_FUNC) &_bestfitr_bf_kde_pdf_,                   5},
     {"_bestfitr_bf_kde_quantile_",             (DL_FUNC) &_bestfitr_bf_kde_quantile_,              5},
     {"_bestfitr_bf_kde_valid_",                (DL_FUNC) &_bestfitr_bf_kde_valid_,                 4},
+    {"_bestfitr_bf_mcmc_run_",                 (DL_FUNC) &_bestfitr_bf_mcmc_run_,                  5},
     {"_bestfitr_bf_mix_cdf_",                  (DL_FUNC) &_bestfitr_bf_mix_cdf_,                   4},
     {"_bestfitr_bf_mix_moments_",              (DL_FUNC) &_bestfitr_bf_mix_moments_,               3},
     {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                   4},

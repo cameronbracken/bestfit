@@ -180,6 +180,10 @@ bf_gev_parameter_covariance_ <- function(location, scale, shape, sample_size) {
   .Call(`_bestfitr_bf_gev_parameter_covariance_`, location, scale, shape, sample_size)
 }
 
+bf_mcmc_run_ <- function(sampler_type, model_name, family, dataset, settings) {
+  .Call(`_bestfitr_bf_mcmc_run_`, sampler_type, model_name, family, dataset, settings)
+}
+
 bf_dirichlet_val_ <- function(method, alpha, args) {
   .Call(`_bestfitr_bf_dirichlet_val_`, method, alpha, args)
 }

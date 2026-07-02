@@ -59,6 +59,9 @@
 #include "bestfit/numerics/math/special/erf.hpp"
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
+#include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
+#include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "bestfit/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
@@ -1298,6 +1301,109 @@ static void run_bivariate_copula(const json& spec) {
     }
 }
 
+// --- mcmc_sampler path -------------------------------------------------------------------
+//
+// One sampler run per case: build the model via the registry, construct the sampler (RWMH
+// today; extensible via a target-name switch as later samplers land), apply non-default
+// settings, sample() ONCE, and cache both the sampler and its post-processed MCMCResults for
+// every assertion in the case (mirrors the "single stateful glue call; no seq machinery"
+// contract fixtures/README.md documents for this kind).
+
+namespace mcmc = bestfit::numerics::sampling::mcmc;
+
+// `proposal_sigma` sentinel strings -- see fixtures/README.md's mcmc_sampler schema.
+// "zeros": the literal `Matrix(D)` the C# Test_RWMH.cs test constructs (safe only when
+// MAP initialization is expected to override it before first use -- see "identity" below).
+// "identity": D x D identity matrix. NOT present in the upstream C# test; added because a
+// Randomize-initialized RWMH with a literal all-zero proposal covariance throws
+// (CholeskyDecomposition rejects a non-positive-definite matrix) on its very first
+// ChainIteration -- confirmed against the real C# library. Any Randomize-init fixture case
+// therefore needs a non-degenerate proposal_sigma; identity is the simplest one.
+static la::Matrix parse_proposal_sigma(const json& settings, int dimension) {
+    if (!settings.contains("proposal_sigma")) return la::Matrix(dimension);
+    std::string s = settings["proposal_sigma"].get<std::string>();
+    if (s == "zeros") return la::Matrix(dimension);
+    if (s == "identity") return la::Matrix::identity(dimension);
+    throw std::runtime_error("unknown proposal_sigma sentinel: " + s);
+}
+
+static mcmc::MCMCSampler::InitializationType parse_initialize(const std::string& s) {
+    if (s == "MAP") return mcmc::MCMCSampler::InitializationType::MAP;
+    if (s == "Randomize") return mcmc::MCMCSampler::InitializationType::Randomize;
+    if (s == "UserDefined") return mcmc::MCMCSampler::InitializationType::UserDefined;
+    throw std::runtime_error("unknown initialize value: " + s);
+}
+
+// Builds + configures + samples() one sampler from a {"model": {...}, "settings": {...}}
+// construct. `sampler_target`: the fixture's file-level "target" (the sampler type, e.g.
+// "RWMH"); a later task extends this with more cases as more samplers land.
+static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sampler_target,
+                                                             const json& construct, const json& datasets) {
+    const auto& model_spec = construct["model"];
+    std::vector<double> data;
+    for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
+    auto model = mcmc::build_model(model_spec["name"].get<std::string>(),
+                                    model_spec["family"].get<std::string>(), data);
+    int d = static_cast<int>(model.priors.size());
+
+    json settings = construct.value("settings", json::object());
+
+    std::unique_ptr<mcmc::MCMCSampler> sampler;
+    if (sampler_target == "RWMH") {
+        sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood,
+                                                parse_proposal_sigma(settings, d));
+    } else {
+        throw std::runtime_error("unknown mcmc_sampler target: " + sampler_target);
+    }
+
+    if (settings.contains("initialize")) sampler->initialize = parse_initialize(settings["initialize"].get<std::string>());
+    if (settings.contains("prng_seed")) sampler->set_prng_seed(settings["prng_seed"].get<int>());
+    if (settings.contains("initial_iterations")) sampler->set_initial_iterations(settings["initial_iterations"].get<int>());
+    if (settings.contains("warmup_iterations")) sampler->set_warmup_iterations(settings["warmup_iterations"].get<int>());
+    if (settings.contains("iterations")) sampler->set_iterations(settings["iterations"].get<int>());
+    if (settings.contains("number_of_chains")) sampler->set_number_of_chains(settings["number_of_chains"].get<int>());
+    if (settings.contains("thinning_interval")) sampler->set_thinning_interval(settings["thinning_interval"].get<int>());
+    if (settings.contains("output_length")) sampler->output_length = settings["output_length"].get<int>();
+
+    sampler->sample();
+    return sampler;
+}
+
+static double dispatch_mcmc(const mcmc::MCMCSampler& sampler, const mcmc::MCMCResults& results,
+                             const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    if (m == "posterior_mean") return results.parameter_results[idx(0)].summary_statistics.mean;
+    if (m == "posterior_sd") return results.parameter_results[idx(0)].summary_statistics.standard_deviation;
+    if (m == "posterior_median") return results.parameter_results[idx(0)].summary_statistics.median;
+    if (m == "posterior_lower_ci") return results.parameter_results[idx(0)].summary_statistics.lower_ci;
+    if (m == "posterior_upper_ci") return results.parameter_results[idx(0)].summary_statistics.upper_ci;
+    if (m == "chain_value") return sampler.markov_chains()[idx(0)][idx(1)].values[idx(2)];
+    if (m == "chain_fitness") return sampler.markov_chains()[idx(0)][idx(1)].fitness;
+    if (m == "map_value") return results.map.values[idx(0)];
+    if (m == "map_fitness") return results.map.fitness;
+    if (m == "acceptance_rate") return sampler.acceptance_rates()[idx(0)];
+    if (m == "mean_log_likelihood") return sampler.mean_log_likelihood()[idx(0)];
+    if (m == "rhat") return results.parameter_results[idx(0)].summary_statistics.rhat;
+    if (m == "ess") return results.parameter_results[idx(0)].summary_statistics.ess;
+    throw std::runtime_error("unknown mcmc_sampler fixture method: " + m);
+}
+
+static void run_mcmc_sampler(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto sampler = build_and_sample(target, c["construct"], datasets);
+        mcmc::MCMCResults results(*sampler);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            check_value(dispatch_mcmc(*sampler, results, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -1323,6 +1429,8 @@ int main(int argc, char** argv) {
             run_multivariate(spec);
         } else if (kind == "bivariate_copula") {
             run_bivariate_copula(spec);
+        } else if (kind == "mcmc_sampler") {
+            run_mcmc_sampler(spec);
         }
     }
     if (files == 0) {

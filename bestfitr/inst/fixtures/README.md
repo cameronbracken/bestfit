@@ -291,6 +291,129 @@ above, the one target chosen to cover the back-transform branch (all seven copul
 `generate_random_values` implementation in `bivariate_copula.hpp`, so one marginals-attached
 companion case is sufficient to lock that branch; it does not need repeating per target).
 
+### `mcmc_sampler`
+
+```jsonc
+{
+  "target":  "RWMH",                        // the concrete sampler type (extensible: ARWMH/
+                                             // DEMCz/DEMCzs/HMC/NUTS/Gibbs/SNIS in later tasks)
+  "kind":    "mcmc_sampler",
+  "source":  "Numerics/Sampling/MCMC/RWMH.cs ; Test_Numerics/Sampling/MCMC/Test_RWMH.cs",
+  "datasets": { "tippecanoe": [ ...48 numbers... ] },
+  "cases": [
+    {
+      "name": "normal_rstan",
+      "construct": {
+        "model":    { "name": "uniform_constraints", "family": "Normal", "dataset": "tippecanoe" },
+        "settings": { "initialize": "MAP", "proposal_sigma": "zeros" }
+      },
+      "assertions": [
+        { "method": "posterior_mean", "args": [0], "expected": 12663.69, "mode": "rel", "tol": 0.05 },
+        { "method": "chain_value", "args": [0, 0, 0], "expected": 13287.230350045900, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}
+```
+
+One sampler run per case: build the model via the model registry (below), construct the sampler,
+apply non-default settings, call `sample()` **once**, then post-process an `MCMCResults` (`alpha =
+0.1`, i.e. 90% credible intervals). Every assertion in the case reads that single cached run --
+this kind is inherently **stateful** (unlike `multivariate_distribution`'s/`bivariate_copula`'s
+per-assertion dispatch): each of the four runners makes exactly one glue call per case (C++ caches
+`(sampler, results)` locally; R's `bf_mcmc_run_`/Python's `_core.mcmc_run` each return one big
+struct/dict that every assertion for the case reads from, with no "seq machinery" -- there is
+nothing to batch, since there is only ever one run).
+
+**Model registry** (`core/include/bestfit/numerics/sampling/mcmc/model_registry.hpp`): a **bestfit
+addition** with no upstream C# counterpart -- the C# equivalent is inline model-construction code
+that lives only inside `Test_RWMH.cs`, not in the library. `construct.model` is `{"name": <registry
+key>, "family": <univariate distribution type name>, "dataset": <dataset name>}`. The registry is
+**closed**; today it has one entry:
+
+- `"uniform_constraints"`: uninformative Uniform priors bounded by `family`'s own
+  `IMaximumLikelihoodEstimation.GetParameterConstraints(data)` lower/upper arrays, and a
+  log-likelihood closure `params -> new <family>(params).LogLikelihood(data)` -- transcribed
+  verbatim from `Test_RWMH_NormalDist_RStan`. (A `"normal_conjugate_gibbs"` entry arrives with the
+  Gibbs sampler task.)
+
+`construct.settings` holds only **non-default** sampler settings (every key optional):
+`initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"`), `prng_seed`, `initial_iterations`,
+`warmup_iterations`, `iterations`, `number_of_chains`, `thinning_interval`, `output_length` (all
+integers, applied via the reset-triggering setters in that order), and `proposal_sigma`
+(RWMH-specific; a *sentinel string*, not a literal matrix, since every current case only needs a
+zero or identity matrix): `"zeros"` is the literal `Matrix(D)` the C# `Test_RWMH_NormalDist_RStan`
+test constructs; `"identity"` is the `D x D` identity matrix and has **no upstream literal
+counterpart** -- see the divergence note below. Omitting `proposal_sigma` also defaults to zeros.
+
+**Divergence note -- `"zeros"` + `Randomize` throws (verified against the real C# library):** a
+`Randomize`-initialized RWMH sampler with an all-zero `proposal_sigma` throws on its very first
+`ChainIteration`, in BOTH the C++ port and the real C# library: `RWMH.ChainIteration` calls
+`mvn[index].SetParameters(state.Values, ProposalSigma.Array)` on every iteration, and
+`MultivariateNormal.SetParameters` constructs a `CholeskyDecomposition` of the covariance
+unconditionally, which throws for any non-positive-definite (including all-zero/singular) input
+(`CholeskyDecomposition`'s own `sum <= 0.0` diagonal-pivot guard). This is harmless for a `MAP`-
+initialized sampler ONLY because `RWMH.InitializeCustomSettings` overwrites `ProposalSigma` with
+the MAP/Fisher-information-derived covariance BEFORE the first `ChainIteration` call -- but for
+`Randomize` initialization (no MAP/Fisher covariance to substitute), `proposal_sigma` stays
+whatever `construct.settings` set it to for the entire run, so an all-zero matrix is never usable.
+Confirmed with a standalone console app against the real built `upstream/Numerics` library (see
+`.superpowers/sdd/task-p3-5-report.md`); logged in `docs/upstream-csharp-issues.md` as a
+CONSISTENCY/API note (not a bug -- an all-zero proposal covariance is not a meaningful RWMH
+configuration under either language). `"identity"` is this fixture set's substitute for any
+`Randomize`-initialized case; it is the simplest non-degenerate covariance, not a tuned one --
+these fixtures aim for exact cross-language reproducibility, not statistical realism, so a
+near-stationary chain (very small steps relative to the parameter scale) is fine.
+
+Assertion methods (0-based indices throughout):
+
+- `posterior_mean|posterior_sd|posterior_median|posterior_lower_ci|posterior_upper_ci [p]` --
+  `MCMCResults.ParameterResults[p].SummaryStatistics.{Mean,StandardDeviation,Median,LowerCI,UpperCI}`.
+- `chain_value [chain, draw, p]` -- `MarkovChains[chain][draw].Values[p]` (the raw, un-thinned-
+  again per-iteration chain state -- `MarkovChains` already reflects `ThinningInterval`).
+- `chain_fitness [chain, draw]` -- `MarkovChains[chain][draw].Fitness`.
+- `map_value [p]` -- `MCMCResults.MAP.Values[p]`.
+- `map_fitness []` -- `MCMCResults.MAP.Fitness`. See the MAP-fitness-sign-quirk note in
+  `docs/upstream-csharp-issues.md`: after a successful MAP initialization, this value is
+  `DifferentialEvolution`'s *scaled* fitness (`-logLH`), not the sampler's own unscaled
+  log-likelihood convention every chain state otherwise uses.
+- `acceptance_rate [chain]` -- `AcceptanceRates[chain]`.
+- `mean_log_likelihood [i]` -- `MeanLogLikelihood[i]`.
+- `rhat [p]`, `ess [p]` -- `ParameterResults[p].SummaryStatistics.{Rhat,ESS}`.
+
+**Tolerance policy for the two RWMH cases:**
+
+- `normal_rstan` (`Initialize = MAP`, transcribed from `Test_RWMH_NormalDist_RStan`): the 10 rstan
+  literals (mean/sd/5%/50%/95% for mu and sigma) at `mode: "rel", tol: 0.05`, EXACTLY as the C#
+  test asserts. The curated `chain_value`/`chain_fitness` companions (first 5 draws x 4 chains x 2
+  params, via `--dump`) use `mode: "rel", tol: 1e-5` -- **not** `1e-12`. This is a deliberate,
+  empirically-justified deviation: a `MAP`-initialized chain's proposal covariance is derived
+  through `DifferentialEvolution` (a population search with floating-point `<=` comparison
+  branches) -> numerical Hessian -> `Matrix.Inverse()` -> `Cholesky`-backed `MultivariateNormal`, a
+  much longer chain of floating-point operations than a plain random-walk step. Measured directly
+  against the real C# library, the resulting first-5-draws-per-chain agree to ~1e-8 to 3e-8
+  relative (`map_value` to ~8e-9 relative), not ~1e-15 -- consistent with the Task 3 finding that
+  BrentSearch-style iterative selection can diverge from C# by a libm-ULP branch on transcendental
+  objectives (see the Task 3 progress-ledger note), here amplified through ~30-generation
+  Differential Evolution rather than a root-search. `map_value` still uses `tol: 1e-4` and
+  `acceptance_rate` `mode: "abs", tol: 5e-3`, comfortably covering the measured ~1e-8/exact-match
+  reality with margin.
+- `normal_short_exact` (`Initialize = Randomize`, `proposal_sigma = "identity"`, trimmed
+  `iterations`/`warmup_iterations`/`thinning_interval` -- the smallest legal `ValidateSettings`
+  config): NO `DifferentialEvolution`/Hessian/Fisher-information machinery is on this path at all,
+  so this is the TRUE cross-language chain-identity digest and ULP tripwire the brief intends:
+  curated `chain_value`/`chain_fitness` (first 5 + last draw per chain, both params) at
+  `mode: "rel", tol: 1e-12` -- measured agreement against the real C# library is ~1e-15 relative,
+  three orders of magnitude inside this tolerance. `map_value` and `mean_log_likelihood`/`rhat`/
+  `ess` use `tol: 1e-9`, and `acceptance_rate` (an exact ratio of small integers, since both
+  languages consume the identical PRNG stream and therefore make identical accept/reject decisions)
+  uses `mode: "equal"`.
+
+**NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
+the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
+against a standalone throwaway harness against the real C# library) and fix the transcription slip;
+do not paper over it with a looser tolerance.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners

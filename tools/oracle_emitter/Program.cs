@@ -20,6 +20,7 @@ using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.Optimization;
 using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
+using Numerics.Sampling.MCMC;
 
 static double ParseNum(JsonElement v)
 {
@@ -1074,6 +1075,116 @@ static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
     }
 }
 
+// --- mcmc_sampler helpers (Task P3.5) ----------------------------------------------------
+//
+// The model builder mirrors Test_RWMH.cs's Test_RWMH_NormalDist_RStan construction
+// VERBATIM -- this is the only implementation of the "uniform_constraints" model-registry
+// entry (see core/include/bestfit/numerics/sampling/mcmc/model_registry.hpp's header
+// comment: the registry itself is a bestfit addition with no upstream counterpart, and its
+// one entry today is transcribed straight from this test method).
+static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood) BuildMcmcModel(
+    string name, string family, double[] data)
+{
+    if (name == "uniform_constraints")
+    {
+        if (family != "Normal")
+            throw new Exception($"BuildMcmcModel: family '{family}' not supported for " +
+                                 "'uniform_constraints' (mirrors Test_RWMH.cs, Normal-only)");
+        var normDist = new Normal();
+        var constraints = normDist.GetParameterConstraints(data);
+        var muPrior = new Uniform(constraints.Item2[0], constraints.Item3[0]);
+        var sigmaPrior = new Uniform(constraints.Item2[1], constraints.Item3[1]);
+        var priors = new List<IUnivariateDistribution> { muPrior, sigmaPrior };
+        double LogLH(double[] x)
+        {
+            var dist = new Normal(x[0], x[1]);
+            return dist.LogLikelihood(data);
+        }
+        return (priors, LogLH);
+    }
+    throw new Exception($"unknown MCMC model registry entry: {name}");
+}
+
+// `proposal_sigma` sentinel strings -- see fixtures/README.md's mcmc_sampler schema for why
+// "identity" exists alongside the C# test's literal "zeros" (an all-zero proposal covariance
+// is only safe when MAP initialization is expected to overwrite it before first use).
+static Matrix ParseProposalSigma(JsonElement settings, int dimension)
+{
+    if (!settings.TryGetProperty("proposal_sigma", out var ps)) return new Matrix(dimension);
+    return ps.GetString() switch
+    {
+        "zeros" => new Matrix(dimension),
+        "identity" => Matrix.Identity(dimension),
+        var s => throw new Exception($"unknown proposal_sigma sentinel: {s}")
+    };
+}
+
+static MCMCSampler.InitializationType ParseInitialize(string s) => s switch
+{
+    "MAP" => MCMCSampler.InitializationType.MAP,
+    "Randomize" => MCMCSampler.InitializationType.Randomize,
+    "UserDefined" => MCMCSampler.InitializationType.UserDefined,
+    _ => throw new Exception($"unknown initialize value: {s}")
+};
+
+// Builds + configures + samples() one sampler from a {"model": {...}, "settings": {...}}
+// construct. `samplerTarget`: the fixture's file-level "target" (the sampler type, e.g.
+// "RWMH"); a later task extends this with more cases as more samplers land.
+static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construct,
+                                       Dictionary<string, double[]> datasets)
+{
+    var modelSpec = construct.GetProperty("model");
+    var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
+    var (priors, logLikelihood) = BuildMcmcModel(modelSpec.GetProperty("name").GetString()!,
+        modelSpec.GetProperty("family").GetString()!, data);
+    int d = priors.Count;
+
+    bool hasSettings = construct.TryGetProperty("settings", out var settings);
+
+    MCMCSampler sampler = samplerTarget switch
+    {
+        "RWMH" => new RWMH(priors, logLikelihood, hasSettings ? ParseProposalSigma(settings, d) : new Matrix(d)),
+        _ => throw new Exception($"unknown mcmc_sampler target: {samplerTarget}")
+    };
+
+    if (hasSettings)
+    {
+        if (settings.TryGetProperty("initialize", out var init)) sampler.Initialize = ParseInitialize(init.GetString()!);
+        if (settings.TryGetProperty("prng_seed", out var seed)) sampler.PRNGSeed = seed.GetInt32();
+        if (settings.TryGetProperty("initial_iterations", out var ii)) sampler.InitialIterations = ii.GetInt32();
+        if (settings.TryGetProperty("warmup_iterations", out var wi)) sampler.WarmupIterations = wi.GetInt32();
+        if (settings.TryGetProperty("iterations", out var it)) sampler.Iterations = it.GetInt32();
+        if (settings.TryGetProperty("number_of_chains", out var nc)) sampler.NumberOfChains = nc.GetInt32();
+        if (settings.TryGetProperty("thinning_interval", out var ti)) sampler.ThinningInterval = ti.GetInt32();
+        if (settings.TryGetProperty("output_length", out var ol)) sampler.OutputLength = ol.GetInt32();
+    }
+
+    sampler.Sample();
+    return sampler;
+}
+
+static double DispatchMcmc(MCMCSampler sampler, MCMCResults results, string m, JsonElement[] a)
+{
+    int Idx(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "posterior_mean": return results.ParameterResults[Idx(0)].SummaryStatistics.Mean;
+        case "posterior_sd": return results.ParameterResults[Idx(0)].SummaryStatistics.StandardDeviation;
+        case "posterior_median": return results.ParameterResults[Idx(0)].SummaryStatistics.Median;
+        case "posterior_lower_ci": return results.ParameterResults[Idx(0)].SummaryStatistics.LowerCI;
+        case "posterior_upper_ci": return results.ParameterResults[Idx(0)].SummaryStatistics.UpperCI;
+        case "chain_value": return sampler.MarkovChains[Idx(0)][Idx(1)].Values[Idx(2)];
+        case "chain_fitness": return sampler.MarkovChains[Idx(0)][Idx(1)].Fitness;
+        case "map_value": return results.MAP.Values[Idx(0)];
+        case "map_fitness": return results.MAP.Fitness;
+        case "acceptance_rate": return sampler.AcceptanceRates[Idx(0)];
+        case "mean_log_likelihood": return sampler.MeanLogLikelihood[Idx(0)];
+        case "rhat": return results.ParameterResults[Idx(0)].SummaryStatistics.Rhat;
+        case "ess": return results.ParameterResults[Idx(0)].SummaryStatistics.ESS;
+        default: throw new Exception($"unknown mcmc_sampler fixture method: {m}");
+    }
+}
+
 // --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
 // Author a fixture case with placeholder "expected" values, run
 // `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
@@ -1313,6 +1424,64 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                         continue;
                     }
                     double actual = DispatchCopula(copula, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- mcmc_sampler branch ---------------------------------------------------------------
+    // One sampler run per case (see fixtures/README.md's mcmc_sampler schema): construct the
+    // model + sampler, apply settings, sample() ONCE, post-process an MCMCResults, then
+    // dispatch every assertion against that one cached (sampler, results) pair.
+    if (kindStr == "mcmc_sampler")
+    {
+        string mcmcTarget = root.GetProperty("target").GetString()!;
+        var mcmcDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var mcmcDs))
+            foreach (var kv in mcmcDs.EnumerateObject())
+                mcmcDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            MCMCSampler mcmcSampler;
+            MCMCResults mcmcResults;
+            try
+            {
+                mcmcSampler = BuildAndSampleMcmc(mcmcTarget, c.GetProperty("construct"), mcmcDatasets);
+                mcmcResults = new MCMCResults(mcmcSampler);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{mcmcTarget}/{caseName}: build/sample failed: {ex.Message}");
+                fail++;
+                continue;
+            }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{mcmcTarget}/{caseName}/{method}";
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(mcmcTarget, caseName, method, argList,
+                             () => (object)DispatchMcmc(mcmcSampler, mcmcResults, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    double actual = DispatchMcmc(mcmcSampler, mcmcResults, method, argList);
                     if (Compare(actual, asrt)) pass++;
                     else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
                 }
