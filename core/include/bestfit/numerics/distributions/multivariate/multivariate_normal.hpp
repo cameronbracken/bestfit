@@ -1162,18 +1162,20 @@ class MultivariateNormal : public MultivariateDistribution {
 
     // Subroutine to sort integration limits and determine Cholesky factor.
     //
-    // Divergence-risk note (NOT fixed -- see docs/upstream-csharp-issues.md): the
-    // "permute limits and/or rows" loop below (`for (int j = i - 1; j < 0; j--)`) has an
-    // inverted loop condition -- for `i >= 1` the initial `j = i-1 >= 0` already fails
-    // `j < 0`, so the loop body never runs; it only runs (once) when `i == 0`, with
-    // `j == -1`, immediately indexing `COV[II + j]` with `II==0` and `j==-1`, i.e.
-    // `COV[-1]`. In C# this throws `IndexOutOfRangeException`; in this C++ port
-    // `std::vector::operator[]` performs no bounds check, so an out-of-range negative
-    // index is undefined behavior rather than a catchable exception. This path requires a
-    // degenerate zero (sub-EPS) effective covariance diagonal at the very first sorted
-    // pivot (i==0) after RCSWP; none of this task's fixture cases reach it. Ported
-    // verbatim per the task brief (transcribe, do not improve); flagged for a future
-    // upstream fix.
+    // Divergence note (see docs/upstream-csharp-issues.md): the "permute limits and/or
+    // rows" loop below (`for (int j = i - 1; j < 0; j--)`) has an inverted loop condition
+    // -- for `i >= 1` the initial `j = i-1 >= 0` already fails `j < 0`, so the loop body
+    // never runs; it only runs (once) when `i == 0`, with `j == -1`, immediately indexing
+    // `COV[II + j]` with `II==0` and `j==-1`, i.e. `COV[-1]`. In C# this throws
+    // `IndexOutOfRangeException`. `std::vector::operator[]` performs no bounds check, so a
+    // verbatim transcription of the C# indexing would be undefined behavior (a heap-
+    // corrupting write) in C++ instead of a catchable exception -- that fails the fidelity
+    // rule, since the C# source's *observable behavior* here is a thrown exception. The
+    // loop body below therefore has a minimal bounds guard that throws
+    // `std::out_of_range` before the first out-of-range access, reproducing the C#
+    // observable behavior without restructuring the loop. This path requires a degenerate
+    // zero (sub-EPS) effective covariance diagonal at the very first sorted pivot (i==0)
+    // after RCSWP; none of this task's fixture cases reach it.
     void covsrt(int N, const std::vector<double>& LOWER, const std::vector<double>& UPPER,
                 const std::vector<double>& CORREL, const std::vector<int>& INFIN, std::vector<double>& Y,
                 int& INFIS, std::vector<double>& A, std::vector<double>& B, std::vector<double>& COV,
@@ -1320,6 +1322,17 @@ class MultivariateNormal : public MultivariateDistribution {
                     // method -- this loop's condition never lets it iterate for i >= 1.)
 
                     for (int j = i - 1; j < 0; j--) {
+                        // Verbatim C# indexing (`COV[II + j]`, with `II==0`/`j==-1` on
+                        // this branch's only firing case) would be UB in C++, since
+                        // std::vector::operator[] performs no bounds check; C# throws
+                        // IndexOutOfRangeException here (upstream bug, see
+                        // docs/upstream-csharp-issues.md). This guard reproduces the C#
+                        // observable behavior (a thrown exception) instead.
+                        if (II + j < 0) {
+                            throw std::out_of_range(
+                                "MultivariateNormal::covsrt: COV index out of range "
+                                "(mirrors C# IndexOutOfRangeException)");
+                        }
                         if (std::fabs(COV[static_cast<std::size_t>(II + j)]) > EPS) {
                             A[static_cast<std::size_t>(i)] = A[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];
                             B[static_cast<std::size_t>(i)] = B[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];

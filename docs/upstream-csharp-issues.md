@@ -180,9 +180,13 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   (should be `j >= 0`).
 - **Evidence:** static analysis of the loop bounds; not hit by any existing unit test (requires a
   degenerate/near-zero effective covariance diagonal at the very first COVSRT-sorted pivot).
-- **Port handling:** mirrored faithfully (`core/include/.../multivariate_normal.hpp`, `covsrt`).
-  Flagged as higher risk in C++ than C#: `std::vector::operator[]` performs no bounds check, so the
-  `i==0` trigger case is undefined behavior here rather than a catchable exception.
+- **Port handling:** the C++ (`core/include/.../multivariate_normal.hpp`, `covsrt`) transcribes the
+  loop verbatim but adds a minimal bounds guard immediately before the first `COV[II + j]` access:
+  if `II + j < 0` it throws `std::out_of_range` instead of indexing. `std::vector::operator[]`
+  performs no bounds check, so the verbatim `i==0` access would otherwise be undefined behavior (a
+  heap-corrupting out-of-bounds write) rather than the catchable `IndexOutOfRangeException` C#
+  raises there. The guard reproduces C#'s *observable* behavior (a thrown exception on this path)
+  without restructuring the loop or any other `covsrt` logic.
 - **Suggested C# fix:** change the loop condition to `j >= 0` (or reverse the iteration order to
   match the apparent Fortran intent); add a regression test with a rank-deficient covariance matrix
   that forces the first sorted pivot to be numerically zero.
