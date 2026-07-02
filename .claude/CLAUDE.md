@@ -41,8 +41,7 @@ own forks live elsewhere on disk under different names.)
 
 The univariate distribution layer lives under `core/include/bestfit/numerics/distributions/`:
 `base/` holds `UnivariateDistributionBase`, the type enum, the factory, and the `IEstimation` /
-`ILinearMomentEstimation` capability mixins; each distribution (`normal.hpp`, `uniform.hpp`,
-`exponential.hpp`, `generalized_extreme_value.hpp`) derives from the base.
+`ILinearMomentEstimation` capability mixins; all 42 distributions derive from the base.
 
 ## Build & test commands
 
@@ -109,8 +108,7 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0 complete. **Phase 1 pilot done and merged** (PR #1): the polymorphic distribution layer
-(`UnivariateDistributionBase`, factory, `IEstimation`/`ILinearMomentEstimation` mixins) plus
-**Normal / Uniform / Exponential**, with GEV refactored onto the base. All harnesses + the dotnet
-oracle gate green; R and Python bit-identical; CI green on 3 platforms. Next: the rest of the
-math/RNG foundation and the remaining ~38 univariate distributions, fixture-driven. See `PLAN.md`.
+Phase 0 and Phase 1 are **complete**. Phase 1 delivered the full Numerics math/RNG foundation
+plus all 42 univariate distributions. Everything is ported, fixture-validated in C++/R/Python,
+and reproduced against the real Numerics library by the dotnet oracle gate. CI is green on 3
+platforms. Next: Phase 2 (multivariate distributions and copulas). See `PLAN.md`.
