@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
@@ -155,6 +156,16 @@ static void run_gev(const json& spec) {
 
 namespace sf = bestfit::numerics::math::special;
 namespace la = bestfit::numerics::math::linalg;
+namespace stat = bestfit::numerics::data;
+
+// Correlation fixture args are [x..., y...] concatenated and split at the midpoint
+// (equal-length samples) -- see fixtures/statistics/correlation.json / README.md.
+static void correlation_split(const std::vector<double>& a, std::vector<double>& x,
+                               std::vector<double>& y) {
+    std::size_t mid = a.size() / 2;
+    x.assign(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(mid));
+    y.assign(a.begin() + static_cast<std::ptrdiff_t>(mid), a.end());
+}
 
 // Cholesky fixture args are a flattened row-major n*n matrix, with n inferred from the
 // args length per the convention documented in fixtures/special_functions/cholesky.json.
@@ -250,6 +261,23 @@ special_function_table() {
         // Bessel family
         {"Bessel.i0", [](const std::vector<double>& a) { return sf::bessel::i0(a[0]); }},
         {"Bessel.i1", [](const std::vector<double>& a) { return sf::bessel::i1(a[0]); }},
+        // Correlation family (args: [x..., y...], split at the midpoint -- see
+        // fixtures/statistics/correlation.json for the full convention)
+        {"Correlation.pearson", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return stat::pearson(x, y);
+        }},
+        {"Correlation.spearman", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return stat::spearman(x, y);
+        }},
+        {"Correlation.kendalls_tau", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return stat::kendalls_tau(x, y);
+        }},
     };
     return t;
 }

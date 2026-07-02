@@ -79,6 +79,9 @@ from the argument count: `n = sqrt(len(args))` for `determinant`/`log_determinan
 (`n = sqrt(len(args) - 2)`); `solve_element` appends an `n`-length right-hand-side vector followed
 by a trailing solution index `i` (`n` solves `n^2 + n + 1 = len(args)`).
 
+The `Correlation.*` targets (`fixtures/statistics/correlation.json`) take two equal-length samples
+flattened into `args` as `[x_1..x_n, y_1..y_n]`, split at the midpoint (`n = len(args) / 2`).
+
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.
 

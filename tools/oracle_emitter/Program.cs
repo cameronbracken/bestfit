@@ -246,6 +246,14 @@ static Matrix CholeskyMatrixFromFlat(double[] a, int n)
     return m;
 }
 
+// Correlation fixture args are [x..., y...] concatenated and split at the midpoint
+// (equal-length samples) -- see fixtures/statistics/correlation.json for the convention.
+static (double[] X, double[] Y) CorrelationSplit(double[] a)
+{
+    int mid = a.Length / 2;
+    return (a[..mid], a[mid..]);
+}
+
 // Special-function dispatch table: maps "Module.method" → Func<double[], double>.
 static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
 {
@@ -323,6 +331,23 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // Bessel family
     "Bessel.i0" => a => Bessel.I0(a[0]),
     "Bessel.i1" => a => Bessel.I1(a[0]),
+    // Correlation family (args: [x..., y...], split at the midpoint -- see
+    // fixtures/statistics/correlation.json for the full convention)
+    "Correlation.pearson" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.Pearson(x, y);
+    },
+    "Correlation.spearman" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.Spearman(x, y);
+    },
+    "Correlation.kendalls_tau" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.KendallsTau(x, y);
+    },
     _ => null,
 };
 

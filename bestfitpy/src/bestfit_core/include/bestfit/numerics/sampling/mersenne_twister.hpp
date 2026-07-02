@@ -5,8 +5,15 @@
 // kept bit-exact so R and Python (calling this same compiled code) produce identical
 // random streams from a given seed. All arithmetic is unsigned 32-bit (defined
 // wraparound), mirroring C# `uint`.
+//
+// next()/next(max_exclusive) below extend the Phase 0 port with the integer-draw
+// rejection loops (C# System.Random.Next()/Next(int)) that LatinHypercube's shuffle
+// and per-column reseeding consume; they draw from the same gen_rand_int32() stream in
+// the same order as C#, so seeded call sequences stay bit-exact across languages.
 #pragma once
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace bestfit::numerics::sampling {
@@ -66,12 +73,41 @@ class MersenneTwister {
     // Generates a random number on [0, 1) (matches C# GenRandReal2 / NextDouble).
     double next_double() { return gen_rand_int32() * (1.0 / 4294967296.0); }
 
+    // Generates a non-negative random int on [0, int32::max], rejecting int32::max so the
+    // result is uniform over [0, int32::max) (matches C# Next(); GenRandInt31() is folded
+    // in here since nothing else in this port needs it standalone).
+    int next() {
+        int result;
+        do {
+            result = static_cast<int>(gen_rand_int32() >> 1);
+        } while (result == kIntMax);
+        return result;
+    }
+
+    // Generates a random int on [0, max_exclusive) via uint threshold rejection so every
+    // remainder class is equally likely (matches C# Next(int maxExclusive)).
+    int next(int max_exclusive) {
+        if (max_exclusive <= 0) throw std::invalid_argument("max_exclusive must be positive.");
+
+        std::uint32_t max_u = static_cast<std::uint32_t>(max_exclusive);
+        std::uint32_t threshold = kUint32Max - (kUint32Max % max_u);
+
+        std::uint32_t r;
+        do {
+            r = gen_rand_int32();
+        } while (r >= threshold);
+
+        return static_cast<int>(r % max_u);
+    }
+
    private:
     static constexpr int N = 624;
     static constexpr int M = 397;
     static constexpr std::uint32_t kMatrixA = 0x9908b0dfU;
     static constexpr std::uint32_t kUpperMask = 0x80000000U;
     static constexpr std::uint32_t kLowerMask = 0x7fffffffU;
+    static constexpr int kIntMax = std::numeric_limits<int>::max();  // C# int.MaxValue
+    static constexpr std::uint32_t kUint32Max = std::numeric_limits<std::uint32_t>::max();
 
     std::uint32_t mt_[N];
     int mti_ = N + 1;  // mti_ == N+1 means mt_ is not initialized

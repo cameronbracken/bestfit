@@ -1,7 +1,13 @@
 // ported from: Numerics/Data/Statistics/Statistics.cs @ a2c4dbf
 //
 // Sample statistics needed by distribution estimation: product moments
-// (mean, stdev, bias-corrected skew & excess kurtosis) and linear (L-)moments.
+// (mean, stdev, bias-corrected skew & excess kurtosis), linear (L-)moments, and
+// rank statistics (ranks_in_place, which Correlation::spearman consumes).
+//
+// ranks_in_place ports only the single-return-value RanksInPlace(double[]) overload
+// (exact-equality tie runs); the RanksInPlace(double[], out ties) overload (tolerance-
+// based ties via AlmostEquals, returning a tie-count array) is omitted -- no caller
+// ported so far needs the tie-count output.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -63,6 +69,48 @@ inline std::vector<double> linear_moments(const std::vector<double>& data) {
     double T3 = 2 * (3 * B2 - B0) / (2 * B1 - B0) - 3;
     double T4 = 5 * (2 * (2 * B3 - 3 * B2) + B0) / (2 * B1 - B0) + 6;
     return {L1, L2, T3, T4};
+}
+
+// Returns the rank of each entry of the unsorted data array. Tied values (exact
+// equality) receive the average rank of their run (mirrors C# Statistics.RanksInPlace).
+inline std::vector<double> ranks_in_place(const std::vector<double>& data) {
+    const int n = static_cast<int>(data.size());
+    std::vector<double> ranks(static_cast<std::size_t>(n), 0.0);
+
+    // Co-sorted index array: index[k] is the original position of the k-th smallest
+    // value (mirrors Array.Sort(work, index) sorting a cloned `work` and permuting a
+    // parallel `index` array to match).
+    std::vector<int> index(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) index[static_cast<std::size_t>(i)] = i;
+    std::sort(index.begin(), index.end(),
+              [&data](int a, int b) { return data[static_cast<std::size_t>(a)] < data[static_cast<std::size_t>(b)]; });
+
+    std::vector<double> work(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i)
+        work[static_cast<std::size_t>(i)] = data[static_cast<std::size_t>(index[static_cast<std::size_t>(i)])];
+
+    // Assign the average rank (b+a-1)/2 + 1 to the tie run [a, b) (mirrors C# RanksTies).
+    auto ranks_ties = [&ranks, &index](int a, int b) {
+        double rank = (b + a - 1) / 2.0 + 1;
+        for (int k = a; k < b; ++k) ranks[static_cast<std::size_t>(index[static_cast<std::size_t>(k)])] = rank;
+    };
+
+    int previous_index = 0;
+    for (int i = 1; i < n; ++i) {
+        if (std::fabs(work[static_cast<std::size_t>(i)] - work[static_cast<std::size_t>(previous_index)]) <= 0)
+            continue;
+
+        if (i == previous_index + 1) {
+            ranks[static_cast<std::size_t>(index[static_cast<std::size_t>(previous_index)])] =
+                static_cast<double>(i);
+        } else {
+            ranks_ties(previous_index, i);
+        }
+        previous_index = i;
+    }
+    ranks_ties(previous_index, n);
+
+    return ranks;
 }
 
 }  // namespace bestfit::numerics::data
