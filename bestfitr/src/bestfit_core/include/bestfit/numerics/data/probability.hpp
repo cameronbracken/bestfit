@@ -53,11 +53,16 @@
 //   ExclusivePCM/ExclusiveMVN and their array/out-list variants), CommonCauseAdjustment,
 //   MutuallyExclusiveAdjustment.
 //
-// Small Tools.cs helpers this file needs (Clamp; Sum/Product/Min with an indicators
+// Small Tools.cs helpers this file needs (Clamp; Sum/Product/Min/Max with an indicators
 // overload) are reimplemented narrowly in the `detail` namespace below rather than
 // pulling in a full Tools.cs port (mirrors this project's existing "port only what's
 // called" precedent for that class -- see tools.hpp's header note). `useComplement`
 // (false in every call site reached here) is omitted from the indicator-overload helpers.
+// Every site below that transcribes a C# `Math.Min`/`Math.Max`/`Tools.Max` call goes
+// through `detail::nan_min`/`detail::nan_max`/`detail::max_value` rather than plain
+// `std::min`/`std::max`/`std::max_element`: the BCL versions propagate NaN (return NaN if
+// any operand is NaN), while the bare STL algorithms do not (a comparison against NaN is
+// always false, so e.g. `std::min(a, b)` silently returns `a` when `b` is NaN).
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -90,6 +95,33 @@ constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 // Tools.Clamp narrow port.
 inline double clamp(double x, double min_v, double max_v) {
     return x < min_v ? min_v : (x > max_v ? max_v : x);
+}
+
+// Math.Min(double, double) narrow port. The BCL's Math.Min propagates NaN (returns NaN if
+// either argument is NaN); plain `std::min` does NOT (a comparison against NaN is always
+// false, so `std::min(a, b)` degrades to "return a" when b is NaN). Used at every site that
+// transcribes a C# `Math.Min` call so NaN inputs propagate identically to the C# source.
+inline double nan_min(double a, double b) {
+    if (std::isnan(a) || std::isnan(b)) return kNaN;
+    return b < a ? b : a;
+}
+
+// Math.Max(double, double) narrow port; see nan_min above.
+inline double nan_max(double a, double b) {
+    if (std::isnan(a) || std::isnan(b)) return kNaN;
+    return b > a ? b : a;
+}
+
+// Tools.Max(IList<double>) narrow port: returns NaN if any element is NaN. Plain
+// `std::max_element` is NOT NaN-aware (it would silently return a position-dependent
+// finite value unless NaN happens to be the very first element).
+inline double max_value(const std::vector<double>& values) {
+    double m = -std::numeric_limits<double>::infinity();
+    for (double v : values) {
+        if (std::isnan(v)) return kNaN;
+        if (v > m) m = v;
+    }
+    return m;
 }
 
 // Tools.Sum(IList<double>, IList<int>, useComplement=false) narrow port.
@@ -176,7 +208,7 @@ inline double negative_joint_probability(const std::vector<double>& probabilitie
         throw std::invalid_argument("probabilities must have a length greater than 0");
     double s = 0.0;
     for (double v : probabilities) s += v;
-    return std::max(0.0, std::min(1.0, s) - 1.0);
+    return detail::nan_max(0.0, detail::nan_min(1.0, s) - 1.0);
 }
 
 // Mirrors Probability.JointProbability(IList<double>, DependencyType = Independent).
@@ -220,7 +252,7 @@ inline double negative_joint_probability(const std::vector<double>& probabilitie
     if (indicators.empty()) throw std::invalid_argument("indicators must have at least one row");
     if (probabilities.size() != indicators.size())
         throw std::invalid_argument("probabilities and indicators must have the same length");
-    return std::max(0.0, std::min(1.0, detail::sum(probabilities, indicators)) - 1.0);
+    return detail::nan_max(0.0, detail::nan_min(1.0, detail::sum(probabilities, indicators)) - 1.0);
 }
 
 // Computes the joint probability of multiple events with dependency, using Haden Smith's
@@ -269,7 +301,7 @@ inline double joint_probability_hpcm(const std::vector<double>& probabilities,
         double r12 = R[0][kk];
         r12 = std::fabs(r12) < 1e-3 ? 0.0 : r12;
         double p21 = distributions::MultivariateNormal::bivariate_cdf(-z1, -z2, r12) / cdf;
-        p21 = std::max(0.0, std::min(1.0, p21));
+        p21 = detail::nan_max(0.0, detail::nan_min(1.0, p21));
         double z21 = detail::clamp(distributions::Normal::standard_z(p21), zMin, zMax);
         R[kk][0] = z21;
     }
@@ -297,7 +329,7 @@ inline double joint_probability_hpcm(const std::vector<double>& probabilities,
             double r12 = R[jj][kk];
             r12 = std::fabs(r12) < 1e-3 ? 0.0 : r12;
             double p21 = distributions::MultivariateNormal::bivariate_cdf(-z1, -z2, r12) / cdf;
-            p21 = std::max(0.0, std::min(1.0, p21));
+            p21 = detail::nan_max(0.0, detail::nan_min(1.0, p21));
             double z21 = detail::clamp(distributions::Normal::standard_z(p21), zMin, zMax);
             R[kk][jj] = z21;
         }
@@ -369,7 +401,7 @@ inline double positively_dependent_union(const std::vector<double>& probabilitie
     if (probabilities.empty())
         throw std::invalid_argument("probabilities must have a length greater than 0");
     if (probabilities.size() == 1) return probabilities[0];
-    double m = *std::max_element(probabilities.begin(), probabilities.end());
+    double m = detail::max_value(probabilities);
     return detail::clamp(m, 0.0, 1.0);
 }
 
