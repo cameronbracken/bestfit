@@ -194,6 +194,41 @@ extern "C" SEXP _bestfitr_bf_mix_valid_(SEXP comp_targets, SEXP comp_params_list
     return cpp11::as_sexp(bf_mix_valid_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights)));
   END_CPP11
 }
+// dist.cpp
+doubles bf_cr_moments_(strings comp_targets, list comp_params_list, bool minimum_of_rv);
+extern "C" SEXP _bestfitr_bf_cr_moments_(SEXP comp_targets, SEXP comp_params_list, SEXP minimum_of_rv) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cr_moments_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<bool>>(minimum_of_rv)));
+  END_CPP11
+}
+// dist.cpp
+double bf_cr_pdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x);
+extern "C" SEXP _bestfitr_bf_cr_pdf_(SEXP comp_targets, SEXP comp_params_list, SEXP minimum_of_rv, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cr_pdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<bool>>(minimum_of_rv), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_cr_cdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x);
+extern "C" SEXP _bestfitr_bf_cr_cdf_(SEXP comp_targets, SEXP comp_params_list, SEXP minimum_of_rv, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cr_cdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<bool>>(minimum_of_rv), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_cr_quantile_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double prob);
+extern "C" SEXP _bestfitr_bf_cr_quantile_(SEXP comp_targets, SEXP comp_params_list, SEXP minimum_of_rv, SEXP prob) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cr_quantile_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<bool>>(minimum_of_rv), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
+  END_CPP11
+}
+// dist.cpp
+bool bf_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_rv);
+extern "C" SEXP _bestfitr_bf_cr_valid_(SEXP comp_targets, SEXP comp_params_list, SEXP minimum_of_rv) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cr_valid_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<bool>>(minimum_of_rv)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -267,6 +302,11 @@ extern "C" SEXP _bestfitr_bf_gev_parameter_covariance_(SEXP location, SEXP scale
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
+    {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                   4},
+    {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,               3},
+    {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                   4},
+    {"_bestfitr_bf_cr_quantile_",              (DL_FUNC) &_bestfitr_bf_cr_quantile_,              4},
+    {"_bestfitr_bf_cr_valid_",                 (DL_FUNC) &_bestfitr_bf_cr_valid_,                 3},
     {"_bestfitr_bf_dist_cdf_",                 (DL_FUNC) &_bestfitr_bf_dist_cdf_,                 3},
     {"_bestfitr_bf_dist_fit_",                 (DL_FUNC) &_bestfitr_bf_dist_fit_,                 3},
     {"_bestfitr_bf_dist_linear_moments_",      (DL_FUNC) &_bestfitr_bf_dist_linear_moments_,      2},

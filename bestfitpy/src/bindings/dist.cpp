@@ -13,6 +13,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/competing_risks.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/mixture.hpp"
@@ -257,5 +258,57 @@ void register_distributions(py::module_& m) {
                                        const std::vector<std::vector<double>>& cp,
                                        const std::vector<double>& wts) {
         return make_mixture(ct, cp, wts).parameters_valid();
+    });
+
+    // --- Composite glue: CompetingRisks -----------------------------------------------
+    // Accepts (comp_targets, comp_params, minimum_of_rv) where comp_params is a list of
+    // param vectors (one per component). minimum_of_rv=true → min-of-components (default);
+    // false → max-of-components.
+
+    auto make_competing_risks = [](const std::vector<std::string>& comp_targets,
+                                    const std::vector<std::vector<double>>& comp_params,
+                                    bool minimum_of_rv) {
+        int K = static_cast<int>(comp_targets.size());
+        std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
+        comps.reserve(K);
+        for (int i = 0; i < K; ++i) {
+            auto d = dist::create_distribution(comp_targets[i]);
+            d->set_parameters(comp_params[i]);
+            comps.push_back(std::move(d));
+        }
+        dist::CompetingRisks cr(std::move(comps));
+        cr.minimum_of_random_variables = minimum_of_rv;
+        return cr;
+    };
+
+    m.def("cr_moments", [make_competing_risks](const std::vector<std::string>& ct,
+                                                const std::vector<std::vector<double>>& cp,
+                                                bool minimum_of_rv) {
+        auto d = make_competing_risks(ct, cp, minimum_of_rv);
+        return std::map<std::string, double>{
+            {"mean", d.mean()},         {"median", d.median()},
+            {"mode", d.mode()},         {"sd", d.standard_deviation()},
+            {"skewness", d.skewness()}, {"kurtosis", d.kurtosis()},
+            {"minimum", d.minimum()},   {"maximum", d.maximum()}};
+    });
+    m.def("cr_pdf", [make_competing_risks](const std::vector<std::string>& ct,
+                                            const std::vector<std::vector<double>>& cp,
+                                            bool minimum_of_rv, double x) {
+        return make_competing_risks(ct, cp, minimum_of_rv).pdf(x);
+    });
+    m.def("cr_cdf", [make_competing_risks](const std::vector<std::string>& ct,
+                                            const std::vector<std::vector<double>>& cp,
+                                            bool minimum_of_rv, double x) {
+        return make_competing_risks(ct, cp, minimum_of_rv).cdf(x);
+    });
+    m.def("cr_quantile", [make_competing_risks](const std::vector<std::string>& ct,
+                                                  const std::vector<std::vector<double>>& cp,
+                                                  bool minimum_of_rv, double prob) {
+        return make_competing_risks(ct, cp, minimum_of_rv).inverse_cdf(prob);
+    });
+    m.def("cr_valid", [make_competing_risks](const std::vector<std::string>& ct,
+                                              const std::vector<std::vector<double>>& cp,
+                                              bool minimum_of_rv) {
+        return make_competing_risks(ct, cp, minimum_of_rv).parameters_valid();
     });
 }

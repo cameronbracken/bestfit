@@ -108,6 +108,26 @@ bf_mix_valid_ <- function(comp_targets, comp_params_list, weights) {
   .Call(`_bestfitr_bf_mix_valid_`, comp_targets, comp_params_list, weights)
 }
 
+bf_cr_moments_ <- function(comp_targets, comp_params_list, minimum_of_rv) {
+  .Call(`_bestfitr_bf_cr_moments_`, comp_targets, comp_params_list, minimum_of_rv)
+}
+
+bf_cr_pdf_ <- function(comp_targets, comp_params_list, minimum_of_rv, x) {
+  .Call(`_bestfitr_bf_cr_pdf_`, comp_targets, comp_params_list, minimum_of_rv, x)
+}
+
+bf_cr_cdf_ <- function(comp_targets, comp_params_list, minimum_of_rv, x) {
+  .Call(`_bestfitr_bf_cr_cdf_`, comp_targets, comp_params_list, minimum_of_rv, x)
+}
+
+bf_cr_quantile_ <- function(comp_targets, comp_params_list, minimum_of_rv, prob) {
+  .Call(`_bestfitr_bf_cr_quantile_`, comp_targets, comp_params_list, minimum_of_rv, prob)
+}
+
+bf_cr_valid_ <- function(comp_targets, comp_params_list, minimum_of_rv) {
+  .Call(`_bestfitr_bf_cr_valid_`, comp_targets, comp_params_list, minimum_of_rv)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

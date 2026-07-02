@@ -11,6 +11,7 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/competing_risks.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/mixture.hpp"
@@ -271,4 +272,56 @@ double bf_mix_quantile_(strings comp_targets, list comp_params_list, doubles wei
 [[cpp11::register]]
 bool bf_mix_valid_(strings comp_targets, list comp_params_list, doubles weights) {
     return make_mixture(comp_targets, comp_params_list, weights).parameters_valid();
+}
+
+// --- Composite glue: CompetingRisks -------------------------------------------------
+// Accepts (component_targets, component_params_list, minimum_of_rv) and exposes the full
+// distribution surface. component_params_list is a list-of-doubles R list.
+// minimum_of_rv = TRUE for min-of-components (series system, default);
+//                 FALSE for max-of-components (parallel system).
+
+static dist::CompetingRisks make_competing_risks(strings comp_targets,
+                                                  list comp_params_list,
+                                                  bool minimum_of_rv) {
+    int K = static_cast<int>(comp_targets.size());
+    std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
+    comps.reserve(K);
+    for (int i = 0; i < K; ++i) {
+        auto d = dist::create_distribution(std::string(comp_targets[i]));
+        doubles p = comp_params_list[i];
+        d->set_parameters(std::vector<double>(p.begin(), p.end()));
+        comps.push_back(std::move(d));
+    }
+    dist::CompetingRisks cr(std::move(comps));
+    cr.minimum_of_random_variables = minimum_of_rv;
+    return cr;
+}
+
+[[cpp11::register]]
+doubles bf_cr_moments_(strings comp_targets, list comp_params_list, bool minimum_of_rv) {
+    auto d = make_competing_risks(comp_targets, comp_params_list, minimum_of_rv);
+    writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
+                           d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
+    out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
+    return out;
+}
+
+[[cpp11::register]]
+double bf_cr_pdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).pdf(x);
+}
+
+[[cpp11::register]]
+double bf_cr_cdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).cdf(x);
+}
+
+[[cpp11::register]]
+double bf_cr_quantile_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double prob) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).inverse_cdf(prob);
+}
+
+[[cpp11::register]]
+bool bf_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_rv) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).parameters_valid();
 }

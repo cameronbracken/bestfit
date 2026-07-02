@@ -95,7 +95,8 @@ check_assertion <- function(actual, a) {
 # build_composite_data() parses the construct into a list consumed by dispatch_composite().
 # Adding a new composite = one new case in build_composite_data + one in dispatch_composite.
 
-kCompositeTargets <- c("TruncatedDistribution", "Empirical", "KernelDensity", "Mixture")
+kCompositeTargets <- c("TruncatedDistribution", "Empirical", "KernelDensity", "Mixture",
+                       "CompetingRisks")
 
 build_composite_data <- function(target, construct, datasets = list()) {
   if (target == "TruncatedDistribution") {
@@ -124,6 +125,14 @@ build_composite_data <- function(target, construct, datasets = list()) {
     comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
     wts          <- as.double(unlist(construct$weights))
     return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts))
+  }
+  if (target == "CompetingRisks") {
+    comp_targets <- vapply(construct$components, function(c) c$target, character(1))
+    comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
+    min_of_rv    <- if (!is.null(construct$minimum_of_random_variables))
+                      as.logical(construct$minimum_of_random_variables) else TRUE
+    return(list(comp_targets = comp_targets, comp_params = comp_params,
+                minimum_of_rv = min_of_rv))
   }
   stop(sprintf("unknown composite target: %s", target))
 }
@@ -184,6 +193,19 @@ dispatch_composite <- function(target, cd, method, args) {
       quantile         = ns$bf_mix_quantile_(ct, cp, wts, as.double(args[[1]])),
       parameters_valid = ns$bf_mix_valid_(ct, cp, wts),
       stop(sprintf("unknown fixture method for Mixture: %s", method))
+    ))
+  }
+  if (target == "CompetingRisks") {
+    ct <- cd$comp_targets; cp <- cd$comp_params; min_rv <- cd$minimum_of_rv
+    if (method %in% moment_names) {
+      return(unname(ns$bf_cr_moments_(ct, cp, min_rv)[[method]]))
+    }
+    return(switch(method,
+      pdf              = ns$bf_cr_pdf_(ct, cp, min_rv, as.double(args[[1]])),
+      cdf              = ns$bf_cr_cdf_(ct, cp, min_rv, as.double(args[[1]])),
+      quantile         = ns$bf_cr_quantile_(ct, cp, min_rv, as.double(args[[1]])),
+      parameters_valid = ns$bf_cr_valid_(ct, cp, min_rv),
+      stop(sprintf("unknown fixture method for CompetingRisks: %s", method))
     ))
   }
   stop(sprintf("unknown composite target: %s", target))
