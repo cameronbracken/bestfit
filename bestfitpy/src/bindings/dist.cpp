@@ -15,6 +15,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
+#include "bestfit/numerics/distributions/mixture.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bindings.hpp"
 
@@ -207,5 +208,54 @@ void register_distributions(py::module_& m) {
     m.def("kde_valid", [make_kde](const std::vector<double>& data, const std::string& kernel,
                                    double bandwidth, bool bounded_by_data) {
         return make_kde(data, kernel, bandwidth, bounded_by_data).parameters_valid();
+    });
+
+    // --- Composite glue: Mixture -------------------------------------------------------
+    // Accepts (comp_targets, comp_params, weights) where comp_params is a list of param
+    // vectors (one per component). Exposes the full distribution surface.
+
+    auto make_mixture = [](const std::vector<std::string>& comp_targets,
+                            const std::vector<std::vector<double>>& comp_params,
+                            const std::vector<double>& weights) {
+        int K = static_cast<int>(comp_targets.size());
+        std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
+        comps.reserve(K);
+        for (int i = 0; i < K; ++i) {
+            auto d = dist::create_distribution(comp_targets[i]);
+            d->set_parameters(comp_params[i]);
+            comps.push_back(std::move(d));
+        }
+        return dist::Mixture(weights, std::move(comps));
+    };
+
+    m.def("mix_moments", [make_mixture](const std::vector<std::string>& ct,
+                                         const std::vector<std::vector<double>>& cp,
+                                         const std::vector<double>& wts) {
+        auto d = make_mixture(ct, cp, wts);
+        return std::map<std::string, double>{
+            {"mean", d.mean()},         {"median", d.median()},
+            {"mode", d.mode()},         {"sd", d.standard_deviation()},
+            {"skewness", d.skewness()}, {"kurtosis", d.kurtosis()},
+            {"minimum", d.minimum()},   {"maximum", d.maximum()}};
+    });
+    m.def("mix_pdf", [make_mixture](const std::vector<std::string>& ct,
+                                     const std::vector<std::vector<double>>& cp,
+                                     const std::vector<double>& wts, double x) {
+        return make_mixture(ct, cp, wts).pdf(x);
+    });
+    m.def("mix_cdf", [make_mixture](const std::vector<std::string>& ct,
+                                     const std::vector<std::vector<double>>& cp,
+                                     const std::vector<double>& wts, double x) {
+        return make_mixture(ct, cp, wts).cdf(x);
+    });
+    m.def("mix_quantile", [make_mixture](const std::vector<std::string>& ct,
+                                          const std::vector<std::vector<double>>& cp,
+                                          const std::vector<double>& wts, double prob) {
+        return make_mixture(ct, cp, wts).inverse_cdf(prob);
+    });
+    m.def("mix_valid", [make_mixture](const std::vector<std::string>& ct,
+                                       const std::vector<std::vector<double>>& cp,
+                                       const std::vector<double>& wts) {
+        return make_mixture(ct, cp, wts).parameters_valid();
     });
 }

@@ -111,6 +111,14 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
             kde.BoundedByData = bd.GetBoolean();
         return kde;
     }
+    if (target == "Mixture")
+    {
+        var comps = construct.GetProperty("components").EnumerateArray()
+            .Select(c => BuildComponent(c, datasets)).ToArray();
+        var wts = construct.GetProperty("weights").EnumerateArray()
+            .Select(e => e.GetDouble()).ToArray();
+        return new Mixture(wts, comps);
+    }
     throw new Exception($"unknown composite target: {target}");
 }
 
@@ -118,7 +126,8 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
     // Composite distributions use bespoke construction (no flat enum entry in C# or C++).
-    if (target == "TruncatedDistribution" || target == "Empirical" || target == "KernelDensity")
+    if (target == "TruncatedDistribution" || target == "Empirical" || target == "KernelDensity"
+        || target == "Mixture")
         return BuildComposite(target, construct, datasets);
 
     // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.

@@ -88,6 +88,26 @@ bf_kde_valid_ <- function(data, kernel, bandwidth, bounded_by_data) {
   .Call(`_bestfitr_bf_kde_valid_`, data, kernel, bandwidth, bounded_by_data)
 }
 
+bf_mix_moments_ <- function(comp_targets, comp_params_list, weights) {
+  .Call(`_bestfitr_bf_mix_moments_`, comp_targets, comp_params_list, weights)
+}
+
+bf_mix_pdf_ <- function(comp_targets, comp_params_list, weights, x) {
+  .Call(`_bestfitr_bf_mix_pdf_`, comp_targets, comp_params_list, weights, x)
+}
+
+bf_mix_cdf_ <- function(comp_targets, comp_params_list, weights, x) {
+  .Call(`_bestfitr_bf_mix_cdf_`, comp_targets, comp_params_list, weights, x)
+}
+
+bf_mix_quantile_ <- function(comp_targets, comp_params_list, weights, prob) {
+  .Call(`_bestfitr_bf_mix_quantile_`, comp_targets, comp_params_list, weights, prob)
+}
+
+bf_mix_valid_ <- function(comp_targets, comp_params_list, weights) {
+  .Call(`_bestfitr_bf_mix_valid_`, comp_targets, comp_params_list, weights)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

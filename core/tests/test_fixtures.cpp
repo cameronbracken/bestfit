@@ -25,6 +25,7 @@
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
+#include "bestfit/numerics/distributions/mixture.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
@@ -302,12 +303,21 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
             kde->set_bounded_by_data(construct["bounded_by_data"].get<bool>());
         return kde;
     }
+    if (target == "Mixture") {
+        const auto& wts_json = construct["weights"];
+        const auto& comps_json = construct["components"];
+        std::vector<double> wts;
+        std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
+        for (const auto& w : wts_json) wts.push_back(w.get<double>());
+        for (const auto& c : comps_json) comps.push_back(build_component(c, datasets));
+        return std::make_unique<dist::Mixture>(std::move(wts), std::move(comps));
+    }
     throw std::runtime_error("unknown composite target: " + target);
 }
 
 static bool is_composite_target(const std::string& target) {
     return target == "TruncatedDistribution" || target == "Empirical"
-        || target == "KernelDensity";
+        || target == "KernelDensity" || target == "Mixture";
 }
 
 static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,

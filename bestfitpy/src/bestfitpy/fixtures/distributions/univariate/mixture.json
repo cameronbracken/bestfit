@@ -1,0 +1,50 @@
+{
+  "target": "Mixture",
+  "kind":   "univariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_Mixture.cs",
+  "reference": "R 'mistr' package; analytical solutions for mean/sd of Normal mixture",
+  "cases": [
+    {
+      "name": "three_normal_pdf_cdf",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [10, 2]},
+          {"target": "Normal", "params": [20, 1]},
+          {"target": "Normal", "params": [30, 5]}
+        ],
+        "weights": [0.3, 0.2, 0.5]
+      },
+      "assertions": [
+        { "method": "pdf",     "args": [30],  "expected": 0.03989423,  "mode": "abs", "tol": 1e-5 },
+        { "method": "pdf",     "args": [20],  "expected": 0.08518778,  "mode": "abs", "tol": 1e-5 },
+        { "method": "pdf",     "args": [10],  "expected": 0.05985473,  "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf",     "args": [30],  "expected": 0.75,        "mode": "abs", "tol": 1e-5 },
+        { "method": "cdf",     "args": [20],  "expected": 0.411375,    "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",     "args": [10],  "expected": 0.1500158,   "mode": "abs", "tol": 1e-5 },
+        { "method": "quantile","args": [0.75],"expected": 30,          "mode": "abs", "tol": 1e-4 },
+        { "method": "mean",    "args": [],     "expected": 22,          "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",      "args": [],     "expected": 9.481561,    "mode": "abs", "tol": 1e-3 },
+        { "method": "minimum", "args": [],     "expected": "-inf",      "mode": "equal" },
+        { "method": "maximum", "args": [],     "expected": "inf",       "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true,  "mode": "bool" }
+      ]
+    },
+    {
+      "name": "two_normal_basic",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0, 1]},
+          {"target": "Normal", "params": [5, 2]}
+        ],
+        "weights": [0.5, 0.5]
+      },
+      "assertions": [
+        { "method": "pdf",     "args": [2.5],  "expected": 0.054426,    "mode": "abs", "tol": 1e-4 },
+        { "method": "cdf",     "args": [2.5],  "expected": 0.549716,    "mode": "abs", "tol": 1e-4 },
+        { "method": "mean",    "args": [],      "expected": 2.5,         "mode": "abs", "tol": 1e-4 },
+        { "method": "sd",      "args": [],      "expected": 2.958040,    "mode": "abs", "tol": 1e-3 },
+        { "method": "parameters_valid", "args": [], "expected": true,   "mode": "bool" }
+      ]
+    }
+  ]
+}

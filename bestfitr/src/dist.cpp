@@ -13,6 +13,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
+#include "bestfit/numerics/distributions/mixture.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
 
 namespace dist = bestfit::numerics::distributions;
@@ -220,4 +221,54 @@ double bf_kde_quantile_(doubles data, std::string kernel, double bandwidth, bool
 [[cpp11::register]]
 bool bf_kde_valid_(doubles data, std::string kernel, double bandwidth, bool bounded_by_data) {
     return make_kde(data, kernel, bandwidth, bounded_by_data).parameters_valid();
+}
+
+// --- Composite glue: Mixture --------------------------------------------------------
+// Accepts (component_targets, component_params_list, weights) and exposes the full
+// distribution surface. component_params_list is a list-of-doubles R list.
+// Mirrors the bf_trunc_* and bf_kde_* pattern; R fixture runner dispatches by target.
+
+static dist::Mixture make_mixture(strings comp_targets,
+                                  list comp_params_list,
+                                  doubles weights) {
+    int K = static_cast<int>(comp_targets.size());
+    std::vector<double> wts(weights.begin(), weights.end());
+    std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
+    comps.reserve(K);
+    for (int i = 0; i < K; ++i) {
+        auto d = dist::create_distribution(std::string(comp_targets[i]));
+        doubles p = comp_params_list[i];
+        d->set_parameters(std::vector<double>(p.begin(), p.end()));
+        comps.push_back(std::move(d));
+    }
+    return dist::Mixture(std::move(wts), std::move(comps));
+}
+
+[[cpp11::register]]
+doubles bf_mix_moments_(strings comp_targets, list comp_params_list, doubles weights) {
+    auto d = make_mixture(comp_targets, comp_params_list, weights);
+    writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
+                           d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
+    out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
+    return out;
+}
+
+[[cpp11::register]]
+double bf_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights).pdf(x);
+}
+
+[[cpp11::register]]
+double bf_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights).cdf(x);
+}
+
+[[cpp11::register]]
+double bf_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, double prob) {
+    return make_mixture(comp_targets, comp_params_list, weights).inverse_cdf(prob);
+}
+
+[[cpp11::register]]
+bool bf_mix_valid_(strings comp_targets, list comp_params_list, doubles weights) {
+    return make_mixture(comp_targets, comp_params_list, weights).parameters_valid();
 }

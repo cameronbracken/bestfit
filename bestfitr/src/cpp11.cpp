@@ -159,6 +159,41 @@ extern "C" SEXP _bestfitr_bf_kde_valid_(SEXP data, SEXP kernel, SEXP bandwidth, 
     return cpp11::as_sexp(bf_kde_valid_(cpp11::as_cpp<cpp11::decay_t<doubles>>(data), cpp11::as_cpp<cpp11::decay_t<std::string>>(kernel), cpp11::as_cpp<cpp11::decay_t<double>>(bandwidth), cpp11::as_cpp<cpp11::decay_t<bool>>(bounded_by_data)));
   END_CPP11
 }
+// dist.cpp
+doubles bf_mix_moments_(strings comp_targets, list comp_params_list, doubles weights);
+extern "C" SEXP _bestfitr_bf_mix_moments_(SEXP comp_targets, SEXP comp_params_list, SEXP weights) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mix_moments_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights)));
+  END_CPP11
+}
+// dist.cpp
+double bf_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, double x);
+extern "C" SEXP _bestfitr_bf_mix_pdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mix_pdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, double x);
+extern "C" SEXP _bestfitr_bf_mix_cdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP x) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mix_cdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+  END_CPP11
+}
+// dist.cpp
+double bf_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, double prob);
+extern "C" SEXP _bestfitr_bf_mix_quantile_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP prob) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mix_quantile_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
+  END_CPP11
+}
+// dist.cpp
+bool bf_mix_valid_(strings comp_targets, list comp_params_list, doubles weights);
+extern "C" SEXP _bestfitr_bf_mix_valid_(SEXP comp_targets, SEXP comp_params_list, SEXP weights) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_mix_valid_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -259,6 +294,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_kde_pdf_",                  (DL_FUNC) &_bestfitr_bf_kde_pdf_,                  5},
     {"_bestfitr_bf_kde_quantile_",             (DL_FUNC) &_bestfitr_bf_kde_quantile_,             5},
     {"_bestfitr_bf_kde_valid_",                (DL_FUNC) &_bestfitr_bf_kde_valid_,                4},
+    {"_bestfitr_bf_mix_cdf_",                  (DL_FUNC) &_bestfitr_bf_mix_cdf_,                  4},
+    {"_bestfitr_bf_mix_moments_",              (DL_FUNC) &_bestfitr_bf_mix_moments_,              3},
+    {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                  4},
+    {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,             4},
+    {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                3},
     {"_bestfitr_bf_trunc_cdf_",                (DL_FUNC) &_bestfitr_bf_trunc_cdf_,                5},
     {"_bestfitr_bf_trunc_moments_",            (DL_FUNC) &_bestfitr_bf_trunc_moments_,            4},
     {"_bestfitr_bf_trunc_pdf_",                (DL_FUNC) &_bestfitr_bf_trunc_pdf_,                5},

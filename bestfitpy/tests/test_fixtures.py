@@ -82,7 +82,7 @@ def _dispatch_gev(g, method, args):
 # the fixture "construct" uses a structured schema rather than flat "params".
 # Adding a new composite = one new case in _build_composite + one in _dispatch_composite.
 
-_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical", "KernelDensity"}
+_COMPOSITE_TARGETS = {"TruncatedDistribution", "Empirical", "KernelDensity", "Mixture"}
 
 
 def _build_composite(target: str, construct: dict, datasets: dict | None = None) -> dict:
@@ -105,6 +105,11 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         bandwidth = float(construct["bandwidth"]) if "bandwidth" in construct else -1.0
         bounded = bool(construct.get("bounded_by_data", True))
         return {"data_vec": data_vec, "kernel": kernel, "bandwidth": bandwidth, "bounded": bounded}
+    if target == "Mixture":
+        comp_targets = [c["target"] for c in construct["components"]]
+        comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
+        wts = [float(w) for w in construct["weights"]]
+        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts}
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -148,6 +153,19 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         if method == "parameters_valid":
             return _core.kde_valid(dv, ker, bw, bd)
         raise KeyError(f"unknown fixture method for KernelDensity: {method}")
+    if target == "Mixture":
+        ct, cp, wts = cd["comp_targets"], cd["comp_params"], cd["weights"]
+        if method in _MOMENTS:
+            return _core.mix_moments(ct, cp, wts)[method]
+        if method == "pdf":
+            return _core.mix_pdf(ct, cp, wts, args[0])
+        if method == "cdf":
+            return _core.mix_cdf(ct, cp, wts, args[0])
+        if method == "quantile":
+            return _core.mix_quantile(ct, cp, wts, args[0])
+        if method == "parameters_valid":
+            return _core.mix_valid(ct, cp, wts)
+        raise KeyError(f"unknown fixture method for Mixture: {method}")
     raise KeyError(f"unknown composite target: {target}")
 
 

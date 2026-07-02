@@ -95,7 +95,7 @@ check_assertion <- function(actual, a) {
 # build_composite_data() parses the construct into a list consumed by dispatch_composite().
 # Adding a new composite = one new case in build_composite_data + one in dispatch_composite.
 
-kCompositeTargets <- c("TruncatedDistribution", "Empirical", "KernelDensity")
+kCompositeTargets <- c("TruncatedDistribution", "Empirical", "KernelDensity", "Mixture")
 
 build_composite_data <- function(target, construct, datasets = list()) {
   if (target == "TruncatedDistribution") {
@@ -118,6 +118,12 @@ build_composite_data <- function(target, construct, datasets = list()) {
     bandwidth <- if (!is.null(construct$bandwidth)) as.double(construct$bandwidth) else -1.0
     bounded   <- if (!is.null(construct$bounded_by_data)) as.logical(construct$bounded_by_data) else TRUE
     return(list(data_vec = data_vec, kernel = kernel, bandwidth = bandwidth, bounded = bounded))
+  }
+  if (target == "Mixture") {
+    comp_targets <- vapply(construct$components, function(c) c$target, character(1))
+    comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
+    wts          <- as.double(unlist(construct$weights))
+    return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts))
   }
   stop(sprintf("unknown composite target: %s", target))
 }
@@ -165,6 +171,19 @@ dispatch_composite <- function(target, cd, method, args) {
       quantile         = ns$bf_kde_quantile_(dv, ker, bw, bd, as.double(args[[1]])),
       parameters_valid = ns$bf_kde_valid_(dv, ker, bw, bd),
       stop(sprintf("unknown fixture method for KernelDensity: %s", method))
+    ))
+  }
+  if (target == "Mixture") {
+    ct <- cd$comp_targets; cp <- cd$comp_params; wts <- cd$weights
+    if (method %in% moment_names) {
+      return(unname(ns$bf_mix_moments_(ct, cp, wts)[[method]]))
+    }
+    return(switch(method,
+      pdf              = ns$bf_mix_pdf_(ct, cp, wts, as.double(args[[1]])),
+      cdf              = ns$bf_mix_cdf_(ct, cp, wts, as.double(args[[1]])),
+      quantile         = ns$bf_mix_quantile_(ct, cp, wts, as.double(args[[1]])),
+      parameters_valid = ns$bf_mix_valid_(ct, cp, wts),
+      stop(sprintf("unknown fixture method for Mixture: %s", method))
     ))
   }
   stop(sprintf("unknown composite target: %s", target))
