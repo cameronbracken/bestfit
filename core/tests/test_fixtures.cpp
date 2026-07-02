@@ -24,6 +24,9 @@
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/copulas/base/bivariate_copula_estimation.hpp"
+#include "bestfit/numerics/distributions/copulas/base/copula_factory.hpp"
+#include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
@@ -678,6 +681,123 @@ static void run_multivariate(const json& spec) {
     }
 }
 
+// --- bivariate_copula path --------------------------------------------------------------
+//
+// Every copula shares BivariateCopula's uniform theta/get_copula_parameters/pdf/cdf/...
+// API (unlike multivariate_distribution, which has no such common surface across
+// Dirichlet/Multinomial/BivariateEmpirical/...), so build_copula/dispatch_copula are FULLY
+// generic through the factory -- no per-target branching, matching copula_factory.hpp's
+// header comment. The one exception is the "tau" method-of-moments fit: SetThetaFromTau is
+// a member of each concrete Archimedean class in the C# source (not part of
+// IBivariateCopula/IArchimedeanCopula), so it is not callable through the BivariateCopula
+// base pointer; set_theta_from_tau_dispatch dynamic_casts by target name for that one
+// method, mirroring dispatch_multivariate's per-target branches above. Each new
+// tau-capable copula (Task 8: AMH, Gumbel, Joe) adds one branch there.
+
+namespace cop = bestfit::numerics::distributions::copulas;
+
+static void set_theta_from_tau_dispatch(cop::BivariateCopula& copula, const std::string& target,
+                                        const std::vector<double>& x, const std::vector<double>& y) {
+    if (target == "Clayton") {
+        dynamic_cast<cop::ClaytonCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    throw std::runtime_error("copula '" + target + "' has no tau-based method-of-moments fit");
+}
+
+// Per fixtures/README.md: construct is {"theta": x} (optionally {"theta": x, "df": y} for
+// 2-parameter copulas) or {"fit": {"x": "<dataset>", "y": "<dataset>", "method":
+// "tau"|"mpl"|"ifm"|"mle", "marginals": ["Normal", "Normal"]?}}. "x"/"y" are the sample
+// data for tau/ifm/mle, or the precomputed plotting-position datasets for mpl (the runner
+// stays thin: it never computes plotting positions itself). "ifm" pre-fits the marginals
+// by MLE before estimating the copula (mirroring the C# Test_IFM_Fit flow); "mle" leaves
+// the marginals unfitted and lets BivariateCopulaEstimation.MLE (bivariate_copula_estimation.hpp)
+// fit everything jointly.
+static std::unique_ptr<cop::BivariateCopula> build_copula(const std::string& target,
+                                                            const json& construct,
+                                                            const json& datasets) {
+    auto c = cop::create_copula(target);
+    if (construct.contains("theta")) {
+        std::vector<double> params = {parse_num(construct["theta"])};
+        if (construct.contains("df")) params.push_back(parse_num(construct["df"]));
+        c->set_copula_parameters(params);
+        return c;
+    }
+
+    const auto& fit = construct["fit"];
+    std::vector<double> x, y;
+    for (const auto& v : datasets[fit["x"].get<std::string>()]) x.push_back(parse_num(v));
+    for (const auto& v : datasets[fit["y"].get<std::string>()]) y.push_back(parse_num(v));
+    std::string method = fit["method"].get<std::string>();
+
+    if (fit.contains("marginals")) {
+        auto mx = dist::create_distribution(fit["marginals"][0].get<std::string>());
+        auto my = dist::create_distribution(fit["marginals"][1].get<std::string>());
+        if (method == "ifm") {
+            auto* ex = dynamic_cast<dist::IEstimation*>(mx.get());
+            auto* ey = dynamic_cast<dist::IEstimation*>(my.get());
+            if (ex == nullptr || ey == nullptr)
+                throw std::runtime_error("marginal does not support estimation");
+            ex->estimate(x, dist::ParameterEstimationMethod::MaximumLikelihood);
+            ey->estimate(y, dist::ParameterEstimationMethod::MaximumLikelihood);
+        }
+        c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+        c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+    }
+
+    if (method == "tau") {
+        set_theta_from_tau_dispatch(*c, target, x, y);
+    } else if (method == "mpl") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::PseudoLikelihood);
+    } else if (method == "ifm") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::InferenceFromMargins);
+    } else if (method == "mle") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::FullLikelihood);
+    } else {
+        throw std::runtime_error("unknown copula fit method: " + method);
+    }
+    return c;
+}
+
+static double dispatch_copula(const cop::BivariateCopula& c, const std::string& m, const json& a) {
+    if (m == "pdf") return c.pdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "log_pdf") return c.log_pdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "cdf") return c.cdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "inverse_cdf")
+        return c.inverse_cdf(a[0].get<double>(), a[1].get<double>())[static_cast<std::size_t>(a[2].get<int>())];
+    if (m == "upper_tail_dependence") return c.upper_tail_dependence();
+    if (m == "lower_tail_dependence") return c.lower_tail_dependence();
+    if (m == "theta") return c.theta();
+    if (m == "df") return c.get_copula_parameters()[1];
+    if (m == "or_exceedance") return c.or_joint_exceedance_probability(a[0].get<double>(), a[1].get<double>());
+    if (m == "and_exceedance") return c.and_joint_exceedance_probability(a[0].get<double>(), a[1].get<double>());
+    if (m == "marginal_param") {
+        std::string which = a[0].get<std::string>();
+        std::size_t idx = static_cast<std::size_t>(a[1].get<int>());
+        const auto& marg = which == "x" ? c.marginal_distribution_x : c.marginal_distribution_y;
+        return marg->get_parameters()[idx];
+    }
+    throw std::runtime_error("unknown copula fixture method: " + m);
+}
+
+static void run_bivariate_copula(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto cop = build_copula(target, c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            if (as["mode"].get<std::string>() == "bool")
+                check_bool(cop->parameters_valid(), as, where);
+            else
+                check_value(dispatch_copula(*cop, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -701,6 +821,8 @@ int main(int argc, char** argv) {
                 run_generic(spec);
         } else if (kind == "multivariate_distribution") {
             run_multivariate(spec);
+        } else if (kind == "bivariate_copula") {
+            run_bivariate_copula(spec);
         }
     }
     if (files == 0) {

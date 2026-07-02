@@ -13,6 +13,7 @@ using System.Text.Json;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
+using Numerics.Distributions.Copulas;
 using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
@@ -542,6 +543,108 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
     throw new Exception($"unknown multivariate fixture method: {target}/{m}");
 }
 
+// --- bivariate_copula branch --------------------------------------------------------------
+// Every copula shares BivariateCopula's uniform Theta/GetCopulaParameters/PDF/CDF/... API
+// (unlike MultivariateDistribution, whose targets share no common surface), so BuildCopula/
+// DispatchCopula are fully generic through Enum.Parse<CopulaType> + the real
+// BivariateCopulaEstimation.Estimate static -- no per-target branching, mirroring the C++
+// core's copula_factory.hpp rationale. The one exception is the "tau" method-of-moments fit
+// (SetThetaFromTau is a member of each concrete Archimedean class in the C# source, not
+// part of IBivariateCopula/IArchimedeanCopula), which SetThetaFromTauDispatch resolves by
+// target name; each new tau-capable copula adds one branch there.
+
+static BivariateCopula BuildCopula(string target, JsonElement construct,
+                                    Dictionary<string, double[]> datasets)
+{
+    var type = Enum.Parse<CopulaType>(target);
+    BivariateCopula copula = type switch
+    {
+        CopulaType.Clayton => new ClaytonCopula(),
+        _ => throw new Exception($"copula type not yet ported: {target}")
+    };
+
+    if (construct.TryGetProperty("theta", out var thetaEl))
+    {
+        var parms = new List<double> { ParseNum(thetaEl) };
+        if (construct.TryGetProperty("df", out var dfEl)) parms.Add(ParseNum(dfEl));
+        copula.SetCopulaParameters(parms.ToArray());
+        return copula;
+    }
+
+    var fit = construct.GetProperty("fit");
+    var x = datasets[fit.GetProperty("x").GetString()!];
+    var y = datasets[fit.GetProperty("y").GetString()!];
+    string method = fit.GetProperty("method").GetString()!;
+
+    if (fit.TryGetProperty("marginals", out var marginalsEl))
+    {
+        var margArr = marginalsEl.EnumerateArray().ToArray();
+        var mx = UnivariateDistributionFactory.CreateDistribution(
+            Enum.Parse<UnivariateDistributionType>(margArr[0].GetString()!));
+        var my = UnivariateDistributionFactory.CreateDistribution(
+            Enum.Parse<UnivariateDistributionType>(margArr[1].GetString()!));
+        if (method == "ifm")
+        {
+            ((IEstimation)mx).Estimate(x, ParameterEstimationMethod.MaximumLikelihood);
+            ((IEstimation)my).Estimate(y, ParameterEstimationMethod.MaximumLikelihood);
+        }
+        copula.MarginalDistributionX = mx;
+        copula.MarginalDistributionY = my;
+    }
+
+    switch (method)
+    {
+        case "tau":
+            SetThetaFromTauDispatch(copula, target, x, y);
+            break;
+        case "mpl":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.PseudoLikelihood);
+            break;
+        case "ifm":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.InferenceFromMargins);
+            break;
+        case "mle":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.FullLikelihood);
+            break;
+        default:
+            throw new Exception($"unknown copula fit method: {method}");
+    }
+    return copula;
+}
+
+// SetThetaFromTau is not part of the shared copula API (see file header); each
+// tau-capable copula type adds a branch here.
+static void SetThetaFromTauDispatch(BivariateCopula copula, string target, double[] x, double[] y)
+{
+    if (target == "Clayton") { ((ClaytonCopula)copula).SetThetaFromTau(x, y); return; }
+    throw new Exception($"copula '{target}' has no tau-based method-of-moments fit");
+}
+
+static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
+{
+    switch (m)
+    {
+        case "pdf": return c.PDF(a[0].GetDouble(), a[1].GetDouble());
+        case "log_pdf": return c.LogPDF(a[0].GetDouble(), a[1].GetDouble());
+        case "cdf": return c.CDF(a[0].GetDouble(), a[1].GetDouble());
+        case "inverse_cdf": return c.InverseCDF(a[0].GetDouble(), a[1].GetDouble())[a[2].GetInt32()];
+        case "upper_tail_dependence": return c.UpperTailDependence;
+        case "lower_tail_dependence": return c.LowerTailDependence;
+        case "theta": return c.Theta;
+        case "df": return c.GetCopulaParameters[1];
+        case "or_exceedance": return c.ORJointExceedanceProbability(a[0].GetDouble(), a[1].GetDouble());
+        case "and_exceedance": return c.ANDJointExceedanceProbability(a[0].GetDouble(), a[1].GetDouble());
+        case "marginal_param":
+        {
+            string which = a[0].GetString()!;
+            int idx = a[1].GetInt32();
+            var marg = which == "x" ? c.MarginalDistributionX : c.MarginalDistributionY;
+            return marg!.GetParameters[idx];
+        }
+        default: throw new Exception($"unknown copula fixture method: {m}");
+    }
+}
+
 // --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
 // Author a fixture case with placeholder "expected" values, run
 // `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
@@ -715,6 +818,59 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                         continue;
                     }
                     double actual = DispatchMultivariate(mvDist, mvTarget, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- bivariate_copula branch ----------------------------------------------------------
+    if (kindStr == "bivariate_copula")
+    {
+        string copTarget = root.GetProperty("target").GetString()!;
+        var copDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var copDs))
+            foreach (var kv in copDs.EnumerateObject())
+                copDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            BivariateCopula copula;
+            try { copula = BuildCopula(copTarget, c.GetProperty("construct"), copDatasets); }
+            catch (Exception ex) { failures.Add($"{copTarget}/{caseName}: build failed: {ex.Message}"); fail++; continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{copTarget}/{caseName}/{method}";
+                string mode = asrt.GetProperty("mode").GetString()!;
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(copTarget, caseName, method, argList,
+                             () => mode == "bool" ? (object)copula.ParametersValid
+                                                   : (object)DispatchCopula(copula, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    if (mode == "bool")
+                    {
+                        bool ok = copula.ParametersValid == asrt.GetProperty("expected").GetBoolean();
+                        if (ok) pass++; else { fail++; failures.Add(where + ": bool mismatch"); }
+                        continue;
+                    }
+                    double actual = DispatchCopula(copula, method, argList);
                     if (Compare(actual, asrt)) pass++;
                     else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
                 }

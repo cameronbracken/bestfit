@@ -133,6 +133,93 @@ internally constructs and evaluates an MVN instance. Seeded *sampling* methods
 (`random_value`/`lhs_value`-style first-N draws) are not covered yet for any target -- they arrive
 in a later task (Chunk 10).
 
+### `bivariate_copula`
+
+```jsonc
+{
+  "target":  "Clayton",                     // the CopulaType enum name: "AliMikhailHaq" |
+                                             // "Clayton" | "Frank" | "Gumbel" | "Joe" |
+                                             // "Normal" | "StudentT"
+  "kind":    "bivariate_copula",
+  "source":  "Numerics/.../Test_ClaytonCopula.cs",
+  "datasets": { "data1": [ ...100 numbers... ], "data1_pp": [ ...plotting positions... ] },
+  "cases": [
+    {
+      "name": "pdf_theta10",
+      "construct": { "theta": 10 },                            // OR
+      "construct": { "fit": { "x": "data1", "y": "data2", "method": "tau",
+                              "marginals": ["Normal", "Normal"] } },
+      "assertions": [
+        { "method": "pdf", "args": [0.2, 0.8], "expected": 1.3113e-05, "mode": "abs", "tol": 1e-6 }
+      ]
+    }
+  ]
+}
+```
+
+Every copula shares `BivariateCopula`'s uniform parameter API (`theta`/`get_copula_parameters`/
+`pdf`/`cdf`/...), so -- unlike `multivariate_distribution`, whose targets share no common surface
+-- all four runners dispatch through one fully generic path keyed by the factory
+(`copula_factory.hpp`, a bestfit addition with no upstream counterpart, documented in its header);
+adding a new copula target is a new header + a factory case + a fixture file, with **zero** runner
+changes (the one exception, the `"tau"` fit method, is explained below).
+
+`construct` is one of:
+
+- `{"theta": <double>}` -- direct construction. 2-parameter copulas (StudentT, a later task) add a
+  second key, `{"theta": <double>, "df": <double>}`; the runners map this to
+  `set_copula_parameters([theta, df])`, matching `GetCopulaParameters`'s declared order.
+- `{"fit": {"x": "<dataset>", "y": "<dataset>", "method": "tau"|"mpl"|"ifm"|"mle", "marginals":
+  ["Normal", "Normal"]?}}` -- fits the copula (and, for `"ifm"`/`"mle"`, its marginals) from sample
+  data. `"marginals"` is a 2-element array of univariate distribution type names (the same strings
+  `univariate_distribution_factory.hpp` accepts); omit it for `"tau"`/`"mpl"`, which have no
+  parametric marginals.
+  - `"tau"`: the Kendall's-tau method-of-moments fit (e.g. `ClaytonCopula::set_theta_from_tau`).
+    This is **not** part of the shared copula API in the C# source either -- `SetThetaFromTau` is a
+    member of each concrete Archimedean class, not `IBivariateCopula`/`IArchimedeanCopula` -- so
+    every runner resolves it with a small per-target dispatch (one `if (target == "Clayton") ...`
+    branch each; see `set_theta_from_tau_dispatch` in `core/tests/test_fixtures.cpp` and its R/Python/
+    emitter counterparts). Each new tau-capable copula (AliMikhailHaq, Gumbel, Joe) adds one branch.
+  - `"mpl"` (maximum pseudo likelihood): `"x"`/`"y"` must already be the **plotting positions** of
+    the data (rank/(n+1) via `Statistics.RanksInPlace`), not the raw sample -- mirroring the C# test
+    flow (`Test_MPL_Fit`), which computes plotting positions itself before calling
+    `BivariateCopulaEstimation.Estimate`. To keep every runner thin (no rank/tie logic duplicated
+    four times), fixtures precompute the plotting-position arrays once and store them as their own
+    named datasets (e.g. `data1_pp`/`data2_pp` in `clayton_copula.json`), and `"mpl"` cases point `x`/
+    `y` directly at those.
+  - `"ifm"` (inference from margins): the runner pre-fits `marginals` by maximum likelihood against
+    the RAW `x`/`y` sample data BEFORE calling `bivariate_copula_estimation.hpp`'s `estimate(...,
+    InferenceFromMargins)` -- mirroring `Test_IFM_Fit`'s `((IEstimation)...).Estimate(...)` calls
+    that precede `BivariateCopulaEstimation.Estimate`.
+  - `"mle"` (full likelihood): the runner constructs `marginals` UNFITTED (default-parameterized) and
+    lets the joint NelderMead optimizer inside `estimate(..., FullLikelihood)` fit the copula and
+    both marginals simultaneously -- mirroring `Test_MLE_Fit`, which just assigns
+    `copula.MarginalDistributionX = new Normal();` before calling
+    `BivariateCopulaEstimation.Estimate`.
+
+Assertions use the same `{method, args, expected, mode, tol}` shape as the other kinds. Methods:
+
+- `pdf`, `log_pdf`, `cdf` (`args: [u, v]`), `inverse_cdf` (`args: [u, v, index]`, 0-based) -- the
+  reduced-variate copula functions.
+- `upper_tail_dependence`, `lower_tail_dependence`, `theta`, `df` (2-parameter copulas only;
+  `get_copula_parameters()[1]`) -- no args.
+- `or_exceedance`, `and_exceedance` (`args: [u, v]`) -- the OR/AND joint exceedance probabilities.
+- `marginal_param` (`args: ["x"|"y", index]`) -- a fitted marginal's parameter, 0-based; only valid
+  after a `"fit"` construct with `"marginals"` set.
+- `parameters_valid` (`mode: "bool"`).
+
+**Fit tolerance:** every `"fit"` assertion uses `mode: "abs"`/`"rel"` with a tolerance, NEVER
+`"equal"`. `"mpl"`/`"ifm"`/`"mle"` walk BrentSearch/NelderMead, which can diverge from the C#
+optimizer by a libm-ULP branch on transcendental objectives (`std::sin` vs `Math.Sin` and similar) --
+see the Task 3 ledger note in `.superpowers/sdd/progress.md`. `clayton_copula.json` uses the same
+tolerances as the upstream C# test literals (`1e-4` for theta on `"tau"`/`"mpl"`/`"ifm"`, `1e-3` for
+theta on `"mle"`, `1e-2` for MLE's marginal parameters).
+
+**Not covered yet** (arrive in later tasks, mirroring the `multivariate_distribution` precedent):
+seeded sampling oracles (`random_value`/`lhs_value`-style first-N draws from
+`generate_random_values`, Chunk 10) and the elliptical copulas' extra construct/dispatch surface
+(Normal/StudentT, Chunk 9) beyond what is already documented above.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners

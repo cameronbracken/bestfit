@@ -331,6 +331,60 @@ run_mvn_case <- function(construct, assertions) {
   }
 }
 
+# --- bivariate_copula path ---------------------------------------------------------------
+# Every copula shares BivariateCopula's uniform theta/get_copula_parameters/pdf/cdf/... API
+# (unlike multivariate_distribution's Dirichlet/Multinomial/BivariateEmpirical/..., which
+# share no common surface), so this path is fully generic through the factory-driven
+# bf_cop_val_/bf_cop_fit_ glue in copula.cpp -- no per-target branching, mirroring
+# copula_factory.hpp's rationale. construct is either {"theta": x} (optionally {"theta":
+# x, "df": y} for 2-parameter copulas) or {"fit": {"x", "y", "method", "marginals"?}}; see
+# fixtures/README.md for the full schema.
+
+build_copula_params <- function(construct) {
+  p <- parse_num(construct$theta)
+  if (!is.null(construct$df)) p <- c(p, parse_num(construct$df))
+  p
+}
+
+dispatch_copula <- function(target, params, method, args) {
+  ns <- asNamespace("bestfitr")
+  ar <- flatten_mv_args(if (length(args) == 0) list() else args)
+  ns$bf_cop_val_(target, params, method, ar)
+}
+
+run_copula_case <- function(target, construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  if (!is.null(construct$fit)) {
+    fit <- construct$fit
+    x <- as.double(unlist(datasets[[fit$x]]))
+    y <- as.double(unlist(datasets[[fit$y]]))
+    marg_x <- if (!is.null(fit$marginals)) fit$marginals[[1]] else ""
+    marg_y <- if (!is.null(fit$marginals)) fit$marginals[[2]] else ""
+    result <- ns$bf_cop_fit_(target, x, y, fit$method, marg_x, marg_y)
+    for (a in assertions) {
+      args <- if (is.null(a$args)) list() else a$args
+      actual <- switch(a$method,
+        theta = result$params[[1]],
+        df = result$params[[2]],
+        marginal_param = {
+          which <- args[[1]]
+          idx <- as.integer(args[[2]]) + 1L
+          if (which == "x") result$marg_x_params[[idx]] else result$marg_y_params[[idx]]
+        },
+        stop(sprintf("unsupported post-fit copula fixture method: %s", a$method))
+      )
+      check_assertion(actual, a)
+    }
+  } else {
+    params <- build_copula_params(construct)
+    for (a in assertions) {
+      args <- if (is.null(a$args)) list() else a$args
+      actual <- dispatch_copula(target, params, a$method, args)
+      check_assertion(actual, a)
+    }
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -338,9 +392,17 @@ test_that("oracle fixtures validate", {
   expect_gt(length(files), 0)
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
-    # Only validate univariate_distribution and multivariate_distribution fixtures; skip
-    # other kinds (e.g. special_function) which are validated in C++ only and are not
-    # exposed to the R package.
+    # Only validate univariate_distribution, multivariate_distribution, and
+    # bivariate_copula fixtures; skip other kinds (e.g. special_function) which are
+    # validated in C++ only and are not exposed to the R package.
+    if (identical(spec$kind, "bivariate_copula")) {
+      target <- spec$target
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_copula_case(target, case$construct, case$assertions, datasets)
+      }
+      next
+    }
     if (identical(spec$kind, "multivariate_distribution")) {
       target <- spec$target
       for (case in spec$cases) {

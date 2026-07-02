@@ -354,15 +354,66 @@ def _check(actual, a):
         raise KeyError(f"unknown comparison mode: {mode}")
 
 
+# --- bivariate_copula path ---------------------------------------------------------------
+# Every copula shares BivariateCopula's uniform theta/get_copula_parameters/pdf/cdf/... API
+# (unlike multivariate_distribution's Dirichlet/Multinomial/BivariateEmpirical/..., which
+# share no common surface), so this path is fully generic through the factory-driven
+# _core.cop_val/_core.cop_fit bindings in copula.cpp -- no per-target branching, mirroring
+# copula_factory.hpp's rationale. construct is either {"theta": x} (optionally {"theta": x,
+# "df": y} for 2-parameter copulas) or {"fit": {"x", "y", "method", "marginals"?}}; see
+# fixtures/README.md for the full schema.
+
+
+def _build_copula_params(construct: dict) -> list[float]:
+    p = [_num(construct["theta"])]
+    if "df" in construct:
+        p.append(_num(construct["df"]))
+    return p
+
+
+def _dispatch_copula(target: str, params: list[float], method: str, args: list):
+    ar = _flatten_mv_args(args)
+    return _core.cop_val(target, params, method, ar)
+
+
+def _run_copula_case(target: str, construct: dict, assertions: list, datasets: dict):
+    if "fit" in construct:
+        fit = construct["fit"]
+        x = [float(v) for v in datasets[fit["x"]]]
+        y = [float(v) for v in datasets[fit["y"]]]
+        marginals = fit.get("marginals")
+        marg_x = marginals[0] if marginals else ""
+        marg_y = marginals[1] if marginals else ""
+        result = _core.cop_fit(target, x, y, fit["method"], marg_x, marg_y)
+        for a in assertions:
+            args = a.get("args", [])
+            if a["method"] == "theta":
+                actual = result["params"][0]
+            elif a["method"] == "df":
+                actual = result["params"][1]
+            elif a["method"] == "marginal_param":
+                which, idx = args[0], int(args[1])
+                actual = result["marg_x_params"][idx] if which == "x" else result["marg_y_params"][idx]
+            else:
+                raise KeyError(f"unsupported post-fit copula fixture method: {a['method']}")
+            _check(actual, a)
+    else:
+        params = _build_copula_params(construct)
+        for a in assertions:
+            args = a.get("args", [])
+            actual = _dispatch_copula(target, params, a["method"], args)
+            _check(actual, a)
+
+
 def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
         spec = json.loads(fx.read_text())
-        # Only validate univariate_distribution / multivariate_distribution fixtures; skip
-        # other kinds (e.g. special_function) which are validated in C++ only and are not
-        # exposed to the Python package.
+        # Only validate univariate_distribution / multivariate_distribution /
+        # bivariate_copula fixtures; skip other kinds (e.g. special_function) which are
+        # validated in C++ only and are not exposed to the Python package.
         kind = spec.get("kind")
-        if kind not in ("univariate_distribution", "multivariate_distribution"):
+        if kind not in ("univariate_distribution", "multivariate_distribution", "bivariate_copula"):
             continue
         for case in spec["cases"]:
             out.append((kind, spec["target"], spec.get("datasets", {}), case))
@@ -376,6 +427,10 @@ CASES = _load_cases()
     "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
 def test_fixture_case(kind, target, datasets, case):
+    if kind == "bivariate_copula":
+        _run_copula_case(target, case["construct"], case["assertions"], datasets)
+        return
+
     if kind == "multivariate_distribution":
         if target == "MultivariateNormal":
             _run_mvn_case(case["construct"], case["assertions"])

@@ -5,6 +5,20 @@
 #include "cpp11/declarations.hpp"
 #include <R_ext/Visibility.h>
 
+// copula.cpp
+double bf_cop_val_(std::string type, doubles params, std::string method, doubles args);
+extern "C" SEXP _bestfitr_bf_cop_val_(SEXP type, SEXP params, SEXP method, SEXP args) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cop_val_(cpp11::as_cpp<cpp11::decay_t<std::string>>(type), cpp11::as_cpp<cpp11::decay_t<doubles>>(params), cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<doubles>>(args)));
+  END_CPP11
+}
+// copula.cpp
+list bf_cop_fit_(std::string type, doubles x, doubles y, std::string method, std::string marg_x, std::string marg_y);
+extern "C" SEXP _bestfitr_bf_cop_fit_(SEXP type, SEXP x, SEXP y, SEXP method, SEXP marg_x, SEXP marg_y) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_cop_fit_(cpp11::as_cpp<cpp11::decay_t<std::string>>(type), cpp11::as_cpp<cpp11::decay_t<doubles>>(x), cpp11::as_cpp<cpp11::decay_t<doubles>>(y), cpp11::as_cpp<cpp11::decay_t<std::string>>(method), cpp11::as_cpp<cpp11::decay_t<std::string>>(marg_x), cpp11::as_cpp<cpp11::decay_t<std::string>>(marg_y)));
+  END_CPP11
+}
 // dist.cpp
 doubles bf_dist_moments_(std::string target, doubles params);
 extern "C" SEXP _bestfitr_bf_dist_moments_(SEXP target, SEXP params) {
@@ -373,6 +387,8 @@ extern "C" SEXP _bestfitr_bf_sobol_skip_to_(SEXP dimension, SEXP index, SEXP pat
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                   7},
+    {"_bestfitr_bf_cop_fit_",                  (DL_FUNC) &_bestfitr_bf_cop_fit_,                   6},
+    {"_bestfitr_bf_cop_val_",                  (DL_FUNC) &_bestfitr_bf_cop_val_,                   4},
     {"_bestfitr_bf_cr_cdf_",                   (DL_FUNC) &_bestfitr_bf_cr_cdf_,                    4},
     {"_bestfitr_bf_cr_moments_",               (DL_FUNC) &_bestfitr_bf_cr_moments_,                3},
     {"_bestfitr_bf_cr_pdf_",                   (DL_FUNC) &_bestfitr_bf_cr_pdf_,                    4},

@@ -217,6 +217,38 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
   the formula suggests. Ported verbatim (see `core/include/bestfit/numerics/data/interpolation/interpolater.hpp`).
 
+## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false
+
+- **Where:** `Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs`,
+  `ValidateParameter(double parameter, bool throwException)`.
+- **What:** The base `BivariateCopula.Theta` setter is `_parametersValid = ValidateParameter(value,
+  false) is null;` (see `BivariateCopula.cs`) -- the C# convention used correctly by
+  `NormalCopula`/`StudentTCopula`, whose `ValidateParameter` `return null;` when the parameter is in
+  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead does
+  `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is valid");` -- a non-null
+  exception object, even though the message says the parameter IS valid. Because `is null` is
+  therefore always false, `ParametersValid` is unconditionally `false` for every Archimedean-derived
+  copula (Clayton, AliMikhailHaq, Frank, Gumbel, Joe) regardless of whether theta is actually in
+  range. This does not affect `PDF`/`CDF`/`InverseCDF` or any fit -- the "valid" branch never
+  throws -- only the `ParametersValid` getter is wrong.
+- **Evidence (reproduced against the real C# library):** `new ClaytonCopula(2.0).ParametersValid`
+  returns `false` even though `theta_minimum = -1`, `theta_maximum = +inf`, and `2.0` is well
+  within range; `ValidateParameter(2.0, false).Message` is `"Parameter is valid (Parameter
+  'Theta')"` -- a non-null object. `new NormalCopula(0.5).ParametersValid` correctly returns `true`
+  for the equivalent in-range case, confirming the divergence is specific to
+  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas.
+- **Port handling:** mirrored faithfully (`archimedean_copula.hpp`'s `validate_parameter` also
+  returns a non-nullopt "Parameter is valid" message in the final branch, so
+  `bivariate_copula.hpp`'s `set_theta` likewise always sets `parameters_valid_ = false` for
+  Archimedean copulas); documented in-header at both `bivariate_copula.hpp` and
+  `archimedean_copula.hpp`. No fixture asserts `parameters_valid` on an Archimedean copula (Clayton's
+  fixture omits that case) since the value is not independently informative once the bug is known.
+- **Suggested C# fix:** change `ArchimedeanCopula.ValidateParameter`'s final branch to `return
+  null;`, matching `NormalCopula`/`StudentTCopula`. This would flip `ParametersValid` from `false` to
+  `true` for every existing in-range Archimedean copula instance -- audit any downstream code
+  (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the (always-false)
+  value before shipping the fix.
+
 ---
 
 ## How to work this list later
