@@ -1,6 +1,6 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0 and Phase 1 are **complete**.
+> **Current status (kept in sync by hand):** Phase 0, Phase 1, and Phase 2 are **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -8,8 +8,20 @@
 > AdaptiveGaussKronrod integrator, Brent root-finder, Nelder-Mead optimizer, Matrix/Vector linear
 > algebra, MersenneTwister RNG, Sobol sequence, Statistics (product moments, L-moments),
 > GoodnessOfFit, and all 42 univariate distributions including composite types (Mixture,
-> TruncatedDistribution, CompetingRisks). CI is green on the full matrix (`sync-check`, `core`,
-> `r-cmd-check`, `python`) on Linux/macOS/Windows. The dotnet oracle gate is dev-only (not in CI).
+> TruncatedDistribution, CompetingRisks).
+>
+> Phase 2 delivered the multivariate distributions and copula layer: Dirichlet, Multinomial,
+> BivariateEmpirical, MultivariateNormal (with the ported Genz MVNDST integrator), and
+> MultivariateStudentT; all seven bivariate copulas (Clayton, AliMikhailHaq, Frank, Gumbel, Joe,
+> Normal, StudentT) sharing one copula-estimation base (tau/MPL/IFM/MLE fits) plus an
+> `IMaximumLikelihoodEstimation` mixin; and CompetingRisks' correlated dependency modes
+> (`PerfectlyNegative`/`CorrelationMatrix`), un-deferred from Phase 1. Fixture-validated in
+> C++/R/Python and reproduced against the real Numerics library by the dotnet oracle gate. Pending
+> CI run and PR.
+>
+> CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
+> Linux/macOS/Windows as of the Phase 1 merge; the Phase 2 branch has not yet been pushed for CI.
+> The dotnet oracle gate is dev-only (not in CI).
 >
 > Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
 > USACE-RMC `main`, shallow, dev-only). Still pending: `PORTING_MANIFEST.toml`,
@@ -212,6 +224,12 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    C# by the dotnet oracle gate. Includes composite types: Mixture, TruncatedDistribution, and
    CompetingRisks. The polymorphic factory/base/mixin layer is used throughout.
 3. Multivariate distributions + copulas.
+   [DONE] Dirichlet, Multinomial, BivariateEmpirical, MultivariateNormal (Genz MVNDST), and
+   MultivariateStudentT; all seven bivariate copulas (Clayton, AliMikhailHaq, Frank, Gumbel, Joe,
+   Normal, StudentT) with a shared copula-estimation base (tau/MPL/IFM/MLE fits) and an
+   `IMaximumLikelihoodEstimation` mixin; CompetingRisks' correlated dependency modes un-deferred
+   from Phase 1. Fixture-validated in C++/R/Python and reproduced against C# by the dotnet oracle
+   gate. Pending CI run and PR.
 4. Sampling/MCMC (RWMH, ARWMH, DEMCz/zs, HMC, NUTS, Gibbs, SNIS) + Bootstrap — fixture digests prove
    identical seeded chains across R/Python.
 5. BestFit `Estimation` (MaximumLikelihood, MAP, GMM, BayesianAnalysis, NumericalDiff, OptimizationMethod).

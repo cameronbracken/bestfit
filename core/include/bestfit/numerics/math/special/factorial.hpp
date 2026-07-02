@@ -1,8 +1,10 @@
 // ported from: Numerics/Mathematics/Special Functions/Factorial.cs @ a2c4dbf
 #pragma once
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 #include "bestfit/numerics/tools.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
@@ -90,6 +92,58 @@ inline double log_factorial(int n) {
 inline double binomial_coefficient(int n, int k) {
     if (k < 0 || n < 0 || k > n) return 0.0;
     return std::floor(0.5 + std::exp(log_factorial(n) - log_factorial(k) - log_factorial(n - k)));
+}
+
+namespace detail {
+
+// Helper for find_combinations(): recursively fills `buffer` with each increasing-index
+// m-subset of {begin, ..., end-1}, appending each completed subset to `out`. Mirrors C#
+// Factorial.FindCombosRecursive.
+inline void find_combos_recursive(std::vector<int>& buffer, int done, int begin, int end,
+                                   std::vector<std::vector<int>>& out) {
+    for (int i = begin; i < end; ++i) {
+        buffer[static_cast<std::size_t>(done)] = i;
+        if (done == static_cast<int>(buffer.size()) - 1)
+            out.push_back(buffer);
+        else
+            find_combos_recursive(buffer, done + 1, i + 1, end, out);
+    }
+}
+
+}  // namespace detail
+
+// Finds each m-combination within n (0-indexed), in increasing-index order. Mirrors C#
+// Factorial.FindCombinations. Only called with m >= 1 by all_combinations() below (the
+// C# source's own only caller); m <= 0 returns no combinations (defensive, not exercised
+// by the C# source since it never calls FindCombinations(0, ...)).
+inline std::vector<std::vector<int>> find_combinations(int m, int n) {
+    std::vector<std::vector<int>> out;
+    if (m <= 0) return out;
+    std::vector<int> buffer(static_cast<std::size_t>(m));
+    detail::find_combos_recursive(buffer, 0, 0, n, out);
+    return out;
+}
+
+// Finds all combinations of m within n without replacement, represented as 0/1 indicator
+// rows grouped by increasing subset size (1, 2, ..., n), each group in the increasing-
+// index order find_combinations() produces. Mirrors C# Factorial.AllCombinations
+// verbatim, including the n >= 31 overflow guard (2^n would exceed Int32 range).
+inline std::vector<std::vector<int>> all_combinations(int n) {
+    if (n < 0) throw std::out_of_range("factorial::all_combinations: n must be non-negative");
+    if (n >= 31)
+        throw std::out_of_range(
+            "factorial::all_combinations: n is too large; number of combinations exceeds Int32 range");
+    int f = (1 << n) - 1;
+    std::vector<std::vector<int>> output(static_cast<std::size_t>(f),
+                                          std::vector<int>(static_cast<std::size_t>(n), 0));
+    int t = 0;
+    for (int i = 1; i <= n; ++i) {
+        for (const auto& combo : find_combinations(i, n)) {
+            for (int col : combo) output[static_cast<std::size_t>(t)][static_cast<std::size_t>(col)] = 1;
+            ++t;
+        }
+    }
+    return output;
 }
 
 }  // namespace bestfit::numerics::math::special::factorial

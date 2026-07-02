@@ -132,6 +132,31 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested action:** verify the intent; consider renaming one overload (e.g.
   `CentralMomentsBySteps` / `CentralMomentsByTolerance`) to remove the ambiguity.
 
+## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear
+
+- **Where:** `Numerics/Distributions/Multivariate/BivariateEmpirical.cs`, `SetParameters` /
+  `CDF(double, double)`.
+- **What:** `CDF` lazily builds the `bilinear` field only `if (bilinear == null)`. Calling
+  `SetParameters` a second time (new grid) after a `CDF` call has already run does not reset
+  `bilinear` to null, so subsequent `CDF` calls keep interpolating against the OLD grid.
+- **Evidence:** read from source; not exercised by the ported fixture (constructed once, `CDF`
+  called several times against the same grid, per `Test_BivariateEmpirical.Test_BivariateEmp`).
+- **Port handling:** mirrored faithfully (`bilinear_` is likewise never reset in `set_parameters()`).
+- **Suggested C# fix:** set `bilinear = null;` at the end of `SetParameters`.
+
+## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform
+
+- **Where:** `Numerics/Data/Interpolation/Linear.cs` (`Tools.Log10`, clamps values `< 1E-16` to
+  `1E-16`) vs. `Numerics/Data/Interpolation/Bilinear.cs` (`Math.Log10` directly, no clamp).
+- **What:** the two interpolation classes apply the Logarithmic transform inconsistently: Linear
+  is guarded against `log(0)`/`log(negative)` producing `-Inf`/`NaN`; Bilinear is not, despite
+  Bilinear internally reusing Linear instances for its search machinery.
+- **Port handling:** mirrored faithfully (`Linear::base_interpolate`/`extrapolate` use
+  `bestfit::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
+  at both call sites.
+- **Suggested C# fix:** have `Bilinear` call `Tools.Log10` for consistency, unless the lack of
+  clamping there is intentional (e.g. grids are assumed always positive).
+
 ## ROBUSTNESS — NoncentralT moments use AdaptiveGaussKronrod (heavy) with no analytic fallback
 
 - **Where:** `Numerics/Distributions/Univariate/NoncentralT.cs`, `Skewness`/`Kurtosis` via
@@ -142,12 +167,219 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   near-symmetric until it is switched to the now-ported AGK). Only a limitation on the C++ side.
 - **Suggested action:** none for C#; noted for context.
 
+## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted
+
+- **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `COVSRT`, the
+  `for (int j = i - 1; j < 0; j--)` loop inside the `CVDIAG <= 0` branch (permute limits/rows when
+  a covariance diagonal entry is degenerate).
+- **What:** counting DOWN from `j = i - 1` with a `j < 0` continuation condition means the loop body
+  only ever runs when `i == 0` (so `j` starts at `-1`, which already satisfies `j < 0`); for every
+  `i >= 1` the condition fails immediately and the loop never executes. When it does run (`i == 0`,
+  `j == -1`), it immediately indexes `COV[II + j]` with `II == 0`, i.e. `COV[-1]` — in C# this throws
+  `IndexOutOfRangeException`. The condition looks like a Fortran `DO j = i-1, 0, -1` mistranslated
+  (should be `j >= 0`).
+- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test (requires a
+  degenerate/near-zero effective covariance diagonal at the very first COVSRT-sorted pivot).
+- **Port handling:** the C++ (`core/include/.../multivariate_normal.hpp`, `covsrt`) transcribes the
+  loop verbatim but adds a minimal bounds guard immediately before the first `COV[II + j]` access:
+  if `II + j < 0` it throws `std::out_of_range` instead of indexing. `std::vector::operator[]`
+  performs no bounds check, so the verbatim `i==0` access would otherwise be undefined behavior (a
+  heap-corrupting out-of-bounds write) rather than the catchable `IndexOutOfRangeException` C#
+  raises there. The guard reproduces C#'s *observable* behavior (a thrown exception on this path)
+  without restructuring the loop or any other `covsrt` logic.
+- **Suggested C# fix:** change the loop condition to `j >= 0` (or reverse the iteration order to
+  match the apparent Fortran intent); add a regression test with a rank-deficient covariance matrix
+  that forces the first sorted pivot to be numerically zero.
+
+## COSMETIC — MultivariateNormal.MVNDNT return value is always 0
+
+- **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `MVNDNT`.
+- **What:** the local `result` is initialized to `0` and never reassigned anywhere in the method
+  body, so `MVNDNT` always returns `0.0`. Its only caller, `MVNDST`, casts this return straight into
+  `INFORM` (`INFORM = (int)MVNDNT(...)`), so `INFORM` is always (re)initialized to `0` regardless of
+  what `COVSRT`/`MVNLMS`/`BVNMVN` computed; only the `N-INFIS >= 2` branch (via `DKBVRC`) can set it
+  to anything else afterward.
+- **Port handling:** mirrored faithfully (`mvndnt` always returns `0.0`), documented in-header.
+  Harmless in practice — `INFORM` ends up correct for the only case that matters (multi-dimensional
+  integration) — but the return value itself is dead code.
+- **Suggested C# fix:** either remove the unused return value (change `MVNDNT` to `void`) or wire it
+  up if some future INFORM semantics were intended for the `N-INFIS` 0/1 branches.
+
 ## COSMETIC — dead variables / heritage artifacts
 
 - `NoncentralT.cs`: a `TT` variable is assigned then never used after the sign flip (a FORTRAN
   translation artifact). Harmless.
 - Several distributions declare a member-field initializer (e.g. a scale of `0.0`) that the
   constructor immediately overwrites — harmless but misleading.
+- `Numerics/Data/Interpolation/Support/Interpolater.cs`: `deltaStart = Math.Min(1,
+  (int)Math.Pow(Count, 0.25))` always evaluates to `1` for any `Count >= 2` (`Math.Pow(2, 0.25)`
+  already truncates to `>= 1`, and `Math.Min` caps at `1`), so the "correlated" hunt-vs-bisection
+  search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
+  the formula suggests. Ported verbatim (see `core/include/bestfit/numerics/data/interpolation/interpolater.hpp`).
+
+## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false
+
+- **Where:** `Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs`,
+  `ValidateParameter(double parameter, bool throwException)`.
+- **What:** The base `BivariateCopula.Theta` setter is `_parametersValid = ValidateParameter(value,
+  false) is null;` (see `BivariateCopula.cs`) -- the C# convention used correctly by
+  `NormalCopula`/`StudentTCopula`, whose `ValidateParameter` `return null;` when the parameter is in
+  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead does
+  `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is valid");` -- a non-null
+  exception object, even though the message says the parameter IS valid. Because `is null` is
+  therefore always false, `ParametersValid` is unconditionally `false` for any Archimedean copula
+  that does NOT override `ValidateParameter` itself. **UPDATE (Task 8):** this affects Clayton,
+  Gumbel, and Joe, but NOT AliMikhailHaq (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each
+  have their own `ValidateParameter` override that is textually identical to
+  `ArchimedeanCopula`'s except the final branch correctly `return null;`, so `AMHCopula`/
+  `FrankCopula` instances get a correctly-working `ParametersValid`. (An earlier version of this
+  entry said the bug affected "every Archimedean-derived copula (Clayton, AliMikhailHaq, Frank,
+  Gumbel, Joe)" -- that blanket claim was wrong for AMH/Frank; corrected here after reading all
+  five concrete `.cs` files directly.) This does not affect `PDF`/`CDF`/`InverseCDF` or any fit for
+  any copula -- the "valid" branch never throws -- only the `ParametersValid` getter is wrong, and
+  only for Clayton/Gumbel/Joe.
+- **Evidence (reproduced against the real C# library):** `new ClaytonCopula(2.0).ParametersValid`
+  returns `false` even though `theta_minimum = -1`, `theta_maximum = +inf`, and `2.0` is well
+  within range; `ValidateParameter(2.0, false).Message` is `"Parameter is valid (Parameter
+  'Theta')"` -- a non-null object. `new NormalCopula(0.5).ParametersValid` correctly returns `true`
+  for the equivalent in-range case, confirming the divergence is specific to
+  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas. `AMHCopula.cs`/
+  `FrankCopula.cs` source inspection (Task 8) confirms their own overrides return `null` in range,
+  so `new AMHCopula(0.5).ParametersValid`/`new FrankCopula(5.0).ParametersValid` are expected `true`
+  (not independently re-verified against the built library for this entry, since PDF/CDF/fit
+  fidelity was the Task 8 verification priority, but the source override is unambiguous).
+- **Port handling:** mirrored faithfully. `archimedean_copula.hpp`'s `validate_parameter` still
+  returns a non-nullopt "Parameter is valid" message in the final branch (affecting
+  `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it), but
+  `amh_copula.hpp`/`frank_copula.hpp` (Task 8) each add their own correct override (`return
+  std::nullopt;` in range), matching their C# counterparts. Documented in-header at
+  `bivariate_copula.hpp`, `archimedean_copula.hpp`, and each of the five concrete copula headers.
+  No fixture asserts `parameters_valid` on any Archimedean copula since the value is not
+  independently informative once the bug (and which copulas it does/doesn't affect) is known.
+- **Suggested C# fix:** change `ArchimedeanCopula.ValidateParameter`'s final branch to `return
+  null;`, matching `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`, and delete the
+  now-redundant overrides on `AMHCopula`/`FrankCopula`. This would flip `ParametersValid` from
+  `false` to `true` for every existing in-range Clayton/Gumbel/Joe instance -- audit any downstream
+  code (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the
+  (always-false, for those three types) value before shipping the fix.
+
+---
+
+## CONSISTENCY/API — JoeCopula has no SetThetaFromTau, unlike its Archimedean siblings
+
+- **Where:** `Numerics/Distributions/Bivariate Copulas/JoeCopula.cs`.
+- **What:** `ClaytonCopula`, `AMHCopula`, and `GumbelCopula` each implement a `SetThetaFromTau`
+  method-of-moments fit (Kendall's tau -> theta, closed-form for Clayton/Gumbel, Brent-solved for
+  AMH). `JoeCopula` has no such method -- confirmed by `grep -n SetThetaFromTau` across the entire
+  `Numerics/Distributions/Bivariate Copulas/` directory (three hits: Clayton, AMH, Gumbel; zero for
+  Joe) and by `Test_JoeCopula.cs` having every other concrete copula's `Test_MOM_Fit` test method
+  but not its own. This is not a wrong-output bug (nothing crashes or returns a bad value) --
+  it is a missing feature relative to sibling classes that otherwise share an (almost) identical
+  API surface, and there is no algorithmic reason Joe's tau could not be Brent-solved the same way
+  AMH's is (Joe's generator, like AMH's, has no closed-form tau inversion, but that has not stopped
+  the other three).
+- **Evidence:** direct inspection of all five `Bivariate Copulas/*.cs` files (Task 8); this is also
+  why the Phase 2 plan text and an earlier draft of `fixtures/README.md` incorrectly listed Joe as
+  tau-capable (both were apparently written from the class's general shape/expected symmetry with
+  Clayton/AMH/Gumbel rather than the actual source) -- corrected in both places during Task 8.
+- **Port handling:** `joe_copula.hpp` (Task 8) does NOT add a `set_theta_from_tau` method, matching
+  the C# source exactly; `joe_copula.json` has no `"tau"` fixture case, and the three
+  `set_theta_from_tau_dispatch` glue functions (`core/tests/test_fixtures.cpp`,
+  `bestfitr/src/copula.cpp`, `bestfitpy/src/bindings/copula.cpp`) plus the oracle emitter's
+  `SetThetaFromTauDispatch` have no `"Joe"` branch (each has a NOTE comment explaining the
+  omission).
+- **Suggested C# fix:** add `JoeCopula.SetThetaFromTau`, e.g. `Theta = Brent.Solve(t => { ... } -
+  tau, 1d, 100d)` mirroring `GumbelCopula`'s pattern but for Joe's tau relationship, for API parity
+  with Clayton/AMH/Gumbel. Not urgent -- MPL/IFM/MLE fits already work for Joe via the shared
+  `BivariateCopulaEstimation` path.
+
+---
+
+## CONSISTENCY/API — CompetingRisks' correlated CDF never touches MultivariateNormal.CDF()
+
+- **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CDF(double)` /
+  `CumulativeIncidenceFunctions`, calling `Numerics/Data/Statistics/Probability.cs`.
+- **What:** for the `PerfectlyNegative`/`CorrelationMatrix` dependency modes, `CDF` builds a
+  `MultivariateNormal` (`CreateMultivariateNormal()`) and calls `Probability.UnionPCM(cdf,
+  _mvn.Covariance)` / `Probability.JointProbability(cdf, ind, _mvn.Covariance)`. The second call's
+  3rd argument is a `double[,]` (`_mvn.Covariance`), which only matches the overload
+  `JointProbability(IList<double>, int[], double[,]? correlationMatrix = null, DependencyType
+  dependency = DependencyType.CorrelationMatrix)` — there is no `JointProbability(IList<double>,
+  int[], MultivariateNormal)` overload. With a non-null `correlationMatrix` and the default
+  (`CorrelationMatrix`) dependency, that overload unconditionally dispatches to
+  `JointProbabilityHPCM` ("Haden Smith's modification of Pandey's Product of Conditional
+  Marginals"), never to `JointProbabilityMVN`. `UnionPCM` reaches the same 3-arg overload
+  internally for every inclusion-exclusion term. The upshot: the `MultivariateNormal` instance
+  `CompetingRisks` constructs is used ONLY to hold/validate a mu/sigma covariance matrix — its
+  `.CDF()` (the seeded Genz-Bretz MVNDST quasi-Monte-Carlo integrator for dimension >= 3) is never
+  invoked anywhere in `CompetingRisks.cs`. This is surprising given the class name and the
+  presence of a full `MultivariateNormal` instance, but is unambiguous from static C# overload
+  resolution (confirmed by direct inspection, not runtime reflection, since C# overload binding is
+  determined entirely by argument types at compile time).
+- **Consequence for the port:** the correlated CDF/PDF paths this task un-defers are fully
+  deterministic (no RNG) for any number of components — only `MultivariateNormal.BivariateCDF`
+  (Drezner/Genz closed-form bivariate normal CDF) is used. This differs from the original task
+  brief's assumption that CompetingRisks reaches "the MVN-backed joint path" (`JointProbabilityMVN`)
+  and would need to worry about the C# `MultivariateNormal._MVNUNI` clock-seeded default (the
+  concern Task 6's carry-forward note flagged for MultivariateStudentT/MultivariateNormal's own
+  `dimension >= 3` `CDF()`, a genuinely different code path). Governed here by "the actual C#
+  source over any brief or plan text" (this repo's standing rule): `core/include/bestfit/numerics/
+  data/probability.hpp` ports `JointProbabilityHPCM`/`UnionPCM`, not `JointProbabilityMVN`/
+  `UnionMVN`, which remain unported (no reachable caller).
+- **Port handling:** mirrored faithfully; documented at length in `probability.hpp`'s header
+  comment and `competing_risks.hpp`'s CDF comment.
+- **Suggested action:** none required (not a bug — HPCM is a legitimate, if approximate,
+  alternative to direct MVN-CDF integration) — flagged here purely so a future reader tracing
+  "why does CompetingRisks build a MultivariateNormal but never call its CDF" doesn't need to
+  re-derive the overload-resolution chain from scratch.
+
+## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1
+
+- **Where:** `Numerics/Data/Statistics/Probability.cs`, `JointProbabilityHPCM`.
+- **What:** the "First cycle" block computes `cdf = Normal.StandardCDF(z1);` and then has a
+  commented-out line `//if (cdf < 1e-300) cdf = 1e-300;` immediately before `A = pdf / cdf;` (a
+  potential division by a near-zero `cdf`). The "Remaining cycles" loop (only reached when the
+  number of correlated events `n >= 3`) recomputes the analogous `cdf` and keeps the identical
+  guard ACTIVE (not commented out) right before the same `A = pdf / cdf;` division. This asymmetry
+  — a guard present in one loop and disabled (via comment) in a structurally identical one three
+  lines apart — looks like an accidental omission (e.g. a guard added later to fix a NaN/Infinity
+  seen only in the multi-cycle case, never back-ported to cycle 1) rather than an intentional
+  design choice.
+- **Evidence:** direct inspection of `Probability.cs`; not hit by any CompetingRisks fixture
+  (`R[0,0] = Normal.StandardZ(probabilities[0])` is never so extreme that
+  `Normal.StandardCDF(R[0,0])` underflows below `1e-300` for any component/x combination the
+  fixtures exercise — the two closest CompetingRisks fixture cases keep `z1` well within a few
+  standard deviations of the median).
+- **Port handling:** mirrored faithfully (`joint_probability_hpcm` in `probability.hpp` leaves the
+  guard commented out in the analogous "First cycle" block, applies it in "Remaining cycles"),
+  documented in-header at both the file comment and the function itself.
+- **Suggested C# fix:** either add the matching `if (cdf < 1e-300) cdf = 1e-300;` guard to the
+  first cycle (for consistency and to avoid a potential `A = pdf / 0` -> `Infinity`/`NaN` if `z1`
+  is extreme enough), or confirm the omission is deliberate (e.g. cycle 1's `cdf` is provably
+  bounded away from zero by some invariant not obvious from the code) and document why.
+
+## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)
+
+- **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CreateMultivariateNormal()`.
+- **What:** in the `PerfectlyNegative` branch, the method does `CorrelationMatrix = new double[D,
+  D];` (assigning a FRESH all-zero `D x D` matrix through the public property setter) and then
+  fills a SEPARATE local `sigma` array with the actual synthetic rho matrix
+  (`rho = -1/(D-1) + sqrt(ε)`) that gets passed to `new MultivariateNormal(mu, sigma)`. The public
+  `CorrelationMatrix` getter therefore reads back all zeros after any CDF/PDF call in
+  `PerfectlyNegative` mode — not the rho matrix the MVN's `.Covariance` actually holds. This looks
+  like a leftover from refactoring (the zero matrix was probably meant to be a scratch buffer, not
+  assigned to the public property) rather than intentional API design.
+- **Evidence:** direct inspection; not exercised by any fixture assertion (no fixture reads
+  `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call — the fixtures only check
+  CDF/PDF/moments values, which are unaffected since the MVN itself uses the correct local
+  `sigma`).
+- **Port handling:** mirrored faithfully (`create_multivariate_normal()` in `competing_risks.hpp`
+  likewise overwrites the mutable `correlation_matrix_` field with zeros in the `PerfectlyNegative`
+  branch), documented in-header.
+- **Suggested C# fix:** use a local scratch array (e.g. `var scratchCorr = new double[D, D];`)
+  instead of assigning through the public `CorrelationMatrix` property, so
+  `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
+  silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
 ---
 

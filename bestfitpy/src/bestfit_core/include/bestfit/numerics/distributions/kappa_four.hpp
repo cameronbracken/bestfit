@@ -12,6 +12,7 @@
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -24,7 +25,8 @@ namespace sf = bestfit::numerics::math::special;
 
 class KappaFour : public UnivariateDistributionBase,
                   public IEstimation,
-                  public ILinearMomentEstimation {
+                  public ILinearMomentEstimation,
+                  public IMaximumLikelihoodEstimation {
    public:
     // Constructs a Kappa-4 distribution with ξ=100, α=10, κ=0, h=0.
     KappaFour() { set_parameters({100.0, 10.0, 0.0, 0.0}); }
@@ -402,7 +404,7 @@ class KappaFour : public UnivariateDistributionBase,
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         initials.resize(4);
         lowers.resize(4);
         uppers.resize(4);

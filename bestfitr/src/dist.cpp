@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "bestfit/numerics/data/probability.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -275,14 +276,29 @@ bool bf_mix_valid_(strings comp_targets, list comp_params_list, doubles weights)
 }
 
 // --- Composite glue: CompetingRisks -------------------------------------------------
-// Accepts (component_targets, component_params_list, minimum_of_rv) and exposes the full
-// distribution surface. component_params_list is a list-of-doubles R list.
-// minimum_of_rv = TRUE for min-of-components (series system, default);
-//                 FALSE for max-of-components (parallel system).
+// Accepts (component_targets, component_params_list, minimum_of_rv, dependency,
+// correlation) and exposes the full distribution surface. component_params_list is a
+// list-of-doubles R list. minimum_of_rv = TRUE for min-of-components (series system,
+// default); FALSE for max-of-components (parallel system). dependency is one of
+// "Independent"/"PerfectlyPositive"/"PerfectlyNegative"/"CorrelationMatrix"; correlation
+// is a list of numeric row vectors (only consulted when dependency == "CorrelationMatrix",
+// may be an empty list otherwise).
+
+static bestfit::numerics::data::probability::DependencyType parse_dependency(
+    const std::string& d) {
+    namespace prob = bestfit::numerics::data::probability;
+    if (d == "Independent") return prob::DependencyType::Independent;
+    if (d == "PerfectlyPositive") return prob::DependencyType::PerfectlyPositive;
+    if (d == "PerfectlyNegative") return prob::DependencyType::PerfectlyNegative;
+    if (d == "CorrelationMatrix") return prob::DependencyType::CorrelationMatrix;
+    stop("unknown dependency type '%s'", d.c_str());
+}
 
 static dist::CompetingRisks make_competing_risks(strings comp_targets,
                                                   list comp_params_list,
-                                                  bool minimum_of_rv) {
+                                                  bool minimum_of_rv,
+                                                  const std::string& dependency,
+                                                  list correlation) {
     int K = static_cast<int>(comp_targets.size());
     std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
     comps.reserve(K);
@@ -294,12 +310,24 @@ static dist::CompetingRisks make_competing_risks(strings comp_targets,
     }
     dist::CompetingRisks cr(std::move(comps));
     cr.minimum_of_random_variables = minimum_of_rv;
+    cr.dependency = parse_dependency(dependency);
+    if (dependency == "CorrelationMatrix") {
+        bestfit::numerics::data::probability::Matrix2D corr;
+        corr.reserve(correlation.size());
+        for (R_xlen_t i = 0; i < correlation.size(); ++i) {
+            doubles row = correlation[i];
+            corr.emplace_back(row.begin(), row.end());
+        }
+        cr.set_correlation_matrix(std::move(corr));
+    }
     return cr;
 }
 
 [[cpp11::register]]
-doubles bf_cr_moments_(strings comp_targets, list comp_params_list, bool minimum_of_rv) {
-    auto d = make_competing_risks(comp_targets, comp_params_list, minimum_of_rv);
+doubles bf_cr_moments_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                        std::string dependency, list correlation) {
+    auto d = make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                   correlation);
     writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
                            d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
     out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
@@ -307,21 +335,36 @@ doubles bf_cr_moments_(strings comp_targets, list comp_params_list, bool minimum
 }
 
 [[cpp11::register]]
-double bf_cr_pdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x) {
-    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).pdf(x);
+double bf_cr_pdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                   std::string dependency, list correlation, double x) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                 correlation).pdf(x);
 }
 
 [[cpp11::register]]
-double bf_cr_cdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double x) {
-    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).cdf(x);
+double bf_cr_log_pdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                       std::string dependency, list correlation, double x) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                 correlation).log_pdf(x);
 }
 
 [[cpp11::register]]
-double bf_cr_quantile_(strings comp_targets, list comp_params_list, bool minimum_of_rv, double prob) {
-    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).inverse_cdf(prob);
+double bf_cr_cdf_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                   std::string dependency, list correlation, double x) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                 correlation).cdf(x);
 }
 
 [[cpp11::register]]
-bool bf_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_rv) {
-    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv).parameters_valid();
+double bf_cr_quantile_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                        std::string dependency, list correlation, double prob) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                 correlation).inverse_cdf(prob);
+}
+
+[[cpp11::register]]
+bool bf_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                   std::string dependency, list correlation) {
+    return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
+                                 correlation).parameters_valid();
 }

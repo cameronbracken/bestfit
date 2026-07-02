@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
@@ -18,7 +19,9 @@
 
 namespace bestfit::numerics::distributions {
 
-class Triangular : public UnivariateDistributionBase, public IEstimation {
+class Triangular : public UnivariateDistributionBase,
+                   public IEstimation,
+                   public IMaximumLikelihoodEstimation {
    public:
     Triangular() { set_parameters(0.0, 0.5, 1.0); }
     Triangular(double min, double mode, double max) { set_parameters(min, mode, max); }
@@ -147,7 +150,7 @@ class Triangular : public UnivariateDistributionBase, public IEstimation {
 
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials, std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         double s_min = *std::min_element(sample.begin(), sample.end());
         double s_max = *std::max_element(sample.begin(), sample.end());
         double s_mean = std::accumulate(sample.begin(), sample.end(), 0.0) /

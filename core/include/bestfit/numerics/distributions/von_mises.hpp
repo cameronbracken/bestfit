@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
@@ -23,7 +24,9 @@
 
 namespace bestfit::numerics::distributions {
 
-class VonMises : public UnivariateDistributionBase, public IEstimation {
+class VonMises : public UnivariateDistributionBase,
+                 public IEstimation,
+                 public IMaximumLikelihoodEstimation {
    public:
     // Constructs a von Mises distribution with μ = 0 and κ = 1.
     VonMises() { set_parameters(0.0, 1.0); }
@@ -126,7 +129,7 @@ class VonMises : public UnivariateDistributionBase, public IEstimation {
     void get_parameter_constraints(const std::vector<double>& sample,
                                    std::vector<double>& initials,
                                    std::vector<double>& lowers,
-                                   std::vector<double>& uppers) const {
+                                   std::vector<double>& uppers) const override {
         initials = mle(sample);
         lowers   = {-kPi, 0.0};
         double kappa_upper = std::max(initials[1] * 10.0, 100.0);

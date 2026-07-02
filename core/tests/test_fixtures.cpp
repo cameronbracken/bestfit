@@ -19,16 +19,29 @@
 #include <string>
 #include <vector>
 
+#include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/numerics/distributions/copulas/base/bivariate_copula_estimation.hpp"
+#include "bestfit/numerics/distributions/copulas/base/copula_factory.hpp"
+#include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/kernel_density.hpp"
 #include "bestfit/numerics/distributions/competing_risks.hpp"
 #include "bestfit/numerics/distributions/mixture.hpp"
+#include "bestfit/numerics/distributions/multivariate/base/multivariate_distribution.hpp"
+#include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
+#include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
+#include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
+#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/math/linalg/vector.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
@@ -40,6 +53,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 namespace dist = bestfit::numerics::distributions;
+namespace prob = bestfit::numerics::data::probability;
 using dist::EstimationMethod;
 using dist::GeneralizedExtremeValue;
 
@@ -151,11 +165,86 @@ static void run_gev(const json& spec) {
 // --- Special-function path ------------------------------------------------------------
 
 namespace sf = bestfit::numerics::math::special;
+namespace la = bestfit::numerics::math::linalg;
+// Alias must not be named `stat` (collides with the MSVC/POSIX CRT symbol, like the
+// glibc `gamma` clash documented in .claude/CLAUDE.md).
+namespace bfdata = bestfit::numerics::data;
+
+// Correlation fixture args are [x..., y...] concatenated and split at the midpoint
+// (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
+static void correlation_split(const std::vector<double>& a, std::vector<double>& x,
+                               std::vector<double>& y) {
+    std::size_t mid = a.size() / 2;
+    x.assign(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(mid));
+    y.assign(a.begin() + static_cast<std::ptrdiff_t>(mid), a.end());
+}
+
+// Cholesky fixture args are a flattened row-major n*n matrix, with n inferred from the
+// args length per the convention documented in fixtures/special_functions/cholesky.json.
+static int cholesky_square_n(std::size_t len) {
+    int n = static_cast<int>(std::lround(std::sqrt(static_cast<double>(len))));
+    if (static_cast<std::size_t>(n) * static_cast<std::size_t>(n) != len)
+        throw std::runtime_error("Cholesky fixture args: length is not a perfect square");
+    return n;
+}
+
+// solve_element args are [flattened n*n matrix, n-length rhs vector, index i], i.e.
+// n*n + n + 1 == len; solve the quadratic for n.
+static int cholesky_solve_n(std::size_t len) {
+    double n_double = (-1.0 + std::sqrt(1.0 + 4.0 * (static_cast<double>(len) - 1.0))) / 2.0;
+    int n = static_cast<int>(std::lround(n_double));
+    if (static_cast<std::size_t>(n) * static_cast<std::size_t>(n) + static_cast<std::size_t>(n) + 1 != len)
+        throw std::runtime_error("Cholesky fixture args: length does not fit n*n+n+1");
+    return n;
+}
+
+static la::Matrix cholesky_matrix_from_flat(const std::vector<double>& a, int n) {
+    std::vector<double> flat(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n) * n);
+    return la::Matrix(n, n, flat);
+}
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
 static const std::map<std::string, std::function<double(const std::vector<double>&)>>&
 special_function_table() {
     static const std::map<std::string, std::function<double(const std::vector<double>&)>> t = {
+        // Cholesky family (args: flattened row-major matrix, n inferred from length --
+        // see fixtures/special_functions/cholesky.json for the full convention)
+        {"Cholesky.determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).determinant();
+        }},
+        {"Cholesky.log_determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).log_determinant();
+        }},
+        {"Cholesky.inverse_element", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size() - 2);
+            la::CholeskyDecomposition chol(cholesky_matrix_from_flat(a, n));
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n]);
+            int j = static_cast<int>(a[static_cast<std::size_t>(n) * n + 1]);
+            return chol.inverse_a()(i, j);
+        }},
+        {"Cholesky.solve_element", [](const std::vector<double>& a) {
+            int n = cholesky_solve_n(a.size());
+            la::CholeskyDecomposition chol(cholesky_matrix_from_flat(a, n));
+            std::vector<double> rhs(a.begin() + static_cast<std::ptrdiff_t>(n) * n,
+                                     a.begin() + static_cast<std::ptrdiff_t>(n) * n + n);
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n + static_cast<std::size_t>(n)]);
+            return chol.solve(la::Vector(std::move(rhs)))[i];
+        }},
+        // Returns 1.0 if the matrix is positive-definite (construction succeeds), 0.0 if
+        // the ctor throws std::runtime_error (non-PD or NaN diagonal) -- pins the
+        // exception condition against the real C# behavior (see Program.cs's resolver).
+        {"Cholesky.is_positive_definite", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            try {
+                return la::CholeskyDecomposition(cholesky_matrix_from_flat(a, n)).is_positive_definite()
+                           ? 1.0
+                           : 0.0;
+            } catch (const std::runtime_error&) {
+                return 0.0;
+            }
+        }},
         // Erf family
         {"Erf.function",      [](const std::vector<double>& a) { return sf::erf::function(a[0]); }},
         {"Erf.erfc",          [](const std::vector<double>& a) { return sf::erf::erfc(a[0]); }},
@@ -184,18 +273,41 @@ special_function_table() {
         // Bessel family
         {"Bessel.i0", [](const std::vector<double>& a) { return sf::bessel::i0(a[0]); }},
         {"Bessel.i1", [](const std::vector<double>& a) { return sf::bessel::i1(a[0]); }},
+        // Correlation family (args: [x..., y...], split at the midpoint -- see
+        // fixtures/special_functions/correlation.json for the full convention)
+        {"Correlation.pearson", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return bfdata::pearson(x, y);
+        }},
+        {"Correlation.spearman", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return bfdata::spearman(x, y);
+        }},
+        {"Correlation.kendalls_tau", [](const std::vector<double>& a) {
+            std::vector<double> x, y;
+            correlation_split(a, x, y);
+            return bfdata::kendalls_tau(x, y);
+        }},
     };
     return t;
 }
 
+// Most special_function fixtures dispatch every case through one file-level `target`
+// (e.g. "Erf.function"). The Cholesky fixture instead groups several related dispatch
+// keys ("Cholesky.determinant", "Cholesky.inverse_element", ...) in one file, so each
+// case may override the target; a case without its own `target` falls back to the
+// file-level one, preserving the single-target files' existing behavior unchanged.
 static void run_special_function(const json& spec) {
-    std::string target = spec["target"].get<std::string>();
+    std::string file_target = spec["target"].get<std::string>();
     const auto& table = special_function_table();
-    auto it = table.find(target);
-    if (it == table.end())
-        throw std::runtime_error("unknown special-function target: " + target);
-    const auto& fn = it->second;
     for (const auto& c : spec["cases"]) {
+        std::string target = c.value("target", file_target);
+        auto it = table.find(target);
+        if (it == table.end())
+            throw std::runtime_error("unknown special-function target: " + target);
+        const auto& fn = it->second;
         std::string name = c["name"].get<std::string>();
         std::vector<double> args;
         for (const auto& v : c["args"]) args.push_back(parse_num(v));
@@ -232,6 +344,15 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_generic(const std
     if (est == nullptr) throw std::runtime_error(target + " does not support estimation");
     est->estimate(data, parse_pe_method(fit["method"].get<std::string>()));
     return d;
+}
+
+// Parses a "dependency" fixture string into a Probability::DependencyType (CompetingRisks).
+static prob::DependencyType parse_dependency(const std::string& d) {
+    if (d == "Independent") return prob::DependencyType::Independent;
+    if (d == "PerfectlyPositive") return prob::DependencyType::PerfectlyPositive;
+    if (d == "PerfectlyNegative") return prob::DependencyType::PerfectlyNegative;
+    if (d == "CorrelationMatrix") return prob::DependencyType::CorrelationMatrix;
+    throw std::runtime_error("unknown dependency type: " + d);
 }
 
 // --- Composite distribution path (TruncatedDistribution, and future Empirical/Kernel/Mixture/CR) ---
@@ -321,6 +442,17 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         auto cr = std::make_unique<dist::CompetingRisks>(std::move(comps));
         if (construct.contains("minimum_of_random_variables"))
             cr->minimum_of_random_variables = construct["minimum_of_random_variables"].get<bool>();
+        if (construct.contains("dependency"))
+            cr->dependency = parse_dependency(construct["dependency"].get<std::string>());
+        if (construct.contains("correlation")) {
+            prob::Matrix2D corr;
+            for (const auto& row : construct["correlation"]) {
+                std::vector<double> r;
+                for (const auto& v : row) r.push_back(parse_num(v));
+                corr.push_back(std::move(r));
+            }
+            cr->set_correlation_matrix(std::move(corr));
+        }
         return cr;
     }
     throw std::runtime_error("unknown composite target: " + target);
@@ -342,6 +474,7 @@ static double dispatch_generic(const dist::UnivariateDistributionBase& d, const 
     if (m == "minimum") return d.minimum();
     if (m == "maximum") return d.maximum();
     if (m == "pdf") return d.pdf(a[0].get<double>());
+    if (m == "log_pdf") return d.log_pdf(a[0].get<double>());
     if (m == "cdf") return d.cdf(a[0].get<double>());
     if (m == "quantile") return d.inverse_cdf(a[0].get<double>());
     if (m == "param") return d.get_parameters()[a[0].get<int>()];
@@ -424,6 +557,325 @@ static void run_goodness_of_fit(const json& spec) {
     }
 }
 
+// --- multivariate_distribution path -----------------------------------------------------
+//
+// Mirrors the univariate build_generic/dispatch_generic split, but multivariate targets
+// have no shared arithmetic surface beyond dimension/pdf/log_pdf/cdf/parameters_valid (no
+// factory, no common Mean/Variance/Covariance signature across Dirichlet/Multinomial/
+// BivariateEmpirical), so dispatch_multivariate dynamic_casts to the concrete type for
+// everything else. Extensible: additional multivariate targets add a case to each of
+// build_multivariate/dispatch_multivariate.
+
+static std::vector<double> parse_num_vec(const json& arr) {
+    std::vector<double> v;
+    for (const auto& e : arr) v.push_back(parse_num(e));
+    return v;
+}
+
+static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const std::string& target,
+                                                                           const json& construct) {
+    if (target == "Dirichlet") {
+        return std::make_unique<dist::Dirichlet>(parse_num_vec(construct["alpha"]));
+    }
+    if (target == "Multinomial") {
+        int n = construct["n"].get<int>();
+        return std::make_unique<dist::Multinomial>(n, parse_num_vec(construct["p"]));
+    }
+    if (target == "BivariateEmpirical") {
+        std::vector<double> x1 = parse_num_vec(construct["x1"]);
+        std::vector<double> x2 = parse_num_vec(construct["x2"]);
+        std::vector<std::vector<double>> p;
+        for (const auto& row : construct["p"]) p.push_back(parse_num_vec(row));
+        auto parse_transform = [&](const char* key) {
+            bfdata::Transform t = bfdata::Transform::None;
+            if (!construct.contains(key)) return t;
+            std::string s = construct[key].get<std::string>();
+            if (s == "None") t = bfdata::Transform::None;
+            else if (s == "Logarithmic") t = bfdata::Transform::Logarithmic;
+            else if (s == "NormalZ") t = bfdata::Transform::NormalZ;
+            else throw std::runtime_error("unknown transform: " + s);
+            return t;
+        };
+        return std::make_unique<dist::BivariateEmpirical>(
+            std::move(x1), std::move(x2), std::move(p), parse_transform("x1_transform"),
+            parse_transform("x2_transform"), parse_transform("p_transform"));
+    }
+    if (target == "MultivariateNormal") {
+        std::vector<double> mean = parse_num_vec(construct["mean"]);
+        std::vector<std::vector<double>> cov;
+        for (const auto& row : construct["covariance"]) cov.push_back(parse_num_vec(row));
+        auto mvn = std::make_unique<dist::MultivariateNormal>(std::move(mean), std::move(cov));
+        if (construct.contains("seed")) mvn->set_mvnuni_seed(construct["seed"].get<int>());
+        if (construct.contains("max_evaluations")) mvn->set_max_evaluations(construct["max_evaluations"].get<int>());
+        if (construct.contains("abs_error")) mvn->set_absolute_error(construct["abs_error"].get<double>());
+        if (construct.contains("rel_error")) mvn->set_relative_error(construct["rel_error"].get<double>());
+        return mvn;
+    }
+    if (target == "MultivariateStudentT") {
+        double df = construct["df"].get<double>();
+        std::vector<double> location = parse_num_vec(construct["location"]);
+        std::vector<std::vector<double>> scale;
+        for (const auto& row : construct["scale"]) scale.push_back(parse_num_vec(row));
+        return std::make_unique<dist::MultivariateStudentT>(df, std::move(location), std::move(scale));
+    }
+    throw std::runtime_error("unknown multivariate target: " + target);
+}
+
+// Shared lookup for the "random_value"/"lhs_value" seeded-sampling oracle methods, common
+// to every multivariate target that implements generate_random_values (all four) /
+// latin_hypercube_random_values (MultivariateNormal, MultivariateStudentT only -- see
+// fixtures/README.md). args = [sample_size, seed, row, col]: construct a FRESH draw (the
+// method itself seeds its own MersenneTwister from `seed`, so this is stateless -- no
+// persistent-instance batching needed, unlike MultivariateNormal's MVNUNI-seeded cdf/
+// interval/mvndst path above).
+template <typename Dist>
+static double random_value_at(const Dist& d, const json& a) {
+    auto sample = d.generate_random_values(a[0].get<int>(), a[1].get<int>());
+    return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
+}
+
+template <typename Dist>
+static double lhs_value_at(const Dist& d, const json& a) {
+    auto sample = d.latin_hypercube_random_values(a[0].get<int>(), a[1].get<int>());
+    return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
+}
+
+static double dispatch_multivariate(const dist::MultivariateDistribution& d, const std::string& target,
+                                    const std::string& m, const json& a) {
+    if (m == "dimension") return d.dimension();
+    if (m == "pdf") return d.pdf(parse_num_vec(a[0]));
+    if (m == "log_pdf") return d.log_pdf(parse_num_vec(a[0]));
+    if (m == "cdf") return d.cdf(parse_num_vec(a[0]));
+
+    if (target == "Dirichlet") {
+        const auto& dd = dynamic_cast<const dist::Dirichlet&>(d);
+        if (m == "alpha") return dd.alpha()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "alpha_sum") return dd.alpha_sum();
+        if (m == "mean") return dd.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return dd.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return dd.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return dd.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "log_multivariate_beta") return dist::Dirichlet::log_multivariate_beta(parse_num_vec(a));
+        if (m == "random_value") return random_value_at(dd, a);
+    } else if (target == "Multinomial") {
+        const auto& mm = dynamic_cast<const dist::Multinomial&>(d);
+        if (m == "number_of_trials") return mm.number_of_trials();
+        if (m == "mean") return mm.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return mm.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return mm.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "random_value") return random_value_at(mm, a);
+    } else if (target == "BivariateEmpirical") {
+        const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
+        if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
+    } else if (target == "MultivariateNormal") {
+        const auto& nn = dynamic_cast<const dist::MultivariateNormal&>(d);
+        if (m == "mean") return nn.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "median") return nn.median()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return nn.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "sd") return nn.standard_deviation()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return nn.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return nn.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "mahalanobis") return nn.mahalanobis(parse_num_vec(a[0]));
+        if (m == "inverse_cdf") return nn.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
+        if (m == "interval") return nn.interval(parse_num_vec(a[0]), parse_num_vec(a[1]));
+        if (m == "random_value") return random_value_at(nn, a);
+        if (m == "lhs_value") return lhs_value_at(nn, a);
+        if (m == "mvndst") {
+            // args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+            int n = a[0].get<int>();
+            std::vector<double> lower = parse_num_vec(a[1]);
+            std::vector<double> upper = parse_num_vec(a[2]);
+            std::vector<int> infin;
+            for (const auto& v : a[3]) infin.push_back(v.get<int>());
+            std::vector<double> correl = parse_num_vec(a[4]);
+            int maxpts = a[5].get<int>();
+            double abseps = a[6].get<double>();
+            double releps = a[7].get<double>();
+            double error = 0, value = 0;
+            int inform = 0;
+            nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+            return value;
+        }
+    } else if (target == "MultivariateStudentT") {
+        const auto& tt = dynamic_cast<const dist::MultivariateStudentT&>(d);
+        if (m == "degrees_of_freedom") return tt.degrees_of_freedom();
+        if (m == "mean") return tt.mean()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "median") return tt.median()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "mode") return tt.mode()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "sd") return tt.standard_deviation()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "variance") return tt.variance()[static_cast<std::size_t>(a[0].get<int>())];
+        if (m == "covariance") return tt.covariance(a[0].get<int>(), a[1].get<int>());
+        if (m == "mahalanobis") return tt.mahalanobis(parse_num_vec(a[0]));
+        if (m == "inverse_cdf") return tt.inverse_cdf(parse_num_vec(a[0]))[static_cast<std::size_t>(a[1].get<int>())];
+        if (m == "random_value") return random_value_at(tt, a);
+        if (m == "lhs_value") return lhs_value_at(tt, a);
+    }
+    throw std::runtime_error("unknown multivariate fixture method: " + target + "/" + m);
+}
+
+static void run_multivariate(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    for (const auto& c : spec["cases"]) {
+        auto d = build_multivariate(target, c["construct"]);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            if (as["mode"].get<std::string>() == "bool")
+                check_bool(d->parameters_valid(), as, where);
+            else
+                check_value(dispatch_multivariate(*d, target, method, args), as, where);
+        }
+    }
+}
+
+// --- bivariate_copula path --------------------------------------------------------------
+//
+// Every copula shares BivariateCopula's uniform theta/get_copula_parameters/pdf/cdf/...
+// API (unlike multivariate_distribution, which has no such common surface across
+// Dirichlet/Multinomial/BivariateEmpirical/...), so build_copula/dispatch_copula are FULLY
+// generic through the factory -- no per-target branching, matching copula_factory.hpp's
+// header comment. The one exception is the "tau" method-of-moments fit: SetThetaFromTau is
+// a member of each concrete Archimedean class in the C# source (not part of
+// IBivariateCopula/IArchimedeanCopula), so it is not callable through the BivariateCopula
+// base pointer; set_theta_from_tau_dispatch dynamic_casts by target name for that one
+// method, mirroring dispatch_multivariate's per-target branches above. Each new
+// tau-capable copula (Task 8: AMH, Gumbel, Joe) adds one branch there.
+
+namespace cop = bestfit::numerics::distributions::copulas;
+
+static void set_theta_from_tau_dispatch(cop::BivariateCopula& copula, const std::string& target,
+                                        const std::vector<double>& x, const std::vector<double>& y) {
+    if (target == "Clayton") {
+        dynamic_cast<cop::ClaytonCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    if (target == "AliMikhailHaq") {
+        dynamic_cast<cop::AMHCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    if (target == "Gumbel") {
+        dynamic_cast<cop::GumbelCopula&>(copula).set_theta_from_tau(x, y);
+        return;
+    }
+    // NOTE: JoeCopula has no SetThetaFromTau in the C# source (see joe_copula.hpp's file
+    // header) despite the Phase 2 plan/README listing it as tau-capable -- intentionally
+    // not branched here.
+    throw std::runtime_error("copula '" + target + "' has no tau-based method-of-moments fit");
+}
+
+// Per fixtures/README.md: construct is {"theta": x} (optionally {"theta": x, "df": y} for
+// 2-parameter copulas, and/or {"marginals": {"targets": [..], "params": [[..], [..]]}} to
+// attach marginals directly via the C# `Copula(theta, marginX, marginY)` ctor -- used by the
+// seeded "random_value" sampling oracles, which back-transform through the marginals when
+// set) or {"fit": {"x": "<dataset>", "y": "<dataset>", "method": "tau"|"mpl"|"ifm"|"mle",
+// "marginals": ["Normal", "Normal"]?}}. "x"/"y" are the sample data for tau/ifm/mle, or the
+// precomputed plotting-position datasets for mpl (the runner stays thin: it never computes
+// plotting positions itself). "ifm" pre-fits the marginals by MLE before estimating the
+// copula (mirroring the C# Test_IFM_Fit flow); "mle" leaves the marginals unfitted and lets
+// BivariateCopulaEstimation.MLE (bivariate_copula_estimation.hpp) fit everything jointly.
+static std::unique_ptr<cop::BivariateCopula> build_copula(const std::string& target,
+                                                            const json& construct,
+                                                            const json& datasets) {
+    auto c = cop::create_copula(target);
+    if (construct.contains("theta")) {
+        std::vector<double> params = {parse_num(construct["theta"])};
+        if (construct.contains("df")) params.push_back(parse_num(construct["df"]));
+        c->set_copula_parameters(params);
+        if (construct.contains("marginals")) {
+            const auto& marg = construct["marginals"];
+            auto mx = dist::create_distribution(marg["targets"][0].get<std::string>());
+            auto my = dist::create_distribution(marg["targets"][1].get<std::string>());
+            mx->set_parameters(parse_num_vec(marg["params"][0]));
+            my->set_parameters(parse_num_vec(marg["params"][1]));
+            c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+            c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+        }
+        return c;
+    }
+
+    const auto& fit = construct["fit"];
+    std::vector<double> x, y;
+    for (const auto& v : datasets[fit["x"].get<std::string>()]) x.push_back(parse_num(v));
+    for (const auto& v : datasets[fit["y"].get<std::string>()]) y.push_back(parse_num(v));
+    std::string method = fit["method"].get<std::string>();
+
+    if (fit.contains("marginals")) {
+        auto mx = dist::create_distribution(fit["marginals"][0].get<std::string>());
+        auto my = dist::create_distribution(fit["marginals"][1].get<std::string>());
+        if (method == "ifm") {
+            auto* ex = dynamic_cast<dist::IEstimation*>(mx.get());
+            auto* ey = dynamic_cast<dist::IEstimation*>(my.get());
+            if (ex == nullptr || ey == nullptr)
+                throw std::runtime_error("marginal does not support estimation");
+            ex->estimate(x, dist::ParameterEstimationMethod::MaximumLikelihood);
+            ey->estimate(y, dist::ParameterEstimationMethod::MaximumLikelihood);
+        }
+        c->marginal_distribution_x = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(mx));
+        c->marginal_distribution_y = std::shared_ptr<dist::UnivariateDistributionBase>(std::move(my));
+    }
+
+    if (method == "tau") {
+        set_theta_from_tau_dispatch(*c, target, x, y);
+    } else if (method == "mpl") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::PseudoLikelihood);
+    } else if (method == "ifm") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::InferenceFromMargins);
+    } else if (method == "mle") {
+        cop::estimate(*c, x, y, cop::CopulaEstimationMethod::FullLikelihood);
+    } else {
+        throw std::runtime_error("unknown copula fit method: " + method);
+    }
+    return c;
+}
+
+static double dispatch_copula(const cop::BivariateCopula& c, const std::string& m, const json& a) {
+    if (m == "pdf") return c.pdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "log_pdf") return c.log_pdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "cdf") return c.cdf(a[0].get<double>(), a[1].get<double>());
+    if (m == "inverse_cdf")
+        return c.inverse_cdf(a[0].get<double>(), a[1].get<double>())[static_cast<std::size_t>(a[2].get<int>())];
+    if (m == "upper_tail_dependence") return c.upper_tail_dependence();
+    if (m == "lower_tail_dependence") return c.lower_tail_dependence();
+    if (m == "theta") return c.theta();
+    if (m == "df") return c.get_copula_parameters()[1];
+    if (m == "or_exceedance") return c.or_joint_exceedance_probability(a[0].get<double>(), a[1].get<double>());
+    if (m == "and_exceedance") return c.and_joint_exceedance_probability(a[0].get<double>(), a[1].get<double>());
+    if (m == "marginal_param") {
+        std::string which = a[0].get<std::string>();
+        std::size_t idx = static_cast<std::size_t>(a[1].get<int>());
+        const auto& marg = which == "x" ? c.marginal_distribution_x : c.marginal_distribution_y;
+        return marg->get_parameters()[idx];
+    }
+    if (m == "random_value") {
+        // args = [sample_size, seed, row, col]. Stateless: GenerateRandomValues seeds its
+        // own internal LatinHypercube draw from `seed`, so no persistent-instance batching
+        // is needed (mirrors random_value_at() for multivariate_distribution above).
+        auto sample = c.generate_random_values(a[0].get<int>(), a[1].get<int>());
+        return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
+    }
+    throw std::runtime_error("unknown copula fixture method: " + m);
+}
+
+static void run_bivariate_copula(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto cop = build_copula(target, c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            if (as["mode"].get<std::string>() == "bool")
+                check_bool(cop->parameters_valid(), as, where);
+            else
+                check_value(dispatch_copula(*cop, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -445,6 +897,10 @@ int main(int argc, char** argv) {
                 run_gev(spec);
             else
                 run_generic(spec);
+        } else if (kind == "multivariate_distribution") {
+            run_multivariate(spec);
+        } else if (kind == "bivariate_copula") {
+            run_bivariate_copula(spec);
         }
     }
     if (files == 0) {

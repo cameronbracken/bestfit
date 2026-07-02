@@ -115,8 +115,11 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
         min_of_rv = bool(construct.get("minimum_of_random_variables", True))
+        dependency = construct.get("dependency", "Independent")
+        correlation = [[float(v) for v in row] for row in construct.get("correlation", [])]
         return {"comp_targets": comp_targets, "comp_params": comp_params,
-                "minimum_of_rv": min_of_rv}
+                "minimum_of_rv": min_of_rv, "dependency": dependency,
+                "correlation": correlation}
     raise KeyError(f"unknown composite target: {target}")
 
 
@@ -175,16 +178,19 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         raise KeyError(f"unknown fixture method for Mixture: {method}")
     if target == "CompetingRisks":
         ct, cp, min_rv = cd["comp_targets"], cd["comp_params"], cd["minimum_of_rv"]
+        dep, corr = cd["dependency"], cd["correlation"]
         if method in _MOMENTS:
-            return _core.cr_moments(ct, cp, min_rv)[method]
+            return _core.cr_moments(ct, cp, min_rv, dep, corr)[method]
         if method == "pdf":
-            return _core.cr_pdf(ct, cp, min_rv, args[0])
+            return _core.cr_pdf(ct, cp, min_rv, dep, corr, args[0])
+        if method == "log_pdf":
+            return _core.cr_log_pdf(ct, cp, min_rv, dep, corr, args[0])
         if method == "cdf":
-            return _core.cr_cdf(ct, cp, min_rv, args[0])
+            return _core.cr_cdf(ct, cp, min_rv, dep, corr, args[0])
         if method == "quantile":
-            return _core.cr_quantile(ct, cp, min_rv, args[0])
+            return _core.cr_quantile(ct, cp, min_rv, dep, corr, args[0])
         if method == "parameters_valid":
-            return _core.cr_valid(ct, cp, min_rv)
+            return _core.cr_valid(ct, cp, min_rv, dep, corr)
         raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
     raise KeyError(f"unknown composite target: {target}")
 
@@ -217,6 +223,122 @@ def _dispatch_generic(target, params, method, args):
     raise KeyError(f"unknown fixture method: {method}")
 
 
+# --- multivariate_distribution path -----------------------------------------------------
+# Dirichlet/Multinomial/BivariateEmpirical dispatch to the bespoke _core.dirichlet_val/
+# _core.multinomial_val/_core.bve_cdf functions (method + flat numeric args in, double
+# out). Extensible: additional multivariate targets add a branch here plus their own
+# _core.<name>_val entry point.
+
+def _flatten_mv_args(args: list) -> list[float]:
+    """Flattens fixture assertion args to a flat float list.
+
+    Handles every convention seen in the multivariate fixtures: a single nested vector
+    argument (e.g. pdf args = [[0.3, 0.4, 0.3]]), flat scalar args (e.g. covariance args =
+    [0, 1], log_multivariate_beta args = [1.0, 1.0]), and a nested vector followed by a
+    trailing scalar (e.g. MultivariateNormal inverse_cdf args = [[p1, p2], index]).
+    """
+    out: list[float] = []
+    for v in args:
+        if isinstance(v, list):
+            out.extend(float(x) for x in v)
+        else:
+            out.append(float(v))
+    return out
+
+
+def _dispatch_multivariate(target: str, construct: dict, method: str, args: list):
+    ar = _flatten_mv_args(args)
+    if target == "Dirichlet":
+        alpha = [float(v) for v in construct["alpha"]]
+        return _core.dirichlet_val(method, alpha, ar)
+    if target == "Multinomial":
+        n = int(construct["n"])
+        p = [float(v) for v in construct["p"]]
+        return _core.multinomial_val(method, n, p, ar)
+    if target == "BivariateEmpirical":
+        x1 = [float(v) for v in construct["x1"]]
+        x2 = [float(v) for v in construct["x2"]]
+        p = [[float(v) for v in row] for row in construct["p"]]
+        transforms = [
+            construct.get("x1_transform", "None"),
+            construct.get("x2_transform", "None"),
+            construct.get("p_transform", "None"),
+        ]
+        return _core.bve_cdf(method, x1, x2, p, transforms, ar)
+    if target == "MultivariateNormal":
+        mean = [float(v) for v in construct["mean"]]
+        cov = [[float(v) for v in row] for row in construct["covariance"]]
+        return _core.mvn_val(method, mean, cov, ar)
+    if target == "MultivariateStudentT":
+        df = float(construct["df"])
+        location = [float(v) for v in construct["location"]]
+        scale = [[float(v) for v in row] for row in construct["scale"]]
+        return _core.mvt_val(method, df, location, scale, ar)
+    raise KeyError(f"unknown multivariate target: {target}")
+
+
+# --- MultivariateNormal seeded batches --------------------------------------------------
+# `cdf` (dim>=3), `interval`, and `mvndst` all draw from the seeded MVNUNI stream, so a
+# RUN of consecutive same-method assertions in a seeded case must be evaluated on ONE
+# persistent instance via the mvn_*_seq bindings in mvd.cpp, not dispatched one call at a
+# time (which would silently reset the seed between assertions). _run_mvn_case() below
+# groups consecutive assertions of these methods and batches them; everything else (and
+# every case without a "seed") falls through to the stateless per-assertion dispatch
+# above, unchanged.
+
+_MVN_SEEDED_METHODS = ("cdf", "mvndst", "interval")
+
+
+def _dispatch_mvn_seeded_seq(construct: dict, method: str, run: list):
+    seed = int(construct["seed"])
+    mean = [float(v) for v in construct["mean"]]
+    cov = [[float(v) for v in row] for row in construct["covariance"]]
+
+    if method == "cdf":
+        xs = [[_num(v) for v in a["args"][0]] for a in run]
+        return _core.mvn_cdf_seq(mean, cov, seed, xs)
+    if method == "interval":
+        lowers = [[_num(v) for v in a["args"][0]] for a in run]
+        uppers = [[_num(v) for v in a["args"][1]] for a in run]
+        return _core.mvn_interval_seq(mean, cov, seed, lowers, uppers)
+    if method == "mvndst":
+        # args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+        n_dim = int(run[0]["args"][0])
+        lowers = [[_num(v) for v in a["args"][1]] for a in run]
+        uppers = [[_num(v) for v in a["args"][2]] for a in run]
+        infins = [[int(v) for v in a["args"][3]] for a in run]
+        correls = [[_num(v) for v in a["args"][4]] for a in run]
+        maxpts_v = [int(a["args"][5]) for a in run]
+        abseps_v = [float(a["args"][6]) for a in run]
+        releps_v = [float(a["args"][7]) for a in run]
+        return _core.mvn_mvndst_seq(n_dim, seed, lowers, uppers, infins, correls, maxpts_v, abseps_v,
+                                     releps_v)
+    raise KeyError(f"unknown seeded MultivariateNormal method: {method}")
+
+
+def _run_mvn_case(construct: dict, assertions: list):
+    seeded = "seed" in construct
+    i = 0
+    n = len(assertions)
+    while i < n:
+        a = assertions[i]
+        method = a["method"]
+        if seeded and method in _MVN_SEEDED_METHODS:
+            j = i
+            while j < n and assertions[j]["method"] == method:
+                j += 1
+            run = assertions[i:j]
+            actuals = _dispatch_mvn_seeded_seq(construct, method, run)
+            for actual, assertion in zip(actuals, run):
+                _check(actual, assertion)
+            i = j
+        else:
+            args = a.get("args", [])
+            actual = _dispatch_multivariate("MultivariateNormal", construct, method, args)
+            _check(actual, a)
+            i += 1
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -238,16 +360,88 @@ def _check(actual, a):
         raise KeyError(f"unknown comparison mode: {mode}")
 
 
+# --- bivariate_copula path ---------------------------------------------------------------
+# Every copula shares BivariateCopula's uniform theta/get_copula_parameters/pdf/cdf/... API
+# (unlike multivariate_distribution's Dirichlet/Multinomial/BivariateEmpirical/..., which
+# share no common surface), so this path is fully generic through the factory-driven
+# _core.cop_val/_core.cop_fit bindings in copula.cpp -- no per-target branching, mirroring
+# copula_factory.hpp's rationale. construct is either {"theta": x} (optionally {"theta": x,
+# "df": y} for 2-parameter copulas, and/or {"marginals": {"targets", "params"}} to attach
+# marginals directly -- used by the "random_value" sampling oracles) or {"fit": {"x", "y",
+# "method", "marginals"?}}; see fixtures/README.md for the full schema.
+
+
+def _build_copula_params(construct: dict) -> list[float]:
+    p = [_num(construct["theta"])]
+    if "df" in construct:
+        p.append(_num(construct["df"]))
+    return p
+
+
+def _dispatch_copula(
+    target: str,
+    params: list[float],
+    method: str,
+    args: list,
+    marg_x_target: str = "",
+    marg_x_params: list[float] | None = None,
+    marg_y_target: str = "",
+    marg_y_params: list[float] | None = None,
+):
+    ar = _flatten_mv_args(args)
+    return _core.cop_val(
+        target, params, method, ar, marg_x_target, marg_x_params or [], marg_y_target, marg_y_params or []
+    )
+
+
+def _run_copula_case(target: str, construct: dict, assertions: list, datasets: dict):
+    if "fit" in construct:
+        fit = construct["fit"]
+        x = [float(v) for v in datasets[fit["x"]]]
+        y = [float(v) for v in datasets[fit["y"]]]
+        marginals = fit.get("marginals")
+        marg_x = marginals[0] if marginals else ""
+        marg_y = marginals[1] if marginals else ""
+        result = _core.cop_fit(target, x, y, fit["method"], marg_x, marg_y)
+        for a in assertions:
+            args = a.get("args", [])
+            if a["method"] == "theta":
+                actual = result["params"][0]
+            elif a["method"] == "df":
+                actual = result["params"][1]
+            elif a["method"] == "marginal_param":
+                which, idx = args[0], int(args[1])
+                actual = result["marg_x_params"][idx] if which == "x" else result["marg_y_params"][idx]
+            else:
+                raise KeyError(f"unsupported post-fit copula fixture method: {a['method']}")
+            _check(actual, a)
+    else:
+        params = _build_copula_params(construct)
+        marg = construct.get("marginals")
+        marg_x_target = marg["targets"][0] if marg else ""
+        marg_y_target = marg["targets"][1] if marg else ""
+        marg_x_params = [_num(v) for v in marg["params"][0]] if marg else []
+        marg_y_params = [_num(v) for v in marg["params"][1]] if marg else []
+        for a in assertions:
+            args = a.get("args", [])
+            actual = _dispatch_copula(
+                target, params, a["method"], args, marg_x_target, marg_x_params, marg_y_target, marg_y_params
+            )
+            _check(actual, a)
+
+
 def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
         spec = json.loads(fx.read_text())
-        # Only validate univariate_distribution fixtures; skip other kinds (e.g. special_function)
-        # which are validated in C++ only and are not exposed to the Python package.
-        if spec.get("kind") != "univariate_distribution":
+        # Only validate univariate_distribution / multivariate_distribution /
+        # bivariate_copula fixtures; skip other kinds (e.g. special_function) which are
+        # validated in C++ only and are not exposed to the Python package.
+        kind = spec.get("kind")
+        if kind not in ("univariate_distribution", "multivariate_distribution", "bivariate_copula"):
             continue
         for case in spec["cases"]:
-            out.append((spec["target"], spec.get("datasets", {}), case))
+            out.append((kind, spec["target"], spec.get("datasets", {}), case))
     return out
 
 
@@ -255,9 +449,23 @@ CASES = _load_cases()
 
 
 @pytest.mark.parametrize(
-    "target,datasets,case", CASES, ids=[f"{t}:{c['name']}" for t, _, c in CASES]
+    "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
-def test_fixture_case(target, datasets, case):
+def test_fixture_case(kind, target, datasets, case):
+    if kind == "bivariate_copula":
+        _run_copula_case(target, case["construct"], case["assertions"], datasets)
+        return
+
+    if kind == "multivariate_distribution":
+        if target == "MultivariateNormal":
+            _run_mvn_case(case["construct"], case["assertions"])
+        else:
+            for a in case["assertions"]:
+                args = a.get("args", [])
+                actual = _dispatch_multivariate(target, case["construct"], a["method"], args)
+                _check(actual, a)
+        return
+
     is_gev = target == "GeneralizedExtremeValue"
     is_composite = target in _COMPOSITE_TARGETS
     if is_gev:

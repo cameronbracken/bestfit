@@ -90,6 +90,100 @@
         { "method": "maximum",  "args": [],       "expected": "inf",               "mode": "equal"             },
         { "method": "parameters_valid", "args": [], "expected": true,             "mode": "bool"              }
       ]
+    },
+    {
+      "name": "two_normal_perfectly_negative_min_rule",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [100.0, 10.0]},
+          {"target": "Normal", "params": [110.0, 15.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyNegative"
+      },
+      "assertions": [
+        { "method": "cdf", "args": [80.0], "expected": 0.04550026389635842,   "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf", "args": [90.0], "expected": 0.249866473657325,     "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf", "args": [98.0], "expected": 0.6325956891442938,    "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [80.0], "expected": 0.008998494402689586,  "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [90.0], "expected": 0.035131077363116915,  "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [98.0], "expected": 0.058417039690600504,  "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "two_normal_perfectly_negative_max_rule",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [100.0, 10.0]},
+          {"target": "Normal", "params": [110.0, 15.0]}
+        ],
+        "minimum_of_random_variables": false,
+        "dependency": "PerfectlyNegative"
+      },
+      "assertions": [
+        { "method": "cdf", "args": [100.0], "expected": 5.642942029769202e-20, "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump (near-degenerate crossover x -- F1(x)+F2(x)~1 under the PerfectlyNegative copula; both languages agree the joint probability is numerically ~0, though not bit-identically so -- see docs/upstream-csharp-issues.md)" },
+        { "method": "cdf", "args": [110.0], "expected": 0.3413447460685431,   "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf", "args": [120.0], "expected": 0.7247573305048979,   "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [110.0], "expected": 0.050793224362327256, "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [120.0], "expected": 0.026695630325140662, "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" }
+      ]
+    },
+    {
+      "name": "three_normal_perfectly_negative_min_rule",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [100.0, 10.0]},
+          {"target": "Normal", "params": [110.0, 15.0]},
+          {"target": "Normal", "params": [95.0, 8.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyNegative"
+      },
+      "assertions": [
+        { "method": "cdf", "args": [70.0], "expected": 0.0060693030695192565, "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf", "args": [80.0], "expected": 0.07588220708001257,   "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf", "args": [90.0], "expected": 0.5010015528118221,    "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [70.0], "expected": 0.0015806986329999766, "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf", "args": [90.0], "expected": 0.06851538559487658,   "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" }
+      ]
+    },
+    {
+      "name": "two_normal_correlation_matrix_min_rule",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [100.0, 10.0]},
+          {"target": "Normal", "params": [110.0, 15.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "CorrelationMatrix",
+        "correlation": [[1.0, 0.5], [0.5, 1.0]]
+      },
+      "assertions": [
+        { "method": "cdf",    "args": [90.0],  "expected": 0.20848102141214694, "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf",    "args": [105.0], "expected": 0.7403648293154118,  "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "cdf",    "args": [130.0], "expected": 0.9991398244870111,  "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf",    "args": [90.0],  "expected": 0.027238286918182343,"mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "pdf",    "args": [105.0], "expected": 0.03194746161761428, "mode": "abs", "tol": 1e-6, "source": "curated via oracle_emitter --dump" },
+        { "method": "mean",   "args": [],      "expected": 98.28252983865467,   "mode": "abs", "tol": 1e-2, "source": "curated via oracle_emitter --dump" },
+        { "method": "median", "args": [],      "expected": 98.42716963272505,   "mode": "abs", "tol": 1e-4, "source": "curated via oracle_emitter --dump" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "two_exponential_perfectly_positive_logpdf_out_of_support",
+      "construct": {
+        "components": [
+          {"target": "Exponential", "params": [0.0, 1.0]},
+          {"target": "Exponential", "params": [0.0, 2.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyPositive"
+      },
+      "assertions": [
+        { "method": "log_pdf", "args": [-1.0], "expected": "-inf", "mode": "equal",
+          "source": "transcribed from Test_CompetingRisks.cs Test_LogPDF_DependentInvalidSupport_ReturnsNegativeInfinity" }
+      ]
     }
   ]
 }

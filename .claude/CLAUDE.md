@@ -42,6 +42,12 @@ own forks live elsewhere on disk under different names.)
 The univariate distribution layer lives under `core/include/bestfit/numerics/distributions/`:
 `base/` holds `UnivariateDistributionBase`, the type enum, the factory, and the `IEstimation` /
 `ILinearMomentEstimation` capability mixins; all 42 distributions derive from the base.
+`distributions/multivariate/` holds Dirichlet, Multinomial, BivariateEmpirical,
+MultivariateNormal (with the ported Genz MVNDST integrator), and MultivariateStudentT, plus the
+`MultivariateDistributionBase` and factory. `distributions/copulas/` holds all seven bivariate
+copulas (Clayton, AliMikhailHaq, Frank, Gumbel, Joe, Normal, StudentT), the shared
+`BivariateCopula`/`ArchimedeanCopula` base classes, `BivariateCopulaEstimation` (tau/MPL/IFM/MLE
+fits), the `IMaximumLikelihoodEstimation` mixin, and the copula factory.
 
 ## Build & test commands
 
@@ -83,7 +89,8 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
   almost line-for-line. Each ported file carries a `// ported from: <path> @ <sha>` header.
 - **Portability (learned from CI):** never use `M_PI` (absent under strict `-std=c++17` on Linux
   and on MSVC) — use `bestfit::numerics::kPi`. Don't name a namespace alias `gamma` (clashes with
-  glibc's libm `gamma()`). Pass `-Wall/-Wextra` only to non-MSVC compilers in CMake.
+  glibc's libm `gamma()`) or `stat` (clashes with the MSVC/POSIX CRT `stat` symbol). Pass
+  `-Wall/-Wextra` only to non-MSVC compilers in CMake.
 - **Self-contained core:** no external C++ deps (port Numerics' own linear algebra / RNG). Keeps
   the CRAN dependency surface empty and preserves oracle fidelity. Don't add Eigen to the core.
 - **CRAN:** `bestfitr` uses `License: file LICENSE` (R can't standardize the `0BSD` token).
@@ -108,7 +115,12 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0 and Phase 1 are **complete**. Phase 1 delivered the full Numerics math/RNG foundation
-plus all 42 univariate distributions. Everything is ported, fixture-validated in C++/R/Python,
-and reproduced against the real Numerics library by the dotnet oracle gate. CI is green on 3
-platforms. Next: Phase 2 (multivariate distributions and copulas). See `PLAN.md`.
+Phase 0, Phase 1, and Phase 2 are **complete**. Phase 1 delivered the full Numerics math/RNG
+foundation plus all 42 univariate distributions; CI is green on 3 platforms for that merge. Phase
+2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
+BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
+copulas with shared estimation (tau/MPL/IFM/MLE) and an `IMaximumLikelihoodEstimation` mixin; and
+CompetingRisks' correlated dependency modes un-deferred from Phase 1. Everything is ported,
+fixture-validated in C++/R/Python, and reproduced against the real Numerics library by the dotnet
+oracle gate. Pending: CI run and PR for the Phase 2 branch. Next: Phase 3 (sampling/MCMC +
+bootstrap). See `PLAN.md`.

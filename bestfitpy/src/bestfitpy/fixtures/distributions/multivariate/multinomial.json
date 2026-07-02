@@ -1,0 +1,93 @@
+{
+  "target": "Multinomial",
+  "kind": "multivariate_distribution",
+  "source": "Numerics/Test_Numerics/Distributions/Multivariate/Test_Multinomial.cs",
+  "reference": "Reference values verified analytically and against R dmultinom. Test_LogPMF in the C# source is a self-consistency check (Assert.AreEqual(Math.Log(M.PDF(x)), M.LogPMF(x))), not a hardcoded literal; this file's log_pmf case is synthesized as ln() of the pmf_binomial case's own value rather than scraped from a C# test literal (log_pmf_invalid's -inf values ARE scraped verbatim from Test_LogPMF_InvalidInput_ReturnsNegativeInfinity).",
+  "note": "Test_Sampling's seeded first-N draws are covered by the seeded_sampling case below; Test_WeightedSample/Test_WeightedSample_EdgeCases (the static Sample())/Clone/CDF-throws are not fixture-observable through this method table. Test_InvalidParameters (constructor ArgumentOutOfRangeException throws) has no exception-assertion hook in this fixture schema, so is not reproduced here. Test_TypeAndName (DisplayName/ShortDisplayName/Type enum) is likewise outside the numeric/bool assertion schema.",
+  "cases": [
+    {
+      "name": "construction",
+      "construct": { "n": 10, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "dimension", "args": [], "expected": 3, "mode": "equal" },
+        { "method": "number_of_trials", "args": [], "expected": 10, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "mean",
+      "construct": { "n": 10, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "mean", "args": [0], "expected": 2.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "mean", "args": [1], "expected": 3.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "mean", "args": [2], "expected": 5.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "variance",
+      "construct": { "n": 10, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "variance", "args": [0], "expected": 1.6, "mode": "abs", "tol": 1e-10 },
+        { "method": "variance", "args": [1], "expected": 2.1, "mode": "abs", "tol": 1e-10 },
+        { "method": "variance", "args": [2], "expected": 2.5, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "covariance",
+      "construct": { "n": 10, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "covariance", "args": [0, 1], "expected": -0.6, "mode": "abs", "tol": 1e-10 },
+        { "method": "covariance", "args": [0, 0], "expected": 1.6, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "pmf_binomial",
+      "construct": { "n": 10, "p": [0.5, 0.5] },
+      "assertions": [
+        { "method": "pdf", "args": [[5, 5]], "expected": 0.24609375, "mode": "abs", "tol": 1e-8 }
+      ]
+    },
+    {
+      "name": "pmf_three_category",
+      "construct": { "n": 4, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "pdf", "args": [[1, 1, 2]], "expected": 0.18, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "pmf_invalid",
+      "construct": { "n": 10, "p": [0.5, 0.5] },
+      "assertions": [
+        { "method": "pdf", "args": [[3, 3]], "expected": 0.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf", "args": [[-1, 11]], "expected": 0.0, "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf", "args": [[5, 3, 2]], "expected": 0.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "log_pmf",
+      "construct": { "n": 10, "p": [0.5, 0.5] },
+      "assertions": [
+        { "method": "log_pdf", "args": [[5, 5]], "expected": -1.402042718088029, "mode": "abs", "tol": 1e-9 }
+      ]
+    },
+    {
+      "name": "log_pmf_invalid",
+      "construct": { "n": 10, "p": [0.5, 0.5] },
+      "assertions": [
+        { "method": "log_pdf", "args": [[3, 3]], "expected": "-inf", "mode": "equal" },
+        { "method": "log_pdf", "args": [[-1, 11]], "expected": "-inf", "mode": "equal" },
+        { "method": "log_pdf", "args": [[5, 3, 2]], "expected": "-inf", "mode": "equal" }
+      ]
+    },
+    {
+      "name": "seeded_sampling",
+      "note": "GenerateRandomValues first-N draws (sequential binomial sampling); stateless (seeds its own MersenneTwister from `seed`). No LatinHypercubeRandomValues -- Multinomial has no such method in the C# source.",
+      "construct": { "n": 10, "p": [0.2, 0.3, 0.5] },
+      "assertions": [
+        { "method": "random_value", "args": [5, 42, 0, 0], "expected": 2.0, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump" },
+        { "method": "random_value", "args": [5, 42, 2, 1], "expected": 3.0, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump" },
+        { "method": "random_value", "args": [5, 42, 4, 2], "expected": 5.0, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump" }
+      ]
+    }
+  ]
+}

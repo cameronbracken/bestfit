@@ -13,7 +13,10 @@ using System.Text.Json;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
+using Numerics.Distributions.Copulas;
+using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
+using Numerics.Sampling;
 
 static double ParseNum(JsonElement v)
 {
@@ -127,6 +130,29 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
         var cr = new CompetingRisks(comps);
         if (construct.TryGetProperty("minimum_of_random_variables", out var minOfRV))
             cr.MinimumOfRandomVariables = minOfRV.GetBoolean();
+        if (construct.TryGetProperty("dependency", out var depEl))
+        {
+            cr.Dependency = depEl.GetString() switch
+            {
+                "Independent" => Probability.DependencyType.Independent,
+                "PerfectlyPositive" => Probability.DependencyType.PerfectlyPositive,
+                "PerfectlyNegative" => Probability.DependencyType.PerfectlyNegative,
+                "CorrelationMatrix" => Probability.DependencyType.CorrelationMatrix,
+                var s => throw new Exception($"unknown dependency type: {s}")
+            };
+        }
+        if (construct.TryGetProperty("correlation", out var corrEl))
+        {
+            var rows = corrEl.EnumerateArray().ToArray();
+            int n = rows.Length;
+            var corr = new double[n, n];
+            for (int i = 0; i < n; i++)
+            {
+                var row = rows[i].EnumerateArray().ToArray();
+                for (int j = 0; j < row.Length; j++) corr[i, j] = ParseNum(row[j]);
+            }
+            cr.CorrelationMatrix = corr;
+        }
         return cr;
     }
     throw new Exception($"unknown composite target: {target}");
@@ -175,6 +201,7 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
         case "minimum": return d.Minimum;
         case "maximum": return d.Maximum;
         case "pdf": return d.PDF(a[0].GetDouble());
+        case "log_pdf": return d.LogPDF(a[0].GetDouble());
         case "cdf": return d.CDF(a[0].GetDouble());
         case "quantile": return d.InverseCDF(a[0].GetDouble());
         case "param":
@@ -218,9 +245,90 @@ static bool Compare(double actual, JsonElement assertion)
     }
 }
 
+// Cholesky fixture args are a flattened row-major n*n matrix, with n inferred from the
+// args length per the convention documented in fixtures/special_functions/cholesky.json.
+static int CholeskySquareN(int len)
+{
+    int n = (int)Math.Round(Math.Sqrt(len));
+    if (n * n != len) throw new Exception("Cholesky fixture args: length is not a perfect square");
+    return n;
+}
+
+// solve_element args are [flattened n*n matrix, n-length rhs vector, index i], i.e.
+// n*n + n + 1 == len; solve the quadratic for n.
+static int CholeskySolveN(int len)
+{
+    int n = (int)Math.Round((-1.0 + Math.Sqrt(1.0 + 4.0 * (len - 1))) / 2.0);
+    if (n * n + n + 1 != len) throw new Exception("Cholesky fixture args: length does not fit n*n+n+1");
+    return n;
+}
+
+static Matrix CholeskyMatrixFromFlat(double[] a, int n)
+{
+    var m = new Matrix(n, n);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            m[i, j] = a[i * n + j];
+    return m;
+}
+
+// Correlation fixture args are [x..., y...] concatenated and split at the midpoint
+// (equal-length samples) -- see fixtures/special_functions/correlation.json for the convention.
+static (double[] X, double[] Y) CorrelationSplit(double[] a)
+{
+    int mid = a.Length / 2;
+    return (a[..mid], a[mid..]);
+}
+
 // Special-function dispatch table: maps "Module.method" → Func<double[], double>.
 static Func<double[], double>? ResolveSpecialFunction(string target) => target switch
 {
+    // Cholesky family (args: flattened row-major matrix, n inferred from length -- see
+    // fixtures/special_functions/cholesky.json for the full convention)
+    "Cholesky.determinant" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        return new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n)).Determinant();
+    },
+    "Cholesky.log_determinant" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        return new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n)).LogDeterminant();
+    },
+    "Cholesky.inverse_element" => a =>
+    {
+        int n = CholeskySquareN(a.Length - 2);
+        var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+        int i = (int)a[n * n];
+        int j = (int)a[n * n + 1];
+        return chol.InverseA()[i, j];
+    },
+    "Cholesky.solve_element" => a =>
+    {
+        int n = CholeskySolveN(a.Length);
+        var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+        var rhs = new double[n];
+        Array.Copy(a, n * n, rhs, 0, n);
+        int i = (int)a[n * n + n];
+        return chol.Solve(new Vector(rhs))[i];
+    },
+    // Returns 1.0 if the matrix is positive-definite (construction succeeds), 0.0 if the
+    // ctor throws. Upstream CholeskyDecomposition.cs throws a bare `new Exception(...)`
+    // for the non-PD/NaN case (no dedicated exception type), so this must catch the
+    // general `Exception`, unlike the C++ port's narrower `std::runtime_error` catch.
+    "Cholesky.is_positive_definite" => a =>
+    {
+        int n = CholeskySquareN(a.Length);
+        try
+        {
+            var chol = new CholeskyDecomposition(CholeskyMatrixFromFlat(a, n));
+            return chol.IsPositiveDefinite ? 1.0 : 0.0;
+        }
+        catch (Exception)
+        {
+            return 0.0;
+        }
+    },
     // Erf family
     "Erf.function"     => a => Erf.Function(a[0]),
     "Erf.erfc"         => a => Erf.Erfc(a[0]),
@@ -249,12 +357,406 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // Bessel family
     "Bessel.i0" => a => Bessel.I0(a[0]),
     "Bessel.i1" => a => Bessel.I1(a[0]),
+    // Correlation family (args: [x..., y...], split at the midpoint -- see
+    // fixtures/special_functions/correlation.json for the full convention)
+    "Correlation.pearson" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.Pearson(x, y);
+    },
+    "Correlation.spearman" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.Spearman(x, y);
+    },
+    "Correlation.kendalls_tau" => a =>
+    {
+        var (x, y) = CorrelationSplit(a);
+        return Correlation.KendallsTau(x, y);
+    },
     _ => null,
 };
 
+// --- multivariate_distribution branch -----------------------------------------------------
+// Mirrors the univariate Build/Dispatch split. Dirichlet/Multinomial/BivariateEmpirical have
+// no common Mean/Variance/Covariance signature (unlike UnivariateDistributionBase), so
+// DispatchMultivariate downcasts to the concrete type for anything beyond
+// Dimension/PDF/LogPDF/CDF/ParametersValid. Extensible: additional multivariate targets add
+// a case to each of Build/Dispatch.
+
+static MultivariateDistribution BuildMultivariate(string target, JsonElement construct)
+{
+    if (target == "Dirichlet")
+    {
+        var alpha = construct.GetProperty("alpha").EnumerateArray().Select(ParseNum).ToArray();
+        return new Dirichlet(alpha);
+    }
+    if (target == "Multinomial")
+    {
+        int n = construct.GetProperty("n").GetInt32();
+        var p = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
+        return new Multinomial(n, p);
+    }
+    if (target == "BivariateEmpirical")
+    {
+        var x1 = construct.GetProperty("x1").EnumerateArray().Select(ParseNum).ToArray();
+        var x2 = construct.GetProperty("x2").EnumerateArray().Select(ParseNum).ToArray();
+        var pRows = construct.GetProperty("p").EnumerateArray().ToArray();
+        var p = new double[pRows.Length, x2.Length];
+        for (int i = 0; i < pRows.Length; i++)
+        {
+            var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
+        }
+        Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
+            ? t.GetString() switch
+            {
+                "None" => Transform.None,
+                "Logarithmic" => Transform.Logarithmic,
+                "NormalZ" => Transform.NormalZ,
+                var s => throw new Exception($"unknown transform: {s}")
+            }
+            : Transform.None;
+        return new BivariateEmpirical(x1, x2, p, ParseT("x1_transform"), ParseT("x2_transform"),
+                                       ParseT("p_transform"));
+    }
+    if (target == "MultivariateNormal")
+    {
+        var mean = construct.GetProperty("mean").EnumerateArray().Select(ParseNum).ToArray();
+        var covRows = construct.GetProperty("covariance").EnumerateArray().ToArray();
+        var covariance = new double[covRows.Length, mean.Length];
+        for (int i = 0; i < covRows.Length; i++)
+        {
+            var row = covRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) covariance[i, j] = row[j];
+        }
+        var mvn = new MultivariateNormal(mean, covariance);
+        if (construct.TryGetProperty("seed", out var seedEl))
+            mvn.MVNUNI = new MersenneTwister(seedEl.GetInt32());
+        if (construct.TryGetProperty("max_evaluations", out var maxEvalEl))
+            mvn.MaxEvaluations = maxEvalEl.GetInt32();
+        if (construct.TryGetProperty("abs_error", out var absErrEl))
+            mvn.AbsoluteError = absErrEl.GetDouble();
+        if (construct.TryGetProperty("rel_error", out var relErrEl))
+            mvn.RelativeError = relErrEl.GetDouble();
+        return mvn;
+    }
+    if (target == "MultivariateStudentT")
+    {
+        double df = construct.GetProperty("df").GetDouble();
+        var location = construct.GetProperty("location").EnumerateArray().Select(ParseNum).ToArray();
+        var scaleRows = construct.GetProperty("scale").EnumerateArray().ToArray();
+        var scale = new double[scaleRows.Length, location.Length];
+        for (int i = 0; i < scaleRows.Length; i++)
+        {
+            var row = scaleRows[i].EnumerateArray().Select(ParseNum).ToArray();
+            for (int j = 0; j < row.Length; j++) scale[i, j] = row[j];
+        }
+        return new MultivariateStudentT(df, location, scale);
+    }
+    throw new Exception($"unknown multivariate target: {target}");
+}
+
+// Shared lookup for the "random_value"/"lhs_value" seeded-sampling oracle methods, common
+// to every multivariate target that implements GenerateRandomValues (all four) /
+// LatinHypercubeRandomValues (MultivariateNormal, MultivariateStudentT only -- see
+// fixtures/README.md). args = [sample_size, seed, row, col]: `generate` is a method-group
+// reference to the (int sampleSize, int seed) => double[,] overload itself, so this is
+// stateless -- no persistent-instance batching needed, unlike MultivariateNormal's
+// MVNUNI-seeded cdf/interval/mvndst path above.
+static double SampleValueAt(Func<int, int, double[,]> generate, JsonElement[] a)
+{
+    var sample = generate(a[0].GetInt32(), a[1].GetInt32());
+    return sample[a[2].GetInt32(), a[3].GetInt32()];
+}
+
+static double DispatchMultivariate(MultivariateDistribution d, string target, string m, JsonElement[] a)
+{
+    switch (m)
+    {
+        case "dimension": return d.Dimension;
+        // The C# property for the PMF/PDF is PDF(double[]); LogPMF is a Multinomial-only
+        // method that LogPDF forwards to, so LogPDF works generically across all three.
+        case "pdf": return d.PDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+        case "log_pdf": return d.LogPDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+        case "cdf": return d.CDF(a[0].EnumerateArray().Select(ParseNum).ToArray());
+    }
+    if (target == "Dirichlet")
+    {
+        var dd = (Dirichlet)d;
+        switch (m)
+        {
+            case "alpha": return dd.Alpha[a[0].GetInt32()];
+            case "alpha_sum": return dd.AlphaSum;
+            case "mean": return dd.Mean[a[0].GetInt32()];
+            case "variance": return dd.Variance[a[0].GetInt32()];
+            case "mode": return dd.Mode[a[0].GetInt32()];
+            case "covariance": return dd.Covariance(a[0].GetInt32(), a[1].GetInt32());
+            case "log_multivariate_beta": return Dirichlet.LogMultivariateBeta(a.Select(ParseNum).ToArray());
+            case "random_value": return SampleValueAt(dd.GenerateRandomValues, a);
+        }
+    }
+    else if (target == "Multinomial")
+    {
+        var mm = (Multinomial)d;
+        switch (m)
+        {
+            case "number_of_trials": return mm.NumberOfTrials;
+            case "mean": return mm.Mean[a[0].GetInt32()];
+            case "variance": return mm.Variance[a[0].GetInt32()];
+            case "covariance": return mm.Covariance(a[0].GetInt32(), a[1].GetInt32());
+            case "random_value": return SampleValueAt(mm.GenerateRandomValues, a);
+        }
+    }
+    else if (target == "BivariateEmpirical")
+    {
+        var bb = (BivariateEmpirical)d;
+        if (m == "cdf_xy") return bb.CDF(a[0].GetDouble(), a[1].GetDouble());
+    }
+    else if (target == "MultivariateNormal")
+    {
+        var nn = (MultivariateNormal)d;
+        switch (m)
+        {
+            case "mean": return nn.Mean[a[0].GetInt32()];
+            case "median": return nn.Median[a[0].GetInt32()];
+            case "mode": return nn.Mode[a[0].GetInt32()];
+            case "sd": return nn.StandardDeviation[a[0].GetInt32()];
+            case "variance": return nn.Variance[a[0].GetInt32()];
+            case "covariance": return nn.Covariance[a[0].GetInt32(), a[1].GetInt32()];
+            case "mahalanobis": return nn.Mahalanobis(a[0].EnumerateArray().Select(ParseNum).ToArray());
+            case "inverse_cdf":
+            {
+                // args = [[p_1..p_dim], index]
+                var p = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                int idx = a[1].GetInt32();
+                return nn.InverseCDF(p)[idx];
+            }
+            case "interval":
+            {
+                // args = [[lower...], [upper...]]
+                var lower = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return nn.Interval(lower, upper);
+            }
+            case "mvndst":
+            {
+                // args = [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]
+                int n = a[0].GetInt32();
+                var lower = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[2].EnumerateArray().Select(ParseNum).ToArray();
+                var infin = a[3].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var correl = a[4].EnumerateArray().Select(ParseNum).ToArray();
+                int maxpts = a[5].GetInt32();
+                double abseps = a[6].GetDouble();
+                double releps = a[7].GetDouble();
+                double error = 0, val = 0;
+                int inform = 0;
+                nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
+                return val;
+            }
+            case "random_value": return SampleValueAt(nn.GenerateRandomValues, a);
+            case "lhs_value": return SampleValueAt(nn.LatinHypercubeRandomValues, a);
+        }
+    }
+    else if (target == "MultivariateStudentT")
+    {
+        var tt = (MultivariateStudentT)d;
+        switch (m)
+        {
+            case "degrees_of_freedom": return tt.DegreesOfFreedom;
+            case "mean": return tt.Mean[a[0].GetInt32()];
+            case "median": return tt.Median[a[0].GetInt32()];
+            case "mode": return tt.Mode[a[0].GetInt32()];
+            case "sd": return tt.StandardDeviation[a[0].GetInt32()];
+            case "variance": return tt.Variance[a[0].GetInt32()];
+            case "covariance": return tt.Covariance[a[0].GetInt32(), a[1].GetInt32()];
+            case "mahalanobis": return tt.Mahalanobis(a[0].EnumerateArray().Select(ParseNum).ToArray());
+            case "inverse_cdf":
+            {
+                // args = [[p_1..p_dim+1], index]
+                var p = a[0].EnumerateArray().Select(ParseNum).ToArray();
+                int idx = a[1].GetInt32();
+                return tt.InverseCDF(p)[idx];
+            }
+            case "random_value": return SampleValueAt(tt.GenerateRandomValues, a);
+            case "lhs_value": return SampleValueAt(tt.LatinHypercubeRandomValues, a);
+        }
+    }
+    throw new Exception($"unknown multivariate fixture method: {target}/{m}");
+}
+
+// --- bivariate_copula branch --------------------------------------------------------------
+// Every copula shares BivariateCopula's uniform Theta/GetCopulaParameters/PDF/CDF/... API
+// (unlike MultivariateDistribution, whose targets share no common surface), so BuildCopula/
+// DispatchCopula are fully generic through Enum.Parse<CopulaType> + the real
+// BivariateCopulaEstimation.Estimate static -- no per-target branching, mirroring the C++
+// core's copula_factory.hpp rationale. The one exception is the "tau" method-of-moments fit
+// (SetThetaFromTau is a member of each concrete Archimedean class in the C# source, not
+// part of IBivariateCopula/IArchimedeanCopula), which SetThetaFromTauDispatch resolves by
+// target name; each new tau-capable copula adds one branch there.
+
+static BivariateCopula BuildCopula(string target, JsonElement construct,
+                                    Dictionary<string, double[]> datasets)
+{
+    var type = Enum.Parse<CopulaType>(target);
+    BivariateCopula copula = type switch
+    {
+        CopulaType.AliMikhailHaq => new AMHCopula(),
+        CopulaType.Clayton => new ClaytonCopula(),
+        CopulaType.Frank => new FrankCopula(),
+        CopulaType.Gumbel => new GumbelCopula(),
+        CopulaType.Joe => new JoeCopula(),
+        CopulaType.Normal => new NormalCopula(),
+        CopulaType.StudentT => new StudentTCopula(),
+        _ => throw new Exception($"copula type not yet ported: {target}")
+    };
+
+    if (construct.TryGetProperty("theta", out var thetaEl))
+    {
+        var parms = new List<double> { ParseNum(thetaEl) };
+        if (construct.TryGetProperty("df", out var dfEl)) parms.Add(ParseNum(dfEl));
+        copula.SetCopulaParameters(parms.ToArray());
+        // {"marginals": {"targets": [..], "params": [[..], [..]]}} attaches marginals
+        // directly via the C# `Copula(theta, marginX, marginY)` ctor path -- used by the
+        // seeded "random_value" sampling oracles, which back-transform through the
+        // marginals when set. Distinct from the "fit"-construct's marginals (a bare
+        // 2-element type-name array; see below), since this path sets FIXED marginal
+        // parameters rather than fitting them.
+        if (construct.TryGetProperty("marginals", out var directMarginalsEl))
+        {
+            var targets = directMarginalsEl.GetProperty("targets").EnumerateArray().ToArray();
+            var paramArrays = directMarginalsEl.GetProperty("params").EnumerateArray().ToArray();
+            var mx = UnivariateDistributionFactory.CreateDistribution(
+                Enum.Parse<UnivariateDistributionType>(targets[0].GetString()!));
+            var my = UnivariateDistributionFactory.CreateDistribution(
+                Enum.Parse<UnivariateDistributionType>(targets[1].GetString()!));
+            mx.SetParameters(paramArrays[0].EnumerateArray().Select(ParseNum).ToArray());
+            my.SetParameters(paramArrays[1].EnumerateArray().Select(ParseNum).ToArray());
+            copula.MarginalDistributionX = mx;
+            copula.MarginalDistributionY = my;
+        }
+        return copula;
+    }
+
+    var fit = construct.GetProperty("fit");
+    var x = datasets[fit.GetProperty("x").GetString()!];
+    var y = datasets[fit.GetProperty("y").GetString()!];
+    string method = fit.GetProperty("method").GetString()!;
+
+    if (fit.TryGetProperty("marginals", out var marginalsEl))
+    {
+        var margArr = marginalsEl.EnumerateArray().ToArray();
+        var mx = UnivariateDistributionFactory.CreateDistribution(
+            Enum.Parse<UnivariateDistributionType>(margArr[0].GetString()!));
+        var my = UnivariateDistributionFactory.CreateDistribution(
+            Enum.Parse<UnivariateDistributionType>(margArr[1].GetString()!));
+        if (method == "ifm")
+        {
+            ((IEstimation)mx).Estimate(x, ParameterEstimationMethod.MaximumLikelihood);
+            ((IEstimation)my).Estimate(y, ParameterEstimationMethod.MaximumLikelihood);
+        }
+        copula.MarginalDistributionX = mx;
+        copula.MarginalDistributionY = my;
+    }
+
+    switch (method)
+    {
+        case "tau":
+            SetThetaFromTauDispatch(copula, target, x, y);
+            break;
+        case "mpl":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.PseudoLikelihood);
+            break;
+        case "ifm":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.InferenceFromMargins);
+            break;
+        case "mle":
+            BivariateCopulaEstimation.Estimate(ref copula, x, y, CopulaEstimationMethod.FullLikelihood);
+            break;
+        default:
+            throw new Exception($"unknown copula fit method: {method}");
+    }
+    return copula;
+}
+
+// SetThetaFromTau is not part of the shared copula API (see file header); each
+// tau-capable copula type adds a branch here.
+static void SetThetaFromTauDispatch(BivariateCopula copula, string target, double[] x, double[] y)
+{
+    if (target == "Clayton") { ((ClaytonCopula)copula).SetThetaFromTau(x, y); return; }
+    if (target == "AliMikhailHaq") { ((AMHCopula)copula).SetThetaFromTau(x, y); return; }
+    if (target == "Gumbel") { ((GumbelCopula)copula).SetThetaFromTau(x, y); return; }
+    // NOTE: JoeCopula has no SetThetaFromTau in the C# source; intentionally not branched
+    // here (see joe_copula.hpp's file header and .superpowers/sdd/task-8-report.md).
+    throw new Exception($"copula '{target}' has no tau-based method-of-moments fit");
+}
+
+static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
+{
+    switch (m)
+    {
+        case "pdf": return c.PDF(a[0].GetDouble(), a[1].GetDouble());
+        case "log_pdf": return c.LogPDF(a[0].GetDouble(), a[1].GetDouble());
+        case "cdf": return c.CDF(a[0].GetDouble(), a[1].GetDouble());
+        case "inverse_cdf": return c.InverseCDF(a[0].GetDouble(), a[1].GetDouble())[a[2].GetInt32()];
+        case "upper_tail_dependence": return c.UpperTailDependence;
+        case "lower_tail_dependence": return c.LowerTailDependence;
+        case "theta": return c.Theta;
+        case "df": return c.GetCopulaParameters[1];
+        case "or_exceedance": return c.ORJointExceedanceProbability(a[0].GetDouble(), a[1].GetDouble());
+        case "and_exceedance": return c.ANDJointExceedanceProbability(a[0].GetDouble(), a[1].GetDouble());
+        case "marginal_param":
+        {
+            string which = a[0].GetString()!;
+            int idx = a[1].GetInt32();
+            var marg = which == "x" ? c.MarginalDistributionX : c.MarginalDistributionY;
+            return marg!.GetParameters[idx];
+        }
+        case "random_value":
+        {
+            // args = [sample_size, seed, row, col]. Stateless: GenerateRandomValues seeds
+            // its own internal LatinHypercube draw from `seed`, so no persistent-instance
+            // batching is needed (mirrors SampleValueAt() for MultivariateDistribution above).
+            var sample = c.GenerateRandomValues(a[0].GetInt32(), a[1].GetInt32());
+            return sample[a[2].GetInt32(), a[3].GetInt32()];
+        }
+        default: throw new Exception($"unknown copula fixture method: {m}");
+    }
+}
+
+// --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
+// Author a fixture case with placeholder "expected" values, run
+// `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
+// the printed actuals into the fixture, then re-run without --dump to verify. Kept small:
+// one helper that prints one JSON line per assertion instead of comparing.
+static void DumpLine(string target, string caseName, string method, JsonElement[] args, Func<object> compute)
+{
+    object actualOrError;
+    try { actualOrError = compute(); }
+    catch (Exception ex) { actualOrError = "ERROR: " + ex.Message; }
+    var line = new Dictionary<string, object?>
+    {
+        ["target"] = target,
+        ["case"] = caseName,
+        ["method"] = method,
+        ["args"] = args,
+        ["actual"] = actualOrError,
+    };
+    // PDF/CDF spot values can legitimately be +-Infinity (e.g. LogPDF of a non-finite
+    // input); System.Text.Json refuses to write those without this option.
+    var options = new JsonSerializerOptions
+    {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    };
+    Console.WriteLine(JsonSerializer.Serialize(line, options));
+}
+
 // --- main -------------------------------------------------------------------------------
 
-string fixturesDir = args.Length > 0 ? args[0]
+bool dump = args.Contains("--dump");
+string[] positional = args.Where(a => a != "--dump").ToArray();
+string fixturesDir = positional.Length > 0 ? positional[0]
     : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "fixtures");
 fixturesDir = Path.GetFullPath(fixturesDir);
 if (!Directory.Exists(fixturesDir))
@@ -273,15 +775,21 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
     string? kindStr = root.TryGetProperty("kind", out var kind) ? kind.GetString() : null;
 
     // --- special_function branch --------------------------------------------------------
+    // Most files dispatch every case through one file-level `target` (e.g. "Erf.function").
+    // The Cholesky fixture groups several related dispatch keys in one file, so a case may
+    // override `target`; a case without its own falls back to the file-level one, leaving
+    // single-target files' behavior unchanged.
     if (kindStr == "special_function")
     {
-        string sfTarget = root.GetProperty("target").GetString()!;
-        var fn = ResolveSpecialFunction(sfTarget);
-        if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
+        string fileTarget = root.GetProperty("target").GetString()!;
         foreach (var c in root.GetProperty("cases").EnumerateArray())
         {
+            string sfTarget = c.TryGetProperty("target", out var caseTarget)
+                ? caseTarget.GetString()! : fileTarget;
+            var fn = ResolveSpecialFunction(sfTarget);
+            if (fn is null) { Console.Error.WriteLine($"  SKIP unknown special-function target: {sfTarget}"); continue; }
             string caseName = c.GetProperty("name").GetString()!;
-            var argList = c.GetProperty("args").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+            var argList = c.GetProperty("args").EnumerateArray().Select(ParseNum).ToArray();
             double actual;
             try { actual = fn(argList); }
             catch (Exception ex) { fail++; failures.Add($"{sfTarget}/{caseName}: {ex.Message}"); continue; }
@@ -351,6 +859,107 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
         continue;
     }
 
+    // --- multivariate_distribution branch ------------------------------------------------
+    if (kindStr == "multivariate_distribution")
+    {
+        string mvTarget = root.GetProperty("target").GetString()!;
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            MultivariateDistribution mvDist;
+            try { mvDist = BuildMultivariate(mvTarget, c.GetProperty("construct")); }
+            catch (Exception ex) { failures.Add($"{mvTarget}/{caseName}: build failed: {ex.Message}"); fail++; continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{mvTarget}/{caseName}/{method}";
+                string mode = asrt.GetProperty("mode").GetString()!;
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(mvTarget, caseName, method, argList,
+                             () => mode == "bool" ? (object)mvDist.ParametersValid
+                                                   : (object)DispatchMultivariate(mvDist, mvTarget, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    if (mode == "bool")
+                    {
+                        bool ok = mvDist.ParametersValid == asrt.GetProperty("expected").GetBoolean();
+                        if (ok) pass++; else { fail++; failures.Add(where + ": bool mismatch"); }
+                        continue;
+                    }
+                    double actual = DispatchMultivariate(mvDist, mvTarget, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- bivariate_copula branch ----------------------------------------------------------
+    if (kindStr == "bivariate_copula")
+    {
+        string copTarget = root.GetProperty("target").GetString()!;
+        var copDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var copDs))
+            foreach (var kv in copDs.EnumerateObject())
+                copDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            BivariateCopula copula;
+            try { copula = BuildCopula(copTarget, c.GetProperty("construct"), copDatasets); }
+            catch (Exception ex) { failures.Add($"{copTarget}/{caseName}: build failed: {ex.Message}"); fail++; continue; }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{copTarget}/{caseName}/{method}";
+                string mode = asrt.GetProperty("mode").GetString()!;
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine(copTarget, caseName, method, argList,
+                             () => mode == "bool" ? (object)copula.ParametersValid
+                                                   : (object)DispatchCopula(copula, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    if (mode == "bool")
+                    {
+                        bool ok = copula.ParametersValid == asrt.GetProperty("expected").GetBoolean();
+                        if (ok) pass++; else { fail++; failures.Add(where + ": bool mismatch"); }
+                        continue;
+                    }
+                    double actual = DispatchCopula(copula, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
     if (kindStr != "univariate_distribution") continue;
 
     string target = root.GetProperty("target").GetString()!;
@@ -374,6 +983,22 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
             string where = $"{target}/{caseName}/{method}";
             string mode = asrt.GetProperty("mode").GetString()!;
+
+            // --dump: the curation path. Print target/case/method/args and the actual
+            // C#-computed value as a JSON line instead of comparing against the
+            // fixture's (possibly still-placeholder) "expected". See DumpLine().
+            if (dump)
+            {
+                DumpLine(target, caseName, method, argList,
+                         () =>
+                         {
+                             if (mode == "bool") return (object)dist.ParametersValid;
+                             double? v = Dispatch(dist, method, argList);
+                             return v is null ? (object)"SKIPPED" : (object)v.Value;
+                         });
+                continue;
+            }
+
             try
             {
                 if (mode == "bool")

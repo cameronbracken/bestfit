@@ -1,0 +1,21 @@
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/CopulaType.cs @ a2c4dbf
+//
+// Enumeration of every bivariate copula. Enumerator names are transcribed VERBATIM
+// (including capitalization) because the copula factory (copula_factory.hpp, a bestfit
+// addition) and the fixture/emitter glue key construction off these exact strings so the
+// C# oracle emitter can `Enum.Parse<CopulaType>` the same fixture "target" value.
+#pragma once
+
+namespace bestfit::numerics::distributions::copulas {
+
+enum class CopulaType {
+    AliMikhailHaq,
+    Clayton,
+    Frank,
+    Gumbel,
+    Joe,
+    Normal,
+    StudentT
+};
+
+}  // namespace bestfit::numerics::distributions::copulas

@@ -63,6 +63,12 @@ PYBIND11_MODULE(_core, m) {
     // Polymorphic distributions (Normal, Uniform, Exponential, ...).
     register_distributions(m);
 
+    // Multivariate distributions (Dirichlet, Multinomial, BivariateEmpirical).
+    register_multivariate(m);
+
+    // Bivariate copulas (Clayton, ...).
+    register_copulas(m);
+
     // Quasi-random sampling (Sobol sequence).
     register_sobol(m);
 }
