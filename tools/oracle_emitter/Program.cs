@@ -485,6 +485,26 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
         int j = (int)a[baseIdx + 1];
         return rcm.SampleCorrelation[i, j];
     },
+    "RunningCovariance.population_covariance_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        int j = (int)a[baseIdx + 1];
+        return rcm.PopulationCovariance[i, j];
+    },
+    "RunningCovariance.population_correlation_element" => a =>
+    {
+        int size = (int)a[0];
+        int numPushes = (int)a[1];
+        var rcm = RunningCovarianceBuild(a, size, numPushes);
+        int baseIdx = 2 + numPushes * size;
+        int i = (int)a[baseIdx];
+        int j = (int)a[baseIdx + 1];
+        return rcm.PopulationCorrelation[i, j];
+    },
     // RunningStatistics family (args: the flat sample; see
     // fixtures/special_functions/running_statistics.json)
     "RunningStatistics.mean" => a => new RunningStatistics(a).Mean,
@@ -500,6 +520,16 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "RunningStatistics.minimum" => a => new RunningStatistics(a).Minimum,
     "RunningStatistics.maximum" => a => new RunningStatistics(a).Maximum,
     "RunningStatistics.count" => a => (double)new RunningStatistics(a).Count,
+    // RunningStatistics combine family (args: [n1, sample1(n1), sample2(m)] -- see
+    // RunningStatisticsCombined() above and fixtures/special_functions/running_statistics.json)
+    "RunningStatistics.combined_minimum" => a => RunningStatisticsCombined(a).Minimum,
+    "RunningStatistics.combined_maximum" => a => RunningStatisticsCombined(a).Maximum,
+    "RunningStatistics.combined_mean" => a => RunningStatisticsCombined(a).Mean,
+    "RunningStatistics.combined_variance" => a => RunningStatisticsCombined(a).Variance,
+    "RunningStatistics.combined_standard_deviation" => a => RunningStatisticsCombined(a).StandardDeviation,
+    "RunningStatistics.combined_coefficient_of_variation" => a => RunningStatisticsCombined(a).CoefficientOfVariation,
+    "RunningStatistics.combined_skewness" => a => RunningStatisticsCombined(a).Skewness,
+    "RunningStatistics.combined_kurtosis" => a => RunningStatisticsCombined(a).Kurtosis,
     _ => null,
 };
 
@@ -517,6 +547,21 @@ static RunningCovarianceMatrix RunningCovarianceBuild(double[] a, int size, int 
         rcm.Push(row);
     }
     return rcm;
+}
+
+// RunningStatistics combine fixture args: [n1, sample1(n1 values), sample2(remaining
+// values)] -- a "split-index" convention, distinct from Correlation's equal-length
+// two-halves split (Test_Combine/Test_Add split their 69-value sample into UNEQUAL 48/21
+// sub-samples, so a fixed midpoint doesn't apply). See
+// fixtures/special_functions/running_statistics.json for the full convention. Uses the
+// `+` operator (rather than calling RunningStatistics.Combine directly), which exercises
+// both -- operator+ is a one-line forwarder to Combine.
+static RunningStatistics RunningStatisticsCombined(double[] a)
+{
+    int n1 = (int)a[0];
+    var sample1 = a[1..(1 + n1)];
+    var sample2 = a[(1 + n1)..];
+    return new RunningStatistics(sample1) + new RunningStatistics(sample2);
 }
 
 // --- multivariate_distribution branch -----------------------------------------------------

@@ -351,9 +351,16 @@ dim)`); `Extensions.next_integers_at` takes `args = [n, seed, i]`; `Mt.next_rang
 The `RunningCovariance.*` targets (`fixtures/special_functions/running_covariance.json`) take
 `args = [size, num_pushes, data_flat(num_pushes*size), trailing index/indices]` -- one row index
 for `mean_element`, `(i, j)` for `covariance_element`/`sample_covariance_element`/
-`sample_correlation_element`. The `RunningStatistics.*` targets
-(`fixtures/special_functions/running_statistics.json`) take `args` = the flat sample (the
-constructor pushes every element in order); each target reads one property off the result.
+`sample_correlation_element`/`population_covariance_element`/`population_correlation_element`. The
+`RunningStatistics.*` targets (`fixtures/special_functions/running_statistics.json`) take `args` =
+the flat sample (the constructor pushes every element in order); each target reads one property off
+the result. The `RunningStatistics.combined_*` targets exercise `RunningStatistics::combine()`/
+`operator+` (which the plain per-property targets never touch, since they only ever build a single
+instance via the list constructor): `args = [n1, sample1(n1 values), sample2(remaining values)]`, a
+"split-index" convention distinct from `Correlation.*`'s equal-length two-halves split -- the
+upstream `Test_Combine`/`Test_Add` literals split their 69-value sample into UNEQUAL 48/21
+sub-samples, so a fixed midpoint doesn't apply. Each target builds `RunningStatistics(sample1) +
+RunningStatistics(sample2)` and reads one property off the merged result.
 
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.

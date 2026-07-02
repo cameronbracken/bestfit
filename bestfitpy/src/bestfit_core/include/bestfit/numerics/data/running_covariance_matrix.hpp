@@ -1,9 +1,14 @@
 // ported from: Numerics/Data/Statistics/RunningCovarianceMatrix.cs @ a2c4dbf
 //
-// Welford's online algorithm generalized to a running mean vector and covariance matrix,
-// ported verbatim -- push() updates `mean_` using the OLD mean (captured before the
-// update) in the covariance term, exactly matching the C# `oldMean`/`Mean` two-step
-// order. ARWMH adapts its proposal covariance through this class's push().
+// Welford's online algorithm generalized to a running mean vector and covariance matrix.
+// push() updates `mean_` using the OLD mean (captured before the update) in the
+// covariance term, exactly matching the C# `oldMean`/`Mean` two-step order. ARWMH adapts
+// its proposal covariance through this class's push().
+//
+// push()'s N==1 branch is NOT a verbatim transcription of the C# line (`Mean += N == 1 ?
+// x : (x - Mean) * (1d / N);`, i.e. always an addition onto the current `Mean`); it is
+// restructured to a direct assignment (`mean_ = n_ == 1 ? x : ...`) -- see the equivalence
+// argument at the call site below.
 //
 // `x = new Matrix(values.ToArray())` (C#'s single-column-array ctor, not ported -- see
 // matrix.hpp's omission note) is replaced here by the already-ported `(rows, cols, flat)`
@@ -80,7 +85,12 @@ class RunningCovarianceMatrix {
     void push(const std::vector<double>& values) {
         n_ += 1;
         math::linalg::Matrix x(static_cast<int>(values.size()), 1, values);
-        // Update mean
+        // Update mean. C# writes `Mean += N == 1 ? x : (x - Mean) * (1d / N);` (an addition
+        // in BOTH branches); this line instead assigns `x` directly on N==1 rather than
+        // `mean_ + x`. The two are equivalent, not merely similar: N==1 only ever occurs on
+        // the very first push, at which point `mean_` is still the zero matrix from the
+        // ctor, so `mean_ + x == x` and the direct assignment reproduces the C# result
+        // exactly -- it is a value-preserving simplification, not a verbatim transcription.
         math::linalg::Matrix old_mean = mean_;
         mean_ = n_ == 1 ? x : mean_ + (x - mean_) * (1.0 / static_cast<double>(n_));
         // Update covariance

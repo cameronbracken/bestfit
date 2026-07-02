@@ -227,6 +227,20 @@ static bfdata::RunningCovarianceMatrix running_covariance_build(const std::vecto
     return rcm;
 }
 
+// RunningStatistics combine fixture args: [n1, sample1(n1 values), sample2(remaining
+// values)] -- a "split-index" convention, distinct from Correlation's equal-length
+// two-halves split (Test_Combine/Test_Add split their 69-value sample into UNEQUAL 48/21
+// sub-samples, so a fixed midpoint doesn't apply). See
+// fixtures/special_functions/running_statistics.json for the full convention. Uses
+// operator+ (rather than calling RunningStatistics::combine() directly), which exercises
+// both -- operator+ is a one-line forwarder to combine().
+static bfdata::RunningStatistics running_statistics_combined(const std::vector<double>& a) {
+    std::size_t n1 = static_cast<std::size_t>(a[0]);
+    std::vector<double> sample1(a.begin() + 1, a.begin() + 1 + static_cast<std::ptrdiff_t>(n1));
+    std::vector<double> sample2(a.begin() + 1 + static_cast<std::ptrdiff_t>(n1), a.end());
+    return bfdata::RunningStatistics(sample1) + bfdata::RunningStatistics(sample2);
+}
+
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
 static const std::map<std::string, std::function<double(const std::vector<double>&)>>&
 special_function_table() {
@@ -413,6 +427,24 @@ special_function_table() {
             int j = static_cast<int>(a[base + 1]);
             return rcm.sample_correlation()(i, j);
         }},
+        {"RunningCovariance.population_covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.population_covariance()(i, j);
+        }},
+        {"RunningCovariance.population_correlation_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.population_correlation()(i, j);
+        }},
         // RunningStatistics family (args: the flat sample; see
         // fixtures/special_functions/running_statistics.json)
         {"RunningStatistics.mean", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).mean(); }},
@@ -428,6 +460,16 @@ special_function_table() {
         {"RunningStatistics.minimum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).minimum(); }},
         {"RunningStatistics.maximum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).maximum(); }},
         {"RunningStatistics.count", [](const std::vector<double>& a) { return static_cast<double>(bfdata::RunningStatistics(a).count()); }},
+        // RunningStatistics combine family (args: [n1, sample1(n1), sample2(m)] -- see
+        // running_statistics_combined() above and fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.combined_minimum", [](const std::vector<double>& a) { return running_statistics_combined(a).minimum(); }},
+        {"RunningStatistics.combined_maximum", [](const std::vector<double>& a) { return running_statistics_combined(a).maximum(); }},
+        {"RunningStatistics.combined_mean", [](const std::vector<double>& a) { return running_statistics_combined(a).mean(); }},
+        {"RunningStatistics.combined_variance", [](const std::vector<double>& a) { return running_statistics_combined(a).variance(); }},
+        {"RunningStatistics.combined_standard_deviation", [](const std::vector<double>& a) { return running_statistics_combined(a).standard_deviation(); }},
+        {"RunningStatistics.combined_coefficient_of_variation", [](const std::vector<double>& a) { return running_statistics_combined(a).coefficient_of_variation(); }},
+        {"RunningStatistics.combined_skewness", [](const std::vector<double>& a) { return running_statistics_combined(a).skewness(); }},
+        {"RunningStatistics.combined_kurtosis", [](const std::vector<double>& a) { return running_statistics_combined(a).kurtosis(); }},
     };
     return t;
 }

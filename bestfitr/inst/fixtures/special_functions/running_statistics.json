@@ -1,8 +1,8 @@
 {
   "target": "RunningStatistics.mean",
   "kind": "special_function",
-  "source": "Numerics/Data/Statistics/RunningStatistics.cs; expected values scraped verbatim from Test_RunningStatistics.cs (Test_Stats/Test_PopStats), which construct a RunningStatistics from the same 69-value sample used by fixtures/special_functions/percentile.json and validate each property to a 1e-10 delta against the values from Test_Statistics.cs.",
-  "reference": "Numerics @ a2c4dbf. Not called out in the task brief's own fixture list, but added because the task's stated goal is that every ported prerequisite be oracle-validated before a sampler consumes it (ARWMH/Bootstrap both use RunningStatistics). Args convention: args = the flat sample (RunningStatistics's list constructor pushes every element in order); each dispatch target reads one property off the resulting instance. minimum/maximum/count are trivial (min/max of a fixed sample; N=69) but included for completeness of the ported member set.",
+  "source": "Numerics/Data/Statistics/RunningStatistics.cs; expected values scraped verbatim from Test_RunningStatistics.cs (Test_Stats/Test_PopStats), which construct a RunningStatistics from the same 69-value sample used by fixtures/special_functions/percentile.json and validate each property to a 1e-10 delta against the values from Test_Statistics.cs. The `combined_*` cases scrape Test_Combine/Test_Add verbatim, which split the SAME 69-value sample into a 48-value sub-sample and a 21-value sub-sample, build a RunningStatistics from each, merge them via `RunningStatistics.Combine`/`operator+`, and assert the merge reproduces the exact same 8 values as Test_Stats/Test_PopStats above (min/max/mean/variance/sd/coefficient_of_variation/skewness/kurtosis) -- i.e. the C# tests themselves prove combine() is associative-with-single-pass on this data, so the expected values are identical to their un-combined counterparts by construction.",
+  "reference": "Numerics @ a2c4dbf. Not called out in the task brief's own fixture list, but added because the task's stated goal is that every ported prerequisite be oracle-validated before a sampler consumes it (ARWMH/Bootstrap both use RunningStatistics). Args convention: args = the flat sample (RunningStatistics's list constructor pushes every element in order); each dispatch target reads one property off the resulting instance. minimum/maximum/count are trivial (min/max of a fixed sample; N=69) but included for completeness of the ported member set. The `combined_*` targets close a gap: `RunningStatistics::combine()`/`operator+` had zero fixture coverage from the cases above (which only ever construct via the list ctor, never combine two instances). They use a DIFFERENT args convention: `[n1, sample1(n1 values), sample2(remaining values)]`, a 'split-index' convention rather than Correlation's equal-length two-halves split (Test_Combine/Test_Add's 48/21 sub-samples are unequal, so a fixed midpoint doesn't apply). Each `combined_*` dispatch target builds `RunningStatistics(sample1) + RunningStatistics(sample2)` (operator+, which forwards to the static `combine()` -- exercising both) and reads one property off the merged result. See fixtures/README.md.",
   "cases": [
     {
       "name": "mean",
@@ -81,6 +81,54 @@
       "target": "RunningStatistics.count",
       "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
       "assertions": [ { "method": "value", "expected": 69.0, "mode": "equal" } ]
+    },
+    {
+      "name": "combined_minimum",
+      "target": "RunningStatistics.combined_minimum",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 98.8, "mode": "abs", "tol": 1e-10 } ]
+    },
+    {
+      "name": "combined_maximum",
+      "target": "RunningStatistics.combined_maximum",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 337.0, "mode": "abs", "tol": 1e-10 } ]
+    },
+    {
+      "name": "combined_mean",
+      "target": "RunningStatistics.combined_mean",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 191.317391304348, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "combined_variance",
+      "target": "RunningStatistics.combined_variance",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 2300.31616368286, "mode": "abs", "tol": 1e-8 } ]
+    },
+    {
+      "name": "combined_standard_deviation",
+      "target": "RunningStatistics.combined_standard_deviation",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 47.9616113541118, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "combined_coefficient_of_variation",
+      "target": "RunningStatistics.combined_coefficient_of_variation",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 0.250691330396694, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "combined_skewness",
+      "target": "RunningStatistics.combined_skewness",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 0.8605451107461, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "combined_kurtosis",
+      "target": "RunningStatistics.combined_kurtosis",
+      "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 1.3434868130194, "mode": "abs", "tol": 1e-9 } ]
     }
   ]
 }
