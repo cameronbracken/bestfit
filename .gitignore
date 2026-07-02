@@ -19,9 +19,10 @@ dist/
 wheelhouse/
 .venv/
 
-# .NET (dev-only oracle emitter build output)
+# .NET (dev-only oracle emitter and scratch tools build output)
 tools/oracle_emitter/bin/
 tools/oracle_emitter/obj/
+tools/compute_oracle/
 
 # OS / editor / AI tooling (never commit)
 .DS_Store
