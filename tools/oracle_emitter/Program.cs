@@ -1273,6 +1273,128 @@ static double DispatchMcmc(MCMCSampler sampler, MCMCResults results, string m, J
     }
 }
 
+// --- bootstrap helpers (Task P3.10) -------------------------------------------------------
+//
+// Mirrors model_registry.hpp's "normal_quantiles" entry EXACTLY -- see that header's comment
+// for the sampleData/BCa semantics (transcribed from Test_Bootstrap.cs's private
+// CreateNormalBootstrap() helper and Test_BCaCI()).
+static Bootstrap<double[]> BuildBootstrapModel(string name, double mu, double sigma, int sampleSize,
+    double[] probabilities, double[] sampleData)
+{
+    if (name != "normal_quantiles")
+        throw new Exception($"unknown bootstrap model registry entry: {name}");
+
+    double fitMu = mu, fitSigma = sigma;
+    int resampleSize = sampleSize;
+    double[]? originalData = null;
+
+    if (sampleData.Length > 0)
+    {
+        var probe = new Normal();
+        ((IEstimation)probe).Estimate(sampleData, ParameterEstimationMethod.MethodOfMoments);
+        fitMu = probe.Mu;
+        fitSigma = probe.Sigma;
+        resampleSize = sampleData.Length;
+        originalData = sampleData;
+    }
+
+    var parms = new ParameterSet(new double[] { fitMu, fitSigma }, double.NaN);
+    var boot = new Bootstrap<double[]>(originalData!, parms);
+
+    boot.ResampleFunction = (data, ps, rng) =>
+    {
+        var d = new Normal(ps.Values[0], ps.Values[1]);
+        return d.GenerateRandomValues(resampleSize, rng.Next());
+    };
+
+    boot.FitFunction = (sample) =>
+    {
+        var d = new Normal();
+        ((IEstimation)d).Estimate(sample, ParameterEstimationMethod.MethodOfMoments);
+        if (!d.ParametersValid) throw new Exception("Invalid parameters.");
+        return new ParameterSet(d.GetParameters, double.NaN);
+    };
+
+    boot.StatisticFunction = (ps) =>
+    {
+        var d = new Normal(ps.Values[0], ps.Values[1]);
+        var result = new double[probabilities.Length];
+        for (int i = 0; i < probabilities.Length; i++)
+            result[i] = d.InverseCDF(probabilities[i]);
+        return result;
+    };
+
+    if (sampleData.Length > 0)
+    {
+        boot.JackknifeFunction = (data, idx) =>
+        {
+            var list = new List<double>(data);
+            list.RemoveAt(idx);
+            return list.ToArray();
+        };
+        boot.SampleSizeFunction = (data) => data.Length;
+    }
+
+    return boot;
+}
+
+static BootstrapCIMethod ParseBootstrapCIMethod(string s) => s switch
+{
+    "Percentile" => BootstrapCIMethod.Percentile,
+    "BiasCorrected" => BootstrapCIMethod.BiasCorrected,
+    "BCa" => BootstrapCIMethod.BCa,
+    "Normal" => BootstrapCIMethod.Normal,
+    "BootstrapT" => BootstrapCIMethod.BootstrapT,
+    _ => throw new Exception($"unknown bootstrap ci_method: {s}")
+};
+
+// Builds + configures + runs one Bootstrap<double[]> from a {"model": ..., ...} construct
+// (see fixtures/README.md's bootstrap schema), then computes its confidence intervals once.
+static (Bootstrap<double[]> boot, BootstrapResults results) BuildAndRunBootstrap(
+    JsonElement construct, Dictionary<string, double[]> datasets)
+{
+    string modelName = construct.GetProperty("model").GetString()!;
+    double mu = construct.TryGetProperty("mu", out var muEl) ? muEl.GetDouble() : 0.0;
+    double sigma = construct.TryGetProperty("sigma", out var sigmaEl) ? sigmaEl.GetDouble() : 0.0;
+    int sampleSize = construct.TryGetProperty("sample_size", out var ssEl) ? ssEl.GetInt32() : 0;
+    double[] probabilities = construct.GetProperty("probabilities").EnumerateArray()
+        .Select(x => x.GetDouble()).ToArray();
+    double[] sampleData = construct.TryGetProperty("dataset", out var dsEl)
+        ? datasets[dsEl.GetString()!] : Array.Empty<double>();
+
+    var boot = BuildBootstrapModel(modelName, mu, sigma, sampleSize, probabilities, sampleData);
+    if (construct.TryGetProperty("replicates", out var repEl)) boot.Replicates = repEl.GetInt32();
+    if (construct.TryGetProperty("seed", out var seedEl)) boot.PRNGSeed = seedEl.GetInt32();
+    if (construct.TryGetProperty("max_retries", out var mrEl)) boot.MaxRetries = mrEl.GetInt32();
+
+    string run = construct.TryGetProperty("run", out var runEl) ? runEl.GetString()! : "regular";
+    if (run == "regular") boot.Run();
+    else if (run == "studentized") boot.RunWithStudentizedBootstrap();
+    else throw new Exception($"unknown bootstrap run kind: {run}");
+
+    var method = ParseBootstrapCIMethod(construct.GetProperty("ci_method").GetString()!);
+    double alpha = construct.TryGetProperty("alpha", out var alphaEl) ? alphaEl.GetDouble() : 0.1;
+    var results = boot.GetConfidenceIntervals(method, alpha);
+
+    return (boot, results);
+}
+
+static double DispatchBootstrap(Bootstrap<double[]> boot, BootstrapResults results, string m, JsonElement[] a)
+{
+    int Idx(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "statistic_lower_ci": return results.StatisticResults[Idx(0)].LowerCI;
+        case "statistic_upper_ci": return results.StatisticResults[Idx(0)].UpperCI;
+        case "parameter_lower_ci": return results.ParameterResults[Idx(0)].LowerCI;
+        case "parameter_upper_ci": return results.ParameterResults[Idx(0)].UpperCI;
+        case "population_estimate": return results.ParameterResults[Idx(0)].PopulationEstimate;
+        case "valid_count": return results.StatisticResults[Idx(0)].ValidCount;
+        case "replicate_value": return boot.BootstrapParameterSets[Idx(0)].Values[Idx(1)];
+        default: throw new Exception($"unknown bootstrap fixture method: {m}");
+    }
+}
+
 // --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
 // Author a fixture case with placeholder "expected" values, run
 // `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
@@ -1570,6 +1692,63 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 try
                 {
                     double actual = DispatchMcmc(mcmcSampler, mcmcResults, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- bootstrap branch --------------------------------------------------------------------
+    // One bootstrap run per case (see fixtures/README.md's bootstrap schema): build the model
+    // + configure + run() (or run_with_studentized_bootstrap()) ONCE, compute confidence
+    // intervals ONCE, then dispatch every assertion against that one cached (boot, results)
+    // pair.
+    if (kindStr == "bootstrap")
+    {
+        var bsDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var bsDs))
+            foreach (var kv in bsDs.EnumerateObject())
+                bsDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            Bootstrap<double[]> boot;
+            BootstrapResults results;
+            try
+            {
+                (boot, results) = BuildAndRunBootstrap(c.GetProperty("construct"), bsDatasets);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"Bootstrap/{caseName}: build/run failed: {ex.Message}");
+                fail++;
+                continue;
+            }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"Bootstrap/{caseName}/{method}";
+
+                // --dump: the curation path. Print target/case/method/args and the actual
+                // C#-computed value as a JSON line instead of comparing against the
+                // fixture's (possibly still-placeholder) "expected". See DumpLine().
+                if (dump)
+                {
+                    DumpLine("Bootstrap", caseName, method, argList,
+                             () => (object)DispatchBootstrap(boot, results, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    double actual = DispatchBootstrap(boot, results, method, argList);
                     if (Compare(actual, asrt)) pass++;
                     else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
                 }

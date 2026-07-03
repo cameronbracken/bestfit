@@ -388,6 +388,54 @@ def _run_mcmc_case(target: str, construct: dict, assertions: list, datasets: dic
         _check(actual, a)
 
 
+# --- bootstrap path ----------------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler: one _core.bootstrap_run call per case builds the
+# model via the registry, runs() (or run_with_studentized_bootstrap()) ONCE, and computes
+# confidence intervals ONCE; every assertion in the case reads the single returned dict. See
+# fixtures/README.md's bootstrap schema for the full method list and tolerance policy.
+
+
+def _dispatch_bootstrap(result: dict, method: str, args: list):
+    if method == "statistic_lower_ci":
+        return result["statistic_lower_ci"][int(args[0])]
+    if method == "statistic_upper_ci":
+        return result["statistic_upper_ci"][int(args[0])]
+    if method == "parameter_lower_ci":
+        return result["parameter_lower_ci"][int(args[0])]
+    if method == "parameter_upper_ci":
+        return result["parameter_upper_ci"][int(args[0])]
+    if method == "population_estimate":
+        return result["population_estimate"][int(args[0])]
+    if method == "valid_count":
+        return result["valid_count"][int(args[0])]
+    if method == "replicate_value":
+        return result["replicate_values"][int(args[0])][int(args[1])]
+    raise KeyError(f"unknown bootstrap fixture method: {method}")
+
+
+def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
+    dataset = [float(v) for v in datasets[construct["dataset"]]] if "dataset" in construct else []
+    probabilities = [_num(v) for v in construct["probabilities"]]
+    result = _core.bootstrap_run(
+        construct["model"],
+        construct.get("mu", 0.0),
+        construct.get("sigma", 0.0),
+        construct.get("sample_size", 0),
+        probabilities,
+        dataset,
+        construct["replicates"],
+        construct["seed"],
+        construct.get("max_retries", 20),
+        construct.get("run", "regular"),
+        construct["ci_method"],
+        construct.get("alpha", 0.1),
+    )
+    for a in assertions:
+        args = a.get("args", [])
+        actual = _dispatch_bootstrap(result, a["method"], args)
+        _check(actual, a)
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -493,6 +541,7 @@ def _load_cases():
             "multivariate_distribution",
             "bivariate_copula",
             "mcmc_sampler",
+            "bootstrap",
         ):
             continue
         for case in spec["cases"]:
@@ -507,6 +556,10 @@ CASES = _load_cases()
     "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
 def test_fixture_case(kind, target, datasets, case):
+    if kind == "bootstrap":
+        _run_bootstrap_case(case["construct"], case["assertions"], datasets)
+        return
+
     if kind == "mcmc_sampler":
         _run_mcmc_case(target, case["construct"], case["assertions"], datasets)
         return

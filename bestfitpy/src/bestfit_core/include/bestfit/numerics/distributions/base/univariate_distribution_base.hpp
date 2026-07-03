@@ -7,13 +7,22 @@
 // The desktop-app boilerplate of the C# base (XElement serialization, PDF/CDF graph
 // builders, equality operators, numerical-integration CentralMoments / Conditional*)
 // is intentionally not ported -- those are WPF/analysis concerns, not the math core.
+//
+// P3.10 adds `generate_random_values` (C# `GenerateRandomValues(int sampleSize, int seed =
+// -1)`): inverse-CDF sampling off a fresh MersenneTwister, `seed`-constructed when positive
+// or clock-seeded otherwise. Bootstrap's "normal_quantiles" model registry entry (and any
+// future parametric-bootstrap model) calls this through a distribution instance built from a
+// trial `ParameterSet`, exactly mirroring `Test_Bootstrap.cs`'s
+// `dist.GenerateRandomValues(sampleSize, rng.Next())` call sites.
 #pragma once
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <vector>
 
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
 
 namespace bestfit::numerics::distributions {
 
@@ -72,6 +81,18 @@ class UnivariateDistributionBase {
         for (double v : sample) ll += log_pdf(v);
         if (std::isnan(ll) || std::isinf(ll)) return -kInf;
         return ll;
+    }
+
+    // Generates `sample_size` random values via inverse-CDF sampling. `seed > 0` seeds a
+    // fresh MersenneTwister deterministically; otherwise a clock-seeded one is used (mirrors
+    // C# `GenerateRandomValues(int sampleSize, int seed = -1)` -- see file header).
+    virtual std::vector<double> generate_random_values(int sample_size, int seed = -1) const {
+        sampling::MersenneTwister rnd = seed > 0 ? sampling::MersenneTwister(static_cast<std::uint32_t>(seed))
+                                                  : sampling::MersenneTwister();
+        std::vector<double> sample(static_cast<std::size_t>(sample_size));
+        for (int i = 0; i < sample_size; ++i)
+            sample[static_cast<std::size_t>(i)] = inverse_cdf(rnd.next_double());
+        return sample;
     }
 
     virtual std::unique_ptr<UnivariateDistributionBase> clone() const = 0;

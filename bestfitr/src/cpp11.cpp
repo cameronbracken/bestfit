@@ -5,6 +5,13 @@
 #include "cpp11/declarations.hpp"
 #include <R_ext/Visibility.h>
 
+// bootstrap.cpp
+list bf_bootstrap_run_(std::string model, double mu, double sigma, int sample_size, doubles probabilities, doubles dataset, int replicates, int seed, int max_retries, std::string run, std::string ci_method, double alpha);
+extern "C" SEXP _bestfitr_bf_bootstrap_run_(SEXP model, SEXP mu, SEXP sigma, SEXP sample_size, SEXP probabilities, SEXP dataset, SEXP replicates, SEXP seed, SEXP max_retries, SEXP run, SEXP ci_method, SEXP alpha) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_bootstrap_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model), cpp11::as_cpp<cpp11::decay_t<double>>(mu), cpp11::as_cpp<cpp11::decay_t<double>>(sigma), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size), cpp11::as_cpp<cpp11::decay_t<doubles>>(probabilities), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<int>>(replicates), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<int>>(max_retries), cpp11::as_cpp<cpp11::decay_t<std::string>>(run), cpp11::as_cpp<cpp11::decay_t<std::string>>(ci_method), cpp11::as_cpp<cpp11::decay_t<double>>(alpha)));
+  END_CPP11
+}
 // copula.cpp
 double bf_cop_val_(std::string type, doubles params, std::string method, doubles args, std::string marg_x_target, doubles marg_x_params, std::string marg_y_target, doubles marg_y_params);
 extern "C" SEXP _bestfitr_bf_cop_val_(SEXP type, SEXP params, SEXP method, SEXP args, SEXP marg_x_target, SEXP marg_x_params, SEXP marg_y_target, SEXP marg_y_params) {
@@ -400,6 +407,7 @@ extern "C" SEXP _bestfitr_bf_sobol_skip_to_(SEXP dimension, SEXP index, SEXP pat
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
+    {"_bestfitr_bf_bootstrap_run_",            (DL_FUNC) &_bestfitr_bf_bootstrap_run_,            12},
     {"_bestfitr_bf_bve_cdf_",                  (DL_FUNC) &_bestfitr_bf_bve_cdf_,                   7},
     {"_bestfitr_bf_cop_fit_",                  (DL_FUNC) &_bestfitr_bf_cop_fit_,                   6},
     {"_bestfitr_bf_cop_val_",                  (DL_FUNC) &_bestfitr_bf_cop_val_,                   8},

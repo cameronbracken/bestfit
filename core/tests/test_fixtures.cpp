@@ -59,6 +59,8 @@
 #include "bestfit/numerics/math/special/erf.hpp"
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
+#include "bestfit/numerics/sampling/bootstrap/bootstrap.hpp"
+#include "bestfit/numerics/sampling/bootstrap/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/demcz.hpp"
 #include "bestfit/numerics/sampling/mcmc/demczs.hpp"
@@ -1459,6 +1461,85 @@ static void run_mcmc_sampler(const json& spec) {
     }
 }
 
+// --- bootstrap path ----------------------------------------------------------------------
+//
+// One bootstrap run per case (mirrors mcmc_sampler's single-stateful-glue-call contract): build
+// the model via the registry, configure (replicates/seed/max_retries), run() or
+// run_with_studentized_bootstrap() ONCE, then get_confidence_intervals() ONCE with the case's
+// ci_method/alpha; every assertion in the case reads that single cached (bootstrap, results)
+// pair. See fixtures/README.md's bootstrap schema.
+
+static bfsamp::BootstrapCIMethod parse_ci_method(const std::string& s) {
+    if (s == "Percentile") return bfsamp::BootstrapCIMethod::Percentile;
+    if (s == "BiasCorrected") return bfsamp::BootstrapCIMethod::BiasCorrected;
+    if (s == "BCa") return bfsamp::BootstrapCIMethod::BCa;
+    if (s == "Normal") return bfsamp::BootstrapCIMethod::Normal;
+    if (s == "BootstrapT") return bfsamp::BootstrapCIMethod::BootstrapT;
+    throw std::runtime_error("unknown bootstrap ci_method: " + s);
+}
+
+struct BootstrapCase {
+    bfsamp::Bootstrap<std::vector<double>> boot;
+    bfsamp::BootstrapResults results;
+};
+
+static BootstrapCase build_and_run_bootstrap(const json& construct, const json& datasets) {
+    std::string model_name = construct["model"].get<std::string>();
+    double mu = construct.value("mu", 0.0);
+    double sigma = construct.value("sigma", 0.0);
+    int sample_size = construct.value("sample_size", 0);
+    std::vector<double> probabilities;
+    for (const auto& v : construct["probabilities"]) probabilities.push_back(parse_num(v));
+    std::vector<double> sample_data;
+    if (construct.contains("dataset"))
+        for (const auto& v : datasets[construct["dataset"].get<std::string>()]) sample_data.push_back(parse_num(v));
+
+    auto boot = bfsamp::build_bootstrap_model(model_name, mu, sigma, sample_size, probabilities, sample_data);
+    if (construct.contains("replicates")) boot.replicates = construct["replicates"].get<int>();
+    if (construct.contains("seed")) boot.prng_seed = construct["seed"].get<int>();
+    if (construct.contains("max_retries")) boot.max_retries = construct["max_retries"].get<int>();
+
+    std::string run = construct.value("run", "regular");
+    if (run == "regular")
+        boot.run();
+    else if (run == "studentized")
+        boot.run_with_studentized_bootstrap();
+    else
+        throw std::runtime_error("unknown bootstrap run kind: " + run);
+
+    auto method = parse_ci_method(construct["ci_method"].get<std::string>());
+    double alpha = construct.value("alpha", 0.1);
+    bfsamp::BootstrapResults results = boot.get_confidence_intervals(method, alpha);
+
+    return BootstrapCase{std::move(boot), std::move(results)};
+}
+
+static double dispatch_bootstrap(const BootstrapCase& bc, const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    if (m == "statistic_lower_ci") return bc.results.statistic_results[idx(0)].lower_ci;
+    if (m == "statistic_upper_ci") return bc.results.statistic_results[idx(0)].upper_ci;
+    if (m == "parameter_lower_ci") return bc.results.parameter_results[idx(0)].lower_ci;
+    if (m == "parameter_upper_ci") return bc.results.parameter_results[idx(0)].upper_ci;
+    if (m == "population_estimate") return bc.results.parameter_results[idx(0)].population_estimate;
+    if (m == "valid_count") return bc.results.statistic_results[idx(0)].valid_count;
+    if (m == "replicate_value") return bc.boot.bootstrap_parameter_sets()[idx(0)].values[idx(1)];
+    throw std::runtime_error("unknown bootstrap fixture method: " + m);
+}
+
+static void run_bootstrap(const json& spec) {
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto bc = build_and_run_bootstrap(c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = "Bootstrap/" + name + "/" + method;
+            check_value(dispatch_bootstrap(bc, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -1486,6 +1567,8 @@ int main(int argc, char** argv) {
             run_bivariate_copula(spec);
         } else if (kind == "mcmc_sampler") {
             run_mcmc_sampler(spec);
+        } else if (kind == "bootstrap") {
+            run_bootstrap(spec);
         }
     }
     if (files == 0) {

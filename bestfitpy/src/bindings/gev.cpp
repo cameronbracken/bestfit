@@ -74,4 +74,7 @@ PYBIND11_MODULE(_core, m) {
 
     // MCMC sampling (model registry + RWMH).
     register_mcmc(m);
+
+    // Bootstrap sampling (model registry + regular/studentized runs).
+    register_bootstrap(m);
 }

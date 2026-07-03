@@ -15,7 +15,16 @@
 // minInclusive, int maxExclusive)` -- a one-line forwarder to the single-argument
 // overload, `Next(maxExclusive - minInclusive) + minInclusive` -- that DEMCzs's
 // SnookerUpdate (chain-index sampling) and other MCMC samplers consume.
+//
+// The parameterless ctor (P3.10) ports C#'s clock-seeded `MersenneTwister()`
+// (`Initialize((uint)DateTime.UtcNow.Ticks)`), needed by
+// `UnivariateDistributionBase::generate_random_values`'s `seed <= 0` branch (Bootstrap's
+// "normal_quantiles" model registry entry always passes a positive seed drawn from another
+// MT stream, so this branch is unreachable from any fixture -- it exists purely for API
+// parity/completeness with the ported virtual method). Non-deterministic by design (matches
+// C#); never exercised by an oracle-fixture assertion.
 #pragma once
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -25,6 +34,14 @@ namespace bestfit::numerics::sampling {
 
 class MersenneTwister {
    public:
+    // Clock-seeded default ctor (mirrors C# `MersenneTwister()`). See file header.
+    MersenneTwister() {
+        auto ticks = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+        initialize(static_cast<std::uint32_t>(ticks));
+    }
+
     explicit MersenneTwister(std::uint32_t seed) { initialize(seed); }
 
     explicit MersenneTwister(const std::vector<std::uint32_t>& seeds) {

@@ -19,6 +19,13 @@
 // Fourier::autocorrelation (math/fourier/fourier.hpp) needs a mean with no minimum-sample-
 // size requirement, matching the C# call site (`Statistics.Mean(series)`, not
 // `Statistics.ProductMoments`). ParallelMean and the other overloads are not ported.
+//
+// P3.10 adds `variance()`/`standard_deviation()`, the plain `Statistics.Variance(IList
+// <double>)`/`StandardDeviation(IList<double>)` overloads (N-1 Bessel-corrected sample
+// variance via the same running-difference recurrence as the C# source, distinct from
+// `product_moments()`'s internal stdev which requires N>=4) -- Bootstrap's SE/CI computation
+// needs a 2-sample-minimum variance with no such floor. `PopulationVariance`/
+// `PopulationStandardDeviation` (N normalizer) are not ported -- no caller needs them yet.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -36,6 +43,25 @@ inline double mean(const std::vector<double>& data) {
     for (double x : data) sum += x;
     return sum / static_cast<double>(data.size());
 }
+
+// Estimates the unbiased sample variance (N-1 normalizer / Bessel's correction) via the same
+// running-difference recurrence as C# Statistics.Variance. Returns NaN for fewer than two
+// entries.
+inline double variance(const std::vector<double>& data) {
+    if (data.size() <= 1) return std::numeric_limits<double>::quiet_NaN();
+    double variance_ = 0.0;
+    double t = data[0];
+    for (std::size_t i = 1; i < data.size(); ++i) {
+        double di = static_cast<double>(i);
+        t += data[i];
+        double diff = (di + 1.0) * data[i] - t;
+        variance_ += diff * diff / ((di + 1.0) * di);
+    }
+    return variance_ / (static_cast<double>(data.size()) - 1.0);
+}
+
+// Sample standard deviation (sqrt of `variance`). Mirrors Statistics.StandardDeviation.
+inline double standard_deviation(const std::vector<double>& data) { return std::sqrt(variance(data)); }
 
 // Returns {mean, stdev (sample), bias-corrected skewness, bias-corrected excess kurtosis}.
 inline std::vector<double> product_moments(const std::vector<double>& data) {

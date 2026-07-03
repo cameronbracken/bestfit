@@ -8,3 +8,4 @@ void register_multivariate(pybind11::module_& m);
 void register_copulas(pybind11::module_& m);
 void register_sobol(pybind11::module_& m);
 void register_mcmc(pybind11::module_& m);
+void register_bootstrap(pybind11::module_& m);
