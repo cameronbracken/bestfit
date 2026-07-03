@@ -93,12 +93,15 @@ class Optimizer {
    public:
     using Objective = std::function<double(const std::vector<double>&)>;
 
-    // Construct a new optimization method.
+    // Construct a new optimization method. Validation order matches C# exactly: the ctor
+    // assigns `ObjectiveFunction` (whose property setter null-checks) BEFORE validating
+    // `NumberOfParameters`, so a caller passing both an empty objective and an invalid
+    // parameter count observes the objective-function error, not the parameter-count one.
     Optimizer(Objective objective_function, int number_of_parameters)
         : objective_function_(std::move(objective_function)), number_of_parameters_(number_of_parameters) {
+        if (!objective_function_) throw ArgumentException("The objective function cannot be null.");
         if (number_of_parameters < 1)
             throw ArgumentException("There must be at least 1 parameter to evaluate.");
-        if (!objective_function_) throw ArgumentException("The objective function cannot be null.");
     }
 
     virtual ~Optimizer() = default;

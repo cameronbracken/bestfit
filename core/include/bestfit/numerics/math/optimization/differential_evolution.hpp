@@ -46,6 +46,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -149,6 +150,17 @@ class DifferentialEvolution : public Optimizer {
                     if (x == i) continue;
                     keyed.emplace_back(prng.next_double(), x);
                 }
+                // C# `indices[0], indices[1], indices[2]` throws IndexOutOfRangeException when
+                // fewer than 3 OTHER population members exist (PopulationSize < 4, since index
+                // `i` is excluded above); `std::vector::operator[]` would instead be UB. Guarded
+                // to reproduce the observable C# throw (COVSRT precedent, multivariate_normal.hpp).
+                // Unreachable via the public API today (the ctor always sets population_size =
+                // 10 * D), but population_size is a public settable field, so this is reachable
+                // if a caller shrinks it after construction.
+                if (keyed.size() < 3)
+                    throw std::out_of_range(
+                        "The population size must be at least 4 (each candidate needs 3 other "
+                        "distinct population members to mutate from).");
                 std::stable_sort(keyed.begin(), keyed.end(),
                                   [](const std::pair<double, int>& a, const std::pair<double, int>& b) {
                                       return a.first < b.first;
