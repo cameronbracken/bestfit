@@ -23,6 +23,7 @@ set(BF_TESTS
   test_stratification
   test_numerical_diff
   test_model_parameter
+  test_model_base
 )
 
 # Sobol test takes the direction-number file as its sole argument.
