@@ -21,6 +21,7 @@ set(BF_TESTS
   test_mcmc_extra
   test_matrix_regularization
   test_stratification
+  test_numerical_diff
 )
 
 # Sobol test takes the direction-number file as its sole argument.
