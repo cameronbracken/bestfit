@@ -13,7 +13,11 @@
 //   - GetAIC/GetBIC match GoodnessOfFit::aic/bic directly.
 //   - ParameterConfidenceIntervals brackets the fitted point estimate.
 //   - Gating: BFGS/Powell/MultilevelSingleLinkage throw; Brent on a 2-parameter model throws.
+//   - profile_likelihood()/get_sandwich_covariance_matrix()/get_robust_standard_errors()/
+//     get_observation_influence()/get_cooks_distance()/set_optimizer_method()/clear_results():
+//     self-consistency + shape checks only (exact oracles are T12's job).
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -139,6 +143,116 @@ void test_brent_on_two_parameter_model_throws() {
     CHECK_THROWS(MaximumLikelihood(model, OptimizationMethod::Brent));
 }
 
+// profile_likelihood(): one Matrix(bins, 2) per parameter, midpoints within [lower, upper],
+// and the loglik entry at the bin closest to the fitted value finite (self-consistency only --
+// exact oracle is T12). NOTE: unlike the fitted point, the FAR ends of the default constraint
+// ranges (get_parameter_constraints() sets very wide bounds, e.g. mu in +-1e6 for this sample)
+// legitimately underflow the Normal density to exactly 0, so data_log_likelihood() returns -inf
+// there -- a correct mathematical result, not a bug -- so this test only requires "not NaN"
+// everywhere and finiteness specifically near the optimum.
+void test_profile_likelihood_shape_and_finiteness() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
+    CHECK_TRUE(mle.estimate());
+
+    const int bins = 25;
+    auto profiles = mle.profile_likelihood(bins);
+    CHECK_TRUE(profiles.size() == static_cast<std::size_t>(model.number_of_parameters()));
+    const auto& best = mle.best_parameter_set().values;
+
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        const auto& profile = profiles[p];
+        CHECK_TRUE(profile.number_of_rows() == bins);
+        CHECK_TRUE(profile.number_of_columns() == 2);
+
+        const auto& parameter = model.parameters()[p];
+        int closest_bin = 0;
+        double closest_distance = std::numeric_limits<double>::infinity();
+        for (int j = 0; j < bins; ++j) {
+            double midpoint = profile(j, 0);
+            CHECK_TRUE(midpoint >= parameter.lower_bound());
+            CHECK_TRUE(midpoint <= parameter.upper_bound());
+            CHECK_TRUE(!std::isnan(profile(j, 1)));
+
+            double distance = std::fabs(midpoint - best[p]);
+            if (distance < closest_distance) {
+                closest_distance = distance;
+                closest_bin = j;
+            }
+        }
+        CHECK_TRUE(std::isfinite(profile(closest_bin, 1)));
+    }
+}
+
+// get_sandwich_covariance_matrix() / get_robust_standard_errors(): symmetric matrix, all
+// robust standard errors strictly positive (self-consistency only -- exact oracle is T12).
+void test_sandwich_covariance_and_robust_standard_errors() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
+    CHECK_TRUE(mle.estimate());
+
+    auto sandwich = mle.get_sandwich_covariance_matrix();
+    CHECK_TRUE(sandwich.number_of_rows() == 2);
+    CHECK_TRUE(sandwich.number_of_columns() == 2);
+    CHECK_NEAR(sandwich(0, 1), sandwich(1, 0), 1e-9);
+
+    auto robust_se = mle.get_robust_standard_errors();
+    CHECK_TRUE(robust_se.size() == 2);
+    for (double se : robust_se) CHECK_TRUE(se > 0.0);
+}
+
+// get_observation_influence(): Nx(NumberOfParameters) Matrix, every entry finite.
+void test_observation_influence_shape_and_finiteness() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
+    CHECK_TRUE(mle.estimate());
+
+    auto influence = mle.get_observation_influence();
+    CHECK_TRUE(influence.number_of_rows() == static_cast<int>(sample_data().size()));
+    CHECK_TRUE(influence.number_of_columns() == model.number_of_parameters());
+
+    for (int i = 0; i < influence.number_of_rows(); ++i)
+        for (int j = 0; j < influence.number_of_columns(); ++j) CHECK_TRUE(std::isfinite(influence(i, j)));
+}
+
+// get_cooks_distance(): length n_obs, every entry >= 0 (it's a quadratic-form / p measure).
+void test_cooks_distance_shape_and_nonnegative() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
+    CHECK_TRUE(mle.estimate());
+
+    auto cooks_d = mle.get_cooks_distance();
+    CHECK_TRUE(cooks_d.size() == sample_data().size());
+    for (double d : cooks_d) CHECK_TRUE(std::isfinite(d) && d >= 0.0);
+}
+
+// set_optimizer_method()/clear_results(): switching methods (or calling clear_results directly)
+// resets is_estimated()/status() to their pre-estimate state.
+void test_set_optimizer_method_and_clear_results_reset_state() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
+    CHECK_TRUE(mle.estimate());
+    CHECK_TRUE(mle.is_estimated());
+
+    mle.clear_results();
+    CHECK_TRUE(!mle.is_estimated());
+    CHECK_TRUE(mle.status() == bestfit::numerics::math::optimization::OptimizationStatus::None);
+
+    CHECK_TRUE(mle.estimate());
+    CHECK_TRUE(mle.is_estimated());
+
+    // Switching to a different method clears results and rebuilds the optimizer.
+    mle.set_optimizer_method(OptimizationMethod::DifferentialEvolution);
+    CHECK_TRUE(!mle.is_estimated());
+    CHECK_TRUE(mle.optimizer_method() == OptimizationMethod::DifferentialEvolution);
+
+    // Setting the SAME method is a no-op (C# 59-71 guards on method != current method): prior
+    // results should survive.
+    CHECK_TRUE(mle.estimate());
+    mle.set_optimizer_method(OptimizationMethod::DifferentialEvolution);
+    CHECK_TRUE(mle.is_estimated());
+}
+
 }  // namespace
 
 int main() {
@@ -150,6 +264,11 @@ int main() {
     test_parameter_confidence_intervals_bracket_the_estimate();
     test_gated_optimization_methods_throw();
     test_brent_on_two_parameter_model_throws();
+    test_profile_likelihood_shape_and_finiteness();
+    test_sandwich_covariance_and_robust_standard_errors();
+    test_observation_influence_shape_and_finiteness();
+    test_cooks_distance_shape_and_nonnegative();
+    test_set_optimizer_method_and_clear_results_reset_state();
 
     return bftest::summary("maximum_likelihood");
 }
