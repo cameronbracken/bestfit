@@ -77,4 +77,7 @@ PYBIND11_MODULE(_core, m) {
 
     // Bootstrap sampling (model registry + regular/studentized runs).
     register_bootstrap(m);
+
+    // Phase-4 estimation (MaximumLikelihood/MaximumAPosteriori; BayesianAnalysis deferred).
+    register_estimation(m);
 }

@@ -834,6 +834,88 @@ the streams have desynced somewhere -- diagnose the draw path (`--dump` intermed
 against a standalone throwaway harness against the real C# library) and fix the transcription slip;
 do not paper over it with a looser tolerance.
 
+### `model_estimation`
+
+```jsonc
+{
+  "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" today
+                                             // (Task T11); "BayesianAnalysis" is schema-documented
+                                             // but not yet constructible -- see below
+  "kind":    "model_estimation",
+  "source":  "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs ; core/tests/test_maximum_likelihood.cpp",
+  "datasets": { "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600] },
+  "cases": [
+    {
+      "name": "normal_nelder_mead",
+      "construct": {
+        "model":     { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16026.055013737448, "mode": "rel", "tol": 1e-3 }
+      ]
+    }
+  ]
+}
+```
+
+One `estimate()` run per case (mirrors `mcmc_sampler`'s/`bootstrap`'s single-stateful-glue-call
+contract): build a `UnivariateDistributionModel` from `construct.model.{family, dataset}` --
+`family` goes through the same univariate distribution factory every other kind uses
+(`create_distribution(name)`), `dataset` names an entry in the file-level `datasets` map -- then
+construct the estimator named by the file-level `target`, call `estimate()` **once**, then dispatch
+every assertion in the case against the cached `(model, estimator)` pair. Unlike `mcmc_sampler`'s
+and `bootstrap`'s model registries (each a small closed name -> construction-recipe map with no
+upstream C# library counterpart), `model_estimation`'s "registry" is the one-line factory call
+above: every family the factory supports, plus `UnivariateDistributionModel::set_default_parameters`
+(itself driven by `IMaximumLikelihoodEstimation::get_parameter_constraints`), is already enough to
+build a model -- there is no separate closed-name mapping to maintain.
+
+`construct` fields: `model.family` (a univariate distribution type name), `model.dataset` (a
+`datasets` key), `optimizer` (`"NelderMead"` | `"DifferentialEvolution"` | `"Brent"`, applies to
+`MaximumLikelihood`/`MaximumAPosteriori`; defaults to `"DifferentialEvolution"` when omitted,
+matching both estimator classes' C# default). `BayesianAnalysis`'s documented construct fields
+(`sampler`, `seed`, `iterations`, ...) are schema-reserved for Task T12 -- seeing them in a fixture
+today would be premature, since `target: "BayesianAnalysis"` is not yet constructible (see below).
+
+Assertion methods (0-based indices throughout except `bic`'s `n`, an actual sample size):
+
+**Wired (Task T11):**
+- `parameter [p]` -- `BestParameterSet.Values[p]`.
+- `max_log_likelihood []` -- `MaximumLogLikelihood` (data log-likelihood at the optimum for
+  `MaximumLikelihood`; log-POSTERIOR, data + prior, at the optimum for `MaximumAPosteriori`).
+- `aic []`, `bic [n]` -- `GetAIC()`/`GetBIC(n)`.
+- `covariance [i,j]` -- `GetCovarianceMatrix()[i,j]`.
+- `standard_error [p]` -- `GetStandardErrors()[p]`.
+
+These six are shared verbatim by `MaximumLikelihood` and `MaximumAPosteriori` (identical method
+names/signatures on both classes), dispatched through one `std::variant<unique_ptr<
+MaximumLikelihood>, unique_ptr<MaximumAPosteriori>>` + a generic lambda rather than duplicating the
+switch per class -- see `dispatch_estimation` in `core/tests/test_fixtures.cpp`.
+
+**Left for Task T12 (structure only -- no live path yet):**
+- `correlation [i,j]` -- `GetCorrelationMatrix()[i,j]` (exists on both wired classes today, but
+  deliberately not dispatched yet -- adding it is a one-line `if` arm).
+- `dic []`, `waic []`, `looic []`, `posterior_mean [p]` -- `BayesianAnalysis`-only surface
+  (`Dic()`/`Waic()`/`Looic()`/`PointEstimate().Values[p]`); each needs a `BayesianAnalysis`
+  construction arm in `build_and_run_estimation` (today a clear "deferred to Task T12" throw) in
+  addition to its own dispatch `if` arm, since `MaximumLikelihood`/`MaximumAPosteriori` have no
+  equivalent.
+
+**Tolerance policy for the T11 smoke fixture** (`estimation/mle_normal_smoke.json`): this is a
+PLUMBING PROOF, not the T12 emitter-dumped oracle -- every assertion anchors to the SAME value
+`core/tests/test_maximum_likelihood.cpp`'s `test_loose_oracle_anchor` already spike-proved against
+the real C# library (`mu ~ 16026.055`, `sigma ~ 5058.828`, `maximum_log_likelihood ~ -99.4793`),
+plus `aic`/`bic` computed directly from that anchor and `covariance`/`standard_error` values read
+straight off this port's own (deterministic, seed-free) NelderMead run. `parameter`/
+`max_log_likelihood`/`aic`/`bic` use `mode: "rel", tol: 1e-3` (matching the ctest's own tolerance
+for the shared anchor); `covariance`/`standard_error` use `mode: "rel", tol: 1e-2` (one order of
+magnitude looser again -- the numerical Hessian behind them is a finite-difference computation one
+step further removed from the optimizer's own convergence tolerance, so it is more sensitive to
+platform/compiler rounding across the three harnesses' independently-built copies of the same
+core). Task T12 replaces/augments this fixture with exact emitter-dumped oracles and a tighter,
+measured tolerance policy, the same way T12-era work tightened the MCMC/bootstrap fixtures above.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners

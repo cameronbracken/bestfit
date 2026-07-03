@@ -436,6 +436,46 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
         _check(actual, a)
 
 
+# --- model_estimation path -----------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run call per case
+# builds the model via the distribution factory, runs estimate() ONCE, and returns the full
+# result surface; every assertion in the case reads that single cached dict. See
+# fixtures/README.md's model_estimation section for the full method list, the WIRED-vs-T12
+# split, and the `bic` design note (precomputed at sample_size = len(dataset); the fixture's
+# own `args` value for `bic` is not re-read here).
+
+_ESTIMATION_DEFERRED_METHODS = ("correlation", "dic", "waic", "looic", "posterior_mean")
+
+
+def _dispatch_estimation(result: dict, method: str, args: list):
+    if method == "parameter":
+        return result["parameters"][int(args[0])]
+    if method == "max_log_likelihood":
+        return result["max_log_likelihood"]
+    if method == "aic":
+        return result["aic"]
+    if method == "bic":
+        return result["bic"]
+    if method == "covariance":
+        return result["covariance"][int(args[0])][int(args[1])]
+    if method == "standard_error":
+        return result["standard_errors"][int(args[0])]
+    if method in _ESTIMATION_DEFERRED_METHODS:
+        raise KeyError(f"model_estimation fixture method '{method}' is not yet wired (deferred to Task T12)")
+    raise KeyError(f"unknown model_estimation fixture method: {method}")
+
+
+def _run_estimation_case(target: str, construct: dict, assertions: list, datasets: dict):
+    model = construct["model"]
+    data = [float(v) for v in datasets[model["dataset"]]]
+    optimizer = construct.get("optimizer", "DifferentialEvolution")
+    result = _core.estimation_run(target, model["family"], data, optimizer)
+    for a in assertions:
+        args = a.get("args", [])
+        actual = _dispatch_estimation(result, a["method"], args)
+        _check(actual, a)
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -542,6 +582,7 @@ def _load_cases():
             "bivariate_copula",
             "mcmc_sampler",
             "bootstrap",
+            "model_estimation",
         ):
             continue
         for case in spec["cases"]:
@@ -556,6 +597,10 @@ CASES = _load_cases()
     "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
 def test_fixture_case(kind, target, datasets, case):
+    if kind == "model_estimation":
+        _run_estimation_case(target, case["construct"], case["assertions"], datasets)
+        return
+
     if kind == "bootstrap":
         _run_bootstrap_case(case["construct"], case["assertions"], datasets)
         return

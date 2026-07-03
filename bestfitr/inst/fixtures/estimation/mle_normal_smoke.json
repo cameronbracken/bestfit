@@ -1,0 +1,28 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs @ fc28c0c ; core/tests/test_maximum_likelihood.cpp -- T11 plumbing-proof smoke fixture (see fixtures/README.md's model_estimation section); the exact emitter-dumped oracle lands in Task T12.",
+  "datasets": {
+    "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_nelder_mead",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16026.055013737448, "mode": "rel", "tol": 1e-3 },
+        { "method": "parameter", "args": [1], "expected": 5058.8280066312127, "mode": "rel", "tol": 1e-3 },
+        { "method": "max_log_likelihood", "args": [], "expected": -99.479306567850145, "mode": "rel", "tol": 1e-3 },
+        { "method": "aic", "args": [], "expected": 202.95861313570029, "mode": "rel", "tol": 1e-3 },
+        { "method": "bic", "args": [10], "expected": 203.56378332168839, "mode": "rel", "tol": 1e-3 },
+        { "method": "covariance", "args": [0, 0], "expected": 2560725.8661176101, "mode": "rel", "tol": 1e-2 },
+        { "method": "covariance", "args": [1, 1], "expected": 1278966.6813195054, "mode": "rel", "tol": 1e-2 },
+        { "method": "standard_error", "args": [0], "expected": 1600.2268170848813, "mode": "rel", "tol": 1e-2 },
+        { "method": "standard_error", "args": [1], "expected": 1130.9140910429517, "mode": "rel", "tol": 1e-2 }
+      ]
+    }
+  ]
+}

@@ -18,8 +18,13 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
+#include "bestfit/estimation/maximum_a_posteriori.hpp"
+#include "bestfit/estimation/maximum_likelihood.hpp"
+#include "bestfit/estimation/optimization_method.hpp"
+#include "bestfit/models/univariate_distribution_model.hpp"
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/data/histogram.hpp"
@@ -1540,6 +1545,113 @@ static void run_bootstrap(const json& spec) {
     }
 }
 
+// --- model_estimation path -----------------------------------------------------------------
+//
+// One estimate() run per case (mirrors mcmc_sampler's/bootstrap's single-stateful-glue-call
+// contract): build a `UnivariateDistributionModel` from `construct.model.{family, dataset}` via
+// the distribution factory (the "estimation registry" is this one-line call -- there is no
+// separate closed-name registry like mcmc/model_registry.hpp needs, since every family the
+// factory supports plus IMaximumLikelihoodEstimation's default-parameter machinery is already
+// enough to build a model), construct the estimator named by the file-level `target`, call
+// `estimate()` ONCE, then dispatch every assertion in the case against the cached
+// (model, estimator) pair. See fixtures/README.md's model_estimation section for the schema.
+//
+// WIRED (T11): `parameter [p]`, `max_log_likelihood []`, `aic []`, `bic [n]`, `covariance
+// [i,j]`, `standard_error [p]` -- the methods the T11 smoke fixture exercises, shared
+// verbatim by MaximumLikelihood and MaximumAPosteriori (same method names/signatures on both
+// classes; dispatched here via one std::variant + a generic lambda rather than duplicating the
+// switch per class).
+// LEFT FOR T12 (structure only, no live path yet): `correlation [i,j]`, `dic []`, `waic []`,
+// `looic []`, `posterior_mean [p]` -- each becomes one more `if (m == "...")` arm in
+// `dispatch_estimation` below; `posterior_mean`/`dic`/`waic`/`looic` additionally need a
+// BayesianAnalysis construction arm in `build_and_run_estimation` (currently a clear
+// "deferred to T12" throw), since those four are BayesianAnalysis-only surface with no
+// MaximumLikelihood/MaximumAPosteriori equivalent.
+namespace estimation = bestfit::estimation;
+
+static estimation::OptimizationMethod parse_optimization_method(const std::string& s) {
+    if (s == "Brent") return estimation::OptimizationMethod::Brent;
+    if (s == "NelderMead") return estimation::OptimizationMethod::NelderMead;
+    if (s == "DifferentialEvolution") return estimation::OptimizationMethod::DifferentialEvolution;
+    throw std::runtime_error("unknown model_estimation optimizer: " + s);
+}
+
+// Holds the model (kept alive -- MaximumLikelihood/MaximumAPosteriori store a reference, not a
+// copy) plus whichever estimator `target` selected, already `estimate()`d once.
+struct EstimationCase {
+    std::unique_ptr<bestfit::models::UnivariateDistributionModel> model;
+    std::variant<std::unique_ptr<estimation::MaximumLikelihood>, std::unique_ptr<estimation::MaximumAPosteriori>>
+        estimator;
+};
+
+static EstimationCase build_and_run_estimation(const std::string& target, const json& construct,
+                                                 const json& datasets) {
+    const auto& model_spec = construct["model"];
+    std::vector<double> data;
+    for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
+
+    auto model = std::make_unique<bestfit::models::UnivariateDistributionModel>(
+        dist::create_distribution(model_spec["family"].get<std::string>()), data);
+
+    auto method = construct.contains("optimizer")
+                      ? parse_optimization_method(construct["optimizer"].get<std::string>())
+                      : estimation::OptimizationMethod::DifferentialEvolution;
+
+    if (target == "MaximumLikelihood") {
+        auto est = std::make_unique<estimation::MaximumLikelihood>(*model, method);
+        if (!est->estimate()) throw std::runtime_error("MaximumLikelihood::estimate() failed for a fixture case");
+        return EstimationCase{std::move(model), std::move(est)};
+    }
+    if (target == "MaximumAPosteriori") {
+        auto est = std::make_unique<estimation::MaximumAPosteriori>(*model, method);
+        if (!est->estimate()) throw std::runtime_error("MaximumAPosteriori::estimate() failed for a fixture case");
+        return EstimationCase{std::move(model), std::move(est)};
+    }
+    if (target == "BayesianAnalysis") {
+        // See this section's header comment: BayesianAnalysis construction (and the
+        // posterior_mean/dic/waic/looic/correlation methods it alone needs) is deferred to
+        // Task T12 -- there is no T11 fixture case exercising this target.
+        throw std::runtime_error(
+            "model_estimation target 'BayesianAnalysis' is not yet wired in the fixture runner "
+            "(deferred to Task T12); see fixtures/README.md's model_estimation section");
+    }
+    throw std::runtime_error("unknown model_estimation target: " + target);
+}
+
+static double dispatch_estimation(const EstimationCase& ec, const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    return std::visit(
+        [&](const auto& est) -> double {
+            if (m == "parameter") return est->best_parameter_set().values[idx(0)];
+            if (m == "max_log_likelihood") return est->maximum_log_likelihood();
+            if (m == "aic") return est->get_aic();
+            if (m == "bic") return est->get_bic(a[static_cast<std::size_t>(0)].get<int>());
+            if (m == "standard_error") return est->get_standard_errors()[idx(0)];
+            if (m == "covariance") return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+            if (m == "correlation" || m == "dic" || m == "waic" || m == "looic" || m == "posterior_mean") {
+                throw std::runtime_error("model_estimation fixture method '" + m +
+                                          "' is not yet wired (deferred to Task T12)");
+            }
+            throw std::runtime_error("unknown model_estimation fixture method: " + m);
+        },
+        ec.estimator);
+}
+
+static void run_model_estimation(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto ec = build_and_run_estimation(target, c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            check_value(dispatch_estimation(ec, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -1569,6 +1681,8 @@ int main(int argc, char** argv) {
             run_mcmc_sampler(spec);
         } else if (kind == "bootstrap") {
             run_bootstrap(spec);
+        } else if (kind == "model_estimation") {
+            run_model_estimation(spec);
         }
     }
     if (files == 0) {

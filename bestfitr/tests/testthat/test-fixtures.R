@@ -479,6 +479,46 @@ run_bootstrap_case <- function(construct, assertions, datasets) {
   }
 }
 
+# --- model_estimation path -------------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one bf_estimation_run_ call per case builds
+# the model via the distribution factory, runs estimate() ONCE, and returns the full result
+# surface; every assertion in the case reads that single cached list. See
+# fixtures/README.md's model_estimation section for the full method list, the WIRED-vs-T12
+# split, and the `bic` design note (precomputed at sample_size = length(dataset); the fixture's
+# own `args` value for `bic` is not re-read here).
+
+dispatch_estimation <- function(result, method, args) {
+  i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
+  switch(method,
+    parameter          = result$parameters[[i1(args[[1]])]],
+    max_log_likelihood = result$max_log_likelihood[[1]],
+    aic                = result$aic[[1]],
+    bic                = result$bic[[1]],
+    covariance         = result$covariance[i1(args[[1]]), i1(args[[2]])],
+    standard_error     = result$standard_errors[[i1(args[[1]])]],
+    correlation = ,
+    dic = ,
+    waic = ,
+    looic = ,
+    posterior_mean = stop(sprintf(
+      "model_estimation fixture method '%s' is not yet wired (deferred to Task T12)", method)),
+    stop(sprintf("unknown model_estimation fixture method: %s", method))
+  )
+}
+
+run_estimation_case <- function(target, construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  model <- construct$model
+  data <- as.double(unlist(datasets[[model$dataset]]))
+  optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
+  result <- ns$bf_estimation_run_(target, model$family, data, optimizer)
+  for (a in assertions) {
+    args <- if (is.null(a$args)) list() else a$args
+    actual <- dispatch_estimation(result, a$method, args)
+    check_assertion(actual, a)
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -487,9 +527,17 @@ test_that("oracle fixtures validate", {
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
     # Only validate univariate_distribution, multivariate_distribution,
-    # bivariate_copula, mcmc_sampler, and bootstrap fixtures; skip other kinds (e.g.
-    # special_function) which are validated in C++ only and are not exposed to the R
-    # package.
+    # bivariate_copula, mcmc_sampler, bootstrap, and model_estimation fixtures; skip other
+    # kinds (e.g. special_function) which are validated in C++ only and are not exposed to
+    # the R package.
+    if (identical(spec$kind, "model_estimation")) {
+      target <- spec$target
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_estimation_case(target, case$construct, case$assertions, datasets)
+      }
+      next
+    }
     if (identical(spec$kind, "bootstrap")) {
       datasets <- spec$datasets
       for (case in spec$cases) {
