@@ -1,72 +1,55 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/MaximumAPosteriori.cs @ fc28c0c
 //
-// Estimates model parameters via Maximum Likelihood Estimation (MLE): maximizes the data
-// log-likelihood surface exposed by `bestfit::models::ModelBase` using one of the ported
-// optimizers, then computes an adaptive Hessian for uncertainty quantification (covariance,
-// standard errors, sandwich/robust standard errors, observation influence, Cook's distance,
-// AIC/BIC).
+// Estimates model parameters via Maximum A Posteriori (MAP) estimation: maximizes the full
+// log-likelihood surface (data log-likelihood + prior log-likelihood) exposed by
+// `bestfit::models::ModelBase::log_likelihood` using one of the ported optimizers, then computes
+// an adaptive Hessian OF THE POSTERIOR for uncertainty quantification (covariance, standard
+// errors, observation influence, Cook's distance, AIC/BIC). MAP is structurally near-identical
+// to the already-ported `MaximumLikelihood` (Phase 4, Task T7) -- see that file's header for the
+// shared adapter/status-fidelity/sign-convention background, restated here only where MAP
+// differs.
 //
-// ADAPTER NOTE (real API vs. brief's assumption): the brief describes holding a single
-// `std::unique_ptr<Optimizer>` and dispatching `optimize->maximize()/status()/
-// best_parameter_set()/function_evaluations()` polymorphically for every method. That is
-// exactly how C#'s `Optimizer` base class works (BrentSearch/NelderMead/DifferentialEvolution/
-// etc. all derive from it there). In THIS C++ port, only `DifferentialEvolution` actually
-// derives from `Optimizer` -- `BrentSearch` and `NelderMead` are deliberately-standalone
-// classes with their own `maximize()/minimize()` and `best_parameter()/best_parameters()`
-// (see nelder_mead.hpp's header: folding the Optimizer-base machinery in was a documented
-// Phase 0 shortcut, left untouched because every existing caller -- normal.hpp, gumbel.hpp,
-// competing_risks.hpp, etc. -- calls them directly and never needed polymorphism). Rather than
-// refactor those two shared, oracle-locked files (out of scope for this task and risky per
-// their own header), this file uses two small internal adapters
-// (`detail::BrentOptimizerAdapter`, `detail::NelderMeadOptimizerAdapter`, now shared with
-// `MaximumAPosteriori` via `bestfit/estimation/support/optimizer_adapters.hpp` as of Phase 4
-// Task T8) that derive from `Optimizer` and delegate to the wrapped standalone optimizer, so
-// `MaximumLikelihood` can hold one uniform `std::unique_ptr<Optimizer>` exactly as the brief
-// (and the C# design) intends. Both adapters assume "ran to completion == Success", mirroring
-// every existing caller of BrentSearch/NelderMead in this codebase: neither wrapped optimizer
-// reports a distinct "hit max iterations without converging" signal to distinguish from
-// convergence. See optimizer_adapters.hpp's own header for the full ADAPTER/STATUS-FIDELITY/
-// total_function_evaluations()/SIGN-CONVENTION notes (kept there now, not duplicated here).
+// DIFFERENCES FROM MaximumLikelihood (Task T8 brief; verified against the C# source above):
+//   1. The optimizer objective is `Model.LogLikelihood` (data + prior), NOT `DataLogLikelihood`.
+//   2. The adaptive Hessian in estimate() is computed from `model_.log_likelihood` (the
+//      POSTERIOR Hessian), not the data-only likelihood.
+//   3. `maximum_log_likelihood()` keeps the C# member name; it is now the log-POSTERIOR at the
+//      optimum (`= is_estimated ? -best_parameter_set.fitness : NaN`, same formula as MLE).
+//   4. NO sandwich/robust methods: MAP has no `GetSandwichCovarianceMatrix` /
+//      `GetRobustStandardErrors` / `ComputeMeatMatrix` in the C# source, and none are added here.
+//   5. `get_observation_influence()` / `get_cooks_distance()` ARE ported and self-contained: they
+//      use the POSTERIOR Hessian (from `hessian_`, computed over `log_likelihood`) but the SAME
+//      pointwise DATA gradients as MLE (`model_.pointwise_data_log_likelihood` via
+//      `compute_pointwise_gradients`) -- this matches the C# source exactly (MaximumAPosteriori.cs
+//      566/569/631/634 call `Model.PointwiseDataLogLikelihood`, not a posterior-pointwise
+//      variant), so only the Hessian differs from MLE's version of these two methods.
+//   6. `set_up_optimizer()` reuses the shared `detail::BrentOptimizerAdapter` /
+//      `detail::NelderMeadOptimizerAdapter` from `bestfit/estimation/support/optimizer_adapters.hpp`
+//      (extracted from MLE in this same task, Part A). BFGS/Powell/MultilevelSingleLinkage are
+//      gated exactly as in MLE (thrown, not constructed -- none of the three is ported).
 //
-// SIGN CONVENTION (verified): `Optimizer::maximize()` sets `function_scale_ = -1`, and
-// `Optimizer::evaluate()` stores `fitness = function_scale_ * objective_function_(x)` in
-// `best_parameter_set_`. So after a successful `maximize()`, `best_parameter_set().fitness ==
-// -data_log_likelihood(best values)`, and this class's `maximum_log_likelihood()` (`=
-// is_estimated ? -best_parameter_set.fitness : NaN`) recovers the actual (unscaled) data
-// log-likelihood at the optimum -- exactly mirroring the C# invariant
-// (`MaximumLogLikelihood => IsEstimated ? -BestParameterSet.Fitness : double.NaN`) with no
-// sign adjustment needed. The two adapters replicate this same convention manually (see their
-// bodies) since the wrapped BrentSearch/NelderMead each apply their OWN internal function-scale
-// flip identically to Optimizer's, so re-evaluating the raw objective at the optimizer's
-// reported best point and scaling by `function_scale_` reproduces the same fitness convention.
-// The C++-only ctest (test_maximum_likelihood.cpp) asserts this equality directly to 1e-9.
+// GATING (Diagnostics layer deferred, Phase 4 scope decision): C#'s `ComputeLeverageDiagnostics()`
+// (MaximumAPosteriori.cs:683) returns a `RMC.BestFit.Diagnostics.LeverageDiagnostics`, and the
+// Diagnostics layer itself is deferred past Phase 4 (see `.claude/PLAN.md`). This port provides
+// `compute_leverage_diagnostics()` as a stub that throws `std::logic_error` unconditionally,
+// rather than omitting the method entirely, so callers get a clear compile-time-visible member
+// and a clear runtime message instead of a missing-symbol error. This is the ONLY
+// Diagnostics-coupled member on this class.
 //
-// GATING (deliberate Phase-4 sever, matches the task brief): `OptimizationMethod::BFGS`,
-// `::Powell`, and `::MultilevelSingleLinkage` are NOT constructed -- none of the three has been
-// ported (BFGS/Powell/MLSL are deferred alongside GeneralizedMethodOfMoments, per
-// `.claude/PLAN.md`). Selecting one of them throws `std::invalid_argument` from
-// `set_up_optimizer()` without ever touching an (nonexistent) optimizer type.
+// EXCEPTION-TYPE MAPPING for THIS file: same convention as MaximumLikelihood -- C#
+// `ArgumentException`/`InvalidOperationException` (state guards: not-yet-estimated, wrong
+// parameter count, null Hessian) -> `std::invalid_argument`; C# `ArgumentOutOfRangeException`
+// (numeric range guards: bins < 2, alpha outside (0,1), sample size < 1) -> `std::out_of_range`.
 //
-// EXCEPTION-TYPE MAPPING for THIS file: C# `ArgumentException`/`InvalidOperationException`
-// (state guards: not-yet-estimated, wrong parameter count, null Hessian) -> `std::invalid_argument`;
-// C# `ArgumentOutOfRangeException` (numeric range guards: bins < 2, alpha outside (0,1),
-// sample size < 1) -> `std::out_of_range`. This mirrors the existing convention elsewhere in
-// the port (e.g. model_base.hpp's `set_parameter_values` uses `std::invalid_argument` for its
-// C# `ArgumentException`).
+// Debug.WriteLine NOTE: as in MaximumLikelihood, C# logs via `Debug.WriteLine` in several places
+// (Estimate()'s caught Hessian-computation failure, GetCovarianceMatrix()'s "matrix was
+// regularized" notice, and the Fisher-inversion failure paths in GetObservationInfluence()/
+// GetCooksDistance()). None of those is a compute-path side effect, so each becomes a plain
+// comment at the corresponding catch/branch site rather than a call to anything.
 //
-// Debug.WriteLine NOTE: C# logs a message via `Debug.WriteLine` in three places -- Estimate()'s
-// caught Hessian-computation failure, GetCovarianceMatrix()'s "matrix was regularized" notice,
-// and the Fisher-inversion failure paths in GetObservationInfluence()/GetCooksDistance(). None
-// of those is a compute-path side effect (they are desktop-app trace/diagnostic logging with no
-// C++ logger wired into this core), so each becomes a plain comment at the corresponding
-// catch/branch site rather than a call to anything -- the catch bodies themselves (falling back
-// to a null Hessian / a zero matrix / a zero vector) ARE ported, only the logging text is not.
-//
-// Matrix-shaped return types: C# `ProfileLikelihood` returns `List<double[,]>` (one Nx2 array
-// per parameter) and `ParameterConfidenceIntervals`/`GetObservationInfluence` return `double[,]`.
-// This port represents all three as `bestfit::numerics::math::linalg::Matrix` (already used for
-// the covariance/correlation matrices below), rather than inventing a separate 2D-array type,
-// for one consistent matrix representation across the whole class.
+// Matrix-shaped return types: as in MaximumLikelihood, C# `ProfileLikelihood` returns
+// `List<double[,]>` and `ParameterConfidenceIntervals`/`GetObservationInfluence` return
+// `double[,]`; this port represents all three as `bestfit::numerics::math::linalg::Matrix`.
 #pragma once
 #include <cmath>
 #include <cstddef>
@@ -97,18 +80,18 @@
 
 namespace bestfit::estimation {
 
-class MaximumLikelihood {
+class MaximumAPosteriori {
    public:
     using Optimizer = bestfit::numerics::math::optimization::Optimizer;
     using OptimizationStatus = bestfit::numerics::math::optimization::OptimizationStatus;
     using ParameterSet = bestfit::numerics::math::optimization::ParameterSet;
     using Matrix = bestfit::numerics::math::linalg::Matrix;
 
-    // Constructs a new MLE estimator for `model` (held by reference; NOT owned -- mirrors the
+    // Constructs a new MAP estimator for `model` (held by reference; NOT owned -- mirrors the
     // C# ctor's `Model` property, which merely stores the passed-in reference). C# also
     // null-checks `model`; a C++ reference cannot be null, so that guard has no analogue here.
-    explicit MaximumLikelihood(bestfit::models::ModelBase& model,
-                                OptimizationMethod method = OptimizationMethod::DifferentialEvolution)
+    explicit MaximumAPosteriori(bestfit::models::ModelBase& model,
+                                 OptimizationMethod method = OptimizationMethod::DifferentialEvolution)
         : model_(model), method_(method) {
         set_up_optimizer();
         is_estimated_ = false;
@@ -118,7 +101,7 @@ class MaximumLikelihood {
 
     OptimizationMethod optimizer_method() const { return method_; }
 
-    // Changing the method clears existing results and rebuilds the optimizer (C# setter, 59-71).
+    // Changing the method clears existing results and rebuilds the optimizer (C# 62-74).
     void set_optimizer_method(OptimizationMethod method) {
         if (method_ != method) {
             method_ = method;
@@ -156,15 +139,17 @@ class MaximumLikelihood {
 
     int total_function_evaluations() const { return total_function_evaluations_; }
 
-    // C# `MaximumLogLikelihood => IsEstimated ? -BestParameterSet.Fitness : double.NaN` --
-    // see this file's header SIGN CONVENTION note.
+    // C# `MaximumLogLikelihood => IsEstimated ? -BestParameterSet.Fitness : double.NaN` -- for
+    // MAP this is the log-POSTERIOR (data + prior) at the optimum, since the optimizer's
+    // objective was `Model.LogLikelihood` (see set_up_optimizer()). Kept as `fitness` sign
+    // convention matching MaximumLikelihood's identical formula.
     double maximum_log_likelihood() const {
         return is_estimated_ ? -best_parameter_set_.fitness : std::numeric_limits<double>::quiet_NaN();
     }
 
     // --- Methods -------------------------------------------------------------------------
 
-    // Estimates the model parameters that maximize the likelihood function (C# 224-268).
+    // Estimates the model parameters that maximize the posterior (C# 226-268).
     bool estimate() {
         is_estimated_ = false;
         status_ = OptimizationStatus::None;
@@ -182,10 +167,12 @@ class MaximumLikelihood {
                 total_function_evaluations_ = optimizer_->function_evaluations();
 
                 if (compute_hessian_) {
-                    // Compute Hessian with adaptive step sizes (flat-spot detection).
+                    // Compute Hessian with adaptive step sizes (flat-spot detection), over the
+                    // full posterior log-likelihood (data + prior) -- the POSTERIOR Fisher
+                    // information, unlike MLE's data-only Hessian.
                     try {
                         hessian_ = NumericalDiff::compute_hessian(
-                            [this](const std::vector<double>& p) { return model_.data_log_likelihood(p); },
+                            [this](const std::vector<double>& p) { return model_.log_likelihood(p); },
                             best_parameter_set_.values, number_of_parameters());
                     } catch (const std::exception&) {
                         // C# logs "Hessian computation failed: ..." via Debug.WriteLine; no C++
@@ -198,7 +185,7 @@ class MaximumLikelihood {
             }
         } catch (const std::exception&) {
             status_ = OptimizationStatus::Failure;
-            // C# logs "MLE estimation failed: ..." via Debug.WriteLine; silent no-op here.
+            // C# logs "MAP estimation failed: ..." via Debug.WriteLine; silent no-op here.
         }
 
         return false;
@@ -213,8 +200,8 @@ class MaximumLikelihood {
         hessian_.reset();
     }
 
-    // Returns the profile likelihood for each model parameter: one Matrix(bins, 2) per
-    // parameter, columns [parameter value, log-likelihood] (C# 289-316).
+    // Returns the profile likelihood (of the POSTERIOR) for each model parameter: one
+    // Matrix(bins, 2) per parameter, columns [parameter value, log-posterior] (C# 289-316).
     std::vector<Matrix> profile_likelihood(int bins = 100) const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
         if (bins < 2) throw std::out_of_range("Number of bins must be at least 2.");
@@ -234,7 +221,7 @@ class MaximumLikelihood {
                 double midpoint = seq[static_cast<std::size_t>(j)].midpoint();
                 parms[static_cast<std::size_t>(i)] = midpoint;
                 profile(j, 0) = midpoint;
-                profile(j, 1) = model_.data_log_likelihood(parms);
+                profile(j, 1) = model_.log_likelihood(parms);
             }
 
             result.push_back(std::move(profile));
@@ -243,8 +230,8 @@ class MaximumLikelihood {
         return result;
     }
 
-    // Returns parameter confidence intervals from profile likelihood using the chi-squared
-    // threshold: an Nx2 Matrix, columns [lower bound, upper bound] (C# 325-375).
+    // Returns parameter confidence intervals from profile likelihood (of the POSTERIOR) using
+    // the chi-squared threshold: an Nx2 Matrix, columns [lower bound, upper bound] (C# 325-375).
     Matrix parameter_confidence_intervals(double alpha = 0.1) const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
         if (alpha <= 0 || alpha >= 1) throw std::out_of_range("Alpha must be between 0 and 1.");
@@ -260,12 +247,12 @@ class MaximumLikelihood {
 
             // Lower limit: check if the lower bound already exceeds the threshold.
             parms[si] = parameter.lower_bound();
-            double lower_llh = model_.data_log_likelihood(parms);
+            double lower_llh = model_.log_likelihood(parms);
             if (lower_llh < threshold) {
                 cis(i, 0) = bestfit::numerics::math::rootfinding::solve(
                     [&](double x) {
                         parms[si] = x;
-                        return model_.data_log_likelihood(parms) - threshold;
+                        return model_.log_likelihood(parms) - threshold;
                     },
                     parameter.lower_bound(), best_parameter_set_.values[si]);
             } else {
@@ -274,12 +261,12 @@ class MaximumLikelihood {
 
             // Upper limit: check if the upper bound already exceeds the threshold.
             parms[si] = parameter.upper_bound();
-            double upper_llh = model_.data_log_likelihood(parms);
+            double upper_llh = model_.log_likelihood(parms);
             if (upper_llh < threshold) {
                 cis(i, 1) = bestfit::numerics::math::rootfinding::solve(
                     [&](double x) {
                         parms[si] = x;
-                        return model_.data_log_likelihood(parms) - threshold;
+                        return model_.log_likelihood(parms) - threshold;
                     },
                     best_parameter_set_.values[si], parameter.upper_bound());
             } else {
@@ -291,7 +278,8 @@ class MaximumLikelihood {
     }
 
     // Returns the parameter covariance matrix from the inverse of the Fisher Information
-    // Matrix (negative Hessian), regularized to be symmetric positive-definite (C# 382-415).
+    // Matrix (negative POSTERIOR Hessian), regularized to be symmetric positive-definite
+    // (C# 382-415).
     Matrix get_covariance_matrix() const {
         if (number_of_parameters() < 2)
             throw std::invalid_argument("Cannot compute the covariance matrix with fewer than two parameters.");
@@ -311,7 +299,7 @@ class MaximumLikelihood {
         }
     }
 
-    // Returns standard errors from the diagonal of the covariance matrix (C# 422-433).
+    // Returns standard errors from the diagonal of the covariance matrix (C# 413-424).
     std::vector<double> get_standard_errors() const {
         Matrix covariance = get_covariance_matrix();
         std::vector<double> standard_errors(static_cast<std::size_t>(number_of_parameters()));
@@ -320,7 +308,7 @@ class MaximumLikelihood {
         return standard_errors;
     }
 
-    // Returns the correlation matrix from the covariance matrix (C# 440-455).
+    // Returns the correlation matrix from the covariance matrix (C# 431-446).
     Matrix get_correlation_matrix() const {
         Matrix covariance = get_covariance_matrix();
         Matrix correlation(number_of_parameters(), number_of_parameters());
@@ -333,36 +321,14 @@ class MaximumLikelihood {
         return correlation;
     }
 
-    // Returns the sandwich (robust) covariance matrix Var = H^-1 J H^-1 (C# 480-510).
-    Matrix get_sandwich_covariance_matrix() const {
-        if (number_of_parameters() < 2)
-            throw std::invalid_argument("Cannot compute the covariance matrix with fewer than two parameters.");
-        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
-        if (!hessian_.has_value()) throw std::invalid_argument("The Hessian is null. Estimation may have failed.");
-
-        try {
-            Matrix fisher = (*hessian_) * -1.0;
-            Matrix fisher_inverse = fisher.inverse();
-            Matrix meat = compute_meat_matrix(best_parameter_set_.values);
-            Matrix sandwich = fisher_inverse * meat * fisher_inverse;
-            return bestfit::numerics::math::linalg::MatrixRegularization::make_symmetric_positive_definite(
-                sandwich);
-        } catch (const std::exception&) {
-            return Matrix(number_of_parameters(), number_of_parameters());
-        }
-    }
-
-    // Returns robust (sandwich) standard errors (C# 520-531).
-    std::vector<double> get_robust_standard_errors() const {
-        Matrix sandwich = get_sandwich_covariance_matrix();
-        std::vector<double> robust_se(static_cast<std::size_t>(number_of_parameters()));
-        for (int i = 0; i < number_of_parameters(); ++i)
-            robust_se[static_cast<std::size_t>(i)] = std::sqrt(std::max(0.0, sandwich(i, i)));
-        return robust_se;
-    }
+    // NOTE: unlike MaximumLikelihood, MAP has NO sandwich/robust standard error methods --
+    // the C# source defines no `GetSandwichCovarianceMatrix`/`GetRobustStandardErrors`/
+    // `ComputeMeatMatrix` for MaximumAPosteriori. Do not add them here (brief difference #4).
 
     // Returns pointwise observation influence (DFBETAS-like): Nx(NumberOfParameters) Matrix,
-    // influence[i,j] = (H^-1 g_i)_j / SE_j, using the data-only Hessian (C# 608-655).
+    // influence[i,j] = (H^-1 g_i)_j / SE_j, using the POSTERIOR Hessian but the same pointwise
+    // DATA gradients as MLE (C# 560-604; C# itself calls PointwiseDataLogLikelihood here, not a
+    // posterior-pointwise variant -- see this file's header difference #5).
     Matrix get_observation_influence() const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
 
@@ -376,7 +342,8 @@ class MaximumLikelihood {
         try {
             fisher_inverse_opt = fisher.inverse();
         } catch (const std::exception&) {
-            // C# logs "Fisher matrix inversion failed" via Debug.WriteLine; silent no-op here.
+            // C# logs "Posterior Hessian inversion failed in GetObservationInfluence" via
+            // Debug.WriteLine; silent no-op here.
             return Matrix(n, number_of_parameters());
         }
         const Matrix& fisher_inverse = *fisher_inverse_opt;
@@ -398,7 +365,8 @@ class MaximumLikelihood {
     }
 
     // Returns Cook's distance-like measure D_i = g_i^T H^-1 g_i / p per observation, using the
-    // data-only Hessian (C# 657-729).
+    // POSTERIOR Hessian but the same pointwise DATA gradients as MLE (C# 625-670; see this
+    // file's header difference #5).
     std::vector<double> get_cooks_distance() const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
 
@@ -412,7 +380,8 @@ class MaximumLikelihood {
         try {
             fisher_inverse_opt = fisher.inverse();
         } catch (const std::exception&) {
-            // C# logs "Fisher matrix inversion failed" via Debug.WriteLine; silent no-op here.
+            // C# logs "Posterior Hessian inversion failed in GetCooksDistance" via
+            // Debug.WriteLine; silent no-op here.
             return std::vector<double>(static_cast<std::size_t>(n), 0.0);
         }
         const Matrix& fisher_inverse = *fisher_inverse_opt;
@@ -433,18 +402,32 @@ class MaximumLikelihood {
         return cooks_d;
     }
 
-    // Computes the Akaike Information Criterion (C# 736-742).
+    // Computes the Akaike Information Criterion at the MAP estimate, using the full posterior
+    // log-likelihood (data + prior) (C# 478-484). With uniform/improper-flat priors the prior
+    // contribution is constant in theta and this reduces to the conventional MLE-based AIC;
+    // with informative priors, direct AIC comparison across analyses with different priors can
+    // be misleading (see the C# doc comment for the DIC/WAIC/LOO-CV recommendation).
     double get_aic() const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
         return bestfit::numerics::data::GoodnessOfFit::aic(number_of_parameters(), maximum_log_likelihood());
     }
 
-    // Computes the Bayesian Information Criterion (C# 744-759).
+    // Computes the Bayesian Information Criterion at the MAP estimate, using the full posterior
+    // log-likelihood (data + prior) (C# 514-522). Same informative-prior caveat as get_aic().
     double get_bic(int sample_size) const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
         if (sample_size < 1) throw std::out_of_range("Sample size must be at least 1.");
         return bestfit::numerics::data::GoodnessOfFit::bic(sample_size, number_of_parameters(),
                                                               maximum_log_likelihood());
+    }
+
+    // Computes leverage diagnostics from the posterior Hessian (C# 672-691). GATED: the
+    // Diagnostics layer (RMC.BestFit.Diagnostics.LeverageDiagnostics) is deferred past Phase 4
+    // (see this file's header GATING note and .claude/PLAN.md), so this stub always throws
+    // rather than porting LeverageDiagnostics.
+    [[noreturn]] void compute_leverage_diagnostics() const {
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        throw std::logic_error("LeverageDiagnostics is deferred to the Diagnostics phase");
     }
 
    private:
@@ -462,8 +445,9 @@ class MaximumLikelihood {
     ParameterSet best_parameter_set_;
     int total_function_evaluations_ = 0;
 
-    // Builds the optimizer for the selected method (C# 176-218). See this file's header
-    // ADAPTER NOTE and GATING comment.
+    // Builds the optimizer for the selected method (C# 178-220). Objective is the full
+    // log-likelihood (data + prior) -- see this file's header difference #1. See
+    // maximum_likelihood.hpp's header ADAPTER NOTE and this file's header GATING section.
     void set_up_optimizer() {
         initial_values_.clear();
         lower_bounds_.clear();
@@ -475,7 +459,7 @@ class MaximumLikelihood {
         }
 
         Optimizer::Objective objective = [this](const std::vector<double>& p) {
-            return model_.data_log_likelihood(p);
+            return model_.log_likelihood(p);
         };
 
         switch (method_) {
@@ -513,29 +497,14 @@ class MaximumLikelihood {
         optimizer_->compute_hessian = false;  // This class computes its own adaptive Hessian.
     }
 
-    // Computes numerical gradients of pointwise data log-likelihoods via central differences
-    // (C# 565-584, delegates to NumericalDiff).
+    // Computes numerical gradients of pointwise DATA log-likelihoods via central differences
+    // (C# 539-543, delegates to NumericalDiff; same as MLE -- see this file's header
+    // difference #5 for why the gradients stay data-only while the Hessian is posterior-wide).
     std::vector<std::vector<double>> compute_pointwise_gradients(const std::vector<double>& parameters,
                                                                     int n) const {
         return NumericalDiff::compute_pointwise_gradients(
             [this](const std::vector<double>& p) { return model_.pointwise_data_log_likelihood(p); },
             parameters, n, number_of_parameters());
-    }
-
-    // Computes the "meat" matrix J = sum_i g_i g_i^T for the sandwich estimator (C# 533-563).
-    Matrix compute_meat_matrix(const std::vector<double>& parameters) const {
-        std::vector<double> pointwise_ll = model_.pointwise_data_log_likelihood(parameters);
-        int n = static_cast<int>(pointwise_ll.size());
-        auto gradients = compute_pointwise_gradients(parameters, n);
-
-        Matrix meat(number_of_parameters(), number_of_parameters());
-        for (int i = 0; i < n; ++i) {
-            const std::vector<double>& g = gradients[static_cast<std::size_t>(i)];
-            for (int j = 0; j < number_of_parameters(); ++j)
-                for (int k = 0; k < number_of_parameters(); ++k)
-                    meat(j, k) += g[static_cast<std::size_t>(j)] * g[static_cast<std::size_t>(k)];
-        }
-        return meat;
     }
 };
 

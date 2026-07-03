@@ -17,41 +17,16 @@
 // Phase 0 shortcut, left untouched because every existing caller -- normal.hpp, gumbel.hpp,
 // competing_risks.hpp, etc. -- calls them directly and never needed polymorphism). Rather than
 // refactor those two shared, oracle-locked files (out of scope for this task and risky per
-// their own header), this file adds two small internal adapters
-// (`detail::BrentOptimizerAdapter`, `detail::NelderMeadOptimizerAdapter`) that derive from
-// `Optimizer` and delegate to the wrapped standalone optimizer, so `MaximumLikelihood` can
-// hold one uniform `std::unique_ptr<Optimizer>` exactly as the brief (and the C# design)
-// intends. Both adapters assume "ran to completion == Success", mirroring every existing
-// caller of BrentSearch/NelderMead in this codebase: neither wrapped optimizer reports a
-// distinct "hit max iterations without converging" signal to distinguish from convergence.
-//
-// STATUS FIDELITY (adapter limitation; investigated during review, not guessed): unlike
-// DifferentialEvolution -- a real `Optimizer` subclass whose own `optimize()` calls
-// `update_status(OptimizationStatus::Success)` on its convergence test but
-// `update_status(OptimizationStatus::MaximumIterationsReached)` when its loop instead runs out
-// of iterations (differential_evolution.hpp, ~208 vs ~216) -- the two adapters above always
-// report `Success`. Confirmed directly against nelder_mead.hpp/brent_search.hpp (read only, not
-// modified -- both are oracle-locked): each wrapped solver's private `optimize()` either
-// `return`s early on its own internal convergence test or falls through its loop when
-// `max_iterations` is exhausted, but NEITHER class exposes that distinction through any public
-// member -- no iteration counter, no converged flag, nothing an external caller can read after
-// `maximize()`/`minimize()` returns. A faithful fix (reporting `MaximumIterationsReached` when
-// the wrapped solver didn't converge) would require adding such a getter to those two files,
-// which is out of scope here and would touch oracle-locked code. So this is a documented,
-// standing limitation rather than a bug: `status()`/`is_estimated()` can never distinguish
-// "converged" from "silently hit max_iterations" on the Brent/NelderMead paths, though the
-// returned VALUES are the best point seen either way and are correct/oracle-verified regardless
-// of which occurred. The DifferentialEvolution path already distinguishes the two faithfully.
-// TODO: log this as a tracked entry in `docs/upstream-csharp-issues.md` (T13) rather than
-// re-solving it here.
-//
-// total_function_evaluations() FIDELITY: for the Brent/NelderMead adapter paths this counts
-// objective calls made by this port's own wrapping code -- the wrapped solver's internal
-// evaluations plus one extra re-evaluation at the reported best point to recover the
-// fitness/sign convention (see the adapter bodies) -- not a line-for-line replay of the C#
-// `FunctionEvaluations` counter, so it will generally run one-or-more calls higher than a
-// faithful C# count. Exact-count fidelity across languages, if ever required, is owned by T12;
-// this port's counts are internally self-consistent and monotonic but not asserted to match C#.
+// their own header), this file uses two small internal adapters
+// (`detail::BrentOptimizerAdapter`, `detail::NelderMeadOptimizerAdapter`, now shared with
+// `MaximumAPosteriori` via `bestfit/estimation/support/optimizer_adapters.hpp` as of Phase 4
+// Task T8) that derive from `Optimizer` and delegate to the wrapped standalone optimizer, so
+// `MaximumLikelihood` can hold one uniform `std::unique_ptr<Optimizer>` exactly as the brief
+// (and the C# design) intends. Both adapters assume "ran to completion == Success", mirroring
+// every existing caller of BrentSearch/NelderMead in this codebase: neither wrapped optimizer
+// reports a distinct "hit max iterations without converging" signal to distinguish from
+// convergence. See optimizer_adapters.hpp's own header for the full ADAPTER/STATUS-FIDELITY/
+// total_function_evaluations()/SIGN-CONVENTION notes (kept there now, not duplicated here).
 //
 // SIGN CONVENTION (verified): `Optimizer::maximize()` sets `function_scale_ = -1`, and
 // `Optimizer::evaluate()` stores `fitness = function_scale_ * objective_function_(x)` in
@@ -105,15 +80,14 @@
 
 #include "bestfit/estimation/numerical_diff.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
+#include "bestfit/estimation/support/optimizer_adapters.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/distributions/chi_squared.hpp"
 #include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/matrix_regularization.hpp"
-#include "bestfit/numerics/math/optimization/brent_search.hpp"
 #include "bestfit/numerics/math/optimization/differential_evolution.hpp"
-#include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/optimization/support/optimizer.hpp"
 #include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
@@ -122,99 +96,6 @@
 #include "bestfit/numerics/sampling/stratify.hpp"
 
 namespace bestfit::estimation {
-
-namespace detail {
-
-// Adapts BrentSearch (see this file's header ADAPTER NOTE) to the `Optimizer` interface.
-class BrentOptimizerAdapter final : public bestfit::numerics::math::optimization::Optimizer {
-    using Base = bestfit::numerics::math::optimization::Optimizer;
-
-   public:
-    BrentOptimizerAdapter(Base::Objective objective, int number_of_parameters, double lower_bound,
-                          double upper_bound)
-        : Base(std::move(objective), number_of_parameters),
-          lower_bound_(lower_bound),
-          upper_bound_(upper_bound) {}
-
-   protected:
-    void optimize() override {
-        int evaluations = 0;
-        bestfit::numerics::math::optimization::BrentSearch solver(
-            [this, &evaluations](double x) {
-                ++evaluations;
-                return objective_function_(std::vector<double>{x});
-            },
-            lower_bound_, upper_bound_);
-        solver.max_iterations = max_iterations;
-        solver.relative_tolerance = relative_tolerance;
-        solver.absolute_tolerance = absolute_tolerance;
-
-        if (function_scale_ < 0)
-            solver.maximize();
-        else
-            solver.minimize();
-
-        function_evaluations_ = evaluations;
-        std::vector<double> best{solver.best_parameter()};
-        double raw = objective_function_(best);
-        ++function_evaluations_;
-        best_parameter_set_ = bestfit::numerics::math::optimization::ParameterSet(
-            best, static_cast<double>(function_scale_) * raw);
-        update_status(bestfit::numerics::math::optimization::OptimizationStatus::Success);
-    }
-
-   private:
-    double lower_bound_;
-    double upper_bound_;
-};
-
-// Adapts NelderMead (see this file's header ADAPTER NOTE) to the `Optimizer` interface.
-class NelderMeadOptimizerAdapter final : public bestfit::numerics::math::optimization::Optimizer {
-    using Base = bestfit::numerics::math::optimization::Optimizer;
-
-   public:
-    NelderMeadOptimizerAdapter(Base::Objective objective, int number_of_parameters,
-                                std::vector<double> initial_values, std::vector<double> lower_bounds,
-                                std::vector<double> upper_bounds)
-        : Base(std::move(objective), number_of_parameters),
-          initial_values_(std::move(initial_values)),
-          lower_bounds_(std::move(lower_bounds)),
-          upper_bounds_(std::move(upper_bounds)) {}
-
-   protected:
-    void optimize() override {
-        int evaluations = 0;
-        bestfit::numerics::math::optimization::NelderMead solver(
-            [this, &evaluations](const std::vector<double>& x) {
-                ++evaluations;
-                return objective_function_(x);
-            },
-            number_of_parameters_, initial_values_, lower_bounds_, upper_bounds_);
-        solver.max_iterations = max_iterations;
-        solver.relative_tolerance = relative_tolerance;
-        solver.absolute_tolerance = absolute_tolerance;
-
-        if (function_scale_ < 0)
-            solver.maximize();
-        else
-            solver.minimize();
-
-        function_evaluations_ = evaluations;
-        std::vector<double> best = solver.best_parameters();
-        double raw = objective_function_(best);
-        ++function_evaluations_;
-        best_parameter_set_ = bestfit::numerics::math::optimization::ParameterSet(
-            best, static_cast<double>(function_scale_) * raw);
-        update_status(bestfit::numerics::math::optimization::OptimizationStatus::Success);
-    }
-
-   private:
-    std::vector<double> initial_values_;
-    std::vector<double> lower_bounds_;
-    std::vector<double> upper_bounds_;
-};
-
-}  // namespace detail
 
 class MaximumLikelihood {
    public:
