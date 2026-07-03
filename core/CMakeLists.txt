@@ -27,6 +27,7 @@ set(BF_TESTS
   test_univariate_distribution_model
   test_maximum_likelihood
   test_maximum_a_posteriori
+  test_bayesian_analysis
 )
 
 # Sobol test takes the direction-number file as its sole argument.
