@@ -651,6 +651,151 @@ the streams have desynced somewhere -- diagnose the draw path (`--dump` intermed
 against a standalone throwaway harness against the real C# library) and fix the transcription slip;
 do not paper over it with a looser tolerance.
 
+### `bootstrap`
+
+```jsonc
+{
+  "target":  "Bootstrap",
+  "kind":    "bootstrap",
+  "source":  "Numerics/Sampling/Bootstrap/Bootstrap.cs ; Test_Numerics/Sampling/Test_Bootstrap.cs",
+  "datasets": { "bca_sample": [ ...100 numbers... ] },
+  "cases": [
+    {
+      "name": "percentile",
+      "construct": {
+        "model": "normal_quantiles",
+        "mu": 3.122599, "sigma": 0.5573654, "sample_size": 100,
+        "probabilities": [0.999, 0.99, 0.95, 0.9, 0.5, 0.1, 0.05, 0.01],
+        "replicates": 10000, "seed": 12345,
+        "run": "regular", "ci_method": "Percentile", "alpha": 0.1
+      },
+      "assertions": [
+        { "method": "statistic_lower_ci", "args": [0], "expected": 4.621151758616323, "mode": "rel", "tol": 1e-9 }
+      ]
+    }
+  ]
+}
+```
+
+One bootstrap run per case (mirrors `mcmc_sampler`'s single-stateful-glue-call contract): build
+the model via the model registry (below), configure `replicates`/`seed`/`max_retries`, call `Run()`
+or `RunWithStudentizedBootstrap()` **once** per `construct.run`, then call
+`GetConfidenceIntervals(ci_method, alpha)` **once**. Every assertion in the case reads that single
+cached `(Bootstrap, BootstrapResults)` pair -- each of the four runners makes exactly one glue call
+per case (C++ caches the pair locally; R's `bf_bootstrap_run_`/Python's `_core.bootstrap_run` each
+return one big list/dict every assertion for the case reads from).
+
+**Scope note:** this kind (and the underlying `Bootstrap<TData>` port) covers only the REGULAR
+(non-pivotal) workflow -- `Run()`, `RunDoubleBootstrap()` (ported, not fixture-wired -- see below),
+`RunWithStudentizedBootstrap()`, and `GetConfidenceIntervals`'s Percentile/BiasCorrected/BCa/Normal/
+BootstrapT methods. The covariance-aware PIVOTAL bootstrap (`RunPivotalBootstrap`,
+`TransformPivotalBootstrap`, `GetRawPivotalConfidenceIntervals`, and every `Pivotal*` construct
+field) is out of scope for this task -- ported in a follow-up task, which will extend this schema
+with a `"run": "pivotal"` value and the additional `PivotalLinkFactory`/`PivotalInvalidDrawPolicy`/
+etc. settings. `RunDoubleBootstrap` is ported in full in `bootstrap.hpp` (per the task brief) but
+has no fixture case: `Test_DoubleBootstrap` itself asserts only bracket inequalities ("CI brackets
+the true quantile"), not a fixed numeric literal, so it is not useful oracle-fixture material under
+this repo's curated-literal convention.
+
+**Model registry** (`core/include/bestfit/numerics/sampling/bootstrap/model_registry.hpp`): a
+**bestfit addition** with no upstream C# counterpart -- the C# equivalent is inline construction
+code living only inside `Test_Bootstrap.cs`'s private `CreateNormalBootstrap()` helper and
+`Test_BCaCI()`, not in the library. The registry is **closed**; today it has one entry:
+
+- `"normal_quantiles"`: parametric bootstrap of a `Normal(mu, sigma)` distribution fitted by
+  Method of Moments, evaluated at a fixed set of quantile probabilities. `ResampleFunction` draws
+  `resample_size` values from `Normal(ps[0], ps[1])` via `GenerateRandomValues(resampleSize,
+  rng.Next())` -- `resample_size` is a FIXED closure-captured value (`construct.sample_size`, or
+  `dataset`'s length when a dataset is supplied), not derived from the delegate's own `data`
+  argument, matching both `CreateNormalBootstrap` and `Test_BCaCI` ignoring their own `data`
+  parameter. `FitFunction` is a Method-of-Moments `Normal` fit (throws `"Invalid parameters."` when
+  the fit is invalid, mirroring `if (!d.ParametersValid) throw ...`). `StatisticFunction` is
+  `Normal(ps[0], ps[1]).InverseCDF(p)` for each `p` in `construct.probabilities`.
+
+  `construct.dataset`, when present, names an entry in the file-level `datasets` map supplying a
+  REAL sample (`Test_BCaCI`'s literal 100-value array, curated as `bca_sample` above): `mu`/`sigma`/
+  `sample_size` are then IGNORED and instead `mu`/`sigma` are fit from the dataset via Method of
+  Moments (mirrors `Test_BCaCI`'s own `((IEstimation)dist).Estimate(sampleData, ...)` call before
+  constructing `Bootstrap`), `resample_size` becomes the dataset's length, and
+  `JackknifeFunction`/`SampleSizeFunction` are wired to leave-one-out over the dataset -- required
+  by the `BCa` CI method (`ComputeAccelerationConstants` needs both). When `construct.dataset` is
+  absent, the original data is unused (matches `CreateNormalBootstrap`'s `new
+  Bootstrap<double[]>(null, parms)`) and `JackknifeFunction`/`SampleSizeFunction` are left unset --
+  `BCa` is not requestable on that configuration, mirroring the C# test's own
+  `Test_BCa_RequiresJackknifeFunction`. This `dataset`-driven divergence from a flat `{model, mu,
+  sigma, sample_size, probabilities}` schema is a deliberate, documented extension needed to give
+  the `BCa` case (which the brief explicitly scopes in, tolerance and all) a real sample to
+  jackknife over -- the alternative (omitting `BCa` from the fixture entirely) would leave the
+  acceleration-constant code path, and its HAZARD tolerance policy below, unverified.
+
+`construct` fields (every key besides `model`/`probabilities`/`replicates`/`seed`/`ci_method`
+optional): `mu`/`sigma` (doubles, ignored when `dataset` is set), `sample_size` (int, ignored when
+`dataset` is set), `probabilities` (array of doubles, the quantile levels `StatisticFunction`
+evaluates), `dataset` (string, a `datasets` key), `replicates`/`seed` (ints, override `Bootstrap`'s
+`Replicates`/`PRNGSeed` -- both required by every case in practice, since the 10,000-default
+`Replicates` makes an omitted value expensive but not incorrect), `max_retries` (int, default 20,
+overrides `MaxRetries`), `run` (`"regular"` | `"studentized"` -- selects `Run()` vs.
+`RunWithStudentizedBootstrap()`), `ci_method` (`"Percentile"` | `"BiasCorrected"` | `"BCa"` |
+`"Normal"` | `"BootstrapT"`, matching the C# `BootstrapCIMethod` enum names verbatim), `alpha`
+(double, default 0.1, the two-sided CI alpha).
+
+Assertion methods (0-based indices throughout):
+
+- `statistic_lower_ci|statistic_upper_ci [i]` -- `BootstrapResults.StatisticResults[i].{LowerCI,
+  UpperCI}` (`i` indexes `construct.probabilities`).
+- `parameter_lower_ci|parameter_upper_ci [p]` -- `BootstrapResults.ParameterResults[p].{LowerCI,
+  UpperCI}` (`p` indexes the fitted `Normal` parameters, `0` = mu, `1` = sigma). Always Percentile
+  CIs regardless of `ci_method` -- `GetConfidenceIntervals` computes `ParameterResults` via
+  `ComputePercentileCI` unconditionally, matching the C# source.
+- `population_estimate [p]` -- `BootstrapResults.ParameterResults[p].PopulationEstimate` (echoes
+  `_originalParameters.Values[p]` unchanged -- curated directly from the literal `_mu`/`_sigma` test
+  constants, not `--dump`, since this value is a pure input echo with no floating-point computation
+  involved).
+- `valid_count [i]` -- `BootstrapResults.StatisticResults[i].ValidCount`, `mode: "equal"` (an exact
+  integer count -- the "normal_quantiles" model's Method-of-Moments fit never invalidates on a
+  parametric Normal resample, so every non-BCa case's `valid_count` equals `Replicates` exactly).
+- `replicate_value [idx, p]` -- `Bootstrap.BootstrapParameterSets[idx].Values[p]`, the exact seeded
+  replicate's fitted parameter value. `mode: "rel", tol: 1e-12` -- Method-of-Moments is a
+  closed-form (non-iterative) fit applied to a `MersenneTwister`-seeded resample, so this is a TRUE
+  cross-language bit-identity digest, the same role `chain_value` plays for `mcmc_sampler` fixtures.
+
+**Tolerance policy:** every CI-bound assertion (`statistic_lower_ci`/`statistic_upper_ci`/
+`parameter_lower_ci`/`parameter_upper_ci`) on the `percentile`/`normal_ci`/`bias_corrected`/
+`bootstrap_t` cases uses `mode: "rel", tol: 1e-9` -- these CI methods are entirely deterministic
+functions of the `MersenneTwister`-seeded replicate stream (percentile extraction, or a closed-form
+Normal-quantile transform of the sorted replicates), so they reproduce the real C# library to
+1e-9 or tighter (measured well under 1e-9 for every curated value). `population_estimate` uses
+`mode: "equal"` (pure input echo) and `valid_count` uses `mode: "equal"` (exact integer count).
+`replicate_value` uses `mode: "rel", tol: 1e-12` (see above).
+
+**BCa HAZARD (per the task brief):** `ComputeAccelerationConstants` (`compute_acceleration_
+constants` in this port) uses C#'s `Tools.ParallelAdd` inside its own `Parallel.For` over the
+jackknife samples -- an order-DEPENDENT floating-point reduction that is not, in general,
+guaranteed bit-reproducible run-to-run in the real C# library (thread-scheduling-dependent
+summation order). This port replaces it with a plain SERIAL sum in jackknife-index order (see
+`bootstrap.hpp`'s file header) -- deterministic within this port, but not a bit-for-bit
+reproduction of C#'s reduction order. The `bca` case's `statistic_lower_ci`/`statistic_upper_ci`
+therefore use a LOOSE `mode: "rel", tol: 1e-6` (three orders of magnitude looser than the other
+CI methods' `1e-9`), sized per the brief's instruction to measure the real C# run-to-run wobble:
+the oracle emitter's `--dump` output was diffed across four independent runs (same fixture, same
+process invocation, run sequentially) and was found to be BIT-IDENTICAL every time on the
+development machine (a low-core-count environment where .NET's `Parallel.For` over only 100
+jackknife samples per statistic apparently schedules deterministically) -- i.e. the measured
+wobble was exactly `0`, well inside `1e-6`. `1e-6` is kept as the fixture's tolerance regardless of
+that zero-wobble measurement, rather than tightening to `1e-9`/`1e-12`: the reduction is
+INHERENTLY order-dependent by construction (a different core count, thread pool configuration, or
+.NET version could legitimately produce a different summation order and a different last-few-bits
+result), so a tight tolerance here would be fragile to environmental factors this repo's CI matrix
+does not control for, not a reflection of any measured instability. This is a deliberate,
+documented margin -- not evidence the C++ port's serial-sum choice is itself imprecise (the C++
+port's own `bca` case values, cross-checked directly against the same C# `--dump` output, agree to
+below `1e-9`, well inside the `1e-6` fixture tolerance).
+
+**NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
+the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
+against a standalone throwaway harness against the real C# library) and fix the transcription slip;
+do not paper over it with a looser tolerance.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners
