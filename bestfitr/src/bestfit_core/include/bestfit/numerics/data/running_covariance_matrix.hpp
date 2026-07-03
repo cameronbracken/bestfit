@@ -50,6 +50,15 @@ class RunningCovarianceMatrix {
     // The covariance matrix. This is unadjusted by the sample size.
     const math::linalg::Matrix& covariance() const { return covariance_; }
 
+    // Mutable access to the covariance matrix. bestfit ADDITION -- no direct upstream C#
+    // counterpart, but needed to reproduce one: C#'s `Covariance` property returns a
+    // reference-type `Matrix`, so ARWMH's MAP hot-start (`InitializeCustomSettings`) can
+    // assign individual elements in place (`sigma[i].Covariance[j, k] =
+    // _MVN.Covariance[j, k]`) without going through `push()`. `std::vector`-backed `Matrix`
+    // has value semantics, so this port exposes the same capability via a non-const
+    // accessor rather than plumbing a dedicated element-setter method.
+    math::linalg::Matrix& covariance_mutable() { return covariance_; }
+
     // The sample covariance matrix corrected by the sample size with the degrees of
     // freedom adjustment.
     math::linalg::Matrix sample_covariance() const {
