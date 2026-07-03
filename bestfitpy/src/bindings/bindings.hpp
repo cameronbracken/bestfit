@@ -1,5 +1,5 @@
 // Shared declarations so the pybind11 module (defined in gev.cpp) can pull in
-// bindings defined in dist.cpp, mvd.cpp, copula.cpp, sobol.cpp, and mcmc.cpp.
+// bindings defined in dist.cpp, mvd.cpp, copula.cpp, sobol.cpp, mcmc.cpp, and bootstrap.cpp.
 #pragma once
 #include <pybind11/pybind11.h>
 

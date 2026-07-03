@@ -34,7 +34,7 @@
 > separately as a follow-up rather than landing on this branch. Pending CI run and PR.
 >
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
-> Linux/macOS/Windows as of the Phase 1 merge; the Phase 2 and Phase 3 branches have not yet been
+> Linux/macOS/Windows as of the Phase 2 merge (PR #4); the Phase 3 branch has not yet been
 > pushed for CI. The dotnet oracle gate is dev-only (not in CI).
 >
 > Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
