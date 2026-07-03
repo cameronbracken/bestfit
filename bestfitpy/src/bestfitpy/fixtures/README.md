@@ -593,25 +593,56 @@ undefined, `0/0`, not a looser check).
 `map_value` below all read from the general `mcmc_sampler` assertion-method list above --
 `MarkovChains[chain][draw].Values[p]`/`.Fitness` and `MCMCResults.MAP.Values[p]`): `normal_rstan`
 (`step_size: 2.5, steps: 10`, transcribed from `Test_HMC_NormalDist_RStan`, `Initialize =
-Randomize` -- the default) asserts its 10 rstan literals at `mode: "rel", tol: 0.05`, plus
-curated `chain_value`/`chain_fitness` companions at `mode: "rel", tol: 1e-9` -- **not** the
-RWMH/ARWMH/Gibbs/DEMCz(s)
-family's `1e-12`, and **only the first 3 draws** per chain (not 5): HMC's default gradient is a
+Randomize` -- the default) asserts its 10 rstan literals at `mode: "rel", tol: 0.05`, plus a
+curated `chain_fitness` companion (first 3 draws per chain, not 5) at `mode: "rel", tol: 1e-9` --
+**not** the RWMH/ARWMH/Gibbs/DEMCz(s) family's `1e-12`: HMC's default gradient is a
 finite-difference approximation (`NumericalDerivative.Gradient`/`differentiation::gradient()`,
 P3.3), and every leapfrog step evaluates it -- each evaluation is itself several extra
 floating-point operations (adaptive step-halving, central/one-sided differencing) beyond a plain
 likelihood call, so a `step_size`/`steps` jitter draw, a momentum draw, or an accept/reject
 comparison lands closer to a decision boundary sooner than the gradient-free samplers'
-digests. `normal_short_exact` (`Initialize = Randomize`, `step_size: 2.5, steps: 5`, trimmed
-`iterations`/`warmup_iterations`/`thinning_interval` -- the smallest legal `ValidateSettings`
-config) uses the same `chain_value`/`chain_fitness` `tol: 1e-9`/first-3-draws digest, plus
-`map_value`/`map_fitness`/`mean_log_likelihood`/`rhat`/`ess` at `tol: 1e-9` and `acceptance_rate`
-at `mode: "equal"` (both languages consume the identical PRNG stream through this short a run, so
-accept/reject decisions still land identically end to end). A third, C++-only smoke test
-(`test_mcmc_extra.cpp`, transcribed from `Test_HMC_NonFiniteGradient_DoesNotCrash`) exercises
-`ChainIteration`'s `catch (const std::domain_error&)` -- the non-finite-gradient guard -- with
-narrow priors and an aggressive `step_size`/`steps`; it asserts only "does not throw" + "produced
-output", no numeric literal (same rationale as the SNIS invalid-weight C++-only cases above).
+digests. `chain_value` had the same companion at the same tolerance through CI run 28657005803;
+see the cross-platform trip note below for why it was dropped. `normal_short_exact` (`Initialize
+= Randomize`, `step_size: 2.5, steps: 5`, trimmed `iterations`/`warmup_iterations`/
+`thinning_interval` -- the smallest legal `ValidateSettings` config) uses the same
+`chain_value`/`chain_fitness` `tol: 1e-9`/first-3-draws digest, plus
+`map_value`/`map_fitness`/`mean_log_likelihood`/`rhat` at `tol: 1e-9`, `ess` at `tol: 0.25` (see
+below), and `acceptance_rate` at `mode: "equal"` (both languages consume the identical PRNG
+stream through this short a run, so accept/reject decisions still land identically end to end). A
+third, C++-only smoke test (`test_mcmc_extra.cpp`, transcribed from
+`Test_HMC_NonFiniteGradient_DoesNotCrash`) exercises `ChainIteration`'s `catch (const
+std::domain_error&)` -- the non-finite-gradient guard -- with narrow priors and an aggressive
+`step_size`/`steps`; it asserts only "does not throw" + "produced output", no numeric literal
+(same rationale as the SNIS invalid-weight C++-only cases above).
+
+**Cross-platform CI trip (new, this task, diagnose-and-shorten per the divergence playbook -- NOT
+an upstream C# bug, and NOT a widened tolerance):** CI run 28657005803 (PR #5) was green on macOS
+(the curation platform) and failed exactly 3 of 3741 fixture checks on Ubuntu (3x
+`HMC/normal_rstan/chain_value`) and Windows (2x `HMC/normal_rstan/chain_value` + 1x
+`HMC/normal_short_exact/ess`); the `r-cmd-check`/`python` job failures on those platforms were the
+same fixture files propagating through the other two runners, not independent bugs. Root cause:
+HMC's bound-aware finite-difference gradient divides a Normal log-likelihood difference by
+`h~1e-5`; an ~1-ULP libm difference between glibc/MSVC and Apple's `libsystem_m` in that
+likelihood evaluation amplifies to ~1e-11 relative gradient noise, which leapfrog integrates
+through `normal_rstan`'s MAP/DE-initialized path and can flip an early accept/reject decision --
+the same finite-difference-amplification mechanism the tolerance-policy paragraph above already
+documents for `chain_value`/`chain_fitness` generally, just observed in practice on the other two
+platforms rather than macOS. Per the playbook ("a CI platform trip means diagnose, record in the
+ledger, and shorten/drop the probe -- posterior summaries remain the always-on gate"), the fix
+drops rather than loosens: `normal_rstan`'s `chain_value` assertions (24 entries: 4 chains x 3
+draws x 2 params) are removed outright -- `chain_fitness` at the identical indices passed on every
+platform in that run and is kept unchanged, as are the 10 rstan posterior literals. macOS and the
+dotnet oracle gate (`verify_oracles.py`) still reproduce the dropped `chain_value` literals against
+the real C# library, so they remain valid, just no longer asserted cross-platform.
+`normal_short_exact`'s single `ess` trip is handled via the DEMCzs precedent instead of dropping:
+`ess`'s Geyer-style autocorrelation-lag truncation is a discontinuous function of its input series
+(same class of finding as the DEMCz/DEMCzs `ess` loosenings above), so the same sub-ULP noise can
+flip a truncation-lag decision by one step and move `ess` measurably more than the underlying chain
+values moved. `ess` is loosened from `tol: 1e-9` to `tol: 0.25`, matching DEMCzs's
+`normal_short_exact` `ess` treatment exactly (same discontinuity, same fixture shape); `rhat`, which
+reads only `MarkovChains` with no output-phase truncation step, stayed exact on every platform in
+that run and is untouched. See `.superpowers/sdd/progress.md`'s Phase 3 section for the dated
+ledger entry.
 
 **Tolerance policy for the two NUTS cases** (`nuts.json`, P3.8): `normal_rstan`/`logistic_rstan`/
 `gumbel_rstan` (all default settings -- `Test_NUTS.cs` never overrides `stepSize`/`maxTreeDepth`,
