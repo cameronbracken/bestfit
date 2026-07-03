@@ -781,6 +781,14 @@ every case is curated via `oracle_emitter --dump`; probes cover both boundary se
 (below/above the range, exact first/last-element match) and interior lookups, including one with a
 non-zero `start`.
 
+The `MCMCDiagnostics.minimum_sample_size` target (`fixtures/special_functions/mcmc_diagnostics.json`)
+takes `args = [quantile, tolerance, probability]` (the Raftery-Lewis normal-approximation
+minimum-sample-size heuristic, rounded to the nearest 100). No upstream `Test_MCMCDiagnostics.cs`
+case exercises this method (that test file covers only `GelmanRubin`, transcribed as C++-only
+regression tests in `core/tests/test_mcmc_extra.cpp` since its assertions are inequalities over
+seeded synthetic chains rather than fixture-shaped literals), so every case here is curated via
+`oracle_emitter --dump`.
+
 **Comparison modes:** `abs` (|actual−expected| ≤ tol), `rel` (|actual−expected|/|expected| ≤ tol),
 `equal` (exact; `expected` may be the strings `"inf"`, `"-inf"`, `"nan"`), `bool`.
 

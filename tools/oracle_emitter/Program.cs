@@ -571,6 +571,9 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // Search family (args: [values..., x, start] -- see fixtures/special_functions/search.json)
     "Search.sequential" => a => Search.Sequential(a[^2], a[..^2], (int)a[^1]),
     "Search.bisection" => a => Search.Bisection(a[^2], a[..^2], (int)a[^1]),
+    // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] -- see
+    // fixtures/special_functions/mcmc_diagnostics.json)
+    "MCMCDiagnostics.minimum_sample_size" => a => MCMCDiagnostics.MinimumSampleSize(a[0], a[1], a[2]),
     _ => null,
 };
 

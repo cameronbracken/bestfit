@@ -68,6 +68,7 @@
 #include "bestfit/numerics/sampling/mcmc/nuts.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/snis.hpp"
+#include "bestfit/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
 #include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "bestfit/numerics/utilities/extension_methods.hpp"
@@ -721,6 +722,12 @@ special_function_table() {
             std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
             return static_cast<double>(
                 bfdata::search::bisection(a[n], values, static_cast<int>(a[n + 1])));
+        }},
+        // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] --
+        // see fixtures/special_functions/mcmc_diagnostics.json)
+        {"MCMCDiagnostics.minimum_sample_size", [](const std::vector<double>& a) {
+            return static_cast<double>(
+                bestfit::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
         }},
     };
     return t;
