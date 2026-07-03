@@ -585,6 +585,67 @@ freezing it there for the life of the run, in BOTH languages identically) -- `mo
 used there instead of `"rel"` (a relative-tolerance check against an EXACT-zero expected value is
 undefined, `0/0`, not a looser check).
 
+**Tolerance policy for the two HMC cases** (`hmc.json`, P3.8): `normal_rstan` (`step_size: 2.5,
+steps: 10`, transcribed from `Test_HMC_NormalDist_RStan`, `Initialize = Randomize` -- the default)
+asserts its 10 rstan literals at `mode: "rel", tol: 0.05`, plus curated `chain_value`/
+`chain_fitness` companions at `mode: "rel", tol: 1e-9` -- **not** the RWMH/ARWMH/Gibbs/DEMCz(s)
+family's `1e-12`, and **only the first 3 draws** per chain (not 5): HMC's default gradient is a
+finite-difference approximation (`NumericalDerivative.Gradient`/`differentiation::gradient()`,
+P3.3), and every leapfrog step evaluates it -- each evaluation is itself several extra
+floating-point operations (adaptive step-halving, central/one-sided differencing) beyond a plain
+likelihood call, so a `step_size`/`steps` jitter draw, a momentum draw, or an accept/reject
+comparison lands closer to a decision boundary sooner than the gradient-free samplers'
+digests. `normal_short_exact` (`Initialize = Randomize`, `step_size: 2.5, steps: 5`, trimmed
+`iterations`/`warmup_iterations`/`thinning_interval` -- the smallest legal `ValidateSettings`
+config) uses the same `chain_value`/`chain_fitness` `tol: 1e-9`/first-3-draws digest, plus
+`map_value`/`map_fitness`/`mean_log_likelihood`/`rhat`/`ess` at `tol: 1e-9` and `acceptance_rate`
+at `mode: "equal"` (both languages consume the identical PRNG stream through this short a run, so
+accept/reject decisions still land identically end to end). A third, C++-only smoke test
+(`test_mcmc_extra.cpp`, transcribed from `Test_HMC_NonFiniteGradient_DoesNotCrash`) exercises
+`ChainIteration`'s `catch (const std::domain_error&)` -- the non-finite-gradient guard -- with
+narrow priors and an aggressive `step_size`/`steps`; it asserts only "does not throw" + "produced
+output", no numeric literal (same rationale as the SNIS invalid-weight C++-only cases above).
+
+**Tolerance policy for the two NUTS cases** (`nuts.json`, P3.8): `normal_rstan`/`logistic_rstan`/
+`gumbel_rstan` (all default settings -- `Test_NUTS.cs` never overrides `stepSize`/`maxTreeDepth`,
+and `Initialize = Randomize` is the default) each assert their 10 rstan literals at `mode: "rel",
+tol: 0.05`, exactly transcribing `Test_NUTS_NormalDist_RStan`/`Test_NUTS_LogisticDist_RStan`/
+`Test_NUTS_GumbelDist_RStan`. `normal_short_exact` (`Initialize = Randomize`, `iterations: 100,
+warmup_iterations: 10, thinning_interval: 1, output_length: 100` -- the smallest legal
+`ValidateSettings` config, `iterations`/`output_length` both floored at 100) asserts curated
+`chain_value`/`chain_fitness` companions for the first 3 draws x 4 chains x 2 params at the same
+HMC-precedent `mode: "rel", tol: 1e-9` (measured worst case ~9.1e-10 relative against the real C#
+library -- comfortably inside), plus `map_value`/`map_fitness`/`mean_log_likelihood` at `tol:
+1e-9` (measured worst case ~8.6e-10) and `acceptance_rate` at `mode: "equal", expected: 1` for
+every chain -- NOT a measured coincidence: `ChainIteration` increments `AcceptCount` UNCONDITIONALLY
+every call (see `nuts.hpp`'s file header), so NUTS's "acceptance rate" is always exactly 1.0 by
+construction in both languages, unlike every Metropolis-family sampler above. One `chain_value`
+entry (chain 3, param 0 (`mu`), draws 0 and 1) is curated as EXACTLY `0.0`: that chain's proposal
+is bit-identical across draws 0 and 1 in BOTH languages, consistent with `ChainIteration`'s
+tree-build-divergence guard (`BuildTree`'s depth-0 base case returning `InvalidTreeState` when the
+trial Hamiltonian is non-finite or diverges by more than `MAX_DELTA_H`) leaving the input state
+unmodified twice in a row; `mode: "equal"` is used there instead of `"rel"` for the same `0/0`
+reason as the DEMCzs precedent above.
+**NUTS `rhat`/`ess` divergence finding (new, this task, NOT an upstream C# bug -- an inherent
+property of the recursive-tree-doubling algorithm, equally present in both languages):** unlike
+every other sampler ported so far, a single NUTS `ChainIteration` can itself draw MANY random
+numbers (a direction draw plus a multinomial subtree-acceptance draw at every tree depth, up to
+`MaxTreeDepth`), not just one -- so a single ULP-level floating-point difference between languages
+(inevitable over enough comparisons, same root cause as the DEMCz/DEMCzs and RWMH MAP-path
+findings already logged) has many more opportunities per iteration to flip an accept/reject or
+U-turn decision than any prior sampler. Measured directly against the real C# library on
+`normal_short_exact`'s mandatory-minimum ~100-iteration window: `chain_value`/`chain_fitness`
+(first 3 draws) and `map_value`/`mean_log_likelihood` all stay within ~1e-9 relative (the intended
+digest tolerance), but `Rhat` (`gelman_rubin(sampler.markov_chains(), ...)`, spanning all 100
+recorded draws) and `ESS` (`effective_sample_size(sampler.output())`, spanning the trailing
+25-draw output-phase window) diverge measurably further -- ~7.9e-6/3.5e-6 relative for `Rhat`'s two
+parameters and ~3.3e-5/2.8e-8 for `ESS`'s -- three to five orders of magnitude looser than the
+1e-9 digest but still five orders of magnitude tighter than the 0.05 rstan tolerance, confirming
+this is sub-ULP chaotic amplification over the many extra tree-building comparisons, not a
+transcription defect (the same conclusion the DEMCz/DEMCzs population-sampler finding reached for
+a different mechanism). `rhat`/`ess` are therefore asserted at `mode: "rel", tol: 1e-4` on
+`normal_short_exact` -- roughly 3x-13x margin over the worst measured value, not loosened further.
+
 **NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
 the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
 against a standalone throwaway harness against the real C# library) and fix the transcription slip;

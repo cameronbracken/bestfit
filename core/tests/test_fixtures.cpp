@@ -65,6 +65,7 @@
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/hmc.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
+#include "bestfit/numerics/sampling/mcmc/nuts.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/snis.hpp"
 #include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
@@ -1365,6 +1366,16 @@ static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sa
             settings.contains("steps") ? std::optional<int>(settings["steps"].get<int>()) : std::nullopt;
         sampler = std::make_unique<mcmc::HMC>(model.priors, model.log_likelihood, std::nullopt,
                                                step_size.value_or(0.1), steps.value_or(50));
+    } else if (sampler_target == "NUTS") {
+        std::optional<double> step_size =
+            settings.contains("step_size") ? std::optional<double>(settings["step_size"].get<double>()) : std::nullopt;
+        std::optional<int> max_tree_depth = settings.contains("max_tree_depth")
+                                                 ? std::optional<int>(settings["max_tree_depth"].get<int>())
+                                                 : std::nullopt;
+        auto nuts = std::make_unique<mcmc::NUTS>(model.priors, model.log_likelihood, std::nullopt,
+                                                  step_size.value_or(0.1), max_tree_depth.value_or(10));
+        if (settings.contains("adapt_mass_matrix")) nuts->adapt_mass_matrix = settings["adapt_mass_matrix"].get<bool>();
+        sampler = std::move(nuts);
     } else if (sampler_target == "ARWMH") {
         auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
         if (settings.contains("scale")) arwmh->scale = settings["scale"].get<double>();

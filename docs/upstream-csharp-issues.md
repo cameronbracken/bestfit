@@ -627,6 +627,32 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   reusing this test's `proposal` closure as a template -- the `mu0 / 2` coefficient will NOT
   degenerate away in that case and would materially bias the posterior mean draws.
 
+## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction`
+
+- **Where:** `Numerics/Sampling/MCMC/NUTS.cs`, `LeapfrogInPlace` (called only by
+  `FindReasonableEpsilon`/`TrySingleStepLogAcceptance`, i.e. the Hoffman & Gelman 2014 Algorithm 4
+  step-size-search heuristic run once at chain initialization and again after every mass-matrix
+  adaptation-window update).
+- **What:** every ACTUAL trajectory step in `BuildTree` goes through `Leapfrog`, which correctly
+  calls `GradientFunction(...)` -- the (possibly caller-supplied) gradient delegate stored on the
+  instance. `LeapfrogInPlace`, used only by the step-size-search heuristic, instead calls
+  `NumericalDerivative.Gradient(...)` DIRECTLY, hardcoding a finite-difference gradient regardless
+  of what `gradientFunction` the constructor was given. A caller who supplies an exact analytic
+  `gradientFunction` (to avoid finite-difference cost/noise entirely) still gets a
+  finite-difference-based initial step size and every post-adaptation-window re-tuned step size --
+  only the trajectory itself uses their analytic gradient. This does not affect correctness of the
+  sampled trajectory (the step size is just a tuning heuristic, not part of the target
+  distribution), but it is a surprising, easy-to-miss asymmetry between two call sites that both
+  claim to leapfrog-integrate "the" gradient.
+- **Evidence:** direct code reading; both call sites are reproduced verbatim in this port's
+  `nuts.hpp` (`leapfrog_in_place()` calls `diff::gradient(...)` directly, `leapfrog()` calls
+  `gradient_function_(...)`) -- see that file's header comment. Unexercised by any fixture (every
+  `nuts.json`/`hmc.json` case uses the default finite-difference gradient, so the two code paths
+  are numerically identical in every case actually tested here).
+- **Port handling:** mirrored faithfully -- both C++ call sites reproduce the C# asymmetry exactly.
+- **Suggested C# fix:** route `LeapfrogInPlace` through `GradientFunction` too, so a custom gradient
+  is honored everywhere the class claims to use "the" gradient function.
+
 ---
 
 ## How to work this list later

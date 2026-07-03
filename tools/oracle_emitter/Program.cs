@@ -1198,6 +1198,9 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
         "HMC" => new HMC(priors, logLikelihood,
             stepSize: hasSettings && settings.TryGetProperty("step_size", out var hss) ? hss.GetDouble() : 0.1,
             steps: hasSettings && settings.TryGetProperty("steps", out var hst) ? hst.GetInt32() : 50),
+        "NUTS" => new NUTS(priors, logLikelihood,
+            stepSize: hasSettings && settings.TryGetProperty("step_size", out var nss) ? nss.GetDouble() : 0.1,
+            maxTreeDepth: hasSettings && settings.TryGetProperty("max_tree_depth", out var nmtd) ? nmtd.GetInt32() : 10),
         "ARWMH" => new ARWMH(priors, logLikelihood),
         "Gibbs" => new Gibbs(priors, logLikelihood,
             proposal ?? throw new Exception("Gibbs model has no proposal function")),
@@ -1234,6 +1237,10 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
             if (settings.TryGetProperty("jump_threshold", out var jt)) demczs.JumpThreshold = jt.GetDouble();
             if (settings.TryGetProperty("snooker_threshold", out var st)) demczs.SnookerThreshold = st.GetDouble();
             if (settings.TryGetProperty("noise", out var ns)) demczs.Noise = ns.GetDouble();
+        }
+        if (sampler is NUTS nuts)
+        {
+            if (settings.TryGetProperty("adapt_mass_matrix", out var amm)) nuts.AdaptMassMatrix = amm.GetBoolean();
         }
     }
 
