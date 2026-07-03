@@ -11,6 +11,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "bestfit/numerics/sampling/mcmc/demcz.hpp"
 #include "bestfit/numerics/sampling/mcmc/demczs.hpp"
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
+#include "bestfit/numerics/sampling/mcmc/hmc.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/snis.hpp"
@@ -69,6 +71,12 @@ list bf_mcmc_run_(std::string sampler_type, std::string model_name, std::string 
     std::unique_ptr<mcmc::MCMCSampler> sampler;
     if (sampler_type == "RWMH") {
         sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood, proposal_sigma);
+    } else if (sampler_type == "HMC") {
+        SEXP ss = settings["step_size"];
+        double step_size = ss == R_NilValue ? 0.1 : as_cpp<double>(ss);
+        SEXP st = settings["steps"];
+        int steps = st == R_NilValue ? 50 : static_cast<int>(as_cpp<double>(st));
+        sampler = std::make_unique<mcmc::HMC>(model.priors, model.log_likelihood, std::nullopt, step_size, steps);
     } else if (sampler_type == "ARWMH") {
         auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
         SEXP sc = settings["scale"];

@@ -63,6 +63,7 @@
 #include "bestfit/numerics/sampling/mcmc/demcz.hpp"
 #include "bestfit/numerics/sampling/mcmc/demczs.hpp"
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
+#include "bestfit/numerics/sampling/mcmc/hmc.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/snis.hpp"
@@ -1357,6 +1358,13 @@ static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sa
     if (sampler_target == "RWMH") {
         sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood,
                                                 parse_proposal_sigma(settings, d));
+    } else if (sampler_target == "HMC") {
+        std::optional<double> step_size =
+            settings.contains("step_size") ? std::optional<double>(settings["step_size"].get<double>()) : std::nullopt;
+        std::optional<int> steps =
+            settings.contains("steps") ? std::optional<int>(settings["steps"].get<int>()) : std::nullopt;
+        sampler = std::make_unique<mcmc::HMC>(model.priors, model.log_likelihood, std::nullopt,
+                                               step_size.value_or(0.1), steps.value_or(50));
     } else if (sampler_target == "ARWMH") {
         auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
         if (settings.contains("scale")) arwmh->scale = settings["scale"].get<double>();

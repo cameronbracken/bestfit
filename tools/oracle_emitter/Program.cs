@@ -1195,6 +1195,9 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
     MCMCSampler sampler = samplerTarget switch
     {
         "RWMH" => new RWMH(priors, logLikelihood, hasSettings ? ParseProposalSigma(settings, d) : new Matrix(d)),
+        "HMC" => new HMC(priors, logLikelihood,
+            stepSize: hasSettings && settings.TryGetProperty("step_size", out var hss) ? hss.GetDouble() : 0.1,
+            steps: hasSettings && settings.TryGetProperty("steps", out var hst) ? hst.GetInt32() : 50),
         "ARWMH" => new ARWMH(priors, logLikelihood),
         "Gibbs" => new Gibbs(priors, logLikelihood,
             proposal ?? throw new Exception("Gibbs model has no proposal function")),
