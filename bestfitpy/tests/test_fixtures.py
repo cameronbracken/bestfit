@@ -441,13 +441,16 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
 # builds the model via the distribution factory, runs estimate() ONCE, and returns the full
 # result surface; every assertion in the case reads that single cached dict. See
 # fixtures/README.md's model_estimation section for the full method list, the WIRED-vs-T12
-# split, and the `bic` design note (precomputed at sample_size = len(dataset); the fixture's
-# own `args` value for `bic` is not re-read here).
+# split, and the `bic` design note. `bic` is the one exception to the "cached dict" contract:
+# it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read live from the fixture's
+# `args[0]` at dispatch time via `_core.estimation_bic`, not precomputed alongside the rest.
 
 _ESTIMATION_DEFERRED_METHODS = ("correlation", "dic", "waic", "looic", "posterior_mean")
 
 
-def _dispatch_estimation(result: dict, method: str, args: list):
+def _dispatch_estimation(
+    result: dict, method: str, args: list, target: str, family: str, data: list, optimizer: str
+):
     if method == "parameter":
         return result["parameters"][int(args[0])]
     if method == "max_log_likelihood":
@@ -455,7 +458,7 @@ def _dispatch_estimation(result: dict, method: str, args: list):
     if method == "aic":
         return result["aic"]
     if method == "bic":
-        return result["bic"]
+        return _core.estimation_bic(target, family, data, optimizer, int(args[0]))
     if method == "covariance":
         return result["covariance"][int(args[0])][int(args[1])]
     if method == "standard_error":
@@ -472,7 +475,7 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
     result = _core.estimation_run(target, model["family"], data, optimizer)
     for a in assertions:
         args = a.get("args", [])
-        actual = _dispatch_estimation(result, a["method"], args)
+        actual = _dispatch_estimation(result, a["method"], args, target, model["family"], data, optimizer)
         _check(actual, a)
 
 

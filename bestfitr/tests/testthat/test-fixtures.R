@@ -484,16 +484,17 @@ run_bootstrap_case <- function(construct, assertions, datasets) {
 # the model via the distribution factory, runs estimate() ONCE, and returns the full result
 # surface; every assertion in the case reads that single cached list. See
 # fixtures/README.md's model_estimation section for the full method list, the WIRED-vs-T12
-# split, and the `bic` design note (precomputed at sample_size = length(dataset); the fixture's
-# own `args` value for `bic` is not re-read here).
+# split, and the `bic` design note. `bic` is the one exception to the "cached list" contract:
+# it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read live from the fixture's
+# `args[[1]]` at dispatch time via `bf_estimation_bic_`, not precomputed alongside the rest.
 
-dispatch_estimation <- function(result, method, args) {
+dispatch_estimation <- function(result, method, args, ctx) {
   i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
   switch(method,
     parameter          = result$parameters[[i1(args[[1]])]],
     max_log_likelihood = result$max_log_likelihood[[1]],
     aic                = result$aic[[1]],
-    bic                = result$bic[[1]],
+    bic                = ctx$bic_fn(as.integer(args[[1]])),  # args[[1]] is a sample size n, not an index
     covariance         = result$covariance[i1(args[[1]]), i1(args[[2]])],
     standard_error     = result$standard_errors[[i1(args[[1]])]],
     correlation = ,
@@ -512,9 +513,10 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
   data <- as.double(unlist(datasets[[model$dataset]]))
   optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
   result <- ns$bf_estimation_run_(target, model$family, data, optimizer)
+  ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model$family, data, optimizer, n))
   for (a in assertions) {
     args <- if (is.null(a$args)) list() else a$args
-    actual <- dispatch_estimation(result, a$method, args)
+    actual <- dispatch_estimation(result, a$method, args, ctx)
     check_assertion(actual, a)
   }
 }

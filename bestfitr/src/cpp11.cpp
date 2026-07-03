@@ -264,6 +264,13 @@ extern "C" SEXP _bestfitr_bf_estimation_run_(SEXP target, SEXP family, SEXP data
     return cpp11::as_sexp(bf_estimation_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(family), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer)));
   END_CPP11
 }
+// estimation.cpp
+double bf_estimation_bic_(std::string target, std::string family, doubles dataset, std::string optimizer, int n);
+extern "C" SEXP _bestfitr_bf_estimation_bic_(SEXP target, SEXP family, SEXP dataset, SEXP optimizer, SEXP n) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_estimation_bic_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(family), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer), cpp11::as_cpp<cpp11::decay_t<int>>(n)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -437,6 +444,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_emp_pdf_",                  (DL_FUNC) &_bestfitr_bf_emp_pdf_,                   4},
     {"_bestfitr_bf_emp_quantile_",             (DL_FUNC) &_bestfitr_bf_emp_quantile_,              4},
     {"_bestfitr_bf_emp_valid_",                (DL_FUNC) &_bestfitr_bf_emp_valid_,                 3},
+    {"_bestfitr_bf_estimation_bic_",           (DL_FUNC) &_bestfitr_bf_estimation_bic_,            5},
     {"_bestfitr_bf_estimation_run_",           (DL_FUNC) &_bestfitr_bf_estimation_run_,            4},
     {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                   4},
     {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                   2},

@@ -893,6 +893,17 @@ names/signatures on both classes), dispatched through one `std::variant<unique_p
 MaximumLikelihood>, unique_ptr<MaximumAPosteriori>>` + a generic lambda rather than duplicating the
 switch per class -- see `dispatch_estimation` in `core/tests/test_fixtures.cpp`.
 
+`bic`'s `n` is an explicit, arbitrary sample size, matching C# `GetBIC(sampleSize)` -- it is
+**not** necessarily the fitted dataset's own length, and all three harnesses read it live from
+each assertion's `args[0]` at dispatch time rather than caching a precomputed value alongside
+`parameter`/`max_log_likelihood`/`aic`/`covariance`/`standard_error`. C++'s `dispatch_estimation`
+calls `est->get_bic(a[0].get<int>())` directly; R's `bf_estimation_bic_` and Python's
+`estimation_bic` each rebuild the model/estimator and call `get_bic(n)` live (safe because
+`estimate()` is deterministic -- NelderMead/Brent have no randomness, and
+DifferentialEvolution's default `prng_seed` is fixed -- so the rebuilt fit exactly reproduces the
+one `estimation_run`/`bf_estimation_run_` already computed). A future fixture asserting `bic`
+with `n != len(dataset)` must pass identically across all three harnesses.
+
 **Left for Task T12 (structure only -- no live path yet):**
 - `correlation [i,j]` -- `GetCorrelationMatrix()[i,j]` (exists on both wired classes today, but
   deliberately not dispatched yet -- adding it is a one-line `if` arm).

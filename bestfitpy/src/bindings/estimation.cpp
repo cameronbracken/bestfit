@@ -8,12 +8,15 @@
 // ../bestfit_core/include (see tools/sync_core.py).
 //
 // `bic` DESIGN NOTE: unlike every other wired method, C# `GetBIC(sampleSize)` takes an actual
-// sample size, not a 0-based index -- but this glue (like `mcmc_run`/`bootstrap_run`)
-// precomputes the full result surface up front, before any assertion is dispatched. `bic` is
-// therefore precomputed ONCE here at `sample_size = len(dataset)` (the only value any
-// `model_estimation` fixture case has ever needed -- BIC is always evaluated at the fitted
-// data's own sample size); `test_fixtures.py`'s `bic` dispatch arm reads this precomputed
-// scalar directly and does not re-derive `n` from the fixture's `args`.
+// sample size, not a 0-based index. Every other method's value is precomputed once here (in
+// `estimation_run`, matching `mcmc_run`/`bootstrap_run`'s "precompute the full surface up
+// front" contract), since none of them take a fixture-supplied argument. `bic` is the one
+// exception: it is NOT precomputed. `estimation_bic` below rebuilds the same model/estimator
+// (deterministic -- NelderMead/Brent have no randomness and DifferentialEvolution's default
+// `prng_seed` is fixed, so re-running `estimate()` reproduces the exact same fit) and calls
+// `e.get_bic(n)` live with whatever `n` the fixture's `args[0]` supplies, matching C++'s
+// `dispatch_estimation` and the C# `GetBIC(sampleSize)` signature exactly. See
+// `test_fixtures.py`'s `bic` dispatch arm.
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -47,9 +50,11 @@ void register_estimation(py::module_& m) {
     //   parameters          -- [n_params] list (BestParameterSet.Values)
     //   max_log_likelihood  -- scalar
     //   aic                 -- scalar
-    //   bic                 -- scalar (sample_size = len(dataset); see file header DESIGN NOTE)
     //   covariance          -- [n_params][n_params] nested list
     //   standard_errors     -- [n_params] list
+    //
+    // `bic` is deliberately NOT part of this surface -- see `estimation_bic` below and the file
+    // header DESIGN NOTE.
     //
     // WIRED (Task T11): parameter/max_log_likelihood/aic/bic/covariance/standard_error. LEFT
     // FOR TASK T12 (see fixtures/README.md's model_estimation section): correlation/dic/waic/
@@ -63,14 +68,12 @@ void register_estimation(py::module_& m) {
             models::UnivariateDistributionModel model(dist::create_distribution(family), dataset);
             auto method = parse_optimization_method(optimizer);
             int n_params = model.number_of_parameters();
-            int sample_size = static_cast<int>(dataset.size());
 
             py::dict out;
             auto fill_from = [&](const auto& e) {
                 out["parameters"] = e.best_parameter_set().values;
                 out["max_log_likelihood"] = e.maximum_log_likelihood();
                 out["aic"] = e.get_aic();
-                out["bic"] = e.get_bic(sample_size);
 
                 auto cov = e.get_covariance_matrix();
                 std::vector<std::vector<double>> covariance(static_cast<std::size_t>(n_params));
@@ -104,4 +107,40 @@ void register_estimation(py::module_& m) {
             return out;
         },
         py::arg("target"), py::arg("family"), py::arg("dataset"), py::arg("optimizer"));
+
+    // `bic [n]` accessor: rebuilds the same model + named estimator, runs `estimate()` once
+    // (see the file header DESIGN NOTE for why this reproduces the exact same fit as
+    // `estimation_run`'s call), and returns `GetBIC(n)` evaluated live at the caller-supplied
+    // sample size `n` -- matching C++'s `dispatch_estimation`
+    // (`est->get_bic(a[0].get<int>())`) and the C# `GetBIC(sampleSize)` signature.
+    // Deliberately separate from `estimation_run` rather than folded into its returned dict,
+    // since `n` is only known at assertion-dispatch time (a fixture case's `bic` assertion
+    // supplies it via `args[0]`), not at construction time.
+    m.def(
+        "estimation_bic",
+        [](const std::string& target, const std::string& family, const std::vector<double>& dataset,
+           const std::string& optimizer, int n) {
+            models::UnivariateDistributionModel model(dist::create_distribution(family), dataset);
+            auto method = parse_optimization_method(optimizer);
+
+            if (target == "MaximumLikelihood") {
+                est::MaximumLikelihood e(model, method);
+                if (!e.estimate()) throw py::value_error("MaximumLikelihood::estimate() failed for a fixture case");
+                return e.get_bic(n);
+            }
+            if (target == "MaximumAPosteriori") {
+                est::MaximumAPosteriori e(model, method);
+                if (!e.estimate())
+                    throw py::value_error("MaximumAPosteriori::estimate() failed for a fixture case");
+                return e.get_bic(n);
+            }
+            if (target == "BayesianAnalysis") {
+                throw py::value_error(
+                    "model_estimation target 'BayesianAnalysis' is not yet wired in the fixture "
+                    "runner (deferred to Task T12); see fixtures/README.md's model_estimation "
+                    "section");
+            }
+            throw py::value_error("unknown model_estimation target: " + target);
+        },
+        py::arg("target"), py::arg("family"), py::arg("dataset"), py::arg("optimizer"), py::arg("n"));
 }

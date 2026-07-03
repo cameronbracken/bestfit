@@ -148,6 +148,10 @@ bf_estimation_run_ <- function(target, family, dataset, optimizer) {
   .Call(`_bestfitr_bf_estimation_run_`, target, family, dataset, optimizer)
 }
 
+bf_estimation_bic_ <- function(target, family, dataset, optimizer, n) {
+  .Call(`_bestfitr_bf_estimation_bic_`, target, family, dataset, optimizer, n)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

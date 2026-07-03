@@ -8,12 +8,15 @@
 // src/bestfit_core/include (see tools/sync_core.py).
 //
 // `bic` DESIGN NOTE: unlike every other wired method, C# `GetBIC(sampleSize)` takes an actual
-// sample size, not a 0-based index -- but this glue (like `bf_mcmc_run_`/`bf_bootstrap_run_`)
-// precomputes the full result surface up front, before any assertion is dispatched. `bic` is
-// therefore precomputed ONCE here at `sample_size = length(dataset)` (the only value any
-// `model_estimation` fixture case has ever needed -- BIC is always evaluated at the fitted
-// data's own sample size); `test-fixtures.R`'s `bic` dispatch arm reads this precomputed
-// scalar directly and does not re-derive `n` from the fixture's `args`.
+// sample size, not a 0-based index. Every other method's value is precomputed once here (in
+// `bf_estimation_run_`, matching `bf_mcmc_run_`/`bf_bootstrap_run_`'s "precompute the full
+// surface up front" contract), since none of them take a fixture-supplied argument. `bic` is
+// the one exception: it is NOT precomputed. `bf_estimation_bic_` below rebuilds the same
+// model/estimator (deterministic -- NelderMead/Brent have no randomness and
+// DifferentialEvolution's default `prng_seed` is fixed, so re-running `estimate()` reproduces
+// the exact same fit) and calls `e.get_bic(n)` live with whatever `n` the fixture's
+// `args[0]` supplies, matching C++'s `dispatch_estimation` and the C# `GetBIC(sampleSize)`
+// signature exactly. See `test-fixtures.R`'s `bic` dispatch arm.
 #include <cpp11.hpp>
 
 #include <memory>
@@ -45,9 +48,11 @@ static est::OptimizationMethod parse_optimization_method(const std::string& s) {
 //   parameters       -- [n_params] vector (BestParameterSet.Values)
 //   max_log_likelihood -- scalar
 //   aic              -- scalar
-//   bic              -- scalar (sample_size = length(dataset); see file header DESIGN NOTE)
 //   covariance       -- [n_params x n_params] matrix
 //   standard_errors  -- [n_params] vector
+//
+// `bic` is deliberately NOT part of this surface -- see `bf_estimation_bic_` below and the
+// file header DESIGN NOTE.
 //
 // WIRED (Task T11): parameter/max_log_likelihood/aic/bic/covariance/standard_error. LEFT FOR
 // TASK T12 (see fixtures/README.md's model_estimation section): correlation/dic/waic/looic/
@@ -59,10 +64,9 @@ list bf_estimation_run_(std::string target, std::string family, doubles dataset,
     models::UnivariateDistributionModel model(dist::create_distribution(family), data);
     auto method = parse_optimization_method(optimizer);
     int n_params = model.number_of_parameters();
-    int sample_size = static_cast<int>(data.size());
 
     writable::doubles parameters(n_params);
-    double max_log_likelihood = 0.0, aic = 0.0, bic = 0.0;
+    double max_log_likelihood = 0.0, aic = 0.0;
     writable::doubles_matrix<by_column> covariance(n_params, n_params);
     writable::doubles standard_errors(n_params);
 
@@ -71,7 +75,6 @@ list bf_estimation_run_(std::string target, std::string family, doubles dataset,
         for (int i = 0; i < n_params; ++i) parameters[i] = best[static_cast<std::size_t>(i)];
         max_log_likelihood = e.maximum_log_likelihood();
         aic = e.get_aic();
-        bic = e.get_bic(sample_size);
         auto cov = e.get_covariance_matrix();
         for (int i = 0; i < n_params; ++i)
             for (int j = 0; j < n_params; ++j) covariance(i, j) = cov(i, j);
@@ -99,8 +102,38 @@ list bf_estimation_run_(std::string target, std::string family, doubles dataset,
         "parameters"_nm = parameters,
         "max_log_likelihood"_nm = writable::doubles({max_log_likelihood}),
         "aic"_nm = writable::doubles({aic}),
-        "bic"_nm = writable::doubles({bic}),
         "covariance"_nm = covariance,
         "standard_errors"_nm = standard_errors,
     });
+}
+
+// `bic [n]` accessor: rebuilds the same model + named estimator, runs `estimate()` once (see
+// the file header DESIGN NOTE for why this reproduces the exact same fit as
+// `bf_estimation_run_`'s call), and returns `GetBIC(n)` evaluated live at the caller-supplied
+// sample size `n` -- matching C++'s `dispatch_estimation` (`est->get_bic(a[0].get<int>())`)
+// and the C# `GetBIC(sampleSize)` signature. Deliberately separate from `bf_estimation_run_`
+// rather than folded into its returned list, since `n` is only known at assertion-dispatch
+// time (a fixture case's `bic` assertion supplies it via `args[0]`), not at construction time.
+[[cpp11::register]]
+double bf_estimation_bic_(std::string target, std::string family, doubles dataset, std::string optimizer, int n) {
+    std::vector<double> data(dataset.begin(), dataset.end());
+    models::UnivariateDistributionModel model(dist::create_distribution(family), data);
+    auto method = parse_optimization_method(optimizer);
+
+    if (target == "MaximumLikelihood") {
+        est::MaximumLikelihood e(model, method);
+        if (!e.estimate()) stop("MaximumLikelihood::estimate() failed for a fixture case");
+        return e.get_bic(n);
+    }
+    if (target == "MaximumAPosteriori") {
+        est::MaximumAPosteriori e(model, method);
+        if (!e.estimate()) stop("MaximumAPosteriori::estimate() failed for a fixture case");
+        return e.get_bic(n);
+    }
+    if (target == "BayesianAnalysis") {
+        stop(
+            "model_estimation target 'BayesianAnalysis' is not yet wired in the fixture runner "
+            "(deferred to Task T12); see fixtures/README.md's model_estimation section");
+    }
+    stop("unknown model_estimation target '%s'", target.c_str());
 }
