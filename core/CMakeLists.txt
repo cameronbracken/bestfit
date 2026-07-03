@@ -24,6 +24,7 @@ set(BF_TESTS
   test_numerical_diff
   test_model_parameter
   test_model_base
+  test_univariate_distribution_model
 )
 
 # Sobol test takes the direction-number file as its sole argument.
