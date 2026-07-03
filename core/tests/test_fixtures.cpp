@@ -60,6 +60,8 @@
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/demcz.hpp"
+#include "bestfit/numerics/sampling/mcmc/demczs.hpp"
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
@@ -1365,6 +1367,20 @@ static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sa
         sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
     } else if (sampler_target == "SNIS") {
         sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
+    } else if (sampler_target == "DEMCz") {
+        auto demcz = std::make_unique<mcmc::DEMCz>(model.priors, model.log_likelihood);
+        if (settings.contains("jump")) demcz->jump = settings["jump"].get<double>();
+        if (settings.contains("jump_threshold")) demcz->jump_threshold = settings["jump_threshold"].get<double>();
+        if (settings.contains("noise")) demcz->set_noise(settings["noise"].get<double>());
+        sampler = std::move(demcz);
+    } else if (sampler_target == "DEMCzs") {
+        auto demczs = std::make_unique<mcmc::DEMCzs>(model.priors, model.log_likelihood);
+        if (settings.contains("jump")) demczs->jump = settings["jump"].get<double>();
+        if (settings.contains("jump_threshold")) demczs->jump_threshold = settings["jump_threshold"].get<double>();
+        if (settings.contains("snooker_threshold"))
+            demczs->snooker_threshold = settings["snooker_threshold"].get<double>();
+        if (settings.contains("noise")) demczs->set_noise(settings["noise"].get<double>());
+        sampler = std::move(demczs);
     } else {
         throw std::runtime_error("unknown mcmc_sampler target: " + sampler_target);
     }

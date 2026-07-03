@@ -16,6 +16,8 @@
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/demcz.hpp"
+#include "bestfit/numerics/sampling/mcmc/demczs.hpp"
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
@@ -79,6 +81,26 @@ list bf_mcmc_run_(std::string sampler_type, std::string model_name, std::string 
         sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
     } else if (sampler_type == "SNIS") {
         sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
+    } else if (sampler_type == "DEMCz") {
+        auto demcz = std::make_unique<mcmc::DEMCz>(model.priors, model.log_likelihood);
+        SEXP jp = settings["jump"];
+        if (jp != R_NilValue) demcz->jump = as_cpp<double>(jp);
+        SEXP jt = settings["jump_threshold"];
+        if (jt != R_NilValue) demcz->jump_threshold = as_cpp<double>(jt);
+        SEXP ns = settings["noise"];
+        if (ns != R_NilValue) demcz->set_noise(as_cpp<double>(ns));
+        sampler = std::move(demcz);
+    } else if (sampler_type == "DEMCzs") {
+        auto demczs = std::make_unique<mcmc::DEMCzs>(model.priors, model.log_likelihood);
+        SEXP jp = settings["jump"];
+        if (jp != R_NilValue) demczs->jump = as_cpp<double>(jp);
+        SEXP jt = settings["jump_threshold"];
+        if (jt != R_NilValue) demczs->jump_threshold = as_cpp<double>(jt);
+        SEXP st = settings["snooker_threshold"];
+        if (st != R_NilValue) demczs->snooker_threshold = as_cpp<double>(st);
+        SEXP ns = settings["noise"];
+        if (ns != R_NilValue) demczs->set_noise(as_cpp<double>(ns));
+        sampler = std::move(demczs);
     } else {
         stop("unknown mcmc_sampler target '%s'", sampler_type.c_str());
     }

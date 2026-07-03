@@ -1199,6 +1199,8 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
         "Gibbs" => new Gibbs(priors, logLikelihood,
             proposal ?? throw new Exception("Gibbs model has no proposal function")),
         "SNIS" => new SNIS(priors, logLikelihood),
+        "DEMCz" => new DEMCz(priors, logLikelihood),
+        "DEMCzs" => new DEMCzs(priors, logLikelihood),
         _ => throw new Exception($"unknown mcmc_sampler target: {samplerTarget}")
     };
 
@@ -1216,6 +1218,19 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
         {
             if (settings.TryGetProperty("scale", out var sc)) arwmh.Scale = sc.GetDouble();
             if (settings.TryGetProperty("beta", out var be)) arwmh.Beta = be.GetDouble();
+        }
+        if (sampler is DEMCz demcz)
+        {
+            if (settings.TryGetProperty("jump", out var jp)) demcz.Jump = jp.GetDouble();
+            if (settings.TryGetProperty("jump_threshold", out var jt)) demcz.JumpThreshold = jt.GetDouble();
+            if (settings.TryGetProperty("noise", out var ns)) demcz.Noise = ns.GetDouble();
+        }
+        if (sampler is DEMCzs demczs)
+        {
+            if (settings.TryGetProperty("jump", out var jp)) demczs.Jump = jp.GetDouble();
+            if (settings.TryGetProperty("jump_threshold", out var jt)) demczs.JumpThreshold = jt.GetDouble();
+            if (settings.TryGetProperty("snooker_threshold", out var st)) demczs.SnookerThreshold = st.GetDouble();
+            if (settings.TryGetProperty("noise", out var ns)) demczs.Noise = ns.GetDouble();
         }
     }
 

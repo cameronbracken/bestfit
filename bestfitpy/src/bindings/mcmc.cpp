@@ -16,6 +16,8 @@
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/demcz.hpp"
+#include "bestfit/numerics/sampling/mcmc/demczs.hpp"
 #include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
@@ -80,6 +82,22 @@ void register_mcmc(py::module_& m) {
                 sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
             } else if (sampler_type == "SNIS") {
                 sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
+            } else if (sampler_type == "DEMCz") {
+                auto demcz = std::make_unique<mcmc::DEMCz>(model.priors, model.log_likelihood);
+                if (settings.contains("jump")) demcz->jump = settings["jump"].cast<double>();
+                if (settings.contains("jump_threshold"))
+                    demcz->jump_threshold = settings["jump_threshold"].cast<double>();
+                if (settings.contains("noise")) demcz->set_noise(settings["noise"].cast<double>());
+                sampler = std::move(demcz);
+            } else if (sampler_type == "DEMCzs") {
+                auto demczs = std::make_unique<mcmc::DEMCzs>(model.priors, model.log_likelihood);
+                if (settings.contains("jump")) demczs->jump = settings["jump"].cast<double>();
+                if (settings.contains("jump_threshold"))
+                    demczs->jump_threshold = settings["jump_threshold"].cast<double>();
+                if (settings.contains("snooker_threshold"))
+                    demczs->snooker_threshold = settings["snooker_threshold"].cast<double>();
+                if (settings.contains("noise")) demczs->set_noise(settings["noise"].cast<double>());
+                sampler = std::move(demczs);
             } else {
                 throw py::value_error("unknown mcmc_sampler target: " + sampler_type);
             }
