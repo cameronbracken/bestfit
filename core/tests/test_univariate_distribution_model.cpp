@@ -146,6 +146,78 @@ void test_construct_from_owned_distribution_pointer() {
     CHECK_EQ(model.number_of_parameters(), 2);
 }
 
+// T12's Jeffreys 1/scale prior override (prior_log_likelihood /
+// pointwise_prior_log_likelihood): default-on, adds a `-log(scale)` term on top of the
+// per-parameter Uniform priors for the scale parameter (Normal: index 1, sigma). This is the
+// mechanism documented in fixtures/estimation/map_normal.json's and bayes_normal.json's source
+// notes as the reason MAP/Bayesian posteriors diverge from the pure MLE.
+void test_use_jeffreys_rule_for_scale_defaults_true() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    CHECK_TRUE(model.use_jeffreys_rule_for_scale());
+}
+
+void test_jeffreys_prior_adds_negative_log_scale_term() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+
+    // Use the default-parameter initials (guaranteed inside the Uniform prior bounds, so the
+    // per-parameter Uniform log_pdf terms are finite and identical between the two calls below).
+    std::vector<double> p;
+    for (const auto& param : model.parameters()) p.push_back(param.value());
+    double sigma = p[1];
+
+    CHECK_TRUE(model.use_jeffreys_rule_for_scale());  // still the default here
+    double with_jeffreys = model.prior_log_likelihood(p);
+
+    model.set_use_jeffreys_rule_for_scale(false);
+    double without_jeffreys = model.prior_log_likelihood(p);
+
+    // The two calls differ ONLY by the Jeffreys `-log(sigma)` term; the per-parameter Uniform
+    // priors are unaffected by the toggle.
+    CHECK_NEAR(with_jeffreys - without_jeffreys, -std::log(sigma), 1e-9);
+}
+
+void test_jeffreys_prior_nonpositive_scale_is_negative_infinity() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    CHECK_TRUE(model.use_jeffreys_rule_for_scale());
+
+    std::vector<double> zero_scale{16000.0, 0.0};
+    CHECK_TRUE(model.prior_log_likelihood(zero_scale) == -std::numeric_limits<double>::infinity());
+
+    std::vector<double> negative_scale{16000.0, -1.0};
+    CHECK_TRUE(model.prior_log_likelihood(negative_scale) ==
+               -std::numeric_limits<double>::infinity());
+}
+
+void test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+
+    std::vector<double> p;
+    for (const auto& param : model.parameters()) p.push_back(param.value());
+    double sigma = p[1];
+
+    std::vector<bestfit::models::PriorComponent> components =
+        model.pointwise_prior_log_likelihood(p);
+
+    // One component per parameter, PLUS the trailing Jeffreys Scale component.
+    CHECK_EQ(components.size(), model.parameters().size() + 1);
+
+    const auto& jeffreys_component = components.back();
+    CHECK_TRUE(jeffreys_component.type() == bestfit::models::PriorComponentType::JeffreysScalePrior);
+    CHECK_NEAR(jeffreys_component.log_likelihood(), -std::log(sigma), 1e-12);
+
+    // Self-consistency (per this method's header comment): the components must sum to
+    // `prior_log_likelihood`.
+    double sum = 0.0;
+    for (const auto& c : components) sum += c.log_likelihood();
+    CHECK_NEAR(sum, model.prior_log_likelihood(p), 1e-9);
+
+    // Disabling the toggle drops the Jeffreys component, leaving one-per-parameter.
+    model.set_use_jeffreys_rule_for_scale(false);
+    std::vector<bestfit::models::PriorComponent> without_jeffreys =
+        model.pointwise_prior_log_likelihood(p);
+    CHECK_EQ(without_jeffreys.size(), model.parameters().size());
+}
+
 }  // namespace
 
 int main() {
@@ -157,6 +229,10 @@ int main() {
     test_pointwise_components_negative_infinity_on_invalid_parameters();
     test_set_default_parameters_populates_bounds_and_uniform_priors();
     test_construct_from_owned_distribution_pointer();
+    test_use_jeffreys_rule_for_scale_defaults_true();
+    test_jeffreys_prior_adds_negative_log_scale_term();
+    test_jeffreys_prior_nonpositive_scale_is_negative_infinity();
+    test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component();
 
     return bftest::summary("univariate_distribution_model");
 }
