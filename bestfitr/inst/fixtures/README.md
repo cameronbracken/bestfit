@@ -838,9 +838,7 @@ do not paper over it with a looser tolerance.
 
 ```jsonc
 {
-  "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" today
-                                             // (Task T11); "BayesianAnalysis" is schema-documented
-                                             // but not yet constructible -- see below
+  "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" | "BayesianAnalysis"
   "kind":    "model_estimation",
   "source":  "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs ; core/tests/test_maximum_likelihood.cpp",
   "datasets": { "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600] },
@@ -852,7 +850,7 @@ do not paper over it with a looser tolerance.
         "optimizer": "NelderMead"
       },
       "assertions": [
-        { "method": "parameter", "args": [0], "expected": 16026.055013737448, "mode": "rel", "tol": 1e-3 }
+        { "method": "parameter", "args": [0], "expected": 16026.055013737448, "mode": "rel", "tol": 1e-9 }
       ]
     }
   ]
@@ -864,68 +862,116 @@ contract): build a `UnivariateDistributionModel` from `construct.model.{family, 
 `family` goes through the same univariate distribution factory every other kind uses
 (`create_distribution(name)`), `dataset` names an entry in the file-level `datasets` map -- then
 construct the estimator named by the file-level `target`, call `estimate()` **once**, then dispatch
-every assertion in the case against the cached `(model, estimator)` pair. Unlike `mcmc_sampler`'s
+every assertion in the case against the cached `(model, estimator)` pair (or, for
+`BayesianAnalysis`, the cached `(model, analysis)` pair -- see below). Unlike `mcmc_sampler`'s
 and `bootstrap`'s model registries (each a small closed name -> construction-recipe map with no
 upstream C# library counterpart), `model_estimation`'s "registry" is the one-line factory call
 above: every family the factory supports, plus `UnivariateDistributionModel::set_default_parameters`
 (itself driven by `IMaximumLikelihoodEstimation::get_parameter_constraints`), is already enough to
 build a model -- there is no separate closed-name mapping to maintain.
 
-`construct` fields: `model.family` (a univariate distribution type name), `model.dataset` (a
-`datasets` key), `optimizer` (`"NelderMead"` | `"DifferentialEvolution"` | `"Brent"`, applies to
-`MaximumLikelihood`/`MaximumAPosteriori`; defaults to `"DifferentialEvolution"` when omitted,
-matching both estimator classes' C# default). `BayesianAnalysis`'s documented construct fields
-(`sampler`, `seed`, `iterations`, ...) are schema-reserved for Task T12 -- seeing them in a fixture
-today would be premature, since `target: "BayesianAnalysis"` is not yet constructible (see below).
+`construct` fields for `MaximumLikelihood`/`MaximumAPosteriori`: `model.family` (a univariate
+distribution type name), `model.dataset` (a `datasets` key), `optimizer` (`"NelderMead"` |
+`"DifferentialEvolution"` | `"Brent"`; defaults to `"DifferentialEvolution"` when omitted, matching
+both estimator classes' C# default). `construct` fields for `BayesianAnalysis` (Task T12): `model`
+(same shape), `sampler` (`"DEMCz"` | `"DEMCzs"` | `"ARWMH"` | `"NUTS"`; defaults to `"DEMCzs"`,
+matching the C# default), and an optional `settings` object with any of `seed`, `iterations`,
+`warmup_iterations`, `number_of_chains`, `thinning_interval`, `initial_iterations`,
+`output_length` -- each applied only if present (all four harnesses turn OFF
+`UseSimulationDefaults`/`UseAdvancedSimulationDefaults` first so the explicit values below aren't
+clobbered by the ctor's own defaulting, then apply exactly the settings supplied).
 
 Assertion methods (0-based indices throughout except `bic`'s `n`, an actual sample size):
 
-**Wired (Task T11):**
+**`MaximumLikelihood`/`MaximumAPosteriori` (Task T11 + T12):**
 - `parameter [p]` -- `BestParameterSet.Values[p]`.
 - `max_log_likelihood []` -- `MaximumLogLikelihood` (data log-likelihood at the optimum for
   `MaximumLikelihood`; log-POSTERIOR, data + prior, at the optimum for `MaximumAPosteriori`).
 - `aic []`, `bic [n]` -- `GetAIC()`/`GetBIC(n)`.
 - `covariance [i,j]` -- `GetCovarianceMatrix()[i,j]`.
 - `standard_error [p]` -- `GetStandardErrors()[p]`.
+- `correlation [i,j]` -- `GetCorrelationMatrix()[i,j]` (T12).
 
-These six are shared verbatim by `MaximumLikelihood` and `MaximumAPosteriori` (identical method
+These seven are shared verbatim by `MaximumLikelihood` and `MaximumAPosteriori` (identical method
 names/signatures on both classes), dispatched through one `std::variant<unique_ptr<
-MaximumLikelihood>, unique_ptr<MaximumAPosteriori>>` + a generic lambda rather than duplicating the
-switch per class -- see `dispatch_estimation` in `core/tests/test_fixtures.cpp`.
+MaximumLikelihood>, unique_ptr<MaximumAPosteriori>, unique_ptr<BayesianAnalysis>>` + a generic
+lambda rather than duplicating the switch per class -- see `dispatch_estimation` in
+`core/tests/test_fixtures.cpp`.
 
 `bic`'s `n` is an explicit, arbitrary sample size, matching C# `GetBIC(sampleSize)` -- it is
 **not** necessarily the fitted dataset's own length, and all three harnesses read it live from
 each assertion's `args[0]` at dispatch time rather than caching a precomputed value alongside
-`parameter`/`max_log_likelihood`/`aic`/`covariance`/`standard_error`. C++'s `dispatch_estimation`
-calls `est->get_bic(a[0].get<int>())` directly; R's `bf_estimation_bic_` and Python's
-`estimation_bic` each rebuild the model/estimator and call `get_bic(n)` live (safe because
+`parameter`/`max_log_likelihood`/`aic`/`covariance`/`standard_error`/`correlation`. C++'s
+`dispatch_estimation` calls `est->get_bic(a[0].get<int>())` directly; R's `bf_estimation_bic_` and
+Python's `estimation_bic` each rebuild the model/estimator and call `get_bic(n)` live (safe because
 `estimate()` is deterministic -- NelderMead/Brent have no randomness, and
 DifferentialEvolution's default `prng_seed` is fixed -- so the rebuilt fit exactly reproduces the
 one `estimation_run`/`bf_estimation_run_` already computed). A future fixture asserting `bic`
 with `n != len(dataset)` must pass identically across all three harnesses.
 
-**Left for Task T12 (structure only -- no live path yet):**
-- `correlation [i,j]` -- `GetCorrelationMatrix()[i,j]` (exists on both wired classes today, but
-  deliberately not dispatched yet -- adding it is a one-line `if` arm).
-- `dic []`, `waic []`, `looic []`, `posterior_mean [p]` -- `BayesianAnalysis`-only surface
-  (`Dic()`/`Waic()`/`Looic()`/`PointEstimate().Values[p]`); each needs a `BayesianAnalysis`
-  construction arm in `build_and_run_estimation` (today a clear "deferred to Task T12" throw) in
-  addition to its own dispatch `if` arm, since `MaximumLikelihood`/`MaximumAPosteriori` have no
-  equivalent.
+**`BayesianAnalysis` (Task T12):**
+- `dic []`, `waic []`, `looic []` -- `Dic()`/`Waic()`/`Looic()`.
+- `posterior_mean [p]` -- `Results.PosteriorMean.Values[p]`.
+- `chain_value [chain, iter, param]` -- `Sampler.MarkovChains[chain][iter].Values[param]`, the
+  same seeded chain digest semantics `mcmc_sampler`'s own `chain_value` uses (see that section
+  above) -- BayesianAnalysis internally builds and samples one of the 4 ported MCMC samplers, so
+  the digest is bit-identical to a standalone `mcmc_sampler` fixture run with the same seed/model
+  (confirmed: `bayes_normal.json`'s first-iteration chain values are the SAME literals as
+  `sampling/mcmc/demczs.json`'s `normal_short_exact` case).
 
-**Tolerance policy for the T11 smoke fixture** (`estimation/mle_normal_smoke.json`): this is a
-PLUMBING PROOF, not the T12 emitter-dumped oracle -- every assertion anchors to the SAME value
-`core/tests/test_maximum_likelihood.cpp`'s `test_loose_oracle_anchor` already spike-proved against
-the real C# library (`mu ~ 16026.055`, `sigma ~ 5058.828`, `maximum_log_likelihood ~ -99.4793`),
-plus `aic`/`bic` computed directly from that anchor and `covariance`/`standard_error` values read
-straight off this port's own (deterministic, seed-free) NelderMead run. `parameter`/
-`max_log_likelihood`/`aic`/`bic` use `mode: "rel", tol: 1e-3` (matching the ctest's own tolerance
-for the shared anchor); `covariance`/`standard_error` use `mode: "rel", tol: 1e-2` (one order of
-magnitude looser again -- the numerical Hessian behind them is a finite-difference computation one
-step further removed from the optimizer's own convergence tolerance, so it is more sensitive to
-platform/compiler rounding across the three harnesses' independently-built copies of the same
-core). Task T12 replaces/augments this fixture with exact emitter-dumped oracles and a tighter,
-measured tolerance policy, the same way T12-era work tightened the MCMC/bootstrap fixtures above.
+These four (plus `chain_value`) are `BayesianAnalysis`-only surface with no ML/MAP equivalent,
+dispatched in a separate branch of the same `std::visit` (see `dispatch_estimation`) rather than
+joining the ML/MAP method list, since the two surfaces are disjoint. R/Python each expose
+`BayesianAnalysis` through a SEPARATE registered function (`bf_estimation_bayes_run_` / R,
+`estimation_bayes_run` / Python) rather than folding it into `bf_estimation_run_`/`estimation_run`,
+because its construct shape (`sampler` + numeric knobs) doesn't fit the ML/MAP
+`{target, family, dataset, optimizer}` signature.
+
+**Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
+port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of
+per-parameter Uniform priors only), which made `MaximumAPosteriori`'s posterior mode coincide with
+the plain MLE under the model's default (flat Uniform) parameter priors. Dumping exact oracle
+values from the REAL C# `MaximumAPosteriori`/`BayesianAnalysis` surfaced a real divergence: the C#
+`UnivariateDistribution.Prior_LogLikelihood` (and every other C# univariate model) ALSO applies a
+Jeffreys `1/scale` prior on the scale parameter whenever `UseJeffreysRuleForScale` is set (`true`
+by default in `UnivariateDistributionModelBase`), which measurably pulls the posterior-mode scale
+below the pure MLE (~4.7% lower for `map_normal.json`'s Normal/NelderMead case). This was a genuine
+port gap, not a fixture-tolerance problem: `UnivariateDistributionModel::prior_log_likelihood` (and
+its `pointwise_prior_log_likelihood` counterpart) were extended in T12 to apply the same `-log(scale)`
+term (scale parameter index: 0 for Gamma/Weibull, 1 for every other family, matching the C# source),
+gated by a new `use_jeffreys_rule_for_scale()`/`set_use_jeffreys_rule_for_scale()` toggle (defaults
+`true`). Quantile priors (`EnableQuantilePriors`, C# default `false`) are NOT applied -- that surface
+remains out of scope per this model's existing T6 header comment. With this fix, `map_normal.json`
+and `bayes_normal.json` reproduce the real C# MAP/Bayesian posteriors exactly (see their `source`
+fields for the measured tolerances).
+
+**Tolerance policy (Task T12, exact emitter-dumped oracles):**
+- `mle_normal_smoke.json` (renamed target retained -- still a fine name once tightened):
+  `parameter`/`max_log_likelihood`/`aic`/`bic` at `mode: "rel", tol: 1e-9` (NelderMead is a
+  deterministic simplex -- no RNG, no parallel reduction -- so these reproduce tightly across the
+  4 independently-built cores); diagonal `covariance`/`standard_error`/`correlation` at `tol: 1e-5`
+  (the numerical-Hessian finite-difference step is one order more rounding-sensitive); the
+  off-diagonal `covariance`/`correlation` entries are theoretically zero for a Normal MLE (mu and
+  sigma are orthogonal) and are checked with an ABSOLUTE tolerance instead of relative (relative
+  against a near-zero expected value is meaningless).
+- `map_normal.json`: same tolerance tiers as above, applied to the MAP (posterior-mode) values,
+  which now differ measurably from the MLE because of the Jeffreys-prior fix above.
+- `bayes_normal.json`: `chain_value` at `tol: 1e-11` (DEMCzs is pure-RNG, no gradients -- the
+  Phase-3 digest precedent); `posterior_mean` at `tol: 1e-9`; `waic`/`looic` at `tol: 1e-8`; `dic`
+  at `tol: 1e-6` (DIC's C# `Parallel.For` reduction is not bit-reproducible even C#-to-C#, measured
+  ~1e-13 absolute run-to-run -- the same reduction-order divergence class as the bootstrap BCa
+  fixtures above, NOT faked). This case deliberately sets a small `output_length` (400, vs. the
+  `iterations`-driven default) so the `Output`-derived quantities (`posterior_mean`/`dic`/`waic`/
+  `looic`) stay inside the population-sampler's pre-amplification window (see the DEMCz/DEMCzs
+  population-sampler divergence finding earlier in this file) -- confirmed empirically: at this
+  `output_length` the aggregates reproduce to ~1e-11..1e-14, far tighter than the long-run rstan
+  cases' `tol: 0.05`, because the divergent tail never gets long enough to amplify sub-ULP noise
+  into a measurable difference.
+
+**NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
+the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
+against a standalone throwaway harness against the real C# library) and fix the transcription slip;
+do not paper over it with a looser tolerance.
 
 ### `special_function`
 
