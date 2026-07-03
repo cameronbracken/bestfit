@@ -1,0 +1,3545 @@
+{
+  "target": "ARWMH",
+  "kind": "mcmc_sampler",
+  "source": "Numerics/Sampling/MCMC/ARWMH.cs ; Numerics/Sampling/MCMC/Base/MCMCSampler.cs ; Test_Numerics/Sampling/MCMC/Test_ARWMH.cs",
+  "datasets": {
+    "tippecanoe": [
+      6290,
+      2700,
+      13100,
+      16900,
+      14600,
+      9600,
+      7740,
+      8490,
+      8130,
+      12000,
+      17200,
+      15000,
+      12400,
+      6960,
+      6500,
+      5840,
+      10400,
+      18800,
+      21400,
+      22600,
+      14200,
+      11000,
+      12800,
+      15700,
+      4740,
+      6950,
+      11800,
+      12100,
+      20600,
+      14600,
+      14600,
+      8900,
+      10600,
+      14200,
+      14100,
+      14100,
+      12500,
+      7530,
+      13400,
+      17600,
+      13400,
+      19200,
+      16900,
+      15500,
+      14500,
+      21900,
+      10400,
+      7460
+    ],
+    "sugar_creek": [
+      17600,
+      3660,
+      903,
+      5050,
+      24000,
+      11400,
+      9470,
+      8970,
+      7710,
+      14800,
+      13900,
+      20800,
+      9470,
+      7860,
+      7860,
+      2730,
+      6480,
+      18200,
+      26300,
+      15100,
+      14600,
+      7300,
+      8580,
+      15100,
+      15100,
+      21800,
+      6200,
+      2130,
+      11100,
+      14300,
+      11200,
+      6670,
+      5440,
+      9370,
+      6900,
+      9680,
+      6810,
+      7730,
+      5290,
+      12200,
+      9750,
+      7390,
+      13100,
+      7190,
+      8850,
+      6290,
+      18800,
+      9740,
+      2990,
+      6950,
+      9390,
+      12400,
+      21200
+    ]
+  },
+  "cases": [
+    {
+      "name": "normal_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Normal",
+          "dataset": "tippecanoe"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 12663.69,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 706.6,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 11488.5,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 12671.08,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 13801.45,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 4844.09,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 519.08,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 4077.8,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 4796.63,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 5771.81,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 25229.036787072015,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 8279.156256803148,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 25229.22590206123,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 8278.977270406047,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 25229.606180115257,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 8278.984292486146,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            0
+          ],
+          "expected": 25230.218224986504,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            1
+          ],
+          "expected": 8278.716969871162,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            0
+          ],
+          "expected": 25230.132686620735,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            1
+          ],
+          "expected": 8278.442132939683,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 38800.82431071598,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 32102.96793777754,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 38800.418393926324,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 32102.696285935523,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 38800.29484723332,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 32102.504405873937,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            0
+          ],
+          "expected": 38800.619949781365,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            1
+          ],
+          "expected": 32102.39657815401,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            0
+          ],
+          "expected": 38800.387712783966,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            1
+          ],
+          "expected": 32102.025152280363,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": 13734.52757444534,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 45755.27924190567,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": 13734.798951866995,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 45754.74574227117,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": 13734.572293221187,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 45754.630778386476,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            0
+          ],
+          "expected": 13734.536680093659,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            1
+          ],
+          "expected": 45754.34844274471,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            0
+          ],
+          "expected": 13735.115167013082,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            1
+          ],
+          "expected": 45754.20550068371,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": -0.024782928027871208,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 50000.11744785291,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": -0.30776463910716106,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 50000.65035515359,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": -0.3180368052662935,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 50000.40036689073,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            0
+          ],
+          "expected": -0.29957223881409323,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            1
+          ],
+          "expected": 50000.72898345671,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            0
+          ],
+          "expected": -0.5825880763818934,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            1
+          ],
+          "expected": 50000.643610826766,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 0.17633333333333334,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 0.10319166666666667,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 0.08336666666666667,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 0.08908333333333333,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "logistic_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Logistic",
+          "dataset": "tippecanoe"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 12631.74,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 719.36,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 11458.52,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 12622.01,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 13830.74,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 2823.47,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 348.26,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 2307.77,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 2794.4,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 3441.31,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 25229.036787072015,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 8279.156256803148,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 25229.22590206123,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 8278.977270406047,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 25229.606180115257,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 8278.984292486146,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            0
+          ],
+          "expected": 25230.218224986504,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            1
+          ],
+          "expected": 8278.716969871162,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            0
+          ],
+          "expected": 25230.132686620735,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            1
+          ],
+          "expected": 8278.442132939683,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 38800.82431071598,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 32102.96793777754,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 38800.418393926324,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 32102.696285935523,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 38800.29484723332,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 32102.504405873937,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            0
+          ],
+          "expected": 38800.619949781365,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            1
+          ],
+          "expected": 32102.39657815401,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            0
+          ],
+          "expected": 38800.387712783966,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            1
+          ],
+          "expected": 32102.025152280363,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": -19258.151860383135,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 31976.988237079364,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": -19257.880482961482,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 31976.454737444867,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": -19258.107141607285,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 31976.339773560187,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            0
+          ],
+          "expected": -19258.14275473481,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            1
+          ],
+          "expected": 31976.057437918418,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            0
+          ],
+          "expected": -19257.56426781539,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            1
+          ],
+          "expected": 31975.914495857432,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": 13734.755806656232,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 45755.17805192788,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": 13734.472824945155,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 45755.71095922856,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": 13734.462552779,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 45755.4609709657,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            0
+          ],
+          "expected": 13734.481017345452,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            1
+          ],
+          "expected": 45755.78958753168,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            0
+          ],
+          "expected": 13734.19800150788,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            1
+          ],
+          "expected": 45755.704214901736,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 0.15904166666666666,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 0.08620833333333333,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 0.08526666666666667,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 0.075825,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "gumbel_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Gumbel",
+          "dataset": "sugar_creek"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 8067.9,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 680.85,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 6973.92,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 8055.82,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 9201.14,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 4658.04,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 522.33,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 3885.53,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 4612.71,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 5595.4,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 6581.928840385436,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 5962.209987440919,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 6582.11795537465,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 5962.031001043813,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 6582.498233428677,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 5962.038023123915,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            0
+          ],
+          "expected": 6583.110278299923,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            1
+          ],
+          "expected": 5961.770700508932,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            0
+          ],
+          "expected": 6583.024739934152,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            1
+          ],
+          "expected": 5961.49586357745,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 2522.954235637436,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 8278.8912998026,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 2522.5483188477715,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 8278.619647960573,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 2522.424772154754,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 8278.427767898987,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            0
+          ],
+          "expected": 2522.7498747027785,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            1
+          ],
+          "expected": 8278.319940179055,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            0
+          ],
+          "expected": 2522.517637705372,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            1
+          ],
+          "expected": 8277.9485143054,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": 4811.844938027884,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 15281.136503986216,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": 4812.11631544954,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 15280.603004351715,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": 4811.889656803733,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 15280.488040467033,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            0
+          ],
+          "expected": 4811.854043676201,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            1
+          ],
+          "expected": 15280.205704825275,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            0
+          ],
+          "expected": 4812.432530595624,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            1
+          ],
+          "expected": 15280.062762764284,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": 18457.381684830085,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 14610.346771471019,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": 18457.09870311901,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 14610.879678771691,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": 18457.088430952845,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 14610.629690508837,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            0
+          ],
+          "expected": 18457.106895519304,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            1
+          ],
+          "expected": 14610.95830707482,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            0
+          ],
+          "expected": 18456.823879681742,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            1
+          ],
+          "expected": 14610.872934444862,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 0.34560833333333335,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 0.24445833333333333,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 0.171825,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 0.17778333333333332,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "weibull_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Weibull",
+          "dataset": "tippecanoe"
+        },
+        "settings": {
+          "iterations": 20000
+        }
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 14310.25,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 745.27,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 13103.65,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 14309.95,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 15534.76,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 2.98,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 0.34,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 2.44,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 2.97,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 3.55,
+          "mode": "rel",
+          "tol": 0.1
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 117787.28849645765,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 0.736140136514077,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 117787.57373800888,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 0.5401948023771178,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 117787.85025694949,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 0.6101122488615796,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            0
+          ],
+          "expected": 117788.17742076571,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            1
+          ],
+          "expected": 0.5886150249647032,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            0
+          ],
+          "expected": 117788.11785876585,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            1
+          ],
+          "expected": 0.584715830402201,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 440310.971246406,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 0.34104810184214696,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 440310.71106402157,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 0.3813750710060008,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 440310.65955959074,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 0.37239309417644795,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            0
+          ],
+          "expected": 440310.73032938456,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            1
+          ],
+          "expected": 0.33625568789042226,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            0
+          ],
+          "expected": 440310.6755144306,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            1
+          ],
+          "expected": 0.37757707725017164,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": 418310.1315456704,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 0.6250412855122836,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": 418310.2065648657,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 0.34636924543710074,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": 418309.9346912813,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 0.3530530982517934,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            0
+          ],
+          "expected": 418309.74530581996,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            1
+          ],
+          "expected": 0.34909190150737857,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            0
+          ],
+          "expected": 418310.0711978915,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            1
+          ],
+          "expected": 0.2855943711957655,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": 639589.0492756665,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 0.9909516465959617,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": 639588.794384893,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 0.6520845487500363,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": 639588.8845087275,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 0.34747109985912805,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            0
+          ],
+          "expected": 639588.8599446319,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            1
+          ],
+          "expected": 0.3905834196232494,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            0
+          ],
+          "expected": 639589.0981934045,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            1
+          ],
+          "expected": 0.4221501746706707,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 0.10931777777777778,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 0.06194888888888889,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 0.06423111111111111,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 0.05692222222222222,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "normal_short_exact",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Normal",
+          "dataset": "tippecanoe"
+        },
+        "settings": {
+          "initialize": "Randomize",
+          "iterations": 250,
+          "warmup_iterations": 10,
+          "thinning_interval": 1,
+          "beta": 0.0,
+          "scale": 1.0
+        }
+      },
+      "assertions": [
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 25229.187722174658,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 8278.678582487577,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 25229.15036929801,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 8278.659728492687,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 25229.217601044667,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 8278.709223865777,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            0
+          ],
+          "expected": 25229.27659228528,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            3,
+            1
+          ],
+          "expected": 8278.652421375005,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            0
+          ],
+          "expected": 25229.237221958967,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            4,
+            1
+          ],
+          "expected": 8278.638632110464,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            249,
+            0
+          ],
+          "expected": 25230.898326137387,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            249,
+            1
+          ],
+          "expected": 8277.200270724648,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 38800.789018010466,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 32102.74374610206,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 38800.740428602345,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 32102.843088567617,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 38800.736272849266,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 32102.859769224757,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            0
+          ],
+          "expected": 38800.78523995973,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            3,
+            1
+          ],
+          "expected": 32102.764582144726,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            0
+          ],
+          "expected": 38800.741427937384,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            4,
+            1
+          ],
+          "expected": 32102.787767544472,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            249,
+            0
+          ],
+          "expected": 38796.89956328083,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            249,
+            1
+          ],
+          "expected": 32098.752724981303,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": 13734.658851990294,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 45755.00341866544,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": 13734.657898342795,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 45755.07625902761,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": 13734.519588980269,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 45755.0173908076,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            0
+          ],
+          "expected": 13734.42317354733,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            3,
+            1
+          ],
+          "expected": 45755.047114884466,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            0
+          ],
+          "expected": 13734.36237742186,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            4,
+            1
+          ],
+          "expected": 45755.13172510006,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            249,
+            0
+          ],
+          "expected": 13734.611031317156,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            249,
+            1
+          ],
+          "expected": 45754.905015186494,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": -0.08938681161180721,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 49999.93132298493,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": -0.04958139714775325,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 49999.884409892395,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": -0.04750985263863722,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 49999.840729066134,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            0
+          ],
+          "expected": -0.11581052180855737,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            3,
+            1
+          ],
+          "expected": 49999.75332917959,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            0
+          ],
+          "expected": -0.15467763285458502,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            4,
+            1
+          ],
+          "expected": 49999.895277967364,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            249,
+            0
+          ],
+          "expected": 0.3230921471632739,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            249,
+            1
+          ],
+          "expected": 50000.93161547498,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            0
+          ],
+          "expected": -540.0207126179137,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            1
+          ],
+          "expected": -540.0205610436358,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            2
+          ],
+          "expected": -540.0206877028912,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            3
+          ],
+          "expected": -540.0217403616117,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            4
+          ],
+          "expected": -540.0215234597504,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            249
+          ],
+          "expected": -540.0496627526388,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            0
+          ],
+          "expected": -558.6034023742676,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            1
+          ],
+          "expected": -558.6033901849712,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            2
+          ],
+          "expected": -558.6033930110085,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            3
+          ],
+          "expected": -558.6034076240438,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            4
+          ],
+          "expected": -558.6033652521331,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            249
+          ],
+          "expected": -558.5967809406955,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            0
+          ],
+          "expected": -559.4618614869389,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            1
+          ],
+          "expected": -559.4619370432961,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            2
+          ],
+          "expected": -559.461872570016,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            3
+          ],
+          "expected": -559.4619010482538,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            4
+          ],
+          "expected": -559.4619873500601,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            249
+          ],
+          "expected": -559.4617582099643,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            0
+          ],
+          "expected": -565.206787555104,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            1
+          ],
+          "expected": -565.206736119802,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            2
+          ],
+          "expected": -565.2066967372898,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            3
+          ],
+          "expected": -565.2066355547215,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            4
+          ],
+          "expected": -565.2067713498635,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            249
+          ],
+          "expected": -565.207577572635,
+          "mode": "rel",
+          "tol": 1e-12,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 0.3487272727272727,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 0.30872727272727274,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 0.4112727272727273,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 0.28909090909090907,
+          "mode": "equal"
+        },
+        {
+          "method": "map_value",
+          "args": [
+            0
+          ],
+          "expected": 12568.094252532988,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "map_value",
+          "args": [
+            1
+          ],
+          "expected": 4740.698356290383,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "map_fitness",
+          "expected": -473.582322665567,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "mean_log_likelihood",
+          "args": [
+            0
+          ],
+          "expected": -555.823191008556,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "rhat",
+          "args": [
+            0
+          ],
+          "expected": 10027.206665988955,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "rhat",
+          "args": [
+            1
+          ],
+          "expected": 10779.764870442465,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "ess",
+          "args": [
+            0
+          ],
+          "expected": 18.611461136196016,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "ess",
+          "args": [
+            1
+          ],
+          "expected": 15.840719511559383,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        }
+      ]
+    }
+  ]
+}

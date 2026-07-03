@@ -1,0 +1,206 @@
+{
+  "target": "PlottingPositions.weibull_at",
+  "kind": "special_function",
+  "source": "Numerics/Data/Statistics/PlottingPositions.cs; N=30 Weibull and Function(N=30, alpha=0.1) literals scraped verbatim from Test_Numerics/Data/Statistics/Test_PlottingPositions.cs (Test_Weibull, Test_Function).",
+  "reference": "Numerics @ a2c4dbf. Args convention (this port's own -- see fixtures/README.md): PlottingPositions.weibull_at takes args = [N, i] (0-based i, analytic PP[i] = (i+1)/(N+1)); PlottingPositions.function_at takes args = [N, alpha, i] (analytic PP[i] = (i+1-alpha)/(N+1-2*alpha)). Both entries are directly oracle-verified via tools/verify_oracles.py even though the formula is closed-form, per this repo's policy of confirming every fixture value against the real C# library.",
+  "cases": [
+    {
+      "name": "weibull_n30_i0",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        0
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.032258064516129,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "weibull_n30_i1",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        1
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.0645161290322581,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "weibull_n30_i14",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        14
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.483870967741935,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "weibull_n30_i15",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        15
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.516129032258065,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "weibull_n30_i28",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        28
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.935483870967742,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "weibull_n30_i29",
+      "target": "PlottingPositions.weibull_at",
+      "args": [
+        30,
+        29
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.967741935483871,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i0",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        0
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.0292207792207792,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i1",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        1
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.0616883116883117,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i14",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        14
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.483766233766234,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i15",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        15
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.516233766233766,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i28",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        28
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.938311688311688,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "function_n30_alpha01_i29",
+      "target": "PlottingPositions.function_at",
+      "args": [
+        30,
+        0.1,
+        29
+      ],
+      "assertions": [
+        {
+          "method": "value",
+          "expected": 0.970779220779221,
+          "mode": "abs",
+          "tol": 1e-06
+        }
+      ]
+    }
+  ]
+}

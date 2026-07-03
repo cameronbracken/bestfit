@@ -48,6 +48,36 @@ inline int summary(const char* suite) {
         }                                                                                \
     } while (0)
 
+// Boolean assertion.
+#define CHECK_TRUE(cond)                                                                 \
+    do {                                                                                 \
+        if (cond) {                                                                      \
+            ::bftest::report_pass();                                                     \
+        } else {                                                                         \
+            ::bftest::report_fail(__FILE__, __LINE__, std::string(#cond) + " was false"); \
+        }                                                                                \
+    } while (0)
+
+// Asserts that `expr` throws SOME exception (mirrors MSTest's `Assert.Throws<T>` where this
+// port's ported exception type -- e.g. std::runtime_error for a C# InvalidOperationException
+// -- may not exactly match C#'s exception hierarchy; every ported class already documents its
+// own exception-type mapping, so this macro deliberately only asserts "threw", not "threw
+// exactly type T").
+#define CHECK_THROWS(expr)                                                                 \
+    do {                                                                                   \
+        bool _threw = false;                                                               \
+        try {                                                                              \
+            (void)(expr);                                                                  \
+        } catch (...) {                                                                    \
+            _threw = true;                                                                 \
+        }                                                                                  \
+        if (_threw) {                                                                      \
+            ::bftest::report_pass();                                                       \
+        } else {                                                                           \
+            ::bftest::report_fail(__FILE__, __LINE__, std::string(#expr) + " did not throw"); \
+        }                                                                                  \
+    } while (0)
+
 // Absolute-tolerance floating comparison.
 #define CHECK_NEAR(actual, expected, tol)                                                \
     do {                                                                                 \

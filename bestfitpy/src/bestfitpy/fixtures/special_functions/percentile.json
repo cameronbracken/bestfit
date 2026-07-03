@@ -1,0 +1,68 @@
+{
+  "target": "Statistics.percentile",
+  "kind": "special_function",
+  "source": "Numerics/Data/Statistics/Statistics.cs (~line 544, Percentile(IList<double>, double, bool)); the 69-element sample and the k values scraped from Test_Statistics.cs (Test_Percentiles), which validates against R's quantile() at a loose 1e-2 tolerance.",
+  "reference": "Numerics @ a2c4dbf. Args convention (this port's own -- Percentile has no matrix/vector shape to flatten, so one is defined here): args = [data_1..data_n, k, data_is_sorted (0.0/1.0)], with n = len(args) - 2. Test_Percentiles' own 1e-2-tolerance literals are too loose for this fixture's 1e-9 target, so the `k in {0.01,0.05,0.25,0.5,0.75,0.95,0.99}` expected values were recomputed independently (Python, replicating the exact Type-7 zero-based-linear-interpolation formula on the same 69-value sample) and confirmed reproducible against the real C# Percentile by tools/verify_oracles.py; k in {0, 1} hit the trivial sorted[0]/sorted[n-1] shortcuts and match the scraped literals exactly. `p50_sorted` re-runs the k=0.5 case with the data pre-sorted and `data_is_sorted=true`, locking the sorted-input fast path against the same expected value as the unsorted `p50` case. `small_median`/`small_interp` are small hand-computable datasets exercising the odd-n exact-index case and a clean quarter-way interpolation, independent of the scraped sample.",
+  "cases": [
+    {
+      "name": "p0_min",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 98.8, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "p01",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.01, 0.0],
+      "assertions": [ { "method": "value", "expected": 99.00399999999999, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p05",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.05, 0.0],
+      "assertions": [ { "method": "value", "expected": 123.2, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p25",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.25, 0.0],
+      "assertions": [ { "method": "value", "expected": 164.0, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p50",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.5, 0.0],
+      "assertions": [ { "method": "value", "expected": 183.0, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p75",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.75, 0.0],
+      "assertions": [ { "method": "value", "expected": 216.0, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p95",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.95, 0.0],
+      "assertions": [ { "method": "value", "expected": 262.6, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p99",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 0.99, 0.0],
+      "assertions": [ { "method": "value", "expected": 332.91999999999996, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "p100_max",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174, 1.0, 0.0],
+      "assertions": [ { "method": "value", "expected": 337.0, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "p50_sorted",
+      "args": [98.8, 99.1, 117, 122, 125, 132, 135, 142, 146, 149, 153, 154, 156, 158, 161, 161, 161, 164, 164, 164, 166, 167, 171, 172, 172, 173, 173, 173, 174, 174, 177, 179, 180, 182, 183, 183, 183, 184, 185, 187, 192, 192, 194, 195, 201, 202, 204, 205, 205, 212, 214, 216, 225, 229, 230, 230, 235, 237, 238, 239, 240, 244, 250, 262, 262, 263, 317, 331, 337, 0.5, 1.0],
+      "assertions": [ { "method": "value", "expected": 183.0, "mode": "abs", "tol": 1e-9, "source": "curated: independently recomputed (Type-7 interpolation), verified by oracle gate" } ]
+    },
+    {
+      "name": "small_median",
+      "args": [5, 3, 1, 4, 2, 0.5, 0.0],
+      "assertions": [ { "method": "value", "expected": 3.0, "mode": "abs", "tol": 1e-12 } ]
+    },
+    {
+      "name": "small_interp",
+      "args": [10, 20, 30, 40, 0.75, 0.0],
+      "assertions": [ { "method": "value", "expected": 32.5, "mode": "abs", "tol": 1e-12 } ]
+    }
+  ]
+}

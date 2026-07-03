@@ -11,10 +11,20 @@
 // and per-column reseeding consume; they draw from the same gen_rand_int32() stream in
 // the same order as C#, so seeded call sequences stay bit-exact across languages.
 //
-// Omitted: C# Next(int minInclusive, int maxExclusive) (a one-line forwarder,
-// `Next(maxExclusive - minInclusive) + minInclusive`) has no caller ported so far;
-// add it here (same forwarding form) if a later target needs it.
+// next(min_inclusive, max_exclusive) (Phase 3) adds the two-argument C# `Next(int
+// minInclusive, int maxExclusive)` -- a one-line forwarder to the single-argument
+// overload, `Next(maxExclusive - minInclusive) + minInclusive` -- that DEMCzs's
+// SnookerUpdate (chain-index sampling) and other MCMC samplers consume.
+//
+// The parameterless ctor (P3.10) ports C#'s clock-seeded `MersenneTwister()`
+// (`Initialize((uint)DateTime.UtcNow.Ticks)`), needed by
+// `UnivariateDistributionBase::generate_random_values`'s `seed <= 0` branch (Bootstrap's
+// "normal_quantiles" model registry entry always passes a positive seed drawn from another
+// MT stream, so this branch is unreachable from any fixture -- it exists purely for API
+// parity/completeness with the ported virtual method). Non-deterministic by design (matches
+// C#); never exercised by an oracle-fixture assertion.
 #pragma once
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -24,6 +34,14 @@ namespace bestfit::numerics::sampling {
 
 class MersenneTwister {
    public:
+    // Clock-seeded default ctor (mirrors C# `MersenneTwister()`). See file header.
+    MersenneTwister() {
+        auto ticks = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+        initialize(static_cast<std::uint32_t>(ticks));
+    }
+
     explicit MersenneTwister(std::uint32_t seed) { initialize(seed); }
 
     explicit MersenneTwister(const std::vector<std::uint32_t>& seeds) {
@@ -102,6 +120,15 @@ class MersenneTwister {
         } while (r >= threshold);
 
         return static_cast<int>(r % max_u);
+    }
+
+    // Generates a random int on [min_inclusive, max_exclusive) (matches C# Next(int
+    // minInclusive, int maxExclusive), a one-line forwarder to next(max_exclusive -
+    // min_inclusive) + min_inclusive).
+    int next(int min_inclusive, int max_exclusive) {
+        if (min_inclusive >= max_exclusive)
+            throw std::invalid_argument("min_inclusive must be less than max_exclusive.");
+        return next(max_exclusive - min_inclusive) + min_inclusive;
     }
 
    private:

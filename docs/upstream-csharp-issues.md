@@ -381,6 +381,348 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
   silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
+## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code
+
+- **Where:** `Numerics/Data/Statistics/Histogram.cs`, `AddData(double data)`.
+- **What:** the XML doc comment promises "If the data value falls outside the range of the
+  histogram, the start or end bin will automatically adapt," and the method body has branches
+  (`data <= LowerBound` / `data >= UpperBound`) that look like they implement this by widening
+  the first/last bin. But the method calls `GetBinIndexOf(data)` **unconditionally**, before
+  either branch is checked — and `GetBinIndexOf` itself throws `ArgumentException` for any value
+  strictly outside `[_bins.First().LowerBound, _bins.Last().UpperBound]` (which track the same
+  bounds as the histogram's own `LowerBound`/`UpperBound`). So a point that would need the
+  histogram to "auto-adapt" throws instead, before the adapting branch is ever reached. The two
+  branches are only reachable at an **exact boundary match** (`data == LowerBound` or
+  `data == UpperBound`), where the "expansion" is a no-op (each sets a bound to the value it
+  already equals).
+- **Evidence:** direct inspection of the method body's statement order (`SortBins(); int index =
+  GetBinIndexOf(data); if (data <= LowerBound) {...}`); confirmed by tracing `GetBinIndexOf`'s own
+  guard (`if (value < _bins.First().LowerBound || value > _bins.Last().UpperBound) throw ...`).
+  Not exercised by any Test_Histogram.cs test (none call `AddData` a second time with an
+  out-of-range point after construction).
+- **Port handling:** mirrored faithfully — `histogram.hpp`'s `add_data(double)` calls
+  `get_bin_index_of()` first and lets it throw, exactly like the C#; documented in the file
+  header and at the call site.
+- **Suggested C# fix:** reorder the method to check `data <= LowerBound` / `data >= UpperBound`
+  **before** calling `GetBinIndexOf`, so the intended auto-adapt behavior is reachable; or, if the
+  auto-adapt behavior was never actually intended (a histogram's bins are usually meant to be
+  fixed once constructed), update the doc comment and let `AddData` throw for genuinely
+  out-of-range points instead of silently documenting a promise it can't keep.
+
+## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator)
+
+- **Where:** `Numerics/Data/Interpolation/Support/Search.cs`, `Bisection(double x, IList<double>
+  values, int start, SortOrder order)` (all three overloads share the same loop body).
+- **What:** the bisection loop's branch condition is `x >= values[xm] && order ==
+  SortOrder.Ascending` — a logical AND against the order flag, not the `(x >= values[xm]) ==
+  ascending` equality test the algorithm needs to work in both directions (compare
+  `Interpolater.cs`'s own `BisectionSearch`, which correctly uses the `==`-style test, or
+  `Search.Hunt`'s analogous loop in the same file, which also gets it right via a boolean `ASCND`
+  compared with `==`). For `order == SortOrder.Descending`, `order == SortOrder.Ascending` is
+  always `false`, so the whole condition is always `false` regardless of `x` — the loop only ever
+  shrinks `xhi`, `xlo` never advances past `start`, and `Bisection` returns `start` unconditionally
+  instead of the correct bracketing index.
+- **Evidence:** direct inspection of the loop body; reproduced independently in a standalone
+  Python re-implementation of the exact algorithm during the P3.3 port (a 5-element descending
+  array bisected for a midrange value returns `start` regardless of where the value actually
+  falls, while `Search.Sequential` on the same inputs returns the correct index).
+- **Port handling:** mirrored faithfully (verbatim, not "fixed") — `search.hpp`'s `bisection()`
+  keeps the same `&&`-against-`SortOrder::Ascending` condition; documented at length in the file
+  header, including a warning that it's dead code for every current caller (Histogram and SNIS
+  both only ever call with the default `Ascending` order) but a live bug if a future caller passes
+  `Descending`.
+- **Suggested C# fix:** change the condition to `(x >= values[xm]) == (order ==
+  SortOrder.Ascending)`, matching `Interpolater.BisectionSearch`'s already-correct phrasing of the
+  same test.
+
+---
+
+## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization
+
+- **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch
+  (`MAP = DE.BestParameterSet.Clone();`) versus `Sample()`'s output-phase MAP tracking
+  (`if (_chainStates[j].Fitness > MAP.Fitness) MAP = _chainStates[j].Clone();`).
+- **What:** `DifferentialEvolution.Maximize()` sets `_functionScale = -1` and every fitness it
+  records (including `BestParameterSet.Fitness`) is `-1 * LogLikelihoodFunction(x)` -- the
+  *scaled* (negated) objective, not the sampler's own unscaled log-likelihood convention. When
+  `Initialize == MAP` succeeds, `MAP = DE.BestParameterSet.Clone();` copies that *scaled*
+  fitness directly into `MCMCSampler.MAP.Fitness`. For any typical negative log-likelihood
+  (the overwhelmingly common case) this makes `MAP.Fitness` a large *positive* number, while
+  every `_chainStates[j].Fitness` the output phase compares it against is the sampler's normal
+  *unscaled* (negative) log-likelihood. The comparison `_chainStates[j].Fitness > MAP.Fitness`
+  is thereby nearly always false, so `MAP` is effectively frozen at the DE estimate for the
+  rest of `Sample()` -- the output-phase MAP-tracking loop is live code but practically
+  never fires after a successful MAP initialization.
+- **Evidence (reproduced against the real C# library):** the `normal_rstan` MCMC fixture case
+  (`fixtures/sampling/mcmc/rwmh.json`, `Initialize = MAP`) shows `MCMCResults.MAP.Fitness ==
+  473.558...` (positive) while every per-draw chain fitness recorded in the same run is in the
+  `[-478, -473]` range (negative) -- confirming the comparison never re-triggers once MAP is
+  seeded from `DifferentialEvolution`. A `Randomize`-initialized run (no `DifferentialEvolution`
+  in the picture, `MAP` starts at `double.NegativeInfinity` and accumulates normally) does NOT
+  exhibit this: its `MAP.Fitness` (`normal_short_exact` case) is a normal, properly-tracked
+  negative log-likelihood value.
+- **Port handling:** mirrored faithfully -- `mcmc_sampler.hpp`'s `sample()` has the identical
+  `chain_states_[j].fitness > map_.fitness` comparison, and `initialize_chains()`'s MAP branch
+  copies `de.best_parameter_set()` (also on DE's scaled-fitness convention) into `map_`
+  unmodified. Both are documented in-header at the call site; the `normal_rstan` fixture case
+  asserts `map_fitness` at its (buggy, positive) value specifically to lock this behavior in,
+  not to celebrate it.
+- **Suggested C# fix:** either re-scale `DE.BestParameterSet.Fitness` back to the unscaled
+  log-likelihood convention when copying it into `MAP` (`MAP = new
+  ParameterSet(DE.BestParameterSet.Values, LogLikelihoodFunction(DE.BestParameterSet.Values));`
+  recomputes it cleanly), or track a separate scaled/unscaled flag on `ParameterSet` so the
+  output-phase comparison in `Sample()` can normalize before comparing. Either fix changes the
+  observable `MAP.Fitness` value for every successful-MAP-init run -- coordinate with any
+  downstream consumer (`RMC.BestFit`'s Bayesian analysis) that reads it before shipping.
+
+## CONSISTENCY/API — an all-zero RWMH proposal covariance is only safe under `Initialize = MAP`
+
+- **Where:** `Numerics/Sampling/MCMC/RWMH.cs`, `ChainIteration` (`mvn[index].SetParameters(
+  state.Values, ProposalSigma.Array)`), via `Numerics/Distributions/Multivariate/
+  MultivariateNormal.cs`'s `SetParameters` -> `CholeskyDecomposition` ctor.
+- **What:** `RWMH.ChainIteration` calls `SetParameters` with the CURRENT `ProposalSigma` on
+  every single iteration. `MultivariateNormal.SetParameters` constructs a
+  `CholeskyDecomposition` of that covariance unconditionally, and `CholeskyDecomposition`
+  throws for any non-positive-definite input (an all-zero matrix's first diagonal pivot is
+  exactly `0`, which fails the decomposition's `sum <= 0` guard). `Test_RWMH_NormalDist_RStan`
+  constructs `new RWMH(priors, logLH, new Matrix(2))` -- a literal all-zero 2x2 proposal
+  covariance -- and this is harmless ONLY because the test also sets `Initialize = MAP`, and a
+  successful MAP initialization's `InitializeCustomSettings()` unconditionally overwrites
+  `ProposalSigma` with the Fisher-information-derived covariance BEFORE the first
+  `ChainIteration` call. Nothing in the public API prevents constructing (or leaving)
+  `ProposalSigma` as all-zero under `Initialize = Randomize` or `UserDefined`, where no such
+  override ever happens -- that configuration throws on the very first `ChainIteration`.
+- **Evidence (reproduced against the real C# library):** a standalone console app (built
+  against `upstream/Numerics/Numerics/Numerics.csproj`) constructing `new RWMH(priors, logLH,
+  new Matrix(2))` with `Initialize = Randomize` and calling `Sample()` throws `AggregateException
+  ("... Cholesky Decomposition failed. The input matrix is not positive-definite. ...")` (wrapped
+  by the `Parallel.For` in `Sample()`) on the very first iteration. The identical construction
+  with `Initialize = MAP` (the actual `Test_RWMH_NormalDist_RStan` configuration) succeeds.
+  Substituting `Matrix.Identity(2)` for the proposal covariance under `Initialize = Randomize`
+  succeeds and reproduces bit-close (~1e-15 relative) between the C++ port and the real C#
+  library across all sampled draws.
+- **Port handling:** mirrored faithfully -- `MultivariateNormal::set_parameters` throws
+  identically for a non-positive-definite covariance (`cholesky_decomposition.hpp`'s `sum <=
+  0.0` guard, unchanged from the Phase 2 port). This is not treated as a bug to fix; an
+  all-zero proposal covariance is not a meaningful sampler configuration under either language.
+  It IS a fixture-authoring hazard worth flagging: the `normal_short_exact` MCMC fixture case
+  (`Initialize = Randomize`) uses a `proposal_sigma: "identity"` sentinel instead of the
+  upstream test's literal `"zeros"` for exactly this reason -- see the divergence note in
+  `fixtures/README.md`'s `mcmc_sampler` section.
+- **Suggested action:** none required upstream (working as designed) -- flagged purely so a
+  future MCMC-sampler port (ARWMH/DEMCz/DEMCzs/HMC/NUTS/Gibbs/SNIS) doesn't rediscover this the
+  hard way when authoring a `Randomize`-initialized fixture case with a degenerate proposal.
+
+## COSMETIC — MCMCSampler.InitializeChains computes an unused midpoint vector in its MAP branch
+
+- **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch:
+  `var inititals = lowerBounds.Add(upperBounds).Divide(2d);` (note the typo: `inititals`, not
+  `initials`).
+- **What:** this local variable is computed (an elementwise midpoint of the prior bounds) but
+  never referenced again anywhere in the method -- confirmed by inspection of the full method
+  body. `DifferentialEvolution`'s own population initialization (inside `DE.Maximize()`) draws
+  from its own `LatinHypercube`-seeded population, not from this vector. Dead code with no
+  observable effect (the `Vector.Add`/`Divide` extension calls have no side effects and cannot
+  throw for the fixed-length arrays involved here).
+- **Port handling:** omitted -- `mcmc_sampler.hpp`'s `initialize_chains()` has a NOTE comment at
+  the equivalent location explaining the omission (this port has no `Vector::divide`, since no
+  other ported call site needs one; adding it solely to reproduce dead code was judged not
+  worthwhile).
+- **Suggested C# fix:** delete the unused `inititals` line (and fix the typo if a future
+  version does end up needing this midpoint vector for something).
+
+## CONSISTENCY — SNIS sorts its resampling list by `Fitness`, not the `Weight` the surrounding comment/CDF describe; tied `-Infinity` fitness makes the sort order itself unstable across runtimes
+
+- **Where:** `Numerics/Sampling/MCMC/SNIS.cs`, `Sample()`:
+  `MarkovChains[0].Sort((x, y) => x.Fitness.CompareTo(y.Fitness));` and the CDF-construction loop
+  immediately below it.
+- **What:** two related issues at the same call site.
+  1. **Sort key mismatch.** The line directly above the sort reads `// Sort list in ascending
+     order of posterior weights`, and the very next lines build a CDF by accumulating
+     `Math.Max(0.0, MarkovChains[0][i].Weight)` -- i.e. the algorithm's intent, and its
+     correctness, depend on the list being sorted by `Weight` (the just-computed normalized
+     posterior weight). The comparator actually sorts by `Fitness` (the raw, un-normalized
+     log-likelihood/importance weight computed earlier in `Sample()`). For **naive Monte Carlo**
+     (no importance distribution supplied), `Weight` and `Fitness` are numerically identical at
+     the point of the sort (`weight = logLH` with no `mvn.LogPDF` correction), so this is
+     unobservable. **With** an importance distribution (`Weight = Fitness -
+     mvn.LogPDF(parameters)`), the two orderings genuinely differ -- the CDF is still
+     mathematically valid either way (both `Sort` and the CDF loop iterate the SAME sorted list,
+     so `Search.Sequential`'s binary-search precondition -- an ascending CDF -- still holds
+     regardless of which key produced the ordering), but the specific `Output[0][i]` a given
+     `rndOut[i]` plotting position resolves to differs from what sorting by `Weight` would
+     produce.
+  2. **Sort-tie instability.** `List<T>.Sort` is .NET's unstable introspective sort. Any model
+     with a non-trivial fraction of `-Infinity`-fitness draws (common for a naive/wide-prior SNIS
+     configuration, since `LogLikelihood` easily underflows for implausible parameter draws) has
+     MANY tied elements at the bottom of the sort. An unstable sort is free to place those tied
+     elements in ANY relative order -- which specific `-Infinity` draw lands at output index 0 vs.
+     1 vs. ... is not determined by the algorithm's contract, only by the sort implementation's
+     internal pivot/partition choices.
+- **Evidence (reproduced against the real C# library):** the `fixtures/sampling/mcmc/snis.json`
+  fixture's first authoring attempt anchored `chain_value` digest assertions to
+  `MarkovChains[0]` indices `[0, 1, 2, 3, 4]` (the natural "first few" choice, matching every
+  other MCMC fixture's convention). Every one of those `chain_value` assertions FAILED to
+  reproduce against this port's `std::stable_sort`-based C++ (`ctest`'s `test_fixtures`), while
+  the corresponding `chain_fitness` assertions (`-Infinity == -Infinity`, order-insensitive by
+  construction) PASSED. The `normal_short_exact` case (100 naive-Monte-Carlo draws, wide Uniform
+  priors from `Normal().GetParameterConstraints`) has 12 of 100 draws at exactly `-Infinity`
+  fitness; the `normal_rstan` case (100000 draws, `Initialize = MAP` concentrating the importance
+  distribution near the posterior mode) has only 3 of 100000. Re-anchoring the digest to the
+  UNTIED, strictly-monotonic-fitness tail (the top 5 indices of each sorted list) reproduces
+  cleanly (`normal_rstan` chain companions to ~1e-8 relative via the MAP/DE/Hessian path, per the
+  usual P3.5 tolerance policy; `normal_short_exact`'s naive-Monte-Carlo companions to ~1e-15
+  relative).
+- **Port handling:** both aspects mirrored faithfully, not fixed -- `snis.hpp`'s `sample()` sorts
+  by `.fitness` (not `.weight`), exactly matching the C# comparator's actual (not commented)
+  behavior, using `std::stable_sort` (this port's usual convention for reproducing an unstable C#
+  `List<T>.Sort`'s comparator -- see `mcmc_sampler.hpp`'s own `stable_sort` note for the same
+  precedent in `InitializeChains()`). `stable_sort` does NOT make the two languages' outputs
+  agree on tied-element ordering (a stable sort's tie-breaking is "preserve original order",
+  which is only meaningful if BOTH languages process elements in the same original order AND use
+  a stable sort -- true for C++ here, false for C#'s `List<T>.Sort`). `fixtures/README.md`'s
+  SNIS tolerance-policy section documents the resulting draw-index hazard for future fixture
+  authors.
+- **Suggested C# fix:** for (1), either fix the comment to describe what the code does (sort by
+  `Fitness`) or change the comparator to `x.Weight.CompareTo(y.Weight)` to match the comment and
+  the CDF loop's own variable name -- these are NOT equivalent when an importance distribution is
+  supplied, so this is a real behavioral choice, not just a comment fix, and should be resolved
+  with the library's intent for how the resampled `Output` list should be ordered/weighted. For
+  (2), switch to a stable sort (`OrderBy(x => x.Fitness).ToList()` or an explicit stable
+  merge-sort) if bit-reproducible resampling across runs/platforms is a design goal; otherwise
+  document that `Output`'s specific draw-to-plotting-position mapping is order-nondeterministic
+  whenever tied fitness values occur.
+
+## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2`
+
+- **Where:** `Numerics/Sampling/MCMC/Test_Gibbs.cs`, `Test_Gibbs_NormalDist_RStan`'s local
+  `proposal` closure: `double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));` (the test's
+  own inline proposal function -- there is no shared library implementation of this conjugate
+  update; `Gibbs.cs` itself only calls whatever `Proposal` delegate the caller supplies).
+- **What:** the standard closed-form posterior mean for a Normal likelihood with known variance
+  `sigma^2` and a Normal(`mu0`, `sigma0^2`) conjugate prior on the mean is `mu_n = (n * xbar /
+  sigma^2 + mu0 / sigma0^2) / (n / sigma^2 + 1 / sigma0^2)`. The test's formula instead computes
+  `mun = (n * mu + mu0 / 2) / (n + 1 / sigma0^2)` -- it (a) omits the `/ sigma^2` scaling on the
+  `n * xbar` numerator term and the `n` denominator term entirely (the companion `sigma2` line
+  just above it DOES correctly compute the analogous posterior-variance formula, `sigma2 =
+  x[1]^2 / (n + x[1]^2 / sigma0^2)`, so the omission is specific to the mean formula, not a
+  wholesale simplification), and (b) uses `mu0 / 2` where the textbook formula has `mu0 /
+  sigma0^2`. Because the test's own data uses `mu0 = 0`, term (b) vanishes identically regardless
+  of which coefficient multiplies it, and because `sigma0 = 5e5` is enormous, `1 / sigma0^2 ~
+  4e-12` is negligible next to `n = 48` in the denominator either way -- so the test's rstan
+  comparison (which only checks the RESULTING posterior summary statistics to 5% tolerance, not
+  the formula's algebraic form) cannot distinguish this transcription from the textbook one; both
+  degenerate to `mun ~ mu` (the sample mean) in this near-noninformative-prior limit. This is
+  therefore unverified/unverifiable from the test alone whether it's a genuine library bug or an
+  intentional simplification for this specific (`mu0 = 0`) worked example -- flagged as
+  CONSISTENCY rather than BUG for that reason.
+- **Port handling:** transcribed verbatim into `model_registry.hpp`'s `"normal_conjugate_gibbs"`
+  proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 / (sigma0 * sigma0));`) -- this
+  is the oracle-governing rule (C# source, including this specific test's inline formula, governs
+  over what a textbook derivation "should" say), and the `gibbs.json` fixture's curated
+  `chain_value` digests (draws 0-4, including the mutated-prior-path draws >= 1) reproduce this
+  exact formula bit-for-bit against the real C# library at `rel: 1e-12`.
+- **Suggested action:** if a future caller of this conjugate-Gibbs pattern uses a non-zero
+  `mu0`, re-derive/re-verify the formula against the textbook conjugate-Normal update before
+  reusing this test's `proposal` closure as a template -- the `mu0 / 2` coefficient will NOT
+  degenerate away in that case and would materially bias the posterior mean draws.
+
+## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction`
+
+- **Where:** `Numerics/Sampling/MCMC/NUTS.cs`, `LeapfrogInPlace` (called only by
+  `FindReasonableEpsilon`/`TrySingleStepLogAcceptance`, i.e. the Hoffman & Gelman 2014 Algorithm 4
+  step-size-search heuristic run once at chain initialization and again after every mass-matrix
+  adaptation-window update).
+- **What:** every ACTUAL trajectory step in `BuildTree` goes through `Leapfrog`, which correctly
+  calls `GradientFunction(...)` -- the (possibly caller-supplied) gradient delegate stored on the
+  instance. `LeapfrogInPlace`, used only by the step-size-search heuristic, instead calls
+  `NumericalDerivative.Gradient(...)` DIRECTLY, hardcoding a finite-difference gradient regardless
+  of what `gradientFunction` the constructor was given. A caller who supplies an exact analytic
+  `gradientFunction` (to avoid finite-difference cost/noise entirely) still gets a
+  finite-difference-based initial step size and every post-adaptation-window re-tuned step size --
+  only the trajectory itself uses their analytic gradient. This does not affect correctness of the
+  sampled trajectory (the step size is just a tuning heuristic, not part of the target
+  distribution), but it is a surprising, easy-to-miss asymmetry between two call sites that both
+  claim to leapfrog-integrate "the" gradient.
+- **Evidence:** direct code reading; both call sites are reproduced verbatim in this port's
+  `nuts.hpp` (`leapfrog_in_place()` calls `diff::gradient(...)` directly, `leapfrog()` calls
+  `gradient_function_(...)`) -- see that file's header comment. Unexercised by any fixture (every
+  `nuts.json`/`hmc.json` case uses the default finite-difference gradient, so the two code paths
+  are numerically identical in every case actually tested here).
+- **Port handling:** mirrored faithfully -- both C++ call sites reproduce the C# asymmetry exactly.
+- **Suggested C# fix:** route `LeapfrogInPlace` through `GradientFunction` too, so a custom gradient
+  is honored everywhere the class claims to use "the" gradient function.
+
+## CONSISTENCY — `NextDoubles(length, dimension)` draws each column from its own fresh sub-`MersenneTwister`, not the caller's stream
+
+- **Where:** `Numerics/Utilities/ExtensionMethods.cs`, `NextDoubles(this Random random, int
+  length, int dimension)`.
+- **What:** the 1-D overload (`NextDoubles(this Random random, int length)`) draws `length`
+  values straight off the caller's own stream, as expected. The 2-D overload does something
+  different: for each of the `dimension` columns it draws exactly ONE value off the caller's
+  stream (`random.Next()`) to seed a brand-new `MersenneTwister` (or plain `Random`, if the
+  caller wasn't itself a `MersenneTwister`), then fills that entire column by advancing the
+  FRESH sub-generator's own stream `length` times. The caller's stream is therefore consumed at
+  a rate of exactly `dimension` draws total (one per column, to seed the sub-generators), not
+  `length * dimension` -- every actual random double returned comes from one of the `dimension`
+  independent sub-streams, never from the parent stream directly. This is a real behavioral
+  choice (not obviously a mistake -- it decorrelates columns even when the parent stream has a
+  short period or column-wise correlation), but it is easy to miss reading only the method
+  signature: a caller expecting "draw `length * dimension` numbers off my stream in row-major
+  order" (the naive reading `NextDouble()` in a nested loop would produce) gets a materially
+  different, though still uniform, output.
+- **Evidence:** direct code reading (`ExtensionMethods.cs` lines ~144-157); `Test_NextDoubles2D`
+  (`Test_Numerics/Utilities/Test_ExtensionMethods.cs`) only range-checks the output (`[0, 1)`
+  for every cell), so it does not itself distinguish this from the naive single-stream reading --
+  the sub-stream-per-column behavior was confirmed by tracing a seeded `MersenneTwister(12345)`
+  through both this method and a column-by-column reconstruction using `new
+  MersenneTwister(random.Next())` per column, which reproduce identically.
+- **Port handling:** transcribed exactly -- `extension_methods.hpp`'s `next_doubles(rng, n, dim)`
+  overload constructs one `bestfit::numerics::sampling::MersenneTwister sub(random.next())` per
+  column and fills that column from `sub`, in dimension order (see the header's file comment).
+  This pattern is load-bearing for `SNIS::sample()`, which calls
+  `_masterPRNG.NextDoubles(Iterations, NumberOfParameters)` once up front; `fixtures/special_
+  functions/extension_methods.json`'s `next_doubles_grid` cases lock the exact per-cell values
+  this produces from a known seed, independently of any MCMC sampler fixture.
+- **Suggested C# fix:** none required (working as designed) -- flagged purely as a
+  non-obvious-from-the-signature quirk for anyone reusing this overload outside the ported
+  call sites (SNIS is the only current consumer within this port's scope).
+
+## ROBUSTNESS — `Bootstrap.ComputeAccelerationConstants`'s `Tools.ParallelAdd` reduction is not bit-reproducible run-to-run
+
+- **Where:** `Numerics/Sampling/Bootstrap/Bootstrap.cs`, `ComputeAccelerationConstants` (its
+  `Parallel.For(0, N, idx => { ... Tools.ParallelAdd(ref I2[i], diff * diff); Tools.ParallelAdd
+  (ref I3[i], diff * diff * diff); ... })` loop), backed by `Numerics/Utilities/Tools.cs`'s
+  `ParallelAdd` (a CAS retry loop over `Interlocked.CompareExchange`).
+- **What:** `ParallelAdd` is a correct lock-free accumulator (no lost updates), but it does NOT
+  fix the ORDER in which concurrent jackknife-sample contributions land in `I2[i]`/`I3[i]` --
+  that order depends on the .NET thread pool's scheduling of the `Parallel.For` partitions, which
+  is not guaranteed deterministic across runs, machines, or core counts. Floating-point addition
+  is not associative, so a different accumulation order can (in general) produce a different
+  last-few-bits sum, even though every run adds the exact same set of addends. The resulting BCa
+  acceleration constant, and therefore the BCa confidence interval bounds, inherit this
+  run-to-run variability.
+- **Evidence (reproduced against the real C# library):** the oracle emitter's `--dump` output for
+  the `bca` bootstrap fixture case was captured across four independent runs of the SAME process
+  invocation, sequentially, on the development machine, and diffed byte-for-byte -- all four
+  runs were BIT-IDENTICAL (a low-core-count environment apparently schedules this small,
+  100-jackknife-sample `Parallel.For` deterministically in practice), i.e. the measured wobble
+  was exactly `0` on this machine, though the reduction remains order-dependent BY CONSTRUCTION
+  and a different core count/thread-pool configuration/.NET version could legitimately produce a
+  different summation order and a different last-few-bits result.
+- **Port handling:** this port replaces the `Parallel.For` + `Tools.ParallelAdd` pair with a
+  plain serial accumulation in jackknife-index order (see `bootstrap.hpp`'s file header BCa
+  HAZARD note and `compute_acceleration_constants`'s own comment) -- deterministic within the
+  C++ port, but not a bit-for-bit reproduction of C#'s reduction order. The `bca` fixture case's
+  CI-bound assertions therefore use a LOOSE `mode: "rel", tol: 1e-6` (three orders of magnitude
+  looser than every other CI method's `1e-9`), sized to the reduction's inherent
+  order-dependence rather than to any measured instability (which was zero on this machine) --
+  see `fixtures/README.md`'s `bootstrap` schema section for the full tolerance rationale.
+- **Suggested C# fix:** none required upstream for correctness (the CAS loop is race-free); if
+  bit-reproducible BCa intervals across runs/machines becomes a design goal, replace the
+  `Parallel.For`/`ParallelAdd` pair with a deterministic-order reduction (e.g. `Parallel.For`
+  into per-partition local accumulators, combined in a fixed final pass) or a plain serial loop.
+
 ---
 
 ## How to work this list later

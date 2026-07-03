@@ -398,6 +398,87 @@ run_copula_case <- function(target, construct, assertions, datasets) {
   }
 }
 
+# --- mcmc_sampler path -------------------------------------------------------------------
+# Inherently STATEFUL (unlike multivariate_distribution's/bivariate_copula's per-assertion
+# dispatch): one bf_mcmc_run_ call per case builds the model via the registry, configures the
+# sampler from construct$settings, and samples() ONCE; every assertion in the case reads the
+# single returned list. See fixtures/README.md's mcmc_sampler schema for the full method list
+# and tolerance policy.
+
+dispatch_mcmc <- function(result, method, args) {
+  i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
+  switch(method,
+    posterior_mean       = result$posterior_mean[[i1(args[[1]])]],
+    posterior_sd          = result$posterior_sd[[i1(args[[1]])]],
+    posterior_median       = result$posterior_median[[i1(args[[1]])]],
+    posterior_lower_ci     = result$posterior_lower_ci[[i1(args[[1]])]],
+    posterior_upper_ci     = result$posterior_upper_ci[[i1(args[[1]])]],
+    chain_value    = result$chains[[i1(args[[1]])]][i1(args[[2]]), i1(args[[3]])],
+    chain_fitness  = result$chain_fitness[[i1(args[[1]])]][[i1(args[[2]])]],
+    map_value      = result$map_values[[i1(args[[1]])]],
+    map_fitness    = result$map_fitness[[1]],
+    acceptance_rate      = result$acceptance_rates[[i1(args[[1]])]],
+    mean_log_likelihood  = result$mean_log_likelihood[[i1(args[[1]])]],
+    rhat = result$rhat[[i1(args[[1]])]],
+    ess  = result$ess[[i1(args[[1]])]],
+    stop(sprintf("unknown mcmc_sampler fixture method: %s", method))
+  )
+}
+
+run_mcmc_case <- function(target, construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  model <- construct$model
+  data <- as.double(unlist(datasets[[model$dataset]]))
+  settings <- if (!is.null(construct$settings)) construct$settings else list()
+  result <- ns$bf_mcmc_run_(target, model$name, model$family, data, settings)
+  for (a in assertions) {
+    args <- if (is.null(a$args)) list() else a$args
+    actual <- dispatch_mcmc(result, a$method, args)
+    check_assertion(actual, a)
+  }
+}
+
+# --- bootstrap path ------------------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler: one bf_bootstrap_run_ call per case builds the model
+# via the registry, runs() (or run_with_studentized_bootstrap()) ONCE, and computes confidence
+# intervals ONCE; every assertion in the case reads the single returned list. See
+# fixtures/README.md's bootstrap schema for the full method list and tolerance policy.
+
+dispatch_bootstrap <- function(result, method, args) {
+  i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
+  switch(method,
+    statistic_lower_ci   = result$statistic_lower_ci[[i1(args[[1]])]],
+    statistic_upper_ci   = result$statistic_upper_ci[[i1(args[[1]])]],
+    parameter_lower_ci   = result$parameter_lower_ci[[i1(args[[1]])]],
+    parameter_upper_ci   = result$parameter_upper_ci[[i1(args[[1]])]],
+    population_estimate  = result$population_estimate[[i1(args[[1]])]],
+    valid_count          = result$valid_count[[i1(args[[1]])]],
+    replicate_value      = result$replicate_values[i1(args[[1]]), i1(args[[2]])],
+    stop(sprintf("unknown bootstrap fixture method: %s", method))
+  )
+}
+
+run_bootstrap_case <- function(construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  dataset <- if (!is.null(construct$dataset)) as.double(unlist(datasets[[construct$dataset]])) else numeric(0)
+  probabilities <- vapply(construct$probabilities, parse_num, numeric(1))
+  mu <- if (!is.null(construct$mu)) construct$mu else 0
+  sigma <- if (!is.null(construct$sigma)) construct$sigma else 0
+  sample_size <- if (!is.null(construct$sample_size)) as.integer(construct$sample_size) else 0L
+  max_retries <- if (!is.null(construct$max_retries)) as.integer(construct$max_retries) else 20L
+  run <- if (!is.null(construct$run)) construct$run else "regular"
+  alpha <- if (!is.null(construct$alpha)) construct$alpha else 0.1
+
+  result <- ns$bf_bootstrap_run_(construct$model, mu, sigma, sample_size, probabilities, dataset,
+    as.integer(construct$replicates), as.integer(construct$seed), max_retries, run,
+    construct$ci_method, alpha)
+  for (a in assertions) {
+    args <- if (is.null(a$args)) list() else a$args
+    actual <- dispatch_bootstrap(result, a$method, args)
+    check_assertion(actual, a)
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -405,9 +486,25 @@ test_that("oracle fixtures validate", {
   expect_gt(length(files), 0)
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
-    # Only validate univariate_distribution, multivariate_distribution, and
-    # bivariate_copula fixtures; skip other kinds (e.g. special_function) which are
-    # validated in C++ only and are not exposed to the R package.
+    # Only validate univariate_distribution, multivariate_distribution,
+    # bivariate_copula, mcmc_sampler, and bootstrap fixtures; skip other kinds (e.g.
+    # special_function) which are validated in C++ only and are not exposed to the R
+    # package.
+    if (identical(spec$kind, "bootstrap")) {
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_bootstrap_case(case$construct, case$assertions, datasets)
+      }
+      next
+    }
+    if (identical(spec$kind, "mcmc_sampler")) {
+      target <- spec$target
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_mcmc_case(target, case$construct, case$assertions, datasets)
+      }
+      next
+    }
     if (identical(spec$kind, "bivariate_copula")) {
       target <- spec$target
       datasets <- spec$datasets

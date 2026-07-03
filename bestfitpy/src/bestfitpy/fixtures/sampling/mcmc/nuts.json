@@ -1,0 +1,969 @@
+{
+  "target": "NUTS",
+  "kind": "mcmc_sampler",
+  "source": "Numerics/Sampling/MCMC/NUTS.cs ; Numerics/Sampling/MCMC/Base/MCMCSampler.cs ; Test_Numerics/Sampling/MCMC/Test_NUTS.cs",
+  "datasets": {
+    "tippecanoe": [
+      6290,
+      2700,
+      13100,
+      16900,
+      14600,
+      9600,
+      7740,
+      8490,
+      8130,
+      12000,
+      17200,
+      15000,
+      12400,
+      6960,
+      6500,
+      5840,
+      10400,
+      18800,
+      21400,
+      22600,
+      14200,
+      11000,
+      12800,
+      15700,
+      4740,
+      6950,
+      11800,
+      12100,
+      20600,
+      14600,
+      14600,
+      8900,
+      10600,
+      14200,
+      14100,
+      14100,
+      12500,
+      7530,
+      13400,
+      17600,
+      13400,
+      19200,
+      16900,
+      15500,
+      14500,
+      21900,
+      10400,
+      7460
+    ],
+    "sugar_creek": [
+      17600,
+      3660,
+      903,
+      5050,
+      24000,
+      11400,
+      9470,
+      8970,
+      7710,
+      14800,
+      13900,
+      20800,
+      9470,
+      7860,
+      7860,
+      2730,
+      6480,
+      18200,
+      26300,
+      15100,
+      14600,
+      7300,
+      8580,
+      15100,
+      15100,
+      21800,
+      6200,
+      2130,
+      11100,
+      14300,
+      11200,
+      6670,
+      5440,
+      9370,
+      6900,
+      9680,
+      6810,
+      7730,
+      5290,
+      12200,
+      9750,
+      7390,
+      13100,
+      7190,
+      8850,
+      6290,
+      18800,
+      9740,
+      2990,
+      6950,
+      9390,
+      12400,
+      21200
+    ]
+  },
+  "cases": [
+    {
+      "name": "normal_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Normal",
+          "dataset": "tippecanoe"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 12663.69,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 706.6,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 11488.5,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 12671.08,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 13801.45,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 4844.09,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 519.08,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 4077.8,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 4796.63,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 5771.81,
+          "mode": "rel",
+          "tol": 0.05
+        }
+      ]
+    },
+    {
+      "name": "logistic_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Logistic",
+          "dataset": "tippecanoe"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 12631.74,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 719.36,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 11458.52,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 12622.01,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 13830.74,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 2823.47,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 348.26,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 2307.77,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 2794.4,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 3441.31,
+          "mode": "rel",
+          "tol": 0.05
+        }
+      ]
+    },
+    {
+      "name": "gumbel_rstan",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Gumbel",
+          "dataset": "sugar_creek"
+        },
+        "settings": {}
+      },
+      "assertions": [
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 8067.9,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            0
+          ],
+          "expected": 680.85,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 6973.92,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            0
+          ],
+          "expected": 8055.82,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 9201.14,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 4658.04,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_sd",
+          "args": [
+            1
+          ],
+          "expected": 522.33,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 3885.53,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_median",
+          "args": [
+            1
+          ],
+          "expected": 4612.71,
+          "mode": "rel",
+          "tol": 0.05
+        },
+        {
+          "method": "posterior_upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 5595.4,
+          "mode": "rel",
+          "tol": 0.05
+        }
+      ]
+    },
+    {
+      "name": "normal_short_exact",
+      "construct": {
+        "model": {
+          "name": "uniform_constraints",
+          "family": "Normal",
+          "dataset": "tippecanoe"
+        },
+        "settings": {
+          "initialize": "Randomize",
+          "iterations": 100,
+          "warmup_iterations": 10,
+          "thinning_interval": 1,
+          "output_length": 100
+        }
+      },
+      "assertions": [
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": 25229.18509552267,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 8278.741423971951,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            0
+          ],
+          "expected": -540.0200992178451,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": 25229.18509552267,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 8278.741423971951,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            1
+          ],
+          "expected": -540.0200992178451,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            0
+          ],
+          "expected": 24784.4952628964,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            2,
+            1
+          ],
+          "expected": 9585.481654308034,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            0,
+            2
+          ],
+          "expected": -528.2117672219856,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": 24284.750627382655,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            1
+          ],
+          "expected": 32580.423723974873,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            0
+          ],
+          "expected": -546.4431777529044,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            0
+          ],
+          "expected": 24284.750627382655,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            1,
+            1
+          ],
+          "expected": 32580.423723974873,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            1
+          ],
+          "expected": -546.4431777529044,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            0
+          ],
+          "expected": 22209.0098433796,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            2,
+            1
+          ],
+          "expected": 28890.440138838127,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            1,
+            2
+          ],
+          "expected": -540.3734112433301,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            0
+          ],
+          "expected": 13734.780589584261,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 45755.06060407497,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            0
+          ],
+          "expected": -559.4619238081833,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            0
+          ],
+          "expected": 13734.780589584261,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            1,
+            1
+          ],
+          "expected": 45755.06060407497,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            1
+          ],
+          "expected": -559.4619238081833,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            0
+          ],
+          "expected": 20358.754028371266,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            2,
+            1
+          ],
+          "expected": 42420.198306471706,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            2,
+            2
+          ],
+          "expected": -556.6464033466707,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": 0,
+          "mode": "equal",
+          "source": "curated via oracle_emitter --dump (exact-zero: chain 3's mu value is unchanged across draws 0 and 1 in BOTH languages -- consistent with ChainIteration's tree-build-divergence guard returning the input state unmodified; a rel check against an exact-0.0 expected is 0/0 undefined, see fixtures/README.md's exact-zero convention, precedented in DEMCzs/normal_rstan)"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            1
+          ],
+          "expected": 50000,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            0
+          ],
+          "expected": -565.2068269455178,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            0
+          ],
+          "expected": 0,
+          "mode": "equal",
+          "source": "curated via oracle_emitter --dump (exact-zero: chain 3's mu value is unchanged across draws 0 and 1 in BOTH languages -- consistent with ChainIteration's tree-build-divergence guard returning the input state unmodified; a rel check against an exact-0.0 expected is 0/0 undefined, see fixtures/README.md's exact-zero convention, precedented in DEMCzs/normal_rstan)"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            1,
+            1
+          ],
+          "expected": 50000,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            1
+          ],
+          "expected": -565.2068269455178,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            0
+          ],
+          "expected": 3955.128921139711,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            2,
+            1
+          ],
+          "expected": 50003.75876018695,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "chain_fitness",
+          "args": [
+            3,
+            2
+          ],
+          "expected": -564.3986910047423,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "map_value",
+          "args": [
+            0
+          ],
+          "expected": 12619.251346321003,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "map_value",
+          "args": [
+            1
+          ],
+          "expected": 4598.134394112171,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "map_fitness",
+          "expected": -473.5695762447697,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "mean_log_likelihood",
+          "args": [
+            0
+          ],
+          "expected": -552.7830069311126,
+          "mode": "rel",
+          "tol": 1e-09,
+          "source": "curated via oracle_emitter --dump"
+        },
+        {
+          "method": "rhat",
+          "args": [
+            0
+          ],
+          "expected": 1.02183789320005,
+          "mode": "rel",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump (loosened from the digest's 1e-9: NUTS's recursive per-depth RNG draws amplify sub-ULP noise faster than any other sampler over this case's mandatory >=100-iteration window -- measured ~3.3e-5 relative at worst; see fixtures/README.md's NUTS finding)"
+        },
+        {
+          "method": "rhat",
+          "args": [
+            1
+          ],
+          "expected": 1.0058990517046709,
+          "mode": "rel",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump (loosened from the digest's 1e-9: NUTS's recursive per-depth RNG draws amplify sub-ULP noise faster than any other sampler over this case's mandatory >=100-iteration window -- measured ~3.3e-5 relative at worst; see fixtures/README.md's NUTS finding)"
+        },
+        {
+          "method": "ess",
+          "args": [
+            0
+          ],
+          "expected": 26.804052729157135,
+          "mode": "rel",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump (loosened from the digest's 1e-9: NUTS's recursive per-depth RNG draws amplify sub-ULP noise faster than any other sampler over this case's mandatory >=100-iteration window -- measured ~3.3e-5 relative at worst; see fixtures/README.md's NUTS finding)"
+        },
+        {
+          "method": "ess",
+          "args": [
+            1
+          ],
+          "expected": 34.76343403320675,
+          "mode": "rel",
+          "tol": 0.0001,
+          "source": "curated via oracle_emitter --dump (loosened from the digest's 1e-9: NUTS's recursive per-depth RNG draws amplify sub-ULP noise faster than any other sampler over this case's mandatory >=100-iteration window -- measured ~3.3e-5 relative at worst; see fixtures/README.md's NUTS finding)"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            0
+          ],
+          "expected": 1,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            1
+          ],
+          "expected": 1,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            2
+          ],
+          "expected": 1,
+          "mode": "equal"
+        },
+        {
+          "method": "acceptance_rate",
+          "args": [
+            3
+          ],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    }
+  ]
+}

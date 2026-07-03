@@ -1,5 +1,9 @@
 // ported from: Numerics/Utilities/Tools.cs @ a2c4dbf
 // Shared numerical constants (+ Tools.Log10, the one Tools.cs function this port needs).
+// P3.3 adds is_finite (Tools.IsFinite) and is_power_of_two (Tools.IsPowerOfTwo), needed by
+// Fourier::fft (power-of-two length guard) and NumericalDerivative::gradient/hessian
+// (non-finite-evaluation backtracking guard). Tools.NextPowerOfTwo is not ported -- no
+// caller in this port's scope needs it.
 #pragma once
 #include <cmath>
 
@@ -23,5 +27,11 @@ inline double clamped_log10(double x) {
     if (x < 1E-16 && x >= 0.0) x = 1E-16;
     return std::log10(x);
 }
+
+// Returns true iff x is neither NaN nor +-infinity (mirrors Tools.IsFinite).
+inline bool is_finite(double x) { return !(std::isnan(x) || std::isinf(x)); }
+
+// Returns true iff n is a positive power of two (mirrors Tools.IsPowerOfTwo).
+inline bool is_power_of_two(int n) { return n > 0 && (n & (n - 1)) == 0; }
 
 }  // namespace bestfit::numerics

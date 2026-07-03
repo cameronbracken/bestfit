@@ -10,6 +10,7 @@
 // UnivariateDistributionBase + factory path, which is what new distributions plug into.
 // Special functions use a flat target->lambda map.
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -21,6 +22,9 @@
 
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
+#include "bestfit/numerics/data/histogram.hpp"
+#include "bestfit/numerics/data/interpolation/search.hpp"
+#include "bestfit/numerics/data/plotting_positions.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -38,15 +42,38 @@
 #include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
+#include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/truncated_distribution.hpp"
+#include "bestfit/numerics/data/running_covariance_matrix.hpp"
+#include "bestfit/numerics/data/running_statistics.hpp"
+#include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/math/differentiation/numerical_derivative.hpp"
+#include "bestfit/numerics/math/fourier/fourier.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/vector.hpp"
+#include "bestfit/numerics/math/optimization/differential_evolution.hpp"
 #include "bestfit/numerics/math/special/beta.hpp"
 #include "bestfit/numerics/math/special/bessel.hpp"
 #include "bestfit/numerics/math/special/erf.hpp"
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
+#include "bestfit/numerics/sampling/bootstrap/bootstrap.hpp"
+#include "bestfit/numerics/sampling/bootstrap/model_registry.hpp"
+#include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/demcz.hpp"
+#include "bestfit/numerics/sampling/mcmc/demczs.hpp"
+#include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
+#include "bestfit/numerics/sampling/mcmc/hmc.hpp"
+#include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
+#include "bestfit/numerics/sampling/mcmc/nuts.hpp"
+#include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/snis.hpp"
+#include "bestfit/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
+#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "bestfit/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
 
@@ -169,6 +196,11 @@ namespace la = bestfit::numerics::math::linalg;
 // Alias must not be named `stat` (collides with the MSVC/POSIX CRT symbol, like the
 // glibc `gamma` clash documented in .claude/CLAUDE.md).
 namespace bfdata = bestfit::numerics::data;
+namespace bfsamp = bestfit::numerics::sampling;
+namespace bfutil = bestfit::numerics::utilities;
+namespace bffourier = bestfit::numerics::math::fourier;
+namespace bfdiff = bestfit::numerics::math::differentiation;
+namespace bfopt = bestfit::numerics::math::optimization;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -201,6 +233,192 @@ static int cholesky_solve_n(std::size_t len) {
 static la::Matrix cholesky_matrix_from_flat(const std::vector<double>& a, int n) {
     std::vector<double> flat(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n) * n);
     return la::Matrix(n, n, flat);
+}
+
+// RunningCovariance fixture args: [size, num_pushes, data_flat(num_pushes*size), trailing
+// index/indices] -- see fixtures/special_functions/running_covariance.json for the
+// convention. Builds a RunningCovarianceMatrix and replays `num_pushes` push()es of
+// `size`-length rows sliced from the flattened data.
+static bfdata::RunningCovarianceMatrix running_covariance_build(const std::vector<double>& a, int size,
+                                                                  int num_pushes) {
+    bfdata::RunningCovarianceMatrix rcm(size);
+    for (int p = 0; p < num_pushes; ++p) {
+        std::vector<double> row(a.begin() + 2 + static_cast<std::ptrdiff_t>(p) * size,
+                                 a.begin() + 2 + static_cast<std::ptrdiff_t>(p + 1) * size);
+        rcm.push(row);
+    }
+    return rcm;
+}
+
+// RunningStatistics combine fixture args: [n1, sample1(n1 values), sample2(remaining
+// values)] -- a "split-index" convention, distinct from Correlation's equal-length
+// two-halves split (Test_Combine/Test_Add split their 69-value sample into UNEQUAL 48/21
+// sub-samples, so a fixed midpoint doesn't apply). See
+// fixtures/special_functions/running_statistics.json for the full convention. Uses
+// operator+ (rather than calling RunningStatistics::combine() directly), which exercises
+// both -- operator+ is a one-line forwarder to combine().
+static bfdata::RunningStatistics running_statistics_combined(const std::vector<double>& a) {
+    std::size_t n1 = static_cast<std::size_t>(a[0]);
+    std::vector<double> sample1(a.begin() + 1, a.begin() + 1 + static_cast<std::ptrdiff_t>(n1));
+    std::vector<double> sample2(a.begin() + 1 + static_cast<std::ptrdiff_t>(n1), a.end());
+    return bfdata::RunningStatistics(sample1) + bfdata::RunningStatistics(sample2);
+}
+
+// Fourier fixture args conventions (fixtures/special_functions/fourier.json):
+//  - Fourier.fft_at / Fourier.real_fft_at: args = [data..., inverse (0/1), index] -- n =
+//    len(args) - 2; runs fft()/real_fft() in place on a copy of `data`, returns data[index].
+//  - Fourier.correlation_at: args = [data1..., data2..., index] -- equal-length data1/data2
+//    concatenated (n = (len(args)-1)/2), returns correlation(data1, data2)[index].
+//  - Fourier.autocorrelation_at: args = [series..., lag_max, lag] -- n = len(args) - 2;
+//    autocorrelation(series, (int)lag_max) (lag_max == -1 triggers the default auto-lag),
+//    returns the acf value (column 1) at row `lag`.
+static double fourier_fft_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    bool inverse = a[n] != 0.0;
+    int index = static_cast<int>(a[n + 1]);
+    bffourier::fft(data, inverse);
+    return data[static_cast<std::size_t>(index)];
+}
+static double fourier_real_fft_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    bool inverse = a[n] != 0.0;
+    int index = static_cast<int>(a[n + 1]);
+    bffourier::real_fft(data, inverse);
+    return data[static_cast<std::size_t>(index)];
+}
+static double fourier_correlation_at(const std::vector<double>& a) {
+    std::size_t n = (a.size() - 1) / 2;
+    std::vector<double> data1(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    std::vector<double> data2(a.begin() + static_cast<std::ptrdiff_t>(n),
+                               a.begin() + static_cast<std::ptrdiff_t>(2 * n));
+    int index = static_cast<int>(a[2 * n]);
+    auto corr = bffourier::correlation(data1, data2);
+    return corr[static_cast<std::size_t>(index)];
+}
+static double fourier_autocorrelation_at(const std::vector<double>& a) {
+    std::size_t n = a.size() - 2;
+    std::vector<double> series(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+    int lag_max = static_cast<int>(a[n]);
+    int lag = static_cast<int>(a[n + 1]);
+    auto acf = bffourier::autocorrelation(series, lag_max);
+    if (!acf) throw std::runtime_error("Fourier.autocorrelation_at: autocorrelation returned no value");
+    return (*acf)[static_cast<std::size_t>(lag)][1];
+}
+
+// Closed registry of named functions for the numerical_derivative fixture -- MUST match
+// tools/oracle_emitter/Program.cs's resolver exactly (the emitter runs the REAL C#
+// NumericalDerivative against these same two functions):
+//  - "quadratic": f(x) = sum_i (x_i - i)^2, i 0-based; analytic gradient 2*(x_i - i),
+//    analytic Hessian 2*I (diagonal only) -- a smooth, unbounded-friendly sanity check.
+//  - "normal_loglik": Normal(mu=x0, sigma=x1).LogLikelihood(sample) on a small embedded
+//    5-point sample -- the exact shape (a 2-parameter log-likelihood) MCMC's default
+//    HMC/NUTS gradient differentiates.
+static const std::vector<double>& numerical_derivative_normal_sample() {
+    static const std::vector<double> sample = {9.0, 10.0, 11.0, 12.0, 13.0};
+    return sample;
+}
+static double numerical_derivative_quadratic(const std::vector<double>& x) {
+    double s = 0.0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        double d = x[i] - static_cast<double>(i);
+        s += d * d;
+    }
+    return s;
+}
+static double numerical_derivative_normal_loglik(const std::vector<double>& x) {
+    dist::Normal n(x[0], x[1]);
+    return n.log_likelihood(numerical_derivative_normal_sample());
+}
+
+// numerical_derivative fixture args convention
+// (fixtures/special_functions/numerical_derivative.json):
+//   gradient_element: args = [p, theta(p values), lower(p values), upper(p values), index]
+//   hessian_element:  args = [p, theta(p values), lower(p values), upper(p values), i, j]
+// `p` is an explicit leading arg (not inferred from length, matching the
+// Extensions.next_doubles_grid convention) for clarity. lower/upper always carry an
+// explicit p-length bound array using the JSON "-inf"/"inf" literals for "unbounded"
+// dimensions, rather than a presence flag -- AvailableLeft/AvailableRight's null-vs-value
+// behavior is bitwise identical to a value of +-infinity (theta[j] - (-inf) == +inf either
+// way), so this is a behavior-preserving flattening of the C# nullable-array API onto a
+// flat numeric args convention. rel_step/abs_step/max_backtrack always use the library
+// defaults (not fixture-configurable), matching every real call site (HMC.cs's Gradient
+// call and Optimizer.cs's Hessian call both omit them).
+static void numerical_derivative_parse(const std::vector<double>& a, std::vector<double>& theta,
+                                        std::vector<double>& lower, std::vector<double>& upper,
+                                        std::size_t& next) {
+    std::size_t p = static_cast<std::size_t>(a[0]);
+    theta.assign(a.begin() + 1, a.begin() + 1 + static_cast<std::ptrdiff_t>(p));
+    lower.assign(a.begin() + 1 + static_cast<std::ptrdiff_t>(p), a.begin() + 1 + 2 * static_cast<std::ptrdiff_t>(p));
+    upper.assign(a.begin() + 1 + 2 * static_cast<std::ptrdiff_t>(p),
+                  a.begin() + 1 + 3 * static_cast<std::ptrdiff_t>(p));
+    next = 1 + 3 * p;
+}
+static double numerical_derivative_gradient_element(const bfdiff::ScalarFunction& f, const std::vector<double>& a) {
+    std::vector<double> theta, lower, upper;
+    std::size_t next;
+    numerical_derivative_parse(a, theta, lower, upper, next);
+    int index = static_cast<int>(a[next]);
+    auto grad = bfdiff::gradient(f, theta, lower, upper);
+    return grad[static_cast<std::size_t>(index)];
+}
+static double numerical_derivative_hessian_element(const bfdiff::ScalarFunction& f, const std::vector<double>& a) {
+    std::vector<double> theta, lower, upper;
+    std::size_t next;
+    numerical_derivative_parse(a, theta, lower, upper, next);
+    int i = static_cast<int>(a[next]);
+    int j = static_cast<int>(a[next + 1]);
+    auto hess = bfdiff::hessian(f, theta, lower, upper);
+    return hess[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+}
+
+// DifferentialEvolution fixture args convention (fixtures/special_functions/differential_evolution.json):
+//   args = [fn_id, direction, D, lower(D values), upper(D values), index]
+// fn_id: 0 = "quadratic" (numerical_derivative_quadratic), 1 = "normal_loglik"
+// (numerical_derivative_normal_loglik) -- REUSES the P3.3 closed named-function registry
+// above (see numerical_derivative_{quadratic,normal_loglik}) rather than porting a second
+// registry, so the emitter runs the REAL C# DifferentialEvolution against the identical
+// objective this runner does. direction: 0 = minimize(), 1 = maximize(). index: 0..D-1
+// selects best_parameter_set().values[index]; index == D selects
+// best_parameter_set().fitness. Every other DifferentialEvolution/Optimizer knob
+// (PRNGSeed, PopulationSize, Mutation, DitherRate, CrossoverProbability, MaxIterations,
+// tolerances, ReportFailure) is left at its library default -- matching the only real call
+// site (MCMCSampler.cs's MAP init, a later task), which overrides none of them except
+// ReportFailure (irrelevant here: whether hitting Max*Reached throws-then-is-swallowed or
+// never throws at all, BestParameterSet ends up identical either way -- see optimizer.hpp's
+// file header for the full analysis).
+static double differential_evolution_best_value(const std::vector<double>& a) {
+    int fn_id = static_cast<int>(a[0]);
+    int direction = static_cast<int>(a[1]);
+    int D = static_cast<int>(a[2]);
+    std::vector<double> lower(a.begin() + 3, a.begin() + 3 + D);
+    std::vector<double> upper(a.begin() + 3 + D, a.begin() + 3 + 2 * D);
+    int index = static_cast<int>(a[static_cast<std::size_t>(3 + 2 * D)]);
+
+    bfopt::DifferentialEvolution::Objective f =
+        fn_id == 0 ? bfopt::DifferentialEvolution::Objective(numerical_derivative_quadratic)
+                   : bfopt::DifferentialEvolution::Objective(numerical_derivative_normal_loglik);
+    bfopt::DifferentialEvolution de(f, D, lower, upper);
+    if (direction == 0)
+        de.minimize();
+    else
+        de.maximize();
+    return index == D ? de.best_parameter_set().fitness
+                       : de.best_parameter_set().values[static_cast<std::size_t>(index)];
+}
+
+// Histogram fixture args convention (fixtures/special_functions/histogram.json): args =
+// [explicit_bins, data...] for the whole-histogram scalar targets (explicit_bins == 0 uses
+// the Rice-Rule ctor; explicit_bins > 0 uses the explicit-bin-count ctor). The
+// bin_*_at/get_bin_index_of element-lookup targets append one trailing probe value (a bin
+// index, or an x value to look up) after `data`; `trailing` tells histogram_build() how
+// many args at the end of `a` are NOT part of `data`.
+static bfdata::Histogram histogram_build(const std::vector<double>& a, std::size_t trailing) {
+    int explicit_bins = static_cast<int>(a[0]);
+    std::vector<double> data(a.begin() + 1, a.end() - static_cast<std::ptrdiff_t>(trailing));
+    if (explicit_bins > 0) return bfdata::Histogram(data, explicit_bins);
+    return bfdata::Histogram(data);
 }
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
@@ -289,6 +507,229 @@ special_function_table() {
             std::vector<double> x, y;
             correlation_split(a, x, y);
             return bfdata::kendalls_tau(x, y);
+        }},
+        // LU family (args: flattened row-major matrix, n inferred from length -- reuses
+        // the Cholesky-fixture flatten helpers above, which are generic matrix-args
+        // conventions, not Cholesky-specific; see fixtures/special_functions/lu_decomposition.json)
+        {"LU.determinant", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size());
+            return la::LUDecomposition(cholesky_matrix_from_flat(a, n)).determinant();
+        }},
+        {"LU.inverse_element", [](const std::vector<double>& a) {
+            int n = cholesky_square_n(a.size() - 2);
+            la::LUDecomposition lu(cholesky_matrix_from_flat(a, n));
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n]);
+            int j = static_cast<int>(a[static_cast<std::size_t>(n) * n + 1]);
+            return lu.inverse_a()(i, j);
+        }},
+        {"LU.solve_element", [](const std::vector<double>& a) {
+            int n = cholesky_solve_n(a.size());
+            la::LUDecomposition lu(cholesky_matrix_from_flat(a, n));
+            std::vector<double> rhs(a.begin() + static_cast<std::ptrdiff_t>(n) * n,
+                                     a.begin() + static_cast<std::ptrdiff_t>(n) * n + n);
+            int i = static_cast<int>(a[static_cast<std::size_t>(n) * n + static_cast<std::size_t>(n)]);
+            return lu.solve(la::Vector(std::move(rhs)))[i];
+        }},
+        // Percentile (args: [data_1..data_n, k, data_is_sorted (0.0/1.0)] -- see
+        // fixtures/special_functions/percentile.json for the convention)
+        {"Statistics.percentile", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> data(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            double k = a[n];
+            bool sorted = a[n + 1] != 0.0;
+            return bfdata::percentile(data, k, sorted);
+        }},
+        // Extensions/MersenneTwister ranged-draw family (see
+        // fixtures/special_functions/extension_methods.json for the conventions)
+        {"Extensions.next_doubles_grid", [](const std::vector<double>& a) {
+            // args: [n, dim, seed, row, col]
+            int n = static_cast<int>(a[0]);
+            int dim = static_cast<int>(a[1]);
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[2]));
+            int row = static_cast<int>(a[3]);
+            int col = static_cast<int>(a[4]);
+            auto grid = bfutil::next_doubles(rng, n, dim);
+            return grid[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)];
+        }},
+        {"Extensions.next_integers_at", [](const std::vector<double>& a) {
+            // args: [n, seed, i]
+            int n = static_cast<int>(a[0]);
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[1]));
+            int i = static_cast<int>(a[2]);
+            auto values = bfutil::next_integers(rng, n);
+            return static_cast<double>(values[static_cast<std::size_t>(i)]);
+        }},
+        {"Mt.next_range", [](const std::vector<double>& a) {
+            // args: [seed, min, max, i] -- draws next(min, max) (i+1) times, 0-based,
+            // returning the i-th draw.
+            bfsamp::MersenneTwister rng(static_cast<std::uint32_t>(a[0]));
+            int min_v = static_cast<int>(a[1]);
+            int max_v = static_cast<int>(a[2]);
+            int i = static_cast<int>(a[3]);
+            int result = 0;
+            for (int k = 0; k <= i; ++k) result = rng.next(min_v, max_v);
+            return static_cast<double>(result);
+        }},
+        // RunningCovarianceMatrix family (args: [size, num_pushes, data_flat, trailing
+        // index/indices] -- see fixtures/special_functions/running_covariance.json)
+        {"RunningCovariance.mean_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            return rcm.mean()(i, 0);
+        }},
+        {"RunningCovariance.covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.covariance()(i, j);
+        }},
+        {"RunningCovariance.sample_covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.sample_covariance()(i, j);
+        }},
+        {"RunningCovariance.sample_correlation_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.sample_correlation()(i, j);
+        }},
+        {"RunningCovariance.population_covariance_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.population_covariance()(i, j);
+        }},
+        {"RunningCovariance.population_correlation_element", [](const std::vector<double>& a) {
+            int size = static_cast<int>(a[0]);
+            int num_pushes = static_cast<int>(a[1]);
+            auto rcm = running_covariance_build(a, size, num_pushes);
+            std::size_t base = 2 + static_cast<std::size_t>(num_pushes) * static_cast<std::size_t>(size);
+            int i = static_cast<int>(a[base]);
+            int j = static_cast<int>(a[base + 1]);
+            return rcm.population_correlation()(i, j);
+        }},
+        // RunningStatistics family (args: the flat sample; see
+        // fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.mean", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).mean(); }},
+        {"RunningStatistics.variance", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).variance(); }},
+        {"RunningStatistics.standard_deviation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).standard_deviation(); }},
+        {"RunningStatistics.population_variance", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_variance(); }},
+        {"RunningStatistics.population_standard_deviation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_standard_deviation(); }},
+        {"RunningStatistics.coefficient_of_variation", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).coefficient_of_variation(); }},
+        {"RunningStatistics.skewness", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).skewness(); }},
+        {"RunningStatistics.population_skewness", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_skewness(); }},
+        {"RunningStatistics.kurtosis", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).kurtosis(); }},
+        {"RunningStatistics.population_kurtosis", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).population_kurtosis(); }},
+        {"RunningStatistics.minimum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).minimum(); }},
+        {"RunningStatistics.maximum", [](const std::vector<double>& a) { return bfdata::RunningStatistics(a).maximum(); }},
+        {"RunningStatistics.count", [](const std::vector<double>& a) { return static_cast<double>(bfdata::RunningStatistics(a).count()); }},
+        // RunningStatistics combine family (args: [n1, sample1(n1), sample2(m)] -- see
+        // running_statistics_combined() above and fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.combined_minimum", [](const std::vector<double>& a) { return running_statistics_combined(a).minimum(); }},
+        {"RunningStatistics.combined_maximum", [](const std::vector<double>& a) { return running_statistics_combined(a).maximum(); }},
+        {"RunningStatistics.combined_mean", [](const std::vector<double>& a) { return running_statistics_combined(a).mean(); }},
+        {"RunningStatistics.combined_variance", [](const std::vector<double>& a) { return running_statistics_combined(a).variance(); }},
+        {"RunningStatistics.combined_standard_deviation", [](const std::vector<double>& a) { return running_statistics_combined(a).standard_deviation(); }},
+        {"RunningStatistics.combined_coefficient_of_variation", [](const std::vector<double>& a) { return running_statistics_combined(a).coefficient_of_variation(); }},
+        {"RunningStatistics.combined_skewness", [](const std::vector<double>& a) { return running_statistics_combined(a).skewness(); }},
+        {"RunningStatistics.combined_kurtosis", [](const std::vector<double>& a) { return running_statistics_combined(a).kurtosis(); }},
+        // Fourier family (see fourier_*_at() above for the args conventions)
+        {"Fourier.fft_at", fourier_fft_at},
+        {"Fourier.real_fft_at", fourier_real_fft_at},
+        {"Fourier.correlation_at", fourier_correlation_at},
+        {"Fourier.autocorrelation_at", fourier_autocorrelation_at},
+        // NumericalDerivative family (closed function registry; see
+        // numerical_derivative_{quadratic,normal_loglik} and the args convention above)
+        {"NumericalDerivative.gradient_element_quadratic", [](const std::vector<double>& a) {
+            return numerical_derivative_gradient_element(numerical_derivative_quadratic, a);
+        }},
+        {"NumericalDerivative.gradient_element_normal_loglik", [](const std::vector<double>& a) {
+            return numerical_derivative_gradient_element(numerical_derivative_normal_loglik, a);
+        }},
+        {"NumericalDerivative.hessian_element_quadratic", [](const std::vector<double>& a) {
+            return numerical_derivative_hessian_element(numerical_derivative_quadratic, a);
+        }},
+        {"NumericalDerivative.hessian_element_normal_loglik", [](const std::vector<double>& a) {
+            return numerical_derivative_hessian_element(numerical_derivative_normal_loglik, a);
+        }},
+        // DifferentialEvolution family (see differential_evolution_best_value() above and
+        // fixtures/special_functions/differential_evolution.json for the args convention)
+        {"DifferentialEvolution.best_value", differential_evolution_best_value},
+        // Histogram family (args: [explicit_bins, data..., trailing probe?] -- see
+        // histogram_build() above and fixtures/special_functions/histogram.json)
+        {"Histogram.number_of_bins", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 0).number_of_bins());
+        }},
+        {"Histogram.bin_width", [](const std::vector<double>& a) { return histogram_build(a, 0).bin_width(); }},
+        {"Histogram.lower_bound", [](const std::vector<double>& a) { return histogram_build(a, 0).lower_bound(); }},
+        {"Histogram.upper_bound", [](const std::vector<double>& a) { return histogram_build(a, 0).upper_bound(); }},
+        {"Histogram.data_count", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 0).data_count());
+        }},
+        {"Histogram.mean", [](const std::vector<double>& a) { return histogram_build(a, 0).mean(); }},
+        {"Histogram.median", [](const std::vector<double>& a) { return histogram_build(a, 0).median(); }},
+        {"Histogram.mode", [](const std::vector<double>& a) { return histogram_build(a, 0).mode(); }},
+        {"Histogram.standard_deviation", [](const std::vector<double>& a) {
+            return histogram_build(a, 0).standard_deviation();
+        }},
+        {"Histogram.bin_lower_bound_at", [](const std::vector<double>& a) {
+            return histogram_build(a, 1).bin(static_cast<int>(a.back())).lower_bound;
+        }},
+        {"Histogram.bin_upper_bound_at", [](const std::vector<double>& a) {
+            return histogram_build(a, 1).bin(static_cast<int>(a.back())).upper_bound;
+        }},
+        {"Histogram.bin_frequency_at", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 1).bin(static_cast<int>(a.back())).frequency);
+        }},
+        {"Histogram.get_bin_index_of", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build(a, 1).get_bin_index_of(a.back()));
+        }},
+        // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
+        // weibull_at -- see fixtures/special_functions/plotting_positions.json)
+        {"PlottingPositions.function_at", [](const std::vector<double>& a) {
+            auto pp = bfdata::plotting_positions::function(static_cast<int>(a[0]), a[1]);
+            return pp[static_cast<std::size_t>(static_cast<int>(a[2]))];
+        }},
+        {"PlottingPositions.weibull_at", [](const std::vector<double>& a) {
+            auto pp = bfdata::plotting_positions::weibull(static_cast<int>(a[0]));
+            return pp[static_cast<std::size_t>(static_cast<int>(a[1]))];
+        }},
+        // Search family (args: [values..., x, start] -- see
+        // fixtures/special_functions/search.json)
+        {"Search.sequential", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(
+                bfdata::search::sequential(a[n], values, static_cast<int>(a[n + 1])));
+        }},
+        {"Search.bisection", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(
+                bfdata::search::bisection(a[n], values, static_cast<int>(a[n + 1])));
+        }},
+        // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] --
+        // see fixtures/special_functions/mcmc_diagnostics.json)
+        {"MCMCDiagnostics.minimum_sample_size", [](const std::vector<double>& a) {
+            return static_cast<double>(
+                bestfit::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
         }},
     };
     return t;
@@ -876,6 +1317,229 @@ static void run_bivariate_copula(const json& spec) {
     }
 }
 
+// --- mcmc_sampler path -------------------------------------------------------------------
+//
+// One sampler run per case: build the model via the registry, construct the sampler (RWMH
+// today; extensible via a target-name switch as later samplers land), apply non-default
+// settings, sample() ONCE, and cache both the sampler and its post-processed MCMCResults for
+// every assertion in the case (mirrors the "single stateful glue call; no seq machinery"
+// contract fixtures/README.md documents for this kind).
+
+namespace mcmc = bestfit::numerics::sampling::mcmc;
+
+// `proposal_sigma` sentinel strings -- see fixtures/README.md's mcmc_sampler schema.
+// "zeros": the literal `Matrix(D)` the C# Test_RWMH.cs test constructs (safe only when
+// MAP initialization is expected to override it before first use -- see "identity" below).
+// "identity": D x D identity matrix. NOT present in the upstream C# test; added because a
+// Randomize-initialized RWMH with a literal all-zero proposal covariance throws
+// (CholeskyDecomposition rejects a non-positive-definite matrix) on its very first
+// ChainIteration -- confirmed against the real C# library. Any Randomize-init fixture case
+// therefore needs a non-degenerate proposal_sigma; identity is the simplest one.
+static la::Matrix parse_proposal_sigma(const json& settings, int dimension) {
+    if (!settings.contains("proposal_sigma")) return la::Matrix(dimension);
+    std::string s = settings["proposal_sigma"].get<std::string>();
+    if (s == "zeros") return la::Matrix(dimension);
+    if (s == "identity") return la::Matrix::identity(dimension);
+    throw std::runtime_error("unknown proposal_sigma sentinel: " + s);
+}
+
+static mcmc::MCMCSampler::InitializationType parse_initialize(const std::string& s) {
+    if (s == "MAP") return mcmc::MCMCSampler::InitializationType::MAP;
+    if (s == "Randomize") return mcmc::MCMCSampler::InitializationType::Randomize;
+    if (s == "UserDefined") return mcmc::MCMCSampler::InitializationType::UserDefined;
+    throw std::runtime_error("unknown initialize value: " + s);
+}
+
+// Builds + configures + samples() one sampler from a {"model": {...}, "settings": {...}}
+// construct. `sampler_target`: the fixture's file-level "target" (the sampler type, e.g.
+// "RWMH"); a later task extends this with more cases as more samplers land.
+static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sampler_target,
+                                                             const json& construct, const json& datasets) {
+    const auto& model_spec = construct["model"];
+    std::vector<double> data;
+    for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
+    auto model = mcmc::build_model(model_spec["name"].get<std::string>(),
+                                    model_spec["family"].get<std::string>(), data);
+    int d = static_cast<int>(model.priors.size());
+
+    json settings = construct.value("settings", json::object());
+
+    std::unique_ptr<mcmc::MCMCSampler> sampler;
+    if (sampler_target == "RWMH") {
+        sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood,
+                                                parse_proposal_sigma(settings, d));
+    } else if (sampler_target == "HMC") {
+        std::optional<double> step_size =
+            settings.contains("step_size") ? std::optional<double>(settings["step_size"].get<double>()) : std::nullopt;
+        std::optional<int> steps =
+            settings.contains("steps") ? std::optional<int>(settings["steps"].get<int>()) : std::nullopt;
+        sampler = std::make_unique<mcmc::HMC>(model.priors, model.log_likelihood, std::nullopt,
+                                               step_size.value_or(0.1), steps.value_or(50));
+    } else if (sampler_target == "NUTS") {
+        std::optional<double> step_size =
+            settings.contains("step_size") ? std::optional<double>(settings["step_size"].get<double>()) : std::nullopt;
+        std::optional<int> max_tree_depth = settings.contains("max_tree_depth")
+                                                 ? std::optional<int>(settings["max_tree_depth"].get<int>())
+                                                 : std::nullopt;
+        auto nuts = std::make_unique<mcmc::NUTS>(model.priors, model.log_likelihood, std::nullopt,
+                                                  step_size.value_or(0.1), max_tree_depth.value_or(10));
+        if (settings.contains("adapt_mass_matrix")) nuts->adapt_mass_matrix = settings["adapt_mass_matrix"].get<bool>();
+        sampler = std::move(nuts);
+    } else if (sampler_target == "ARWMH") {
+        auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
+        if (settings.contains("scale")) arwmh->scale = settings["scale"].get<double>();
+        if (settings.contains("beta")) arwmh->beta = settings["beta"].get<double>();
+        sampler = std::move(arwmh);
+    } else if (sampler_target == "Gibbs") {
+        if (!model.proposal) throw std::runtime_error("Gibbs model has no proposal function");
+        sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
+    } else if (sampler_target == "SNIS") {
+        sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
+    } else if (sampler_target == "DEMCz") {
+        auto demcz = std::make_unique<mcmc::DEMCz>(model.priors, model.log_likelihood);
+        if (settings.contains("jump")) demcz->jump = settings["jump"].get<double>();
+        if (settings.contains("jump_threshold")) demcz->jump_threshold = settings["jump_threshold"].get<double>();
+        if (settings.contains("noise")) demcz->set_noise(settings["noise"].get<double>());
+        sampler = std::move(demcz);
+    } else if (sampler_target == "DEMCzs") {
+        auto demczs = std::make_unique<mcmc::DEMCzs>(model.priors, model.log_likelihood);
+        if (settings.contains("jump")) demczs->jump = settings["jump"].get<double>();
+        if (settings.contains("jump_threshold")) demczs->jump_threshold = settings["jump_threshold"].get<double>();
+        if (settings.contains("snooker_threshold"))
+            demczs->snooker_threshold = settings["snooker_threshold"].get<double>();
+        if (settings.contains("noise")) demczs->set_noise(settings["noise"].get<double>());
+        sampler = std::move(demczs);
+    } else {
+        throw std::runtime_error("unknown mcmc_sampler target: " + sampler_target);
+    }
+
+    if (settings.contains("initialize")) sampler->initialize = parse_initialize(settings["initialize"].get<std::string>());
+    if (settings.contains("prng_seed")) sampler->set_prng_seed(settings["prng_seed"].get<int>());
+    if (settings.contains("initial_iterations")) sampler->set_initial_iterations(settings["initial_iterations"].get<int>());
+    if (settings.contains("warmup_iterations")) sampler->set_warmup_iterations(settings["warmup_iterations"].get<int>());
+    if (settings.contains("iterations")) sampler->set_iterations(settings["iterations"].get<int>());
+    if (settings.contains("number_of_chains")) sampler->set_number_of_chains(settings["number_of_chains"].get<int>());
+    if (settings.contains("thinning_interval")) sampler->set_thinning_interval(settings["thinning_interval"].get<int>());
+    if (settings.contains("output_length")) sampler->output_length = settings["output_length"].get<int>();
+
+    sampler->sample();
+    return sampler;
+}
+
+static double dispatch_mcmc(const mcmc::MCMCSampler& sampler, const mcmc::MCMCResults& results,
+                             const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    if (m == "posterior_mean") return results.parameter_results[idx(0)].summary_statistics.mean;
+    if (m == "posterior_sd") return results.parameter_results[idx(0)].summary_statistics.standard_deviation;
+    if (m == "posterior_median") return results.parameter_results[idx(0)].summary_statistics.median;
+    if (m == "posterior_lower_ci") return results.parameter_results[idx(0)].summary_statistics.lower_ci;
+    if (m == "posterior_upper_ci") return results.parameter_results[idx(0)].summary_statistics.upper_ci;
+    if (m == "chain_value") return sampler.markov_chains()[idx(0)][idx(1)].values[idx(2)];
+    if (m == "chain_fitness") return sampler.markov_chains()[idx(0)][idx(1)].fitness;
+    if (m == "map_value") return results.map.values[idx(0)];
+    if (m == "map_fitness") return results.map.fitness;
+    if (m == "acceptance_rate") return sampler.acceptance_rates()[idx(0)];
+    if (m == "mean_log_likelihood") return sampler.mean_log_likelihood()[idx(0)];
+    if (m == "rhat") return results.parameter_results[idx(0)].summary_statistics.rhat;
+    if (m == "ess") return results.parameter_results[idx(0)].summary_statistics.ess;
+    throw std::runtime_error("unknown mcmc_sampler fixture method: " + m);
+}
+
+static void run_mcmc_sampler(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto sampler = build_and_sample(target, c["construct"], datasets);
+        mcmc::MCMCResults results(*sampler);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            check_value(dispatch_mcmc(*sampler, results, method, args), as, where);
+        }
+    }
+}
+
+// --- bootstrap path ----------------------------------------------------------------------
+//
+// One bootstrap run per case (mirrors mcmc_sampler's single-stateful-glue-call contract): build
+// the model via the registry, configure (replicates/seed/max_retries), run() or
+// run_with_studentized_bootstrap() ONCE, then get_confidence_intervals() ONCE with the case's
+// ci_method/alpha; every assertion in the case reads that single cached (bootstrap, results)
+// pair. See fixtures/README.md's bootstrap schema.
+
+static bfsamp::BootstrapCIMethod parse_ci_method(const std::string& s) {
+    if (s == "Percentile") return bfsamp::BootstrapCIMethod::Percentile;
+    if (s == "BiasCorrected") return bfsamp::BootstrapCIMethod::BiasCorrected;
+    if (s == "BCa") return bfsamp::BootstrapCIMethod::BCa;
+    if (s == "Normal") return bfsamp::BootstrapCIMethod::Normal;
+    if (s == "BootstrapT") return bfsamp::BootstrapCIMethod::BootstrapT;
+    throw std::runtime_error("unknown bootstrap ci_method: " + s);
+}
+
+struct BootstrapCase {
+    bfsamp::Bootstrap<std::vector<double>> boot;
+    bfsamp::BootstrapResults results;
+};
+
+static BootstrapCase build_and_run_bootstrap(const json& construct, const json& datasets) {
+    std::string model_name = construct["model"].get<std::string>();
+    double mu = construct.value("mu", 0.0);
+    double sigma = construct.value("sigma", 0.0);
+    int sample_size = construct.value("sample_size", 0);
+    std::vector<double> probabilities;
+    for (const auto& v : construct["probabilities"]) probabilities.push_back(parse_num(v));
+    std::vector<double> sample_data;
+    if (construct.contains("dataset"))
+        for (const auto& v : datasets[construct["dataset"].get<std::string>()]) sample_data.push_back(parse_num(v));
+
+    auto boot = bfsamp::build_bootstrap_model(model_name, mu, sigma, sample_size, probabilities, sample_data);
+    if (construct.contains("replicates")) boot.replicates = construct["replicates"].get<int>();
+    if (construct.contains("seed")) boot.prng_seed = construct["seed"].get<int>();
+    if (construct.contains("max_retries")) boot.max_retries = construct["max_retries"].get<int>();
+
+    std::string run = construct.value("run", "regular");
+    if (run == "regular")
+        boot.run();
+    else if (run == "studentized")
+        boot.run_with_studentized_bootstrap();
+    else
+        throw std::runtime_error("unknown bootstrap run kind: " + run);
+
+    auto method = parse_ci_method(construct["ci_method"].get<std::string>());
+    double alpha = construct.value("alpha", 0.1);
+    bfsamp::BootstrapResults results = boot.get_confidence_intervals(method, alpha);
+
+    return BootstrapCase{std::move(boot), std::move(results)};
+}
+
+static double dispatch_bootstrap(const BootstrapCase& bc, const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    if (m == "statistic_lower_ci") return bc.results.statistic_results[idx(0)].lower_ci;
+    if (m == "statistic_upper_ci") return bc.results.statistic_results[idx(0)].upper_ci;
+    if (m == "parameter_lower_ci") return bc.results.parameter_results[idx(0)].lower_ci;
+    if (m == "parameter_upper_ci") return bc.results.parameter_results[idx(0)].upper_ci;
+    if (m == "population_estimate") return bc.results.parameter_results[idx(0)].population_estimate;
+    if (m == "valid_count") return bc.results.statistic_results[idx(0)].valid_count;
+    if (m == "replicate_value") return bc.boot.bootstrap_parameter_sets()[idx(0)].values[idx(1)];
+    throw std::runtime_error("unknown bootstrap fixture method: " + m);
+}
+
+static void run_bootstrap(const json& spec) {
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        auto bc = build_and_run_bootstrap(c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = "Bootstrap/" + name + "/" + method;
+            check_value(dispatch_bootstrap(bc, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -901,6 +1565,10 @@ int main(int argc, char** argv) {
             run_multivariate(spec);
         } else if (kind == "bivariate_copula") {
             run_bivariate_copula(spec);
+        } else if (kind == "mcmc_sampler") {
+            run_mcmc_sampler(spec);
+        } else if (kind == "bootstrap") {
+            run_bootstrap(spec);
         }
     }
     if (files == 0) {

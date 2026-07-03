@@ -71,4 +71,10 @@ PYBIND11_MODULE(_core, m) {
 
     // Quasi-random sampling (Sobol sequence).
     register_sobol(m);
+
+    // MCMC sampling (model registry + RWMH).
+    register_mcmc(m);
+
+    // Bootstrap sampling (model registry + regular/studentized runs).
+    register_bootstrap(m);
 }

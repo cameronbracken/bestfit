@@ -49,6 +49,20 @@ copulas (Clayton, AliMikhailHaq, Frank, Gumbel, Joe, Normal, StudentT), the shar
 `BivariateCopula`/`ArchimedeanCopula` base classes, `BivariateCopulaEstimation` (tau/MPL/IFM/MLE
 fits), the `IMaximumLikelihoodEstimation` mixin, and the copula factory.
 
+`core/include/bestfit/numerics/sampling/mcmc/` holds the MCMC subsystem: `mcmc_sampler.hpp` (the
+shared base -- seeding cascade, chain initialization incl. the MAP/DE/Hessian path, the serial
+`sample()` driver), all 8 concrete samplers (`rwmh.hpp`, `arwmh.hpp`, `demcz.hpp`, `demczs.hpp`,
+`hmc.hpp`, `nuts.hpp`, `gibbs.hpp`, `snis.hpp`), `model_registry.hpp` (the bestfit-addition model
+registry the fixtures build against), and the diagnostics/results support headers (Gelman-Rubin
+R-hat, ESS, `MCMCResults`/`MCMCDiagnostics`). `core/include/bestfit/numerics/sampling/bootstrap/`
+holds the regular (non-pivotal) `Bootstrap<TData>` port -- `Run`/`RunDoubleBootstrap`/
+`RunWithStudentizedBootstrap`, the five `GetConfidenceIntervals` methods, and its own model
+registry (the covariance-aware pivotal workflow is a documented omission, tracked as a separate
+severable follow-up -- see the file header). `core/include/bestfit/numerics/math/optimization/`
+holds `ParameterSet`, `Optimizer` (the shared base every optimizer -- currently
+DifferentialEvolution -- builds on), and
+`DifferentialEvolution` itself, the global optimizer the MCMC MAP-initialization path depends on.
+
 ## Build & test commands
 
 ```bash
@@ -115,12 +129,18 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, and Phase 2 are **complete**. Phase 1 delivered the full Numerics math/RNG
-foundation plus all 42 univariate distributions; CI is green on 3 platforms for that merge. Phase
-2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
+Phase 0, Phase 1, Phase 2, and Phase 3 are **complete**. Phase 1 delivered the full Numerics
+math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for that
+merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
 copulas with shared estimation (tau/MPL/IFM/MLE) and an `IMaximumLikelihoodEstimation` mixin; and
-CompetingRisks' correlated dependency modes un-deferred from Phase 1. Everything is ported,
-fixture-validated in C++/R/Python, and reproduced against the real Numerics library by the dotnet
-oracle gate. Pending: CI run and PR for the Phase 2 branch. Next: Phase 3 (sampling/MCMC +
-bootstrap). See `PLAN.md`.
+CompetingRisks' correlated dependency modes un-deferred from Phase 1. Phase 3 delivered
+Sampling/MCMC -- all 8 samplers (RWMH, ARWMH, DEMCz, DEMCzs, HMC, NUTS, Gibbs, SNIS) on the shared
+`MCMCSampler` base plus diagnostics/results (Gelman-Rubin R-hat, ESS) and the DifferentialEvolution
+optimizer stack the MAP-initialization path needs -- and the regular (non-pivotal) Bootstrap
+workflow (Percentile/BiasCorrected/BCa/Normal/BootstrapT); the covariance-aware pivotal bootstrap
+was scoped as the phase's severable final task and is tracked separately rather than landing on
+this branch. Everything ported through Phase 3 is fixture-validated in C++/R/Python and reproduced
+against the real Numerics library by the dotnet oracle gate; seeded MCMC chains and bootstrap
+replicate streams are proven bit-identical across R and Python via `short_exact`-style digest
+fixtures. Pending: CI run and PR for the Phase 3 branch. See `PLAN.md`.

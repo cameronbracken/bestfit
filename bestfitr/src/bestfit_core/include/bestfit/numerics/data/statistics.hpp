@@ -2,19 +2,66 @@
 //
 // Sample statistics needed by distribution estimation: product moments
 // (mean, stdev, bias-corrected skew & excess kurtosis), linear (L-)moments, and
-// rank statistics (ranks_in_place, which Correlation::spearman consumes).
+// rank statistics (ranks_in_place, which Correlation::spearman consumes). Phase 3 adds
+// `percentile` (~line 544), the single-`k` overload only -- its zero-based linear-
+// interpolation convention (R `quantile()` Type 7) is the oracle for MCMC posterior
+// median/credible-interval reporting.
 //
 // ranks_in_place ports only the single-return-value RanksInPlace(double[]) overload
 // (exact-equality tie runs); the RanksInPlace(double[], out ties) overload (tolerance-
 // based ties via AlmostEquals, returning a tie-count array) is omitted -- no caller
-// ported so far needs the tie-count output.
+// ported so far needs the tie-count output. The `Percentile(IList<double>, IList<double>
+// k, bool)` array overload and `FiveNumberSummary`/`SevenNumberSummary` are omitted too --
+// each caller ported so far needs only single-`k` calls; add them if a later target does.
+//
+// P3.3 adds `mean()`, the plain `Statistics.Mean(IList<double>)` overload -- distinct from
+// product_moments()'s internal mean, which requires N>=4 and returns NaN below that floor.
+// Fourier::autocorrelation (math/fourier/fourier.hpp) needs a mean with no minimum-sample-
+// size requirement, matching the C# call site (`Statistics.Mean(series)`, not
+// `Statistics.ProductMoments`). ParallelMean and the other overloads are not ported.
+//
+// P3.10 adds `variance()`/`standard_deviation()`, the plain `Statistics.Variance(IList
+// <double>)`/`StandardDeviation(IList<double>)` overloads (N-1 Bessel-corrected sample
+// variance via the same running-difference recurrence as the C# source, distinct from
+// `product_moments()`'s internal stdev which requires N>=4) -- Bootstrap's SE/CI computation
+// needs a 2-sample-minimum variance with no such floor. `PopulationVariance`/
+// `PopulationStandardDeviation` (N normalizer) are not ported -- no caller needs them yet.
 #pragma once
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace bestfit::numerics::data {
+
+// Computes the arithmetic sample mean. Returns NaN for an empty sequence (mirrors
+// Statistics.Mean's `IList<double>` overload).
+inline double mean(const std::vector<double>& data) {
+    if (data.empty()) return std::numeric_limits<double>::quiet_NaN();
+    double sum = 0.0;
+    for (double x : data) sum += x;
+    return sum / static_cast<double>(data.size());
+}
+
+// Estimates the unbiased sample variance (N-1 normalizer / Bessel's correction) via the same
+// running-difference recurrence as C# Statistics.Variance. Returns NaN for fewer than two
+// entries.
+inline double variance(const std::vector<double>& data) {
+    if (data.size() <= 1) return std::numeric_limits<double>::quiet_NaN();
+    double variance_ = 0.0;
+    double t = data[0];
+    for (std::size_t i = 1; i < data.size(); ++i) {
+        double di = static_cast<double>(i);
+        t += data[i];
+        double diff = (di + 1.0) * data[i] - t;
+        variance_ += diff * diff / ((di + 1.0) * di);
+    }
+    return variance_ / (static_cast<double>(data.size()) - 1.0);
+}
+
+// Sample standard deviation (sqrt of `variance`). Mirrors Statistics.StandardDeviation.
+inline double standard_deviation(const std::vector<double>& data) { return std::sqrt(variance(data)); }
 
 // Returns {mean, stdev (sample), bias-corrected skewness, bias-corrected excess kurtosis}.
 inline std::vector<double> product_moments(const std::vector<double>& data) {
@@ -111,6 +158,35 @@ inline std::vector<double> ranks_in_place(const std::vector<double>& data) {
     ranks_ties(previous_index, n);
 
     return ranks;
+}
+
+// Returns the k-th percentile of `data` (k in [0, 1]) using zero-based linear
+// interpolation (R `quantile()` Type 7). If `data_is_sorted` is false (the default), a
+// sorted copy is taken first; pass true when `data` is already sorted to skip the copy.
+inline double percentile(const std::vector<double>& data, double k, bool data_is_sorted = false) {
+    int n = static_cast<int>(data.size());
+    if (n == 0) throw std::invalid_argument("Sequence contains no elements.");
+    if (k < 0.0 || k > 1.0) throw std::out_of_range("k must be in [0,1].");
+
+    std::vector<double> sorted_copy;
+    const std::vector<double>* sorted = &data;
+    if (!data_is_sorted) {
+        sorted_copy = data;
+        std::sort(sorted_copy.begin(), sorted_copy.end());
+        sorted = &sorted_copy;
+    }
+
+    // Trivial cases
+    if (n == 1 || k == 0.0) return (*sorted)[0];
+    if (k == 1.0) return (*sorted)[static_cast<std::size_t>(n - 1)];
+
+    // Zero-based linear interpolation (Type 7)
+    double h = (n - 1) * k;
+    int lower = static_cast<int>(std::floor(h));
+    int upper = static_cast<int>(std::ceil(h));
+    double w = h - lower;
+    return (*sorted)[static_cast<std::size_t>(lower)] +
+           w * ((*sorted)[static_cast<std::size_t>(upper)] - (*sorted)[static_cast<std::size_t>(lower)]);
 }
 
 }  // namespace bestfit::numerics::data
