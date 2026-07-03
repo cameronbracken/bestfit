@@ -531,6 +531,102 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested C# fix:** delete the unused `inititals` line (and fix the typo if a future
   version does end up needing this midpoint vector for something).
 
+## CONSISTENCY — SNIS sorts its resampling list by `Fitness`, not the `Weight` the surrounding comment/CDF describe; tied `-Infinity` fitness makes the sort order itself unstable across runtimes
+
+- **Where:** `Numerics/Sampling/MCMC/SNIS.cs`, `Sample()`:
+  `MarkovChains[0].Sort((x, y) => x.Fitness.CompareTo(y.Fitness));` and the CDF-construction loop
+  immediately below it.
+- **What:** two related issues at the same call site.
+  1. **Sort key mismatch.** The line directly above the sort reads `// Sort list in ascending
+     order of posterior weights`, and the very next lines build a CDF by accumulating
+     `Math.Max(0.0, MarkovChains[0][i].Weight)` -- i.e. the algorithm's intent, and its
+     correctness, depend on the list being sorted by `Weight` (the just-computed normalized
+     posterior weight). The comparator actually sorts by `Fitness` (the raw, un-normalized
+     log-likelihood/importance weight computed earlier in `Sample()`). For **naive Monte Carlo**
+     (no importance distribution supplied), `Weight` and `Fitness` are numerically identical at
+     the point of the sort (`weight = logLH` with no `mvn.LogPDF` correction), so this is
+     unobservable. **With** an importance distribution (`Weight = Fitness -
+     mvn.LogPDF(parameters)`), the two orderings genuinely differ -- the CDF is still
+     mathematically valid either way (both `Sort` and the CDF loop iterate the SAME sorted list,
+     so `Search.Sequential`'s binary-search precondition -- an ascending CDF -- still holds
+     regardless of which key produced the ordering), but the specific `Output[0][i]` a given
+     `rndOut[i]` plotting position resolves to differs from what sorting by `Weight` would
+     produce.
+  2. **Sort-tie instability.** `List<T>.Sort` is .NET's unstable introspective sort. Any model
+     with a non-trivial fraction of `-Infinity`-fitness draws (common for a naive/wide-prior SNIS
+     configuration, since `LogLikelihood` easily underflows for implausible parameter draws) has
+     MANY tied elements at the bottom of the sort. An unstable sort is free to place those tied
+     elements in ANY relative order -- which specific `-Infinity` draw lands at output index 0 vs.
+     1 vs. ... is not determined by the algorithm's contract, only by the sort implementation's
+     internal pivot/partition choices.
+- **Evidence (reproduced against the real C# library):** the `fixtures/sampling/mcmc/snis.json`
+  fixture's first authoring attempt anchored `chain_value` digest assertions to
+  `MarkovChains[0]` indices `[0, 1, 2, 3, 4]` (the natural "first few" choice, matching every
+  other MCMC fixture's convention). Every one of those `chain_value` assertions FAILED to
+  reproduce against this port's `std::stable_sort`-based C++ (`ctest`'s `test_fixtures`), while
+  the corresponding `chain_fitness` assertions (`-Infinity == -Infinity`, order-insensitive by
+  construction) PASSED. The `normal_short_exact` case (100 naive-Monte-Carlo draws, wide Uniform
+  priors from `Normal().GetParameterConstraints`) has 12 of 100 draws at exactly `-Infinity`
+  fitness; the `normal_rstan` case (100000 draws, `Initialize = MAP` concentrating the importance
+  distribution near the posterior mode) has only 3 of 100000. Re-anchoring the digest to the
+  UNTIED, strictly-monotonic-fitness tail (the top 5 indices of each sorted list) reproduces
+  cleanly (`normal_rstan` chain companions to ~1e-8 relative via the MAP/DE/Hessian path, per the
+  usual P3.5 tolerance policy; `normal_short_exact`'s naive-Monte-Carlo companions to ~1e-15
+  relative).
+- **Port handling:** both aspects mirrored faithfully, not fixed -- `snis.hpp`'s `sample()` sorts
+  by `.fitness` (not `.weight`), exactly matching the C# comparator's actual (not commented)
+  behavior, using `std::stable_sort` (this port's usual convention for reproducing an unstable C#
+  `List<T>.Sort`'s comparator -- see `mcmc_sampler.hpp`'s own `stable_sort` note for the same
+  precedent in `InitializeChains()`). `stable_sort` does NOT make the two languages' outputs
+  agree on tied-element ordering (a stable sort's tie-breaking is "preserve original order",
+  which is only meaningful if BOTH languages process elements in the same original order AND use
+  a stable sort -- true for C++ here, false for C#'s `List<T>.Sort`). `fixtures/README.md`'s
+  SNIS tolerance-policy section documents the resulting draw-index hazard for future fixture
+  authors.
+- **Suggested C# fix:** for (1), either fix the comment to describe what the code does (sort by
+  `Fitness`) or change the comparator to `x.Weight.CompareTo(y.Weight)` to match the comment and
+  the CDF loop's own variable name -- these are NOT equivalent when an importance distribution is
+  supplied, so this is a real behavioral choice, not just a comment fix, and should be resolved
+  with the library's intent for how the resampled `Output` list should be ordered/weighted. For
+  (2), switch to a stable sort (`OrderBy(x => x.Fitness).ToList()` or an explicit stable
+  merge-sort) if bit-reproducible resampling across runs/platforms is a design goal; otherwise
+  document that `Output`'s specific draw-to-plotting-position mapping is order-nondeterministic
+  whenever tied fitness values occur.
+
+## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2`
+
+- **Where:** `Numerics/Sampling/MCMC/Test_Gibbs.cs`, `Test_Gibbs_NormalDist_RStan`'s local
+  `proposal` closure: `double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));` (the test's
+  own inline proposal function -- there is no shared library implementation of this conjugate
+  update; `Gibbs.cs` itself only calls whatever `Proposal` delegate the caller supplies).
+- **What:** the standard closed-form posterior mean for a Normal likelihood with known variance
+  `sigma^2` and a Normal(`mu0`, `sigma0^2`) conjugate prior on the mean is `mu_n = (n * xbar /
+  sigma^2 + mu0 / sigma0^2) / (n / sigma^2 + 1 / sigma0^2)`. The test's formula instead computes
+  `mun = (n * mu + mu0 / 2) / (n + 1 / sigma0^2)` -- it (a) omits the `/ sigma^2` scaling on the
+  `n * xbar` numerator term and the `n` denominator term entirely (the companion `sigma2` line
+  just above it DOES correctly compute the analogous posterior-variance formula, `sigma2 =
+  x[1]^2 / (n + x[1]^2 / sigma0^2)`, so the omission is specific to the mean formula, not a
+  wholesale simplification), and (b) uses `mu0 / 2` where the textbook formula has `mu0 /
+  sigma0^2`. Because the test's own data uses `mu0 = 0`, term (b) vanishes identically regardless
+  of which coefficient multiplies it, and because `sigma0 = 5e5` is enormous, `1 / sigma0^2 ~
+  4e-12` is negligible next to `n = 48` in the denominator either way -- so the test's rstan
+  comparison (which only checks the RESULTING posterior summary statistics to 5% tolerance, not
+  the formula's algebraic form) cannot distinguish this transcription from the textbook one; both
+  degenerate to `mun ~ mu` (the sample mean) in this near-noninformative-prior limit. This is
+  therefore unverified/unverifiable from the test alone whether it's a genuine library bug or an
+  intentional simplification for this specific (`mu0 = 0`) worked example -- flagged as
+  CONSISTENCY rather than BUG for that reason.
+- **Port handling:** transcribed verbatim into `model_registry.hpp`'s `"normal_conjugate_gibbs"`
+  proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 / (sigma0 * sigma0));`) -- this
+  is the oracle-governing rule (C# source, including this specific test's inline formula, governs
+  over what a textbook derivation "should" say), and the `gibbs.json` fixture's curated
+  `chain_value` digests (draws 0-4, including the mutated-prior-path draws >= 1) reproduce this
+  exact formula bit-for-bit against the real C# library at `rel: 1e-12`.
+- **Suggested action:** if a future caller of this conjugate-Gibbs pattern uses a non-zero
+  `mu0`, re-derive/re-verify the formula against the textbook conjugate-Normal update before
+  reusing this test's `proposal` closure as a template -- the `mu0 / 2` coefficient will NOT
+  degenerate away in that case and would materially bias the posterior mean draws.
+
 ---
 
 ## How to work this list later

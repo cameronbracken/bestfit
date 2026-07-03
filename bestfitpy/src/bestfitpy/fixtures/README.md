@@ -295,8 +295,9 @@ companion case is sufficient to lock that branch; it does not need repeating per
 
 ```jsonc
 {
-  "target":  "RWMH",                        // the concrete sampler type (extensible: ARWMH/
-                                             // DEMCz/DEMCzs/HMC/NUTS/Gibbs/SNIS in later tasks)
+  "target":  "RWMH",                        // the concrete sampler type: RWMH/ARWMH/Gibbs/SNIS
+                                             // today (P3.5/P3.6); DEMCz/DEMCzs/HMC/NUTS in
+                                             // later tasks
   "kind":    "mcmc_sampler",
   "source":  "Numerics/Sampling/MCMC/RWMH.cs ; Test_Numerics/Sampling/MCMC/Test_RWMH.cs",
   "datasets": { "tippecanoe": [ ...48 numbers... ] },
@@ -327,24 +328,60 @@ nothing to batch, since there is only ever one run).
 
 **Model registry** (`core/include/bestfit/numerics/sampling/mcmc/model_registry.hpp`): a **bestfit
 addition** with no upstream C# counterpart -- the C# equivalent is inline model-construction code
-that lives only inside `Test_RWMH.cs`, not in the library. `construct.model` is `{"name": <registry
-key>, "family": <univariate distribution type name>, "dataset": <dataset name>}`. The registry is
-**closed**; today it has one entry:
+that lives only inside the individual `Test_*.cs` files, not in the library. `construct.model` is
+`{"name": <registry key>, "family": <univariate distribution type name>, "dataset": <dataset
+name>}`. The registry is **closed**; today it has two entries:
 
 - `"uniform_constraints"`: uninformative Uniform priors bounded by `family`'s own
   `IMaximumLikelihoodEstimation.GetParameterConstraints(data)` lower/upper arrays, and a
   log-likelihood closure `params -> new <family>(params).LogLikelihood(data)` -- transcribed
-  verbatim from `Test_RWMH_NormalDist_RStan`. (A `"normal_conjugate_gibbs"` entry arrives with the
-  Gibbs sampler task.)
+  verbatim from `Test_RWMH_NormalDist_RStan` and family-generic from the start (any
+  `IMaximumLikelihoodEstimation`-capable `family`, not just `"Normal"`; ARWMH's rstan cases use
+  `"Logistic"`/`"Gumbel"`/`"Weibull"` too). The C# oracle emitter's own `BuildMcmcModel` was
+  originally hard-coded to `"Normal"` only (P3.5); P3.6 generalized it via
+  `UnivariateDistributionFactory.CreateDistribution(Enum.Parse<UnivariateDistributionType>(family))`
+  + a `IMaximumLikelihoodEstimation` cast, matching the C++ registry's approach, so `--dump`
+  curation works for every family this schema references.
+- `"normal_conjugate_gibbs"`: a conjugate Normal(mean)-InverseGamma(variance) model, transcribed
+  VERBATIM from `Test_Gibbs_NormalDist_RStan` (`family` must be `"Normal"`; the conjugate math is
+  Normal-InverseGamma-specific, not family-generic). `McmcModel` gains a third member,
+  `proposal` (a `Gibbs::Proposal` closure; empty/falsy for every other registry entry). The
+  proposal closure captures the SAME `shared_ptr<Normal>`/`shared_ptr<InverseGamma>` prior
+  objects also held in `priors` -- see the header comment for why `shared_ptr` (not
+  `unique_ptr`) backs `McmcModel::priors`: `Gibbs::Proposal` is a `std::function`, which requires
+  its captured state to be copy-constructible, something a `unique_ptr` capture cannot satisfy.
+  `SetParameters`/`set_parameters` inside the closure mutates the shared prior instance in place
+  every call, exactly mirroring the C# closure's `muPrior.SetParameters(...)`/
+  `sigmaPrior.SetParameters(...)` reference-type mutation -- see
+  `docs/upstream-csharp-issues.md` for a note on the closure's `mu0 / 2` term (transcribed
+  verbatim; unobservable in this fixture's `mu0 = 0` test data, but not the textbook
+  conjugate-Normal-update formula).
 
 `construct.settings` holds only **non-default** sampler settings (every key optional):
 `initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"`), `prng_seed`, `initial_iterations`,
 `warmup_iterations`, `iterations`, `number_of_chains`, `thinning_interval`, `output_length` (all
-integers, applied via the reset-triggering setters in that order), and `proposal_sigma`
+integers, applied via the reset-triggering setters in that order), `proposal_sigma`
 (RWMH-specific; a *sentinel string*, not a literal matrix, since every current case only needs a
 zero or identity matrix): `"zeros"` is the literal `Matrix(D)` the C# `Test_RWMH_NormalDist_RStan`
 test constructs; `"identity"` is the `D x D` identity matrix and has **no upstream literal
 counterpart** -- see the divergence note below. Omitting `proposal_sigma` also defaults to zeros.
+And `scale`/`beta` (ARWMH-specific doubles; override the ctor-computed defaults `Scale = 2.38^2 /
+D` and `Beta = 0.05`) -- none of the ARWMH rstan cases below override them (the C# tests don't
+either), but the `normal_short_exact` case does, to exercise both the JSON-settings wiring itself
+and (with `beta: 0.0` forcing the identity-covariance-vs-adaptive-covariance branch to be decided
+purely by the `100 * NumberOfParameters` sample-count threshold, never by the Beta-test draw) the
+adaptive-covariance (`RunningCovarianceMatrix`-scaled) proposal branch, which the rstan cases only
+reach implicitly after their first `100 * D` samples.
+
+Gibbs and SNIS force several settings in their own constructors (mirroring the C# ctors, which
+write the PROTECTED backing fields directly and call `Reset()` once, rather than going through
+the public reset()-triggering setters -- see `gibbs.hpp`/`snis.hpp`'s file headers): Gibbs forces
+`NumberOfChains = 1`, `WarmupIterations = 1`, `ThinningInterval = 1`, `InitialIterations = 1`,
+`Iterations = 100000`, `OutputLength = 10000`; SNIS forces the same except `WarmupIterations = 0`.
+These are ordinary defaults, not permanently enforced settings -- `construct.settings` can still
+override them afterward via the normal setters (both fixtures' `*_short_exact` cases do, trimming
+`iterations`/`output_length` down to 100 for a fast digest -- SNIS's own `ValidateSettings`
+requires `Iterations >= OutputLength >= 100`, which 100/100 satisfies).
 
 **Divergence note -- `"zeros"` + `Randomize` throws (verified against the real C# library):** a
 `Randomize`-initialized RWMH sampler with an all-zero `proposal_sigma` throws on its very first
@@ -370,7 +407,16 @@ Assertion methods (0-based indices throughout):
 - `posterior_mean|posterior_sd|posterior_median|posterior_lower_ci|posterior_upper_ci [p]` --
   `MCMCResults.ParameterResults[p].SummaryStatistics.{Mean,StandardDeviation,Median,LowerCI,UpperCI}`.
 - `chain_value [chain, draw, p]` -- `MarkovChains[chain][draw].Values[p]` (the raw, un-thinned-
-  again per-iteration chain state -- `MarkovChains` already reflects `ThinningInterval`).
+  again per-iteration chain state -- `MarkovChains` already reflects `ThinningInterval`). **SNIS
+  exception:** SNIS's `MarkovChains[0]` is not time-ordered at all -- `Sample()` records every
+  draw into it independently (no accept/reject, no chain dynamics), then SORTS the ENTIRE list by
+  `Fitness` ascending as part of computing the resampling CDF (see `Sample()`'s own docstring on
+  this "ascending order of posterior weights" comment being misleading -- it actually sorts by
+  `Fitness`, not `Weight`; logged as a finding in `docs/upstream-csharp-issues.md`), so `draw` here
+  indexes into that POST-SORT array, not draw order. `Output` (the resampled posterior list
+  `posterior_mean`/etc. above read via `MCMCResults`) is a SEPARATE, further-resampled collection
+  with no directly exposed per-index accessor in this schema; the digest/rstan cases in
+  `snis.json` therefore assert on `MarkovChains[0]` (documented explicitly in-fixture).
 - `chain_fitness [chain, draw]` -- `MarkovChains[chain][draw].Fitness`.
 - `map_value [p]` -- `MCMCResults.MAP.Values[p]`.
 - `map_fitness []` -- `MCMCResults.MAP.Fitness`. See the MAP-fitness-sign-quirk note in
@@ -408,6 +454,66 @@ Assertion methods (0-based indices throughout):
   `ess` use `tol: 1e-9`, and `acceptance_rate` (an exact ratio of small integers, since both
   languages consume the identical PRNG stream and therefore make identical accept/reject decisions)
   uses `mode: "equal"`.
+
+**Tolerance policy for the four ARWMH rstan cases + `normal_short_exact`** (`arwmh.json`): unlike
+RWMH's `normal_rstan`, NONE of `Test_ARWMH.cs`'s four rstan tests set `Initialize = MAP` -- they
+all use the default `Initialize = Randomize`, so there is no `DifferentialEvolution`/Hessian/
+Fisher-information machinery anywhere on these paths (per the P3.5 TOLERANCE POLICY REFINEMENT:
+Randomize-init chain companions get the TRUE `rel: 1e-12` digest, not `1e-5`). Each of
+`normal_rstan`/`logistic_rstan`/`gumbel_rstan` asserts its 10 rstan literals at `mode: "rel", tol:
+0.05` (mean/sd/5%/50%/95% for both parameters) EXACTLY as the C# test asserts, plus curated
+`chain_value`/`chain_fitness` companions (first 5 draws x 4 chains x 2 params) at `mode: "rel",
+tol: 1e-12` and `acceptance_rate` at `mode: "equal"` (both languages consume the identical PRNG
+stream end to end, so this is an exact ratio of small integers, not merely close). `weibull_rstan`
+is identical except `settings.iterations = 20000` (`Test_ARWMH_WeibullDist_RStan`'s own comment:
+"Requires much more sample to converge for this distribution") and `mode: "rel", tol: 0.10` on the
+10 rstan literals, EXACTLY matching the C# test's own `0.1 *` tolerance multiplier (do not use
+`0.05` here). `normal_short_exact` trims `iterations`/`warmup_iterations`/`thinning_interval` to
+100/10/1 and additionally overrides `scale: 1.0, beta: 0.0` (see the settings section above) --
+dense `chain_value`/`chain_fitness` digests (first 5 + last draw per chain, both params) at `mode:
+"rel", tol: 1e-12`, `map_value`/`mean_log_likelihood`/`rhat`/`ess` at `tol: 1e-9`, and
+`acceptance_rate` at `mode: "equal"`.
+
+**Tolerance policy for the two Gibbs cases** (`gibbs.json`): `normal_rstan` (default settings,
+transcribed from `Test_Gibbs_NormalDist_RStan`) asserts its 10 rstan literals at `mode: "rel",
+tol: 0.05`, plus curated `chain_value`/`chain_fitness` digests at draws 0-4 (INCLUDING draw >= 1,
+the mutated-prior path -- see the model-registry section above) at `mode: "rel", tol: 1e-12`
+(Gibbs has no `DifferentialEvolution`/MAP path at all -- every draw is a plain conjugate-posterior
+sample, so the whole run is bit-reproducible). `acceptance_rate` is asserted at `mode: "equal",
+expected: 0.0`: Gibbs's `ChainIteration` never touches `AcceptCount`/`SampleCount` (see
+`gibbs.hpp`'s file header -- "a Gibbs draw from the full conditional is always accepted", so there
+is no accept/reject step to count at all; this is an intentional invariant, not an unexercised
+default). `normal_short_exact` overrides `settings.iterations = 100, output_length = 100` (Gibbs's
+ctor forces `Iterations = 100000`, but nothing prevents a caller overriding it afterward via the
+ordinary setters -- see the settings section above) with the same dense digest + `mode: "equal"`
+acceptance-rate pattern.
+
+**Tolerance policy for the two SNIS cases** (`snis.json`): `normal_rstan` (`prng_seed: 45678,
+initialize: "MAP"`, transcribed from `Test_SNIS_NormalDist_RStan`) asserts its 10 rstan literals
+at `mode: "rel", tol: 0.05`, plus (per the P3.5 TOLERANCE POLICY REFINEMENT for MAP-init cases)
+`chain_value`/`chain_fitness` companions at `mode: "rel", tol: 1e-5` and `map_value`/`map_fitness`
+at `tol: 1e-4`. **Draw-index hazard (new, this task):** the companion draws are deliberately the
+TOP five indices of the 100000-length `MarkovChains[0]` (`99995`-`99999`), not the first five. A
+first attempt at this fixture used the natural-looking `[0, 1, 2, 3, 4]` and every `chain_value`
+assertion in that range FAILED to reproduce against the C++ port (while `chain_fitness` passed) --
+diagnosed as a genuine cross-language sort-stability divergence, not a transcription bug: this
+model's wide, uninformative Uniform priors make MANY draws' log-likelihood underflow to exactly
+`-Infinity` (`3` of `100000` in the rstan case, `12` of `100` in `normal_short_exact`), and those
+tied `-Infinity` entries cluster at the BOTTOM of the fitness-ascending sort. `List<T>.Sort` (C#,
+an unstable introspective sort) and `std::stable_sort` (this port -- see `snis.hpp`'s own
+SORT-COMPARATOR file-header note) are both free to place EQUAL elements in different relative
+order, so which specific tied `-Infinity` draw ends up at index 0 vs. index 1 vs. ... genuinely
+differs between the two languages, even though the SET of values at those indices (all
+`-Infinity`) is identical. `chain_fitness` assertions at those low indices still pass (`-Infinity
+== -Infinity` regardless of WHICH draw produced it), but a `chain_value` assertion pinned to a
+specific low index is not a safe cross-language digest. The untied, strictly-monotonic-fitness
+tail near the top of the sort (`chain_value` differs measurably between adjacent high indices --
+see the raw `--dump` output) has no such hazard; logged as a new finding in
+`docs/upstream-csharp-issues.md`. `normal_short_exact` (`Initialize = Randomize` -- the default;
+`settings.iterations = 100, output_length = 100`, the smallest legal `ValidateSettings` config
+per SNIS's own override) is naive Monte Carlo with no `DifferentialEvolution`/MAP machinery, so
+its `chain_value`/`chain_fitness` companions (top 5 of 100, indices `95`-`99`, for the identical
+tie-hazard reason above) use the TRUE `mode: "rel", tol: 1e-12` digest tolerance.
 
 **NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
 the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
