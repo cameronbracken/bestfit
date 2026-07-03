@@ -7,6 +7,7 @@
 // symmetry of the output, Cholesky-factorizability (the actual purpose of the method),
 // and near-identity to an already-SPD input given the tiny trace-scaled ridge.
 #include <cmath>
+#include <exception>
 
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"

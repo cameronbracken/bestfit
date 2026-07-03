@@ -24,6 +24,7 @@
 // `MedianFromVector` + `EigenValueDecomposition` together when that follow-up lands.
 #pragma once
 #include <cmath>
+#include <exception>
 
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
