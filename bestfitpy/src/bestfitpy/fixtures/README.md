@@ -358,9 +358,13 @@ name>}`. The registry is **closed**; today it has two entries:
   conjugate-Normal-update formula).
 
 `construct.settings` holds only **non-default** sampler settings (every key optional):
-`initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"`), `prng_seed`, `initial_iterations`,
-`warmup_iterations`, `iterations`, `number_of_chains`, `thinning_interval`, `output_length` (all
-integers, applied via the reset-triggering setters in that order), `proposal_sigma`
+`initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"` -- a plain field, does NOT trigger
+`reset()`), `prng_seed`, `initial_iterations`, `warmup_iterations`, `iterations`,
+`number_of_chains`, `thinning_interval` (all integers, applied via the `reset()`-triggering
+setters, in that order -- each setter's C# property (`PRNGSeed`/`InitialIterations`/
+`WarmupIterations`/`Iterations`/`NumberOfChains`/`ThinningInterval`) calls `Reset()` on assignment),
+`output_length` (int; also a plain field like `initialize` -- `OutputLength`'s C# property has no
+`Reset()` call, so setting it does not re-seed or re-initialize anything), `proposal_sigma`
 (RWMH-specific; a *sentinel string*, not a literal matrix, since every current case only needs a
 zero or identity matrix): `"zeros"` is the literal `Matrix(D)` the C# `Test_RWMH_NormalDist_RStan`
 test constructs; `"identity"` is the `D x D` identity matrix and has **no upstream literal
@@ -585,10 +589,13 @@ freezing it there for the life of the run, in BOTH languages identically) -- `mo
 used there instead of `"rel"` (a relative-tolerance check against an EXACT-zero expected value is
 undefined, `0/0`, not a looser check).
 
-**Tolerance policy for the two HMC cases** (`hmc.json`, P3.8): `normal_rstan` (`step_size: 2.5,
-steps: 10`, transcribed from `Test_HMC_NormalDist_RStan`, `Initialize = Randomize` -- the default)
-asserts its 10 rstan literals at `mode: "rel", tol: 0.05`, plus curated `chain_value`/
-`chain_fitness` companions at `mode: "rel", tol: 1e-9` -- **not** the RWMH/ARWMH/Gibbs/DEMCz(s)
+**Tolerance policy for the two HMC cases** (`hmc.json`, P3.8; `chain_value`/`chain_fitness`/
+`map_value` below all read from the general `mcmc_sampler` assertion-method list above --
+`MarkovChains[chain][draw].Values[p]`/`.Fitness` and `MCMCResults.MAP.Values[p]`): `normal_rstan`
+(`step_size: 2.5, steps: 10`, transcribed from `Test_HMC_NormalDist_RStan`, `Initialize =
+Randomize` -- the default) asserts its 10 rstan literals at `mode: "rel", tol: 0.05`, plus
+curated `chain_value`/`chain_fitness` companions at `mode: "rel", tol: 1e-9` -- **not** the
+RWMH/ARWMH/Gibbs/DEMCz(s)
 family's `1e-12`, and **only the first 3 draws** per chain (not 5): HMC's default gradient is a
 finite-difference approximation (`NumericalDerivative.Gradient`/`differentiation::gradient()`,
 P3.3), and every leapfrog step evaluates it -- each evaluation is itself several extra

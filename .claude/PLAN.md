@@ -1,6 +1,7 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0, Phase 1, and Phase 2 are **complete**.
+> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, and Phase 3 are
+> **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -19,9 +20,22 @@
 > C++/R/Python and reproduced against the real Numerics library by the dotnet oracle gate. Pending
 > CI run and PR.
 >
+> Phase 3 delivered Sampling/MCMC and Bootstrap. All 8 MCMC samplers (RWMH, ARWMH, DEMCz, DEMCzs,
+> HMC, NUTS, Gibbs, SNIS) plus the shared `MCMCSampler` base, model registry, and diagnostics/
+> results layer (Gelman-Rubin R-hat, ESS, MAP tracking); the DifferentialEvolution optimizer stack
+> (ParameterSet/Optimizer base/DE) the MAP-initialization path depends on; and the regular
+> (non-pivotal) Bootstrap workflow (`Run`/`RunDoubleBootstrap`/`RunWithStudentizedBootstrap`,
+> Percentile/BiasCorrected/BCa/Normal/BootstrapT confidence intervals). Fixture-validated in
+> C++/R/Python and reproduced against the real Numerics library by the dotnet oracle gate; seeded
+> MCMC chains and bootstrap replicate streams are proven bit-identical across R and Python via
+> `short_exact`-style digest fixtures (`rel: 1e-12`, measured ~1e-15). The covariance-aware
+> **pivotal** bootstrap workflow (`RunPivotalBootstrap` and its link-function/EVD/
+> MatrixRegularization support) was scoped as the phase's severable final task and is tracked
+> separately as a follow-up rather than landing on this branch. Pending CI run and PR.
+>
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
-> Linux/macOS/Windows as of the Phase 1 merge; the Phase 2 branch has not yet been pushed for CI.
-> The dotnet oracle gate is dev-only (not in CI).
+> Linux/macOS/Windows as of the Phase 1 merge; the Phase 2 and Phase 3 branches have not yet been
+> pushed for CI. The dotnet oracle gate is dev-only (not in CI).
 >
 > Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
 > USACE-RMC `main`, shallow, dev-only). Still pending: `PORTING_MANIFEST.toml`,

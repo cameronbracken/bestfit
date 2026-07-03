@@ -653,6 +653,76 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested C# fix:** route `LeapfrogInPlace` through `GradientFunction` too, so a custom gradient
   is honored everywhere the class claims to use "the" gradient function.
 
+## CONSISTENCY — `NextDoubles(length, dimension)` draws each column from its own fresh sub-`MersenneTwister`, not the caller's stream
+
+- **Where:** `Numerics/Utilities/ExtensionMethods.cs`, `NextDoubles(this Random random, int
+  length, int dimension)`.
+- **What:** the 1-D overload (`NextDoubles(this Random random, int length)`) draws `length`
+  values straight off the caller's own stream, as expected. The 2-D overload does something
+  different: for each of the `dimension` columns it draws exactly ONE value off the caller's
+  stream (`random.Next()`) to seed a brand-new `MersenneTwister` (or plain `Random`, if the
+  caller wasn't itself a `MersenneTwister`), then fills that entire column by advancing the
+  FRESH sub-generator's own stream `length` times. The caller's stream is therefore consumed at
+  a rate of exactly `dimension` draws total (one per column, to seed the sub-generators), not
+  `length * dimension` -- every actual random double returned comes from one of the `dimension`
+  independent sub-streams, never from the parent stream directly. This is a real behavioral
+  choice (not obviously a mistake -- it decorrelates columns even when the parent stream has a
+  short period or column-wise correlation), but it is easy to miss reading only the method
+  signature: a caller expecting "draw `length * dimension` numbers off my stream in row-major
+  order" (the naive reading `NextDouble()` in a nested loop would produce) gets a materially
+  different, though still uniform, output.
+- **Evidence:** direct code reading (`ExtensionMethods.cs` lines ~144-157); `Test_NextDoubles2D`
+  (`Test_Numerics/Utilities/Test_ExtensionMethods.cs`) only range-checks the output (`[0, 1)`
+  for every cell), so it does not itself distinguish this from the naive single-stream reading --
+  the sub-stream-per-column behavior was confirmed by tracing a seeded `MersenneTwister(12345)`
+  through both this method and a column-by-column reconstruction using `new
+  MersenneTwister(random.Next())` per column, which reproduce identically.
+- **Port handling:** transcribed exactly -- `extension_methods.hpp`'s `next_doubles(rng, n, dim)`
+  overload constructs one `bestfit::numerics::sampling::MersenneTwister sub(random.next())` per
+  column and fills that column from `sub`, in dimension order (see the header's file comment).
+  This pattern is load-bearing for `SNIS::sample()`, which calls
+  `_masterPRNG.NextDoubles(Iterations, NumberOfParameters)` once up front; `fixtures/special_
+  functions/extension_methods.json`'s `next_doubles_grid` cases lock the exact per-cell values
+  this produces from a known seed, independently of any MCMC sampler fixture.
+- **Suggested C# fix:** none required (working as designed) -- flagged purely as a
+  non-obvious-from-the-signature quirk for anyone reusing this overload outside the ported
+  call sites (SNIS is the only current consumer within this port's scope).
+
+## ROBUSTNESS — `Bootstrap.ComputeAccelerationConstants`'s `Tools.ParallelAdd` reduction is not bit-reproducible run-to-run
+
+- **Where:** `Numerics/Sampling/Bootstrap/Bootstrap.cs`, `ComputeAccelerationConstants` (its
+  `Parallel.For(0, N, idx => { ... Tools.ParallelAdd(ref I2[i], diff * diff); Tools.ParallelAdd
+  (ref I3[i], diff * diff * diff); ... })` loop), backed by `Numerics/Utilities/Tools.cs`'s
+  `ParallelAdd` (a CAS retry loop over `Interlocked.CompareExchange`).
+- **What:** `ParallelAdd` is a correct lock-free accumulator (no lost updates), but it does NOT
+  fix the ORDER in which concurrent jackknife-sample contributions land in `I2[i]`/`I3[i]` --
+  that order depends on the .NET thread pool's scheduling of the `Parallel.For` partitions, which
+  is not guaranteed deterministic across runs, machines, or core counts. Floating-point addition
+  is not associative, so a different accumulation order can (in general) produce a different
+  last-few-bits sum, even though every run adds the exact same set of addends. The resulting BCa
+  acceleration constant, and therefore the BCa confidence interval bounds, inherit this
+  run-to-run variability.
+- **Evidence (reproduced against the real C# library):** the oracle emitter's `--dump` output for
+  the `bca` bootstrap fixture case was captured across four independent runs of the SAME process
+  invocation, sequentially, on the development machine, and diffed byte-for-byte -- all four
+  runs were BIT-IDENTICAL (a low-core-count environment apparently schedules this small,
+  100-jackknife-sample `Parallel.For` deterministically in practice), i.e. the measured wobble
+  was exactly `0` on this machine, though the reduction remains order-dependent BY CONSTRUCTION
+  and a different core count/thread-pool configuration/.NET version could legitimately produce a
+  different summation order and a different last-few-bits result.
+- **Port handling:** this port replaces the `Parallel.For` + `Tools.ParallelAdd` pair with a
+  plain serial accumulation in jackknife-index order (see `bootstrap.hpp`'s file header BCa
+  HAZARD note and `compute_acceleration_constants`'s own comment) -- deterministic within the
+  C++ port, but not a bit-for-bit reproduction of C#'s reduction order. The `bca` fixture case's
+  CI-bound assertions therefore use a LOOSE `mode: "rel", tol: 1e-6` (three orders of magnitude
+  looser than every other CI method's `1e-9`), sized to the reduction's inherent
+  order-dependence rather than to any measured instability (which was zero on this machine) --
+  see `fixtures/README.md`'s `bootstrap` schema section for the full tolerance rationale.
+- **Suggested C# fix:** none required upstream for correctness (the CAS loop is race-free); if
+  bit-reproducible BCa intervals across runs/machines becomes a design goal, replace the
+  `Parallel.For`/`ParallelAdd` pair with a deterministic-order reduction (e.g. `Parallel.For`
+  into per-partition local accumulators, combined in a fixed final pass) or a plain serial loop.
+
 ---
 
 ## How to work this list later
