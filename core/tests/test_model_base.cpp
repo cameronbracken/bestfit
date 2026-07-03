@@ -18,6 +18,7 @@
 #include "bestfit/models/support/model_parameter.hpp"
 #include "bestfit/models/support/prior_component.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
+#include "bestfit/numerics/distributions/uniform.hpp"
 #include "check.hpp"
 
 using bestfit::models::DataComponent;
@@ -25,6 +26,7 @@ using bestfit::models::ModelBase;
 using bestfit::models::ModelParameter;
 using bestfit::models::PriorComponent;
 using bestfit::numerics::distributions::Normal;
+using bestfit::numerics::distributions::Uniform;
 
 namespace {
 
@@ -108,6 +110,24 @@ void test_prior_log_likelihood_wrong_length_is_negative_infinity() {
     CHECK_TRUE(result == -std::numeric_limits<double>::infinity());
 }
 
+void test_prior_log_likelihood_negative_infinity_on_nonfinite_prior_sum() {
+    // Drives prior_log_likelihood's OWN post-sum finite-guard (model_base.hpp:88), as opposed
+    // to the length-mismatch early return (model_base.hpp:82) or non-finiteness surfacing via
+    // data_log_likelihood (covered by test_log_likelihood_negative_infinity_on_nonfinite_data_ll
+    // below). Swap the sigma parameter's prior for a bounded Uniform(-1, 1): evaluating it at
+    // an in-support-length, out-of-bounds point (5.0) makes Uniform::pdf return 0.0, so
+    // log_pdf returns -inf (base class default: log_pdf returns -inf whenever pdf <= 0). The
+    // mu parameter's prior stays Normal(0, 10) and is evaluated at a finite, in-support point,
+    // so the -inf can only be coming from the prior sum itself, not any length check or the
+    // data likelihood (prior_log_likelihood never calls data_log_likelihood).
+    StubNormalModel model;
+    model.parameters()[1].set_prior_distribution(std::make_unique<Uniform>(-1.0, 1.0));
+    std::vector<double> p{0.0, 5.0};  // correct length: mu finite/in-bounds, sigma out-of-bounds
+
+    double result = model.prior_log_likelihood(p);
+    CHECK_TRUE(result == -std::numeric_limits<double>::infinity());
+}
+
 void test_log_likelihood_negative_infinity_on_nonfinite_data_ll() {
     StubNormalModel model;
     std::vector<double> p{2.5, -1.0};  // sigma <= 0 -> data_log_likelihood returns NaN
@@ -181,6 +201,7 @@ int main() {
     test_log_likelihood_equals_data_plus_prior();
     test_prior_log_likelihood_hand_summed();
     test_prior_log_likelihood_wrong_length_is_negative_infinity();
+    test_prior_log_likelihood_negative_infinity_on_nonfinite_prior_sum();
     test_log_likelihood_negative_infinity_on_nonfinite_data_ll();
     test_set_parameter_values_right_length_updates_values();
     test_set_parameter_values_wrong_length_throws();
