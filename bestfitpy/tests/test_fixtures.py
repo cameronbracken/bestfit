@@ -437,15 +437,14 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
 
 
 # --- model_estimation path -----------------------------------------------------------------
-# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run call per case
-# builds the model via the distribution factory, runs estimate() ONCE, and returns the full
-# result surface; every assertion in the case reads that single cached dict. See
-# fixtures/README.md's model_estimation section for the full method list, the WIRED-vs-T12
-# split, and the `bic` design note. `bic` is the one exception to the "cached dict" contract:
-# it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read live from the fixture's
-# `args[0]` at dispatch time via `_core.estimation_bic`, not precomputed alongside the rest.
-
-_ESTIMATION_DEFERRED_METHODS = ("correlation", "dic", "waic", "looic", "posterior_mean")
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run (ML/MAP) or
+# _core.estimation_bayes_run (BayesianAnalysis, T12) call per case builds the model, runs
+# estimate() ONCE, and returns the full result surface; every assertion in the case reads that
+# single cached dict. See fixtures/README.md's model_estimation section for the full method
+# list and the `bic`/`chain_value` design notes. `bic` is the one exception to the "cached
+# dict" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read
+# live from the fixture's `args[0]` at dispatch time via `_core.estimation_bic`, not
+# precomputed alongside the rest.
 
 
 def _dispatch_estimation(
@@ -463,16 +462,34 @@ def _dispatch_estimation(
         return result["covariance"][int(args[0])][int(args[1])]
     if method == "standard_error":
         return result["standard_errors"][int(args[0])]
-    if method in _ESTIMATION_DEFERRED_METHODS:
-        raise KeyError(f"model_estimation fixture method '{method}' is not yet wired (deferred to Task T12)")
+    if method == "correlation":
+        return result["correlation"][int(args[0])][int(args[1])]
+    if method == "dic":
+        return result["dic"]
+    if method == "waic":
+        return result["waic"]
+    if method == "looic":
+        return result["looic"]
+    if method == "posterior_mean":
+        return result["posterior_mean"][int(args[0])]
+    if method == "chain_value":
+        return result["chains"][int(args[0])][int(args[1])][int(args[2])]
     raise KeyError(f"unknown model_estimation fixture method: {method}")
 
 
 def _run_estimation_case(target: str, construct: dict, assertions: list, datasets: dict):
     model = construct["model"]
     data = [float(v) for v in datasets[model["dataset"]]]
-    optimizer = construct.get("optimizer", "DifferentialEvolution")
-    result = _core.estimation_run(target, model["family"], data, optimizer)
+
+    if target == "BayesianAnalysis":
+        sampler = construct.get("sampler", "DEMCzs")
+        settings = construct.get("settings", {})
+        result = _core.estimation_bayes_run(model["family"], data, sampler, settings)
+        optimizer = ""
+    else:
+        optimizer = construct.get("optimizer", "DifferentialEvolution")
+        result = _core.estimation_run(target, model["family"], data, optimizer)
+
     for a in assertions:
         args = a.get("args", [])
         actual = _dispatch_estimation(result, a["method"], args, target, model["family"], data, optimizer)

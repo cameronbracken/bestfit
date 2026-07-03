@@ -271,6 +271,13 @@ extern "C" SEXP _bestfitr_bf_estimation_bic_(SEXP target, SEXP family, SEXP data
     return cpp11::as_sexp(bf_estimation_bic_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(family), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer), cpp11::as_cpp<cpp11::decay_t<int>>(n)));
   END_CPP11
 }
+// estimation.cpp
+list bf_estimation_bayes_run_(std::string family, doubles dataset, std::string sampler, int seed, int iterations, int warmup_iterations, int number_of_chains, int thinning_interval, int initial_iterations, int output_length);
+extern "C" SEXP _bestfitr_bf_estimation_bayes_run_(SEXP family, SEXP dataset, SEXP sampler, SEXP seed, SEXP iterations, SEXP warmup_iterations, SEXP number_of_chains, SEXP thinning_interval, SEXP initial_iterations, SEXP output_length) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_estimation_bayes_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(family), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(sampler), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<int>>(iterations), cpp11::as_cpp<cpp11::decay_t<int>>(warmup_iterations), cpp11::as_cpp<cpp11::decay_t<int>>(number_of_chains), cpp11::as_cpp<cpp11::decay_t<int>>(thinning_interval), cpp11::as_cpp<cpp11::decay_t<int>>(initial_iterations), cpp11::as_cpp<cpp11::decay_t<int>>(output_length)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -444,6 +451,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_emp_pdf_",                  (DL_FUNC) &_bestfitr_bf_emp_pdf_,                   4},
     {"_bestfitr_bf_emp_quantile_",             (DL_FUNC) &_bestfitr_bf_emp_quantile_,              4},
     {"_bestfitr_bf_emp_valid_",                (DL_FUNC) &_bestfitr_bf_emp_valid_,                 3},
+    {"_bestfitr_bf_estimation_bayes_run_",     (DL_FUNC) &_bestfitr_bf_estimation_bayes_run_,     10},
     {"_bestfitr_bf_estimation_bic_",           (DL_FUNC) &_bestfitr_bf_estimation_bic_,            5},
     {"_bestfitr_bf_estimation_run_",           (DL_FUNC) &_bestfitr_bf_estimation_run_,            4},
     {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                   4},

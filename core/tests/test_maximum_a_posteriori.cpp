@@ -68,10 +68,12 @@ void test_sign_convention_matches_log_likelihood() {
     CHECK_NEAR(map.maximum_log_likelihood(), from_model, 1e-9);
 }
 
-// LOOSE anchor to the MLE fit: flat (Uniform) priors on both parameters mean the posterior
-// differs from the data log-likelihood by only a parameter-independent constant, so the MAP
-// point estimate should land close to the known MLE anchor (see test_maximum_likelihood.cpp).
-// This is NOT a precise oracle -- exact MAP fixtures (with an informative prior) land with T12.
+// LOOSE anchor to the MLE fit: the model's default informative prior is the Uniform parameter
+// priors PLUS the Jeffreys 1/scale prior (UseJeffreysRuleForScale, on by default -- wired in
+// T12 to match the real C#), which pulls the posterior-mode scale modestly below the pure MLE
+// (~4.7% here), so the MAP point estimate still lands within a loose 5% band of the MLE anchor
+// (see test_maximum_likelihood.cpp). This is NOT a precise oracle -- the exact MAP oracle (real
+// C# values, tight tolerances) lives in fixtures/estimation/map_normal.json (T12).
 void test_loose_anchor_to_mle_fit() {
     UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
     MaximumAPosteriori map(model, OptimizationMethod::NelderMead);

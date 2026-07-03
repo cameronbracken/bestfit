@@ -21,6 +21,7 @@
 #include <variant>
 #include <vector>
 
+#include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
@@ -1556,17 +1557,12 @@ static void run_bootstrap(const json& spec) {
 // `estimate()` ONCE, then dispatch every assertion in the case against the cached
 // (model, estimator) pair. See fixtures/README.md's model_estimation section for the schema.
 //
-// WIRED (T11): `parameter [p]`, `max_log_likelihood []`, `aic []`, `bic [n]`, `covariance
-// [i,j]`, `standard_error [p]` -- the methods the T11 smoke fixture exercises, shared
-// verbatim by MaximumLikelihood and MaximumAPosteriori (same method names/signatures on both
-// classes; dispatched here via one std::variant + a generic lambda rather than duplicating the
-// switch per class).
-// LEFT FOR T12 (structure only, no live path yet): `correlation [i,j]`, `dic []`, `waic []`,
-// `looic []`, `posterior_mean [p]` -- each becomes one more `if (m == "...")` arm in
-// `dispatch_estimation` below; `posterior_mean`/`dic`/`waic`/`looic` additionally need a
-// BayesianAnalysis construction arm in `build_and_run_estimation` (currently a clear
-// "deferred to T12" throw), since those four are BayesianAnalysis-only surface with no
-// MaximumLikelihood/MaximumAPosteriori equivalent.
+// WIRED (T11 + T12): MaximumLikelihood / MaximumAPosteriori share `parameter [p]`,
+// `max_log_likelihood []`, `aic []`, `bic [n]`, `covariance [i,j]`, `standard_error [p]`,
+// `correlation [i,j]` (same method names/signatures on both classes; dispatched via one
+// std::visit branch). BayesianAnalysis (T12) adds `dic []`, `waic []`, `looic []`,
+// `posterior_mean [p]`, and the seeded `chain_value [chain,iter,param]` digest -- a disjoint
+// surface handled by a separate std::visit branch (it shares no methods with ML/MAP).
 namespace estimation = bestfit::estimation;
 
 static estimation::OptimizationMethod parse_optimization_method(const std::string& s) {
@@ -1576,11 +1572,22 @@ static estimation::OptimizationMethod parse_optimization_method(const std::strin
     throw std::runtime_error("unknown model_estimation optimizer: " + s);
 }
 
-// Holds the model (kept alive -- MaximumLikelihood/MaximumAPosteriori store a reference, not a
-// copy) plus whichever estimator `target` selected, already `estimate()`d once.
+static estimation::SamplerType parse_sampler_type(const std::string& s) {
+    if (s == "DEMCz") return estimation::SamplerType::DEMCz;
+    if (s == "DEMCzs") return estimation::SamplerType::DEMCzs;
+    if (s == "ARWMH") return estimation::SamplerType::ARWMH;
+    if (s == "NUTS") return estimation::SamplerType::NUTS;
+    throw std::runtime_error("unknown model_estimation sampler: " + s);
+}
+
+// Holds the model (kept alive -- every estimator stores a reference, not a copy) plus whichever
+// estimator `target` selected, already `estimate()`d once. BayesianAnalysis joins the variant
+// (its method surface is disjoint from ML/MAP; `dispatch_estimation` branches on the held type).
 struct EstimationCase {
     std::unique_ptr<bestfit::models::UnivariateDistributionModel> model;
-    std::variant<std::unique_ptr<estimation::MaximumLikelihood>, std::unique_ptr<estimation::MaximumAPosteriori>>
+    std::variant<std::unique_ptr<estimation::MaximumLikelihood>,
+                 std::unique_ptr<estimation::MaximumAPosteriori>,
+                 std::unique_ptr<estimation::BayesianAnalysis>>
         estimator;
 };
 
@@ -1593,27 +1600,45 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     auto model = std::make_unique<bestfit::models::UnivariateDistributionModel>(
         dist::create_distribution(model_spec["family"].get<std::string>()), data);
 
-    auto method = construct.contains("optimizer")
-                      ? parse_optimization_method(construct["optimizer"].get<std::string>())
-                      : estimation::OptimizationMethod::DifferentialEvolution;
-
-    if (target == "MaximumLikelihood") {
-        auto est = std::make_unique<estimation::MaximumLikelihood>(*model, method);
-        if (!est->estimate()) throw std::runtime_error("MaximumLikelihood::estimate() failed for a fixture case");
-        return EstimationCase{std::move(model), std::move(est)};
-    }
-    if (target == "MaximumAPosteriori") {
+    if (target == "MaximumLikelihood" || target == "MaximumAPosteriori") {
+        auto method = construct.contains("optimizer")
+                          ? parse_optimization_method(construct["optimizer"].get<std::string>())
+                          : estimation::OptimizationMethod::DifferentialEvolution;
+        if (target == "MaximumLikelihood") {
+            auto est = std::make_unique<estimation::MaximumLikelihood>(*model, method);
+            if (!est->estimate())
+                throw std::runtime_error("MaximumLikelihood::estimate() failed for a fixture case");
+            return EstimationCase{std::move(model), std::move(est)};
+        }
         auto est = std::make_unique<estimation::MaximumAPosteriori>(*model, method);
-        if (!est->estimate()) throw std::runtime_error("MaximumAPosteriori::estimate() failed for a fixture case");
+        if (!est->estimate())
+            throw std::runtime_error("MaximumAPosteriori::estimate() failed for a fixture case");
         return EstimationCase{std::move(model), std::move(est)};
     }
     if (target == "BayesianAnalysis") {
-        // See this section's header comment: BayesianAnalysis construction (and the
-        // posterior_mean/dic/waic/looic/correlation methods it alone needs) is deferred to
-        // Task T12 -- there is no T11 fixture case exercising this target.
-        throw std::runtime_error(
-            "model_estimation target 'BayesianAnalysis' is not yet wired in the fixture runner "
-            "(deferred to Task T12); see fixtures/README.md's model_estimation section");
+        // Mirrors the oracle emitter's BuildEstimation: construct with the fixture's sampler type
+        // (defaulting to DEMCzs), turn OFF the two "use defaults" flags so the explicit knobs
+        // below aren't clobbered, apply the settings, then estimate() once. The seeded chain
+        // digest reproduces bit-identically against the real C# (see bayes_normal.json).
+        auto sampler_type = construct.contains("sampler")
+                                ? parse_sampler_type(construct["sampler"].get<std::string>())
+                                : estimation::SamplerType::DEMCzs;
+        auto ba = std::make_unique<estimation::BayesianAnalysis>(*model, sampler_type);
+        ba->set_use_simulation_defaults(false);
+        ba->set_use_advanced_simulation_defaults(false);
+        if (construct.contains("settings")) {
+            const auto& s = construct["settings"];
+            if (s.contains("seed")) ba->set_prng_seed(s["seed"].get<int>());
+            if (s.contains("iterations")) ba->set_iterations(s["iterations"].get<int>());
+            if (s.contains("warmup_iterations")) ba->set_warmup_iterations(s["warmup_iterations"].get<int>());
+            if (s.contains("number_of_chains")) ba->set_number_of_chains(s["number_of_chains"].get<int>());
+            if (s.contains("thinning_interval")) ba->set_thinning_interval(s["thinning_interval"].get<int>());
+            if (s.contains("initial_iterations")) ba->set_initial_iterations(s["initial_iterations"].get<int>());
+            if (s.contains("output_length")) ba->set_output_length(s["output_length"].get<int>());
+        }
+        if (!ba->estimate())
+            throw std::runtime_error("BayesianAnalysis::estimate() failed for a fixture case");
+        return EstimationCase{std::move(model), std::move(ba)};
     }
     throw std::runtime_error("unknown model_estimation target: " + target);
 }
@@ -1622,17 +1647,27 @@ static double dispatch_estimation(const EstimationCase& ec, const std::string& m
     auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
     return std::visit(
         [&](const auto& est) -> double {
-            if (m == "parameter") return est->best_parameter_set().values[idx(0)];
-            if (m == "max_log_likelihood") return est->maximum_log_likelihood();
-            if (m == "aic") return est->get_aic();
-            if (m == "bic") return est->get_bic(a[static_cast<std::size_t>(0)].get<int>());
-            if (m == "standard_error") return est->get_standard_errors()[idx(0)];
-            if (m == "covariance") return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
-            if (m == "correlation" || m == "dic" || m == "waic" || m == "looic" || m == "posterior_mean") {
-                throw std::runtime_error("model_estimation fixture method '" + m +
-                                          "' is not yet wired (deferred to Task T12)");
+            using Estimator = std::decay_t<decltype(*est)>;
+            if constexpr (std::is_same_v<Estimator, estimation::BayesianAnalysis>) {
+                if (m == "dic") return est->dic();
+                if (m == "waic") return est->waic();
+                if (m == "looic") return est->looic();
+                if (m == "posterior_mean") return est->results()->posterior_mean.values[idx(0)];
+                if (m == "chain_value")
+                    return est->sampler()->markov_chains()[idx(0)][idx(1)].values[idx(2)];
+                throw std::runtime_error("unknown BayesianAnalysis fixture method: " + m);
+            } else {
+                if (m == "parameter") return est->best_parameter_set().values[idx(0)];
+                if (m == "max_log_likelihood") return est->maximum_log_likelihood();
+                if (m == "aic") return est->get_aic();
+                if (m == "bic") return est->get_bic(a[static_cast<std::size_t>(0)].get<int>());
+                if (m == "standard_error") return est->get_standard_errors()[idx(0)];
+                if (m == "covariance")
+                    return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                if (m == "correlation")
+                    return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                throw std::runtime_error("unknown model_estimation fixture method: " + m);
             }
-            throw std::runtime_error("unknown model_estimation fixture method: " + m);
         },
         ec.estimator);
 }

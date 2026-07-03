@@ -107,6 +107,11 @@ class UnivariateDistributionModel : public ModelBase {
     }
     const std::vector<double>& exact_data() const { return exact_data_; }
 
+    // Jeffreys 1/scale prior toggle (C# `UseJeffreysRuleForScale`,
+    // UnivariateDistributionModelBase.cs:60 -- defaults TRUE). See `prior_log_likelihood`.
+    bool use_jeffreys_rule_for_scale() const { return use_jeffreys_rule_for_scale_; }
+    void set_use_jeffreys_rule_for_scale(bool value) { use_jeffreys_rule_for_scale_ = value; }
+
     // C# `DataLogLikelihood` (1361) -> `StationaryData_LogLikelihood` (1181), exact-data
     // branch only.
     double data_log_likelihood(const std::vector<double>& p) const override {
@@ -157,6 +162,61 @@ class UnivariateDistributionModel : public ModelBase {
         return result;
     }
 
+    // C# `Prior_LogLikelihood` (UnivariateDistribution.cs:1822), reached via this model's
+    // `LogLikelihood` override (C# 1116-1132: dataLL + Prior_LogLikelihood, collapsed to -inf if
+    // non-finite) and its `PriorLogLikelihood` override (C# 1143-1172). The base
+    // `ModelBase::prior_log_likelihood` only sums the per-parameter priors; the real univariate
+    // model ALSO applies a Jeffreys 1/scale prior on the scale parameter when
+    // `UseJeffreysRuleForScale` is set (true by default), which pulls the scale down relative to
+    // the pure MLE -- this is exactly why the MAP/Bayesian oracle values diverge from the MLE
+    // (see fixtures/estimation/map_normal.json). Quantile priors are NOT applied
+    // (`EnableQuantilePriors` defaults false; the quantile-prior surface is not ported -- T6).
+    // Scale-parameter index follows the C# source: Gamma/Weibull use parameter 0, every other
+    // family uses parameter 1.
+    double prior_log_likelihood(const std::vector<double>& p) const override {
+        if (p.size() != parameters_.size()) return -std::numeric_limits<double>::infinity();
+
+        double log_lh = 0.0;
+        for (std::size_t i = 0; i < parameters_.size(); ++i) {
+            log_lh += parameters_[i].prior_distribution().log_pdf(p[i]);
+        }
+
+        if (use_jeffreys_rule_for_scale_) {
+            std::size_t scale_index = scale_parameter_index();
+            if (scale_index < p.size()) {
+                double scale = p[scale_index];
+                // C# returns -inf directly for a non-positive scale (Jeffreys 1/scale requires
+                // scale > 0), rather than subtracting +inf.
+                if (scale <= 0.0) return -std::numeric_limits<double>::infinity();
+                log_lh -= std::log(scale);
+            }
+        }
+
+        if (!std::isfinite(log_lh)) return -std::numeric_limits<double>::infinity();
+        return log_lh;
+    }
+
+    // C# `PointwisePriorLogLikelihood` (UnivariateDistribution.cs:1884): the per-parameter prior
+    // components PLUS a single JeffreysScale component when `UseJeffreysRuleForScale` is set, so
+    // the pointwise sum stays consistent with `prior_log_likelihood` above. (Not on any dumped
+    // oracle path -- DIC/WAIC/LOOIC use the DATA pointwise likelihood -- but kept faithful so the
+    // two prior surfaces agree.)
+    std::vector<PriorComponent> pointwise_prior_log_likelihood(
+        const std::vector<double>& p) const override {
+        std::vector<PriorComponent> result = ModelBase::pointwise_prior_log_likelihood(p);
+        if (result.empty()) return result;  // length mismatch -> base returned empty
+
+        if (use_jeffreys_rule_for_scale_) {
+            std::size_t scale_index = scale_parameter_index();
+            if (scale_index < p.size()) {
+                double scale = p[scale_index];
+                double ll = scale > 0.0 ? -std::log(scale) : -std::numeric_limits<double>::infinity();
+                result.emplace_back("Jeffreys Scale", ll, PriorComponentType::JeffreysScalePrior);
+            }
+        }
+        return result;
+    }
+
     // C# `SetDefaultParameters` (571), stationary path only.
     void set_default_parameters() override {
         auto* ml_estimator = dynamic_cast<numerics::distributions::IMaximumLikelihoodEstimation*>(
@@ -184,8 +244,17 @@ class UnivariateDistributionModel : public ModelBase {
     }
 
    private:
+    // Index of the scale parameter for the Jeffreys 1/scale prior (C# `Prior_LogLikelihood`,
+    // ~1836-1843): Gamma/Weibull scale is parameter 0, every other family's is parameter 1.
+    std::size_t scale_parameter_index() const {
+        using T = numerics::distributions::UnivariateDistributionType;
+        T type = distribution_->type();
+        return (type == T::GammaDistribution || type == T::Weibull) ? 0 : 1;
+    }
+
     std::unique_ptr<numerics::distributions::UnivariateDistributionBase> distribution_;
     std::vector<double> exact_data_;
+    bool use_jeffreys_rule_for_scale_ = true;
 };
 
 }  // namespace bestfit::models
