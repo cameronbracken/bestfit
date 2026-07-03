@@ -37,11 +37,20 @@
 //      by default, is set), then build the sampler once. This lands in the same final state
 //      as the C# ctor without replaying its multi-step property cascade.
 //
-//   4. DEFERRED TO T10 (not implemented here; each is a separate, larger port): DIC / WAIC /
-//      WAIC_pD / LOOIC / LOOIC_SE / ParetoK computation (`ComputeDIC`/`ComputeWAIC`/
-//      `ComputePSISLOO`, C# ~1400-1870), `PointEstimateType`-driven point estimates,
-//      credible intervals beyond what `MCMCResults`/`ParameterResults` already compute,
-//      `GetPosteriorCovarianceMatrix`/`GetPosteriorCorrelationMatrix` (C# 2047/2071).
+//   4. TASK T10 ADDITIONS (this port, extending the T9 slice above): `compute_dic()` /
+//      `compute_waic()` / `compute_psis_loo()` (C# `ComputeDIC`/`ComputeWAIC`/
+//      `ComputePSISLOO`, ~1384-1801) populate `DIC`/`WAIC`/`WAIC_pD`/`LOOIC`/`LOO_pD` (+
+//      `LOOIC_SE`/`ParetoK` for fidelity with the C# method, though the brief only requires
+//      the first five); `clear_results()` (C# `ClearResults`, 1364) resets them to NaN;
+//      `point_estimate()` is a bestfit ADDITION centralizing the `PointEstimator ==
+//      PosteriorMean ? Results.PosteriorMean : Results.MAP` ternary that ~15 consumer
+//      Analysis classes (ARAnalysis.cs:444, UnivariateAnalysis.cs:620, etc.) each repeat
+//      inline in C# -- BayesianAnalysis.cs itself never centralizes it, so there is no
+//      single C# method this ports; `get_posterior_covariance_matrix()` /
+//      `get_posterior_correlation_matrix()` (C# 2047/2071) reuse the already-ported
+//      `bestfit::numerics::data::RunningCovarianceMatrix`. `estimate()` now calls the three
+//      compute_* methods after building `Results`, mirroring `RunAsync`'s post-await block
+//      (C# 1301-1304). See each method's doc comment below for numerics-fidelity notes.
 //
 //   5. GATED (Diagnostics layer deferred past Phase 4, see `.claude/PLAN.md`):
 //      `ComputeInfluenceDiagnostics` (1870), `ComputePriorInfluenceDiagnostics` (1927),
@@ -70,7 +79,10 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -78,7 +90,10 @@
 #include <vector>
 
 #include "bestfit/models/support/model_base.hpp"
+#include "bestfit/numerics/data/running_covariance_matrix.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "bestfit/numerics/distributions/generalized_pareto.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/base/mcmc_sampler.hpp"
 #include "bestfit/numerics/sampling/mcmc/demcz.hpp"
@@ -102,6 +117,7 @@ class BayesianAnalysis {
    public:
     using MCMCSampler = bestfit::numerics::sampling::mcmc::MCMCSampler;
     using MCMCResults = bestfit::numerics::sampling::mcmc::MCMCResults;
+    using ParameterSet = bestfit::numerics::math::optimization::ParameterSet;
 
     // Constructs a new Bayesian analysis for `model` (held by reference; NOT owned -- mirrors
     // the C# ctor's `Model` property, which merely stores the passed-in reference; a C++
@@ -195,6 +211,35 @@ class BayesianAnalysis {
     bool is_estimated() const { return is_estimated_; }
 
     const std::optional<MCMCResults>& results() const { return results_; }
+
+    // Information criteria (Task T10; C# `DIC`/`WAIC`/`WAIC_pD`/`LOOIC`/`LOO_pD`/`LOOIC_SE`
+    // properties, C# ~404-460). NaN before `estimate()` succeeds or after `clear_results()`.
+    double dic() const { return dic_; }
+    double waic() const { return waic_; }
+    double waic_pd() const { return waic_pd_; }
+    double looic() const { return looic_; }
+    double loo_pd() const { return loo_pd_; }
+    double looic_se() const { return looic_se_; }
+
+    // Per-observation Pareto shape-parameter diagnostics from the most recent
+    // `compute_psis_loo()` (C# `ParetoK`, C# 479). Empty before estimation / after
+    // `clear_results()`.
+    const std::vector<double>& pareto_k() const { return pareto_k_; }
+
+    // Returns the posterior point estimate selected by `point_estimator()` (bestfit
+    // ADDITION -- see header comment point 4: centralizes a ternary that ~15 C# consumer
+    // Analysis classes each repeat inline). Throws `std::logic_error` if `estimate()` has
+    // not yet produced `Results` (every C# call site guards on `IsEstimated`/`Results !=
+    // null` before reading `PosteriorMean`/`MAP`; there is no null `ParameterSet` to fall
+    // back to here).
+    const ParameterSet& point_estimate() const {
+        if (!results_) {
+            throw std::logic_error(
+                "BayesianAnalysis::point_estimate: estimate() has not produced Results yet.");
+        }
+        return point_estimator_ == PointEstimateType::PosteriorMean ? results_->posterior_mean
+                                                                     : results_->map;
+    }
 
     // --- Methods (C# ~938-1233) --------------------------------------------------------
 
@@ -472,8 +517,269 @@ class BayesianAnalysis {
 
         sampler_->sample();
         results_.emplace(*sampler_, 1.0 - credible_interval_width_);
+        // Post-Results information criteria (C# `RunAsync`'s post-await block, C#
+        // 1301-1304: `Results = capturedResults; ComputeDIC(); ComputeWAIC();
+        // ComputePSISLOO();`, before `IsEstimated = true`). No progress/async/parallel
+        // machinery to mirror here (see scope decision 1).
+        compute_dic();
+        compute_waic();
+        compute_psis_loo();
         is_estimated_ = true;
         return true;
+    }
+
+    // Clears the analysis results and information criteria, then rebuilds the sampler from
+    // the current knob values (C# `ClearResults`, C# 1364). `ElapsedTime`/`_parameterNames`
+    // are not ported (see header comment points 1/6 -- no ElapsedTime/ParameterNames surface
+    // in this port).
+    void clear_results() {
+        results_.reset();
+        dic_ = kNaN;
+        waic_ = kNaN;
+        waic_pd_ = kNaN;
+        looic_ = kNaN;
+        loo_pd_ = kNaN;
+        looic_se_ = kNaN;
+        pareto_k_.clear();
+        is_estimated_ = false;
+        set_up_sampler();
+    }
+
+    // --- Information criteria (Task T10; C# ~1384-1801) -------------------------------------
+
+    // Deviance Information Criterion (C# `ComputeDIC`, C# 1384-1404): DIC = 2*dicHat -
+    // dicMu, where dicHat is the mean of -2*DataLogLikelihood over every posterior sample
+    // and dicMu is -2*DataLogLikelihood at the posterior mean. C# accumulates dicHat via a
+    // `Parallel.For` reduction (`Tools.ParallelAdd`); this port sums serially in sample
+    // order 0..N-1 (see scope decision 1 -- no ParallelizeChains/parallel machinery
+    // anywhere in this port), which is a valid floating-point reduction order but not
+    // guaranteed bit-identical to whatever order the CLR's parallel reduction produces --
+    // an execution-order difference, not a formula difference (see the T10 report for the
+    // full fidelity discussion).
+    void compute_dic() {
+        if (!results_ || results_->output.empty()) {
+            dic_ = kNaN;
+            return;
+        }
+
+        std::size_t n = results_->output.size();
+        double dic_hat = 0.0;
+        for (std::size_t j = 0; j < n; ++j) {
+            dic_hat += -2.0 * model_.data_log_likelihood(results_->output[j].values);
+        }
+        dic_hat /= static_cast<double>(n);
+
+        double dic_mu = -2.0 * model_.data_log_likelihood(results_->posterior_mean.values);
+        dic_ = 2.0 * dic_hat - dic_mu;
+    }
+
+    // Watanabe-Akaike Information Criterion (C# `ComputeWAIC`, C# 1430-1523): WAIC =
+    // -2*lppd + 2*p_WAIC, using the pointwise log-likelihood matrix
+    // logLik[observation][sample]. `lppd_i` is computed via the log-sum-exp trick (shift by
+    // the per-observation max before exponentiating, matching C# exactly, including its
+    // `NegativeInfinity`-not-`MinValue` choice for an all -inf row -- `kNegInf` here is
+    // `-std::numeric_limits<double>::infinity()`, C#'s `double.NegativeInfinity`
+    // equivalent). `p_WAIC_i` uses the unbiased sample-variance estimator (divisor S-1,
+    // Vehtari/Gelman/Gabry 2017 Eq. 12), clamped to >= 0 for floating-point safety, exactly
+    // matching the C# formula. Reference: Watanabe (2010), JMLR 11, 3571-3594.
+    void compute_waic() {
+        if (!results_ || results_->output.empty()) {
+            waic_ = kNaN;
+            waic_pd_ = kNaN;
+            return;
+        }
+
+        std::size_t s_count = results_->output.size();
+        std::vector<double> first_pointwise =
+            model_.pointwise_data_log_likelihood(results_->output[0].values);
+        std::size_t n = first_pointwise.size();
+        if (n == 0) {
+            waic_ = kNaN;
+            waic_pd_ = kNaN;
+            return;
+        }
+
+        // pointwise_log_lik[i][s]: log-likelihood of observation i under posterior sample s.
+        std::vector<std::vector<double>> pointwise_log_lik(n, std::vector<double>(s_count));
+        for (std::size_t i = 0; i < n; ++i) pointwise_log_lik[i][0] = first_pointwise[i];
+        for (std::size_t s = 1; s < s_count; ++s) {
+            std::vector<double> log_liks =
+                model_.pointwise_data_log_likelihood(results_->output[s].values);
+            for (std::size_t i = 0; i < n; ++i) pointwise_log_lik[i][s] = log_liks[i];
+        }
+
+        double total_lppd = 0.0;
+        double total_p_waic = 0.0;
+        const double kNegInf = -std::numeric_limits<double>::infinity();
+        for (std::size_t i = 0; i < n; ++i) {
+            double max_log_lik = kNegInf;
+            double sum_log_lik = 0.0;
+            double sum_log_lik_sq = 0.0;
+            for (std::size_t s = 0; s < s_count; ++s) {
+                double ll = pointwise_log_lik[i][s];
+                sum_log_lik += ll;
+                sum_log_lik_sq += ll * ll;
+                if (ll > max_log_lik) max_log_lik = ll;
+            }
+
+            double sum_exp = 0.0;
+            for (std::size_t s = 0; s < s_count; ++s) {
+                sum_exp += std::exp(pointwise_log_lik[i][s] - max_log_lik);
+            }
+            double lppd_i = max_log_lik + std::log(sum_exp) - std::log(static_cast<double>(s_count));
+
+            double mean_log_lik = sum_log_lik / static_cast<double>(s_count);
+            double p_waic_i = s_count > 1 ? (sum_log_lik_sq - static_cast<double>(s_count) * mean_log_lik *
+                                                                    mean_log_lik) /
+                                                 static_cast<double>(s_count - 1)
+                                           : 0.0;
+            if (p_waic_i < 0.0) p_waic_i = 0.0;
+
+            total_lppd += lppd_i;
+            total_p_waic += p_waic_i;
+        }
+
+        waic_pd_ = total_p_waic;
+        waic_ = -2.0 * total_lppd + 2.0 * total_p_waic;
+    }
+
+    // Leave-One-Out Information Criterion via Pareto-Smoothed Importance Sampling (C#
+    // `ComputePSISLOO`, C# 1541-1679, + `ParetoSmoothWeights`, C# 1687-1801). For each
+    // observation: log importance weights are `-logLik`, Pareto-smoothed in the tail (the
+    // largest M = clamp(min(S/5, 3*sqrt(S)), 3, S-1) weights) by fitting a Generalized
+    // Pareto distribution via MLE (reusing the already-ported
+    // `bestfit::numerics::distributions::GeneralizedPareto::mle()`, which returns
+    // {xi_fixed, alpha, kappa} exactly like C#'s `GeneralizedPareto().MLE(tailWeights)` --
+    // both use Hosking's parameterization, so the same sign flip `k = -kappa` converts to
+    // the PSIS shape convention), falling back to method-of-moments if the MLE throws
+    // (mirrored via try/catch, matching C#'s `catch (Exception)` fallback). elpd_loo_i and
+    // lppd_i both use the log-sum-exp trick. LOOIC = -2*sum(elpd_loo); LOO_pD =
+    // sum(lppd) - sum(elpd_loo); LOOIC_SE = 2*sqrt(n*Var[elpd_loo]) (SE of a sum scales by
+    // sqrt(n) per C#'s comment). `ParetoK`/`LOOIC_SE` are ported alongside `LOOIC`/`LOO_pD`
+    // for fidelity with the C# method (the brief only requires the latter two, but the
+    // whole method sets all four together in C# and `ParetoK` is needed by the still-gated
+    // `compute_influence_diagnostics`). Reference: Vehtari, Gelman & Gabry (2017),
+    // Statistics and Computing 27(5), 1413-1432.
+    void compute_psis_loo() {
+        if (!results_ || results_->output.empty()) {
+            looic_ = kNaN;
+            loo_pd_ = kNaN;
+            looic_se_ = kNaN;
+            pareto_k_.clear();
+            return;
+        }
+
+        std::size_t s_count = results_->output.size();
+        std::vector<double> first_pointwise =
+            model_.pointwise_data_log_likelihood(results_->output[0].values);
+        std::size_t n = first_pointwise.size();
+        if (n == 0) {
+            looic_ = kNaN;
+            loo_pd_ = kNaN;
+            looic_se_ = kNaN;
+            pareto_k_.clear();
+            return;
+        }
+
+        std::vector<std::vector<double>> pointwise_log_lik(n, std::vector<double>(s_count));
+        for (std::size_t i = 0; i < n; ++i) pointwise_log_lik[i][0] = first_pointwise[i];
+        for (std::size_t s = 1; s < s_count; ++s) {
+            std::vector<double> log_liks =
+                model_.pointwise_data_log_likelihood(results_->output[s].values);
+            for (std::size_t i = 0; i < n; ++i) pointwise_log_lik[i][s] = log_liks[i];
+        }
+
+        pareto_k_.assign(n, 0.0);
+        std::vector<double> elpd_loo(n);
+        std::vector<double> lppd(n);
+
+        int s_int = static_cast<int>(s_count);
+        int m = static_cast<int>(std::min(s_int / 5.0, 3.0 * std::sqrt(static_cast<double>(s_int))));
+        m = std::max(m, 3);
+        m = std::min(m, s_int - 1);
+
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::vector<double>& log_liks = pointwise_log_lik[i];
+
+            std::vector<double> log_weights(s_count);
+            for (std::size_t s = 0; s < s_count; ++s) log_weights[s] = -log_liks[s];
+
+            double max_log_weight = log_weights[0];
+            for (std::size_t s = 1; s < s_count; ++s) {
+                if (log_weights[s] > max_log_weight) max_log_weight = log_weights[s];
+            }
+            std::vector<double> shifted_log_weights(s_count);
+            for (std::size_t s = 0; s < s_count; ++s) shifted_log_weights[s] = log_weights[s] - max_log_weight;
+
+            double pareto_k_i = pareto_smooth_weights(shifted_log_weights, m);
+            pareto_k_[i] = pareto_k_i;
+
+            std::vector<double> weights(s_count);
+            double sum_weights = 0.0;
+            for (std::size_t s = 0; s < s_count; ++s) {
+                weights[s] = std::exp(shifted_log_weights[s]);
+                sum_weights += weights[s];
+            }
+            for (std::size_t s = 0; s < s_count; ++s) weights[s] /= sum_weights;
+
+            double max_ll = log_liks[0];
+            for (std::size_t s = 1; s < s_count; ++s) {
+                if (log_liks[s] > max_ll) max_ll = log_liks[s];
+            }
+
+            double sum_weighted_exp = 0.0;
+            for (std::size_t s = 0; s < s_count; ++s) sum_weighted_exp += weights[s] * std::exp(log_liks[s] - max_ll);
+            elpd_loo[i] = sum_weighted_exp > 0.0 ? max_ll + std::log(sum_weighted_exp)
+                                                 : -std::numeric_limits<double>::infinity();
+
+            double sum_exp = 0.0;
+            for (std::size_t s = 0; s < s_count; ++s) sum_exp += std::exp(log_liks[s] - max_ll);
+            lppd[i] = max_ll + std::log(sum_exp) - std::log(static_cast<double>(s_count));
+        }
+
+        double total_elpd_loo = std::accumulate(elpd_loo.begin(), elpd_loo.end(), 0.0);
+        double total_lppd = std::accumulate(lppd.begin(), lppd.end(), 0.0);
+
+        double mean_elpd_loo = total_elpd_loo / static_cast<double>(n);
+        double variance = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            double diff = elpd_loo[i] - mean_elpd_loo;
+            variance += diff * diff;
+        }
+        variance /= static_cast<double>(n - 1);
+        double se_elpd_loo = std::sqrt(static_cast<double>(n) * variance);
+
+        looic_ = -2.0 * total_elpd_loo;
+        loo_pd_ = total_lppd - total_elpd_loo;
+        looic_se_ = 2.0 * se_elpd_loo;
+    }
+
+    // --- Posterior summaries (Task T10; C# 2047/2071) --------------------------------------
+
+    // Posterior sample covariance matrix (C# `GetPosteriorCovarianceMatrix`, C# 2047-2058),
+    // computed by pushing every posterior output sample through the already-ported
+    // `bestfit::numerics::data::RunningCovarianceMatrix` (Welford's online algorithm) and
+    // reading `sample_covariance()` (Bessel's correction, N-1 denominator), exactly
+    // matching C#'s `RunningCovarianceMatrix` + `.SampleCovariance`. `std::nullopt` when
+    // not yet estimated or fewer than 2 output samples, mirroring the C# null-return guard.
+    std::optional<bestfit::numerics::math::linalg::Matrix> get_posterior_covariance_matrix() const {
+        if (!is_estimated_ || !results_ || results_->output.size() < 2) return std::nullopt;
+
+        bestfit::numerics::data::RunningCovarianceMatrix rcm(model_.number_of_parameters());
+        for (const auto& ps : results_->output) rcm.push(ps.values);
+        return rcm.sample_covariance();
+    }
+
+    // Posterior sample correlation matrix (C# `GetPosteriorCorrelationMatrix`, C#
+    // 2071-2082): `Corr[i,j] = Cov[i,j] / (SD[i] * SD[j])`, read from
+    // `RunningCovarianceMatrix::sample_correlation()`. Same null-guard as
+    // `get_posterior_covariance_matrix()`.
+    std::optional<bestfit::numerics::math::linalg::Matrix> get_posterior_correlation_matrix() const {
+        if (!is_estimated_ || !results_ || results_->output.size() < 2) return std::nullopt;
+
+        bestfit::numerics::data::RunningCovarianceMatrix rcm(model_.number_of_parameters());
+        for (const auto& ps : results_->output) rcm.push(ps.values);
+        return rcm.sample_correlation();
     }
 
     // --- Gated (Diagnostics layer deferred past Phase 4; see scope decision 5) -------------
@@ -498,6 +804,90 @@ class BayesianAnalysis {
     }
 
    private:
+    // Applies Pareto smoothing to the tail of log importance weights (C#
+    // `ParetoSmoothWeights`, C# 1687-1801). `log_weights` is modified in place: the M
+    // largest entries (the tail) are replaced by the expected order statistics of the
+    // fitted Generalized Pareto distribution, when the fitted shape k lands in (-0.5, 1).
+    // Returns the estimated PSIS shape parameter k.
+    static double pareto_smooth_weights(std::vector<double>& log_weights, int m) {
+        int s_count = static_cast<int>(log_weights.size());
+
+        std::vector<int> indices(static_cast<std::size_t>(s_count));
+        std::iota(indices.begin(), indices.end(), 0);
+        std::sort(indices.begin(), indices.end(),
+                  [&log_weights](int a, int b) { return log_weights[static_cast<std::size_t>(a)] >
+                                                         log_weights[static_cast<std::size_t>(b)]; });
+
+        std::vector<double> tail_log_weights(static_cast<std::size_t>(m));
+        for (int j = 0; j < m; ++j) {
+            tail_log_weights[static_cast<std::size_t>(j)] =
+                log_weights[static_cast<std::size_t>(indices[static_cast<std::size_t>(j)])];
+        }
+
+        double cutoff = tail_log_weights[static_cast<std::size_t>(m - 1)];
+        for (int j = 0; j < m; ++j) tail_log_weights[static_cast<std::size_t>(j)] -= cutoff;
+
+        std::vector<double> tail_weights(static_cast<std::size_t>(m));
+        for (int j = 0; j < m; ++j) {
+            tail_weights[static_cast<std::size_t>(j)] = std::exp(tail_log_weights[static_cast<std::size_t>(j)]);
+        }
+
+        // Fit the GPD by MLE (Numerics/bestfit's Hosking parameterization: Kappa has the
+        // OPPOSITE sign of the PSIS k convention -- flip on the way out), falling back to
+        // method-of-moments if the MLE throws (mirrors C#'s try/catch fallback).
+        double k;
+        double sigma;
+        try {
+            bestfit::numerics::distributions::GeneralizedPareto gpd_mle;
+            std::vector<double> mle_params = gpd_mle.mle(tail_weights);
+            sigma = mle_params[1];
+            k = -mle_params[2];
+        } catch (const std::exception&) {
+            double mean = 0.0;
+            for (int j = 0; j < m; ++j) mean += tail_weights[static_cast<std::size_t>(j)];
+            mean /= static_cast<double>(m);
+            double variance = 0.0;
+            for (int j = 0; j < m; ++j) {
+                double diff = tail_weights[static_cast<std::size_t>(j)] - mean;
+                variance += diff * diff;
+            }
+            variance /= static_cast<double>(m - 1);
+            if (variance > 0.0 && mean > 0.0) {
+                double cv2 = variance / (mean * mean);
+                k = 0.5 * (cv2 - 1.0) / (cv2 + 1.0);
+                sigma = mean * (1.0 - k);
+                if (sigma <= 0.0) sigma = mean;
+            } else {
+                k = 0.0;
+                sigma = mean > 0.0 ? mean : 1.0;
+            }
+        }
+
+        k = std::max(-0.5, std::min(k, 1.5));
+        if (sigma <= 0.0) sigma = std::numeric_limits<double>::denorm_min();
+
+        if (k < 1.0 && k > -0.5) {
+            for (int j = 0; j < m; ++j) {
+                double p = (j + 0.5) / static_cast<double>(m);
+                double quantile;
+                if (std::fabs(k) < 1e-8) {
+                    quantile = -sigma * std::log(1.0 - p);
+                } else {
+                    quantile = sigma / k * (std::pow(1.0 - p, -k) - 1.0);
+                }
+                quantile = std::max(0.0, quantile);
+
+                double smoothed_log_weight =
+                    quantile > 0.0 ? std::log(quantile) + cutoff : cutoff - 300.0 * std::log(10.0);
+                log_weights[static_cast<std::size_t>(indices[static_cast<std::size_t>(j)])] = smoothed_log_weight;
+            }
+        }
+
+        return k;
+    }
+
+    static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+
     bestfit::models::ModelBase& model_;
     SamplerType type_ = SamplerType::DEMCzs;
 
@@ -535,6 +925,19 @@ class BayesianAnalysis {
 
     std::unique_ptr<MCMCSampler> sampler_;
     std::optional<MCMCResults> results_;
+
+    // Information criteria (Task T10; C# fields backing the properties at C# ~404-479).
+    // NaN/empty before a successful `estimate()`, matching C#'s field initializers -- C#'s
+    // `double` properties get 0.0 by default, but every read path (`DIC`/`WAIC`/etc.) is
+    // only ever consulted after `ClearResults()` (which sets them to NaN) or a completed
+    // `RunAsync`, so NaN is the correct "not yet computed" sentinel here too.
+    double dic_ = kNaN;
+    double waic_ = kNaN;
+    double waic_pd_ = kNaN;
+    double looic_ = kNaN;
+    double loo_pd_ = kNaN;
+    double looic_se_ = kNaN;
+    std::vector<double> pareto_k_;
 };
 
 }  // namespace bestfit::estimation

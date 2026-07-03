@@ -32,6 +32,7 @@
 #include "check.hpp"
 
 using bestfit::estimation::BayesianAnalysis;
+using bestfit::estimation::PointEstimateType;
 using bestfit::estimation::SamplerType;
 using bestfit::models::UnivariateDistributionModel;
 using bestfit::numerics::distributions::UnivariateDistributionType;
@@ -193,6 +194,109 @@ void test_gated_diagnostics_throw() {
     CHECK_THROWS(analysis.compute_leverage_diagnostics());
 }
 
+// --- Task T10: information criteria + point estimates + posterior summaries ------------
+
+void test_information_criteria_finite_after_fast_run() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis(model, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis, 555);
+
+    CHECK_TRUE(analysis.estimate());
+
+    CHECK_TRUE(std::isfinite(analysis.dic()));
+    CHECK_TRUE(std::isfinite(analysis.waic()));
+    CHECK_TRUE(std::isfinite(analysis.looic()));
+    CHECK_TRUE(analysis.waic_pd() >= 0.0);
+    CHECK_TRUE(analysis.loo_pd() >= -1e-8);
+}
+
+void test_point_estimate_accessor_selects_mean_or_mode() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis(model, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis, 555);
+    CHECK_TRUE(analysis.estimate());
+
+    double mu_sample_mean = sample_mean(sample_data());
+
+    analysis.set_point_estimator(PointEstimateType::PosteriorMean);
+    const auto& mean_estimate = analysis.point_estimate();
+    CHECK_TRUE(mean_estimate.values.size() == analysis.results()->posterior_mean.values.size());
+    for (std::size_t i = 0; i < mean_estimate.values.size(); ++i) {
+        CHECK_EQ(mean_estimate.values[i], analysis.results()->posterior_mean.values[i]);
+    }
+    CHECK_TRUE(std::isfinite(mean_estimate.values[0]));
+    CHECK_TRUE(std::fabs(mean_estimate.values[0] - mu_sample_mean) <= 0.5 * std::fabs(mu_sample_mean));
+
+    analysis.set_point_estimator(PointEstimateType::PosteriorMode);
+    const auto& mode_estimate = analysis.point_estimate();
+    CHECK_TRUE(mode_estimate.values.size() == analysis.results()->map.values.size());
+    for (std::size_t i = 0; i < mode_estimate.values.size(); ++i) {
+        CHECK_EQ(mode_estimate.values[i], analysis.results()->map.values[i]);
+    }
+    CHECK_TRUE(std::isfinite(mode_estimate.values[0]));
+    CHECK_TRUE(std::fabs(mode_estimate.values[0] - mu_sample_mean) <= 0.5 * std::fabs(mu_sample_mean));
+}
+
+void test_posterior_covariance_and_correlation_matrices() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis(model, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis, 555);
+    CHECK_TRUE(analysis.estimate());
+
+    auto cov = analysis.get_posterior_covariance_matrix();
+    CHECK_TRUE(cov.has_value());
+    CHECK_TRUE(cov->number_of_rows() == 2);
+    CHECK_TRUE(cov->number_of_columns() == 2);
+    for (int i = 0; i < cov->number_of_rows(); ++i) {
+        for (int j = 0; j < cov->number_of_columns(); ++j) {
+            CHECK_TRUE(std::fabs((*cov)(i, j) - (*cov)(j, i)) < 1e-9);
+        }
+    }
+
+    auto corr = analysis.get_posterior_correlation_matrix();
+    CHECK_TRUE(corr.has_value());
+    CHECK_TRUE(corr->number_of_rows() == 2);
+    for (int i = 0; i < corr->number_of_rows(); ++i) {
+        CHECK_TRUE(std::fabs((*corr)(i, i) - 1.0) < 1e-6);
+    }
+}
+
+void test_clear_results_resets_information_criteria_to_nan() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis(model, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis, 555);
+    CHECK_TRUE(analysis.estimate());
+    CHECK_TRUE(std::isfinite(analysis.dic()));
+
+    analysis.clear_results();
+
+    CHECK_TRUE(std::isnan(analysis.dic()));
+    CHECK_TRUE(std::isnan(analysis.waic()));
+    CHECK_TRUE(std::isnan(analysis.waic_pd()));
+    CHECK_TRUE(std::isnan(analysis.looic()));
+    CHECK_TRUE(std::isnan(analysis.loo_pd()));
+    CHECK_TRUE(!analysis.is_estimated());
+    CHECK_TRUE(!analysis.results().has_value());
+}
+
+void test_information_criteria_deterministic_for_same_seed() {
+    UnivariateDistributionModel model_a(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis_a(model_a, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis_a, 909);
+    CHECK_TRUE(analysis_a.estimate());
+
+    UnivariateDistributionModel model_b(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis_b(model_b, SamplerType::DEMCzs);
+    apply_fast_knobs(analysis_b, 909);
+    CHECK_TRUE(analysis_b.estimate());
+
+    CHECK_EQ(analysis_a.dic(), analysis_b.dic());
+    CHECK_EQ(analysis_a.waic(), analysis_b.waic());
+    CHECK_EQ(analysis_a.waic_pd(), analysis_b.waic_pd());
+    CHECK_EQ(analysis_a.looic(), analysis_b.looic());
+    CHECK_EQ(analysis_a.loo_pd(), analysis_b.loo_pd());
+}
+
 void test_all_four_sampler_types_build_a_sampler() {
     UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
 
@@ -220,5 +324,10 @@ int main() {
     test_set_default_simulation_options_demczs_vs_nuts();
     test_gated_diagnostics_throw();
     test_all_four_sampler_types_build_a_sampler();
+    test_information_criteria_finite_after_fast_run();
+    test_point_estimate_accessor_selects_mean_or_mode();
+    test_posterior_covariance_and_correlation_matrices();
+    test_clear_results_resets_information_criteria_to_nan();
+    test_information_criteria_deterministic_for_same_seed();
     return bftest::summary("test_bayesian_analysis");
 }
