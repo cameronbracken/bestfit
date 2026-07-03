@@ -237,6 +237,13 @@ void test_point_estimate_accessor_selects_mean_or_mode() {
     CHECK_TRUE(std::fabs(mode_estimate.values[0] - mu_sample_mean) <= 0.5 * std::fabs(mu_sample_mean));
 }
 
+void test_point_estimate_throws_before_estimate() {
+    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+    BayesianAnalysis analysis(model, SamplerType::DEMCzs);
+
+    CHECK_THROWS(analysis.point_estimate());
+}
+
 void test_posterior_covariance_and_correlation_matrices() {
     UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
     BayesianAnalysis analysis(model, SamplerType::DEMCzs);
@@ -326,6 +333,7 @@ int main() {
     test_all_four_sampler_types_build_a_sampler();
     test_information_criteria_finite_after_fast_run();
     test_point_estimate_accessor_selects_mean_or_mode();
+    test_point_estimate_throws_before_estimate();
     test_posterior_covariance_and_correlation_matrices();
     test_clear_results_resets_information_criteria_to_nan();
     test_information_criteria_deterministic_for_same_seed();

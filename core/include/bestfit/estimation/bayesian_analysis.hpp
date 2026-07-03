@@ -94,6 +94,7 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/generalized_pareto.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
 #include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
 #include "bestfit/numerics/sampling/mcmc/base/mcmc_sampler.hpp"
 #include "bestfit/numerics/sampling/mcmc/demcz.hpp"
@@ -109,8 +110,8 @@ namespace bestfit::estimation {
 enum class SamplerType { DEMCz, DEMCzs, ARWMH, NUTS };
 
 // The point estimator used to summarize the posterior (C# `PointEstimateType`, C# 867-876).
-// Ported here for API completeness / forward reference from `point_estimator()`; the
-// point-estimate COMPUTATION that consumes it is deferred to T10 (see scope decision 4).
+// The point-estimate COMPUTATION that consumes it is `point_estimate()` below (T10, see scope
+// decision 4).
 enum class PointEstimateType { PosteriorMean, PosteriorMode };
 
 class BayesianAnalysis {
