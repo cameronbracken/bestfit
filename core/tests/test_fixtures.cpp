@@ -59,8 +59,11 @@
 #include "bestfit/numerics/math/special/erf.hpp"
 #include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
+#include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/snis.hpp"
 #include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "bestfit/numerics/utilities/extension_methods.hpp"
@@ -1352,6 +1355,16 @@ static std::unique_ptr<mcmc::MCMCSampler> build_and_sample(const std::string& sa
     if (sampler_target == "RWMH") {
         sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood,
                                                 parse_proposal_sigma(settings, d));
+    } else if (sampler_target == "ARWMH") {
+        auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
+        if (settings.contains("scale")) arwmh->scale = settings["scale"].get<double>();
+        if (settings.contains("beta")) arwmh->beta = settings["beta"].get<double>();
+        sampler = std::move(arwmh);
+    } else if (sampler_target == "Gibbs") {
+        if (!model.proposal) throw std::runtime_error("Gibbs model has no proposal function");
+        sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
+    } else if (sampler_target == "SNIS") {
+        sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
     } else {
         throw std::runtime_error("unknown mcmc_sampler target: " + sampler_target);
     }

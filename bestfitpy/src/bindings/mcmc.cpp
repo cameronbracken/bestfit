@@ -15,8 +15,11 @@
 #include <vector>
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/snis.hpp"
 #include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "bindings.hpp"
 
@@ -67,6 +70,16 @@ void register_mcmc(py::module_& m) {
             std::unique_ptr<mcmc::MCMCSampler> sampler;
             if (sampler_type == "RWMH") {
                 sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood, proposal_sigma);
+            } else if (sampler_type == "ARWMH") {
+                auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
+                if (settings.contains("scale")) arwmh->scale = settings["scale"].cast<double>();
+                if (settings.contains("beta")) arwmh->beta = settings["beta"].cast<double>();
+                sampler = std::move(arwmh);
+            } else if (sampler_type == "Gibbs") {
+                if (!model.proposal) throw py::value_error("Gibbs model has no proposal function");
+                sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
+            } else if (sampler_type == "SNIS") {
+                sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
             } else {
                 throw py::value_error("unknown mcmc_sampler target: " + sampler_type);
             }

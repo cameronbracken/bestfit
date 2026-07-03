@@ -1075,32 +1075,83 @@ static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
     }
 }
 
-// --- mcmc_sampler helpers (Task P3.5) ----------------------------------------------------
+// --- mcmc_sampler helpers (Task P3.5 / P3.6) ----------------------------------------------
 //
-// The model builder mirrors Test_RWMH.cs's Test_RWMH_NormalDist_RStan construction
-// VERBATIM -- this is the only implementation of the "uniform_constraints" model-registry
-// entry (see core/include/bestfit/numerics/sampling/mcmc/model_registry.hpp's header
-// comment: the registry itself is a bestfit addition with no upstream counterpart, and its
-// one entry today is transcribed straight from this test method).
-static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood) BuildMcmcModel(
+// The model builder mirrors Test_RWMH.cs's Test_RWMH_NormalDist_RStan construction VERBATIM
+// for "uniform_constraints", and Test_Gibbs.cs's Test_Gibbs_NormalDist_RStan VERBATIM for
+// "normal_conjugate_gibbs" -- see model_registry.hpp's header comment for the prior-aliasing
+// rationale this mirrors (both `muPrior`/`sigmaPrior` here and the C++ port's `mu_prior`/
+// `sigma_prior` are the SAME reference-type object the proposal closure and `priors` both
+// point at -- ordinary C# object references already give this for free, no `shared_ptr`
+// analog needed on this side).
+static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs.Proposal? proposal) BuildMcmcModel(
     string name, string family, double[] data)
 {
     if (name == "uniform_constraints")
     {
+        // Family-generic (mirrors model_registry.hpp's C++ "uniform_constraints" entry,
+        // which builds any `family` via the factory + IMaximumLikelihoodEstimation rather
+        // than being Normal-only): uninformative Uniform priors bounded by `family`'s own
+        // GetParameterConstraints(data) lower/upper arrays, and a log-likelihood closure
+        // that refits a fresh `family` instance's parameters at each proposal. Originally
+        // hard-coded to Normal only (P3.5, Test_RWMH_NormalDist_RStan); P3.6's
+        // ARWMH/SNIS rstan cases need Logistic/Gumbel/Weibull too (Test_ARWMH.cs).
+        var probe = UnivariateDistributionFactory.CreateDistribution(Enum.Parse<UnivariateDistributionType>(family));
+        if (probe is not IMaximumLikelihoodEstimation imle)
+            throw new Exception($"BuildMcmcModel: family '{family}' does not implement " +
+                                 "IMaximumLikelihoodEstimation");
+        var constraints = imle.GetParameterConstraints(data);
+        var priors = new List<IUnivariateDistribution>();
+        for (int i = 0; i < constraints.Item2.Length; i++)
+            priors.Add(new Uniform(constraints.Item2[i], constraints.Item3[i]));
+        double LogLH(double[] x)
+        {
+            var dist = UnivariateDistributionFactory.CreateDistribution(Enum.Parse<UnivariateDistributionType>(family));
+            dist.SetParameters(x);
+            return dist.LogLikelihood(data);
+        }
+        return (priors, LogLH, null);
+    }
+    if (name == "normal_conjugate_gibbs")
+    {
         if (family != "Normal")
             throw new Exception($"BuildMcmcModel: family '{family}' not supported for " +
-                                 "'uniform_constraints' (mirrors Test_RWMH.cs, Normal-only)");
-        var normDist = new Normal();
-        var constraints = normDist.GetParameterConstraints(data);
-        var muPrior = new Uniform(constraints.Item2[0], constraints.Item3[0]);
-        var sigmaPrior = new Uniform(constraints.Item2[1], constraints.Item3[1]);
+                                 "'normal_conjugate_gibbs' (mirrors Test_Gibbs.cs, Normal-only)");
+        int n = data.Length;
+        var mu = Statistics.Mean(data);
+        double mu0 = 0, sigma0 = 5E5;
+        var muPrior = new Normal(mu0, sigma0);
+        double alpha0 = 2, beta0 = 0.001;
+        var sigmaPrior = new InverseGamma(beta0, alpha0);
         var priors = new List<IUnivariateDistribution> { muPrior, sigmaPrior };
+
         double LogLH(double[] x)
         {
             var dist = new Normal(x[0], x[1]);
             return dist.LogLikelihood(data);
         }
-        return (priors, LogLH);
+
+        double[] Proposal(double[] x, Random random)
+        {
+            // Sample mu.
+            double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));
+            double sigma2 = (x[1] * x[1]) / (n + (x[1] * x[1]) / (sigma0 * sigma0));
+            muPrior.SetParameters(mun, Math.Sqrt(sigma2));
+            double mup = muPrior.InverseCDF(random.NextDouble());
+
+            // Sample sigma.
+            double alpha1 = n / 2d;
+            double sse = 0;
+            for (int i = 0; i < data.Length; i++)
+                sse += Math.Pow(data[i] - mup, 2);
+            double beta1 = sse / 2d;
+            sigmaPrior.SetParameters(new double[] { beta1, alpha1 });
+            double sig2p = sigmaPrior.InverseCDF(random.NextDouble());
+
+            return new double[] { mup, Math.Sqrt(sig2p) };
+        }
+
+        return (priors, LogLH, Proposal);
     }
     throw new Exception($"unknown MCMC model registry entry: {name}");
 }
@@ -1135,7 +1186,7 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
 {
     var modelSpec = construct.GetProperty("model");
     var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
-    var (priors, logLikelihood) = BuildMcmcModel(modelSpec.GetProperty("name").GetString()!,
+    var (priors, logLikelihood, proposal) = BuildMcmcModel(modelSpec.GetProperty("name").GetString()!,
         modelSpec.GetProperty("family").GetString()!, data);
     int d = priors.Count;
 
@@ -1144,6 +1195,10 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
     MCMCSampler sampler = samplerTarget switch
     {
         "RWMH" => new RWMH(priors, logLikelihood, hasSettings ? ParseProposalSigma(settings, d) : new Matrix(d)),
+        "ARWMH" => new ARWMH(priors, logLikelihood),
+        "Gibbs" => new Gibbs(priors, logLikelihood,
+            proposal ?? throw new Exception("Gibbs model has no proposal function")),
+        "SNIS" => new SNIS(priors, logLikelihood),
         _ => throw new Exception($"unknown mcmc_sampler target: {samplerTarget}")
     };
 
@@ -1157,6 +1212,11 @@ static MCMCSampler BuildAndSampleMcmc(string samplerTarget, JsonElement construc
         if (settings.TryGetProperty("number_of_chains", out var nc)) sampler.NumberOfChains = nc.GetInt32();
         if (settings.TryGetProperty("thinning_interval", out var ti)) sampler.ThinningInterval = ti.GetInt32();
         if (settings.TryGetProperty("output_length", out var ol)) sampler.OutputLength = ol.GetInt32();
+        if (sampler is ARWMH arwmh)
+        {
+            if (settings.TryGetProperty("scale", out var sc)) arwmh.Scale = sc.GetDouble();
+            if (settings.TryGetProperty("beta", out var be)) arwmh.Beta = be.GetDouble();
+        }
     }
 
     sampler.Sample();

@@ -15,8 +15,11 @@
 #include <vector>
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
 #include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
 #include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
+#include "bestfit/numerics/sampling/mcmc/snis.hpp"
 #include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
 
 namespace mcmc = bestfit::numerics::sampling::mcmc;
@@ -64,6 +67,18 @@ list bf_mcmc_run_(std::string sampler_type, std::string model_name, std::string 
     std::unique_ptr<mcmc::MCMCSampler> sampler;
     if (sampler_type == "RWMH") {
         sampler = std::make_unique<mcmc::RWMH>(model.priors, model.log_likelihood, proposal_sigma);
+    } else if (sampler_type == "ARWMH") {
+        auto arwmh = std::make_unique<mcmc::ARWMH>(model.priors, model.log_likelihood);
+        SEXP sc = settings["scale"];
+        if (sc != R_NilValue) arwmh->scale = as_cpp<double>(sc);
+        SEXP be = settings["beta"];
+        if (be != R_NilValue) arwmh->beta = as_cpp<double>(be);
+        sampler = std::move(arwmh);
+    } else if (sampler_type == "Gibbs") {
+        if (!model.proposal) stop("Gibbs model has no proposal function");
+        sampler = std::make_unique<mcmc::Gibbs>(model.priors, model.log_likelihood, model.proposal);
+    } else if (sampler_type == "SNIS") {
+        sampler = std::make_unique<mcmc::SNIS>(model.priors, model.log_likelihood);
     } else {
         stop("unknown mcmc_sampler target '%s'", sampler_type.c_str());
     }

@@ -18,6 +18,7 @@ set(BF_TESTS
   test_generalized_extreme_value
   test_gev_estimation
   test_goodness_of_fit
+  test_mcmc_extra
 )
 
 # Sobol test takes the direction-number file as its sole argument.
