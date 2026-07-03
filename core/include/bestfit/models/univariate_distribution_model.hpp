@@ -246,6 +246,11 @@ class UnivariateDistributionModel : public ModelBase {
    private:
     // Index of the scale parameter for the Jeffreys 1/scale prior (C# `Prior_LogLikelihood`,
     // ~1836-1843): Gamma/Weibull scale is parameter 0, every other family's is parameter 1.
+    // C# divergence: for a genuine 1-parameter family (Poisson/Bernoulli/Geometric/Deterministic)
+    // this returns an out-of-range index 1; C# indexes `GetParameters[1]` unguarded there and
+    // would throw IndexOutOfRangeException if MAP/Bayesian ever ran against one, while the two
+    // callers here guard `scale_index < p.size()` and silently skip the Jeffreys term instead
+    // (intentional, untested -- see docs/upstream-csharp-issues.md).
     std::size_t scale_parameter_index() const {
         using T = numerics::distributions::UnivariateDistributionType;
         T type = distribution_->type();

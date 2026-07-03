@@ -129,9 +129,9 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, Phase 2, and Phase 3 are **complete**. Phase 1 delivered the full Numerics
-math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for that
-merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
+Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 are **complete**. Phase 1 delivered the full
+Numerics math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for
+that merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
 copulas with shared estimation (tau/MPL/IFM/MLE) and an `IMaximumLikelihoodEstimation` mixin; and
 CompetingRisks' correlated dependency modes un-deferred from Phase 1. Phase 3 delivered
@@ -140,7 +140,15 @@ Sampling/MCMC -- all 8 samplers (RWMH, ARWMH, DEMCz, DEMCzs, HMC, NUTS, Gibbs, S
 optimizer stack the MAP-initialization path needs -- and the regular (non-pivotal) Bootstrap
 workflow (Percentile/BiasCorrected/BCa/Normal/BootstrapT); the covariance-aware pivotal bootstrap
 was scoped as the phase's severable final task and is tracked separately rather than landing on
-this branch. Everything ported through Phase 3 is fixture-validated in C++/R/Python and reproduced
-against the real Numerics library by the dotnet oracle gate; seeded MCMC chains and bootstrap
-replicate streams are proven bit-identical across R and Python via `short_exact`-style digest
-fixtures. Pending: CI run and PR for the Phase 3 branch. See `PLAN.md`.
+this branch. Phase 4 delivered BestFit's `Estimation` layer -- MaximumLikelihood,
+MaximumAPosteriori, and BayesianAnalysis (DEMCz/DEMCzs/ARWMH/NUTS, with DIC/WAIC/LOOIC
+diagnostics) on top of the Models slice (ModelParameter/DataComponent/PriorComponent, IModel/
+ModelBase, UnivariateDistributionModel including the Jeffreys 1/scale prior) and the Estimation
+support layer (MatrixRegularization, Stratify/StratificationOptions, NumericalDiff,
+OptimizationMethod); GMM + IGMMModel + BFGS + the Bulletin17C coupling, the alternate optimizers
+(Powell/MLSL/LocalMethod), and the Diagnostics/LeverageDiagnostics layer are severed to follow-ups.
+Everything ported through Phase 4 is fixture-validated in C++/R/Python and reproduced against the
+real Numerics/RMC.BestFit libraries by the dotnet oracle gate (3751 reproduced, 0 failed); seeded
+MCMC chains, bootstrap replicate streams, and a DEMCzs posterior chain digest are all proven
+bit-identical across R and Python via `short_exact`-style digest fixtures. Pending: CI run and PR
+for the Phase 4 branch. See `PLAN.md`.
