@@ -295,8 +295,8 @@ companion case is sufficient to lock that branch; it does not need repeating per
 
 ```jsonc
 {
-  "target":  "RWMH",                        // the concrete sampler type: RWMH/ARWMH/Gibbs/SNIS
-                                             // today (P3.5/P3.6); DEMCz/DEMCzs/HMC/NUTS in
+  "target":  "RWMH",                        // the concrete sampler type: RWMH/ARWMH/Gibbs/SNIS/
+                                             // DEMCz/DEMCzs today (P3.5/P3.6/P3.7); HMC/NUTS in
                                              // later tasks
   "kind":    "mcmc_sampler",
   "source":  "Numerics/Sampling/MCMC/RWMH.cs ; Test_Numerics/Sampling/MCMC/Test_RWMH.cs",
@@ -372,6 +372,12 @@ and (with `beta: 0.0` forcing the identity-covariance-vs-adaptive-covariance bra
 purely by the `100 * NumberOfParameters` sample-count threshold, never by the Beta-test draw) the
 adaptive-covariance (`RunningCovarianceMatrix`-scaled) proposal branch, which the rstan cases only
 reach implicitly after their first `100 * D` samples.
+
+`jump`/`jump_threshold`/`noise` (DEMCz- and DEMCzs-specific doubles; override the ctor-computed
+`Jump = 2.38 / sqrt(2*D)`, `JumpThreshold = 0.1`, and `Noise = 1e-12`) and `snooker_threshold`
+(DEMCzs-only; overrides `SnookerThreshold = 0.1`) -- none of `demcz.json`/`demczs.json`'s cases
+below override any of these; every case relies on the ctor defaults, matching
+`Test_DEMCz.cs`/`Test_DEMCzs.cs` (neither ever touches these properties).
 
 Gibbs and SNIS force several settings in their own constructors (mirroring the C# ctors, which
 write the PROTECTED backing fields directly and call `Reset()` once, rather than going through
@@ -514,6 +520,70 @@ see the raw `--dump` output) has no such hazard; logged as a new finding in
 per SNIS's own override) is naive Monte Carlo with no `DifferentialEvolution`/MAP machinery, so
 its `chain_value`/`chain_fitness` companions (top 5 of 100, indices `95`-`99`, for the identical
 tie-hazard reason above) use the TRUE `mode: "rel", tol: 1e-12` digest tolerance.
+
+**Tolerance policy for the DEMCz/DEMCzs cases** (`demcz.json`/`demczs.json`): both files carry
+`normal_rstan`/`logistic_rstan`/`gumbel_rstan`/`weibull_rstan` (all `Initialize = Randomize`, the
+default -- neither `Test_DEMCz.cs` nor `Test_DEMCzs.cs` ever sets `Initialize`, so there is no
+`DifferentialEvolution`/Hessian machinery on any of these paths) plus a `normal_short_exact` case
+(`number_of_chains: 3`, the smallest legal `ValidateSettings` config for both samplers -- `< 3`
+throws `"There must be at least 3 chains."`). Each rstan case asserts its 10 rstan literals at
+`mode: "rel", tol: 0.05`, plus curated `chain_value`/`chain_fitness` companions (first 5 draws x 4
+chains x 2 params) at the TRUE `mode: "rel", tol: 1e-12` digest tolerance -- confirmed via a
+standalone throwaway harness against the real C# library to reproduce to ~1e-14 relative or
+tighter at these EARLY draws, for both samplers.
+
+**Population-sampler divergence finding (new, this task, NOT an upstream C# bug -- an inherent
+property of the DE-MC algorithm family, equally present in both languages):** unlike RWMH/ARWMH/
+Gibbs/SNIS, DEMCz and DEMCzs are `IsPopulationSampler = true` -- every chain's proposal draws from
+the SAME, ever-growing, cross-chain `PopulationMatrix` (`R1`/`R2` index into it; `population_matrix_.
+push_back(...)` runs once per chain per outer `sample()` iteration, in BOTH the `Iterations` phase
+AND the trailing `OutputLength`-driven "output phase" -- see `mcmc_sampler.hpp`'s `sample()`). This
+is a fundamentally different coupling from RWMH/ARWMH's per-chain-independent proposals (each of
+their chains reads only its OWN history), and it makes DEMCz/DEMCzs's long-run aggregate statistics
+measurably LESS cross-language-reproducible than the early-draw digest: a single accept/reject
+decision that differs by a libm-ULP between languages (occasionally inevitable over enough draws,
+same root cause as the RWMH MAP-path/BrentSearch findings already logged) immediately corrupts the
+SHARED pool every OTHER chain proposes from next, compounding across O(10^4-10^5) total
+`ChainIteration` calls per rstan case. Diagnosed directly (a throwaway harness plus a targeted
+`--dump` sweep over draws 0/100/200/.../3400 of `normal_rstan`'s chain 0): the per-draw relative
+divergence from the real C# library is ~1e-15 at draw 0, grows past ~1e-8 by draw ~300, and reaches
+several percent by draw ~500 -- textbook chaotic amplification of sub-ULP noise, not a transcription
+defect (the SHORT digest window, draws 0-4, sits entirely before this amplification becomes
+significant). Two `MCMCResults` quantities are built from data spanning this divergent tail and are
+NOT bit-reproducible as a result: `AcceptanceRates` (accumulates over the ENTIRE run, output phase
+included) and everything derived from `Output` (`posterior_mean`/`sd`/`median`/`lower_ci`/
+`upper_ci`, and `ESS` -- `effective_sample_size(sampler.output())`). By contrast, `Rhat`
+(`gelman_rubin(sampler.markov_chains(), ...)`), `chain_value`/`chain_fitness`
+(`MarkovChains` directly), `MeanLogLikelihood` (accumulated only while `i <= Iterations`, i.e.
+entirely within the `MarkovChains`-recorded phase), and `MAP`/`MAP.Fitness` (tracks the best
+fitness seen -- both languages' searches land on comparably-good optima even when their specific
+trajectories diverge) all stay near-bit-exact throughout, confirmed by the same sweep. Accordingly:
+`acceptance_rate` on every DEMCz/DEMCzs rstan case (and DEMCzs's `normal_short_exact`, whose
+`OutputLength`-driven output phase is `ceil(10000/3) = 3334` iterations -- MUCH longer than the
+250-iteration `MarkovChains` window the digest itself covers) uses `mode: "rel", tol: 0.05`, not
+`"equal"`; `chain_value`/`chain_fitness`/`map_value`/`map_fitness`/`mean_log_likelihood`/`rhat`
+keep the tight digest tolerances (`1e-12`/`1e-9`, exactly the RWMH/ARWMH/Gibbs precedent). DEMCz's
+`normal_short_exact` (no snooker branch, chains=3, only 250 total `ChainIteration` calls) is the
+one exception that stays bit-exact end to end: its `acceptance_rate` keeps `mode: "equal"`, and
+only `ess` needs loosening, from `1e-9` to `1e-5` (measured ~1.4e-6 relative -- `ESS`'s Geyer-style
+autocorrelation-lag truncation is itself a discontinuous function of its input series, so even the
+sub-ULP `MarkovChains` noise already present can occasionally nudge a truncation-lag decision by
+one step and shift `ESS` measurably more than the `MarkovChains` values themselves moved).
+DEMCzs's `normal_short_exact` additionally exercises the snooker branch's `Vector::project`/
+`Vector::distance` arithmetic (extra dot-product/norm/sqrt operations per snooker draw, atop the
+already-present likelihood-evaluation noise), which needs `chain_value` loosened from `1e-12` to
+`1e-11` (measured max ~2.9e-12 across an EXHAUSTIVE sweep of all 3 chains x 250 draws x 2 params --
+confirming there is no genuine trajectory divergence anywhere in the `MarkovChains` window, only
+slightly larger sub-ULP noise than DEMCz's simpler branch) and `ess` loosened to `0.25` (measured
+~16% relative -- the same Geyer-truncation discontinuity as DEMCz above, amplified further because
+`output()`'s `3334`-iteration divergent tail feeds `effective_sample_size` directly here, unlike
+`Rhat`, which stays exact because it reads only `MarkovChains`). One
+degenerate `chain_value` entry (`DEMCzs`/`normal_rstan`, chain 3, draw 0-4, `mu` parameter) is
+curated as EXACTLY `0.0` -- that chain's Latin-Hypercube initial draw landed on the `mu` prior's
+literal lower bound and never escaped it (every subsequent proposal for that chain was rejected,
+freezing it there for the life of the run, in BOTH languages identically) -- `mode: "equal"` is
+used there instead of `"rel"` (a relative-tolerance check against an EXACT-zero expected value is
+undefined, `0/0`, not a looser check).
 
 **NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
 the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare
