@@ -1122,6 +1122,31 @@ void test_clone_preserves_parameter_values() {
     }
 }
 
+// C# fidelity pin (M9 review): the C# clone routes through the (DataFrame, Distribution)
+// ctor, whose `Distribution = distribution.Clone()` keeps the cloned Distribution's current
+// parameters (the C# SetDefaultParameters never calls Distribution.SetParameters). The C++
+// ctor's retained Phase 4 deviation syncs the distribution to constraint initials, so
+// clone() must re-sync the clone's distribution to the original's current parameters or a
+// seeded simulation from the clone silently diverges from the original's.
+void test_clone_syncs_distribution_parameters() {
+    UnivariateDistributionModel original = make_normal_model();
+    original.set_parameter_values({105.0, 17.5});
+
+    UnivariateDistributionModel clone = original.clone();
+
+    const std::vector<double> expected = original.distribution().get_parameters();
+    const std::vector<double> actual = clone.distribution().get_parameters();
+    CHECK_EQ(actual.size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) CHECK_TRUE(actual[i] == expected[i]);
+
+    // Seeded ISimulatable streams bit-match between original and clone (the C# end state).
+    const std::vector<double> from_original = original.generate_random_values(3, 42);
+    const std::vector<double> from_clone = clone.generate_random_values(3, 42);
+    CHECK_EQ(from_clone.size(), from_original.size());
+    for (std::size_t i = 0; i < from_original.size(); ++i)
+        CHECK_TRUE(from_clone[i] == from_original[i]);
+}
+
 // C# Clone_PreservesIsNonstationary.
 void test_clone_preserves_is_nonstationary() {
     UnivariateDistributionModel original = make_normal_model();
@@ -1634,6 +1659,7 @@ int main() {
     test_clone_produces_distinct_instance();
     test_clone_preserves_distribution_type();
     test_clone_preserves_parameter_values();
+    test_clone_syncs_distribution_parameters();
     test_clone_preserves_is_nonstationary();
     test_clone_preserves_alpha();
     test_clone_parameters_are_independent();

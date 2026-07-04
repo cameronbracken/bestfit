@@ -107,7 +107,12 @@
 //     cannot alias, so clone() DEEP-COPIES the frame (DataFrame::clone()). Mutating the
 //     clone's frame therefore does NOT affect the original's, unlike C#. Like the C# (whose
 //     (DataFrame, distribution) ctor throws ArgumentNullException), cloning a model with no
-//     frame throws std::invalid_argument.
+//     frame throws std::invalid_argument. Because the C++ ctor's retained Phase 4 deviation
+//     resets the freshly constructed clone's distribution to constraint initials (the C#
+//     SetDefaultParameters leaves Distribution's parameters intact), clone() re-syncs the
+//     clone's distribution to the original's current parameters after the field writes,
+//     restoring the C# end state (seeded simulation from the clone bit-matches the
+//     original).
 //
 // Still deliberately NOT ported:
 //   - IUnivariateModel (its `distribution()` pointer accessor collides with this class's
@@ -876,6 +881,13 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
         result.parameters_ = std::move(parms);
         result.quantile_priors_ = std::move(quants);
         result.trend_models_ = std::move(trends);
+
+        // Re-sync the cloned distribution to the original's current parameters. The C#
+        // ctor's `Distribution = distribution.Clone()` keeps them (its SetDefaultParameters
+        // never calls Distribution.SetParameters); the C++ ctor's retained Phase 4
+        // deviation resets the clone's distribution to constraint initials, so without
+        // this write the clone's ISimulatable stream silently diverges from the original's.
+        result.distribution_->set_parameters(distribution_->get_parameters());
 
         result.process_quantile_priors();
         return result;
