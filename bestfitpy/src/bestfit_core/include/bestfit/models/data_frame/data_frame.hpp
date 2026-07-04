@@ -16,9 +16,9 @@
 //   2. Threshold-derived state (ThresholdData::NumberBelow, and the zeroing of
 //      NumberAbove for fully covered windows) is recomputed EXPLICITLY: call
 //      process_threshold_series() after mutating any series or threshold counts. Upstream
-//      this ran automatically on every collection change; M5's
-//      calculate_plotting_positions() will call it first, restoring the upstream trigger
-//      point for plotting-position consumers.
+//      this ran automatically on every collection change; calculate_plotting_positions()
+//      calls it first (as the C# method itself does, lines 1142-1144), restoring the
+//      upstream trigger point for plotting-position consumers.
 //   3. Lambda is recomputed EXPLICITLY via calculate_lambda() (upstream: triggered by
 //      exact-series collection-changed events) or pinned via set_lambda().
 //
@@ -26,15 +26,14 @@
 // ProcessThresholdSeries, TotalRecordLength, ZeroValueRelativeFrequency, Lambda
 // (SetLambda/CalculateLambda), the low-outlier surface (NumberOfLowOutliers,
 // LowOutlierThreshold, ClearLowOutliers, SetLowOutliersFromMGBT,
-// SetLowOutliersFromThreshold), the plain PlottingParameter property, Validate(), and a
+// SetLowOutliersFromThreshold), the plain PlottingParameter property, Validate(), a
 // direct deep Clone() (the C# clones via an XElement round trip; the direct clone has the
 // same observable result, including the empty lazily-rebuilt full series noted in the C#
-// remarks).
+// remarks), and (M5) CalculatePlottingPositions / ApplyLangbeinConversion -- the
+// Hirsch-Stedinger censored plotting positions, defined out-of-line in
+// data_frame_plotting.hpp (included at the bottom of this file).
 //
 // Deliberately NOT ported:
-//   - CalculatePlottingPositions / ApplyLangbeinConversion (Hirsch-Stedinger plotting
-//     positions are M5; calculate_plotting_positions() below is a marked no-op stub
-//     because the ported PlottingParameter setter calls it)
 //   - the hypothesis-test facade (JarqueBera/LjungBox/EqualVarianceTtest/
 //     UnequalVarianceTtest/Ftest/LinearTrend/Unimodality/WaldWolfowitz/MannWhitney/
 //     MannKendall/SummaryHypothesisTest -- Numerics HypothesisTests is unported)
@@ -129,8 +128,8 @@ class DataFrame {
     void set_low_outlier_threshold(double threshold) { low_outlier_threshold_ = threshold; }
 
     // --- The plotting position parameter; default 0.0 = Weibull (C# property, line 256;
-    // alternatives: 0.40 Cunnane, 0.44 Gringorten, 0.50 Hazen). The C# setter recomputes
-    // plotting positions on change; today that call hits the M5 stub below. ---
+    // alternatives: 0.40 Cunnane, 0.44 Gringorten, 0.50 Hazen). The setter recomputes
+    // plotting positions on change, mirroring the C#. ---
     double plotting_parameter() const { return plotting_parameter_; }
     void set_plotting_parameter(double plotting_parameter) {
         if (plotting_parameter_ != plotting_parameter) {
@@ -154,10 +153,14 @@ class DataFrame {
         lambda_ = (events <= 0.0 || span <= 0.0) ? 0.0 : events / span;
     }
 
-    // M5 stub -- Hirsch-Stedinger plotting positions (C# CalculatePlottingPositions,
-    // line 1140) arrive in M5; deliberately a no-op until then. Kept because the ported
-    // PlottingParameter setter calls it, preserving the C# call shape.
-    void calculate_plotting_positions() { /* M5 */ }
+    // Hirsch-Stedinger censored plotting positions (C# CalculatePlottingPositions,
+    // line 1140). Defined in data_frame_plotting.hpp (included below); calls
+    // process_threshold_series() first, exactly like the C#.
+    void calculate_plotting_positions();
+
+    // Apply the Langbein conversion to the plotting positions (C#
+    // ApplyLangbeinConversion, line 1458). Defined in data_frame_plotting.hpp.
+    void apply_langbein_conversion(double lambda);
 
     // Validates the current state of the data frame and reports any issues found
     // (C# line 527): plotting-parameter range plus the four series validations, in the
@@ -526,3 +529,8 @@ inline ValidationResult UncertainSeries::validate(const DataFrame* data_frame) c
 }
 
 }  // namespace bestfit::models
+
+// Out-of-line definitions of DataFrame::calculate_plotting_positions() and
+// DataFrame::apply_langbein_conversion() (split out purely for file size; the header
+// must not be included directly).
+#include "bestfit/models/data_frame/data_frame_plotting.hpp"  // NOLINT

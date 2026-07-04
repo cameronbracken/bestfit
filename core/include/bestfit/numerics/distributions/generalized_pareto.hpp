@@ -1,8 +1,10 @@
 // ported from: Numerics/Distributions/Univariate/GeneralizedPareto.cs @ a2c4dbf
 //
 // Generalized Pareto distribution: parameters ξ (location), α (scale), κ (shape).
-// Mirrors the C# source method-for-method. The IBootstrappable, IStandardError, and
-// WPF helpers are not ported (desktop / uncertainty-analysis concerns).
+// Mirrors the C# source method-for-method. The IBootstrappable and WPF helpers are not
+// ported (desktop / uncertainty-analysis concerns); of the IStandardError surface only
+// ParameterCovariance is ported (M5: ThresholdDiagnostics' parameter-stability plot
+// needs it) -- QuantileVariance/QuantileGradient/QuantileJacobian remain unported.
 // κ→0 limit branch: exponential distribution on [ξ, ∞).
 // κ > 0: bounded above at ξ + α/κ.
 // κ < 0: heavy tail, unbounded above.
@@ -17,6 +19,7 @@
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
 #include "bestfit/numerics/tools.hpp"
@@ -140,6 +143,57 @@ class GeneralizedPareto : public UnivariateDistributionBase,
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         return std::make_unique<GeneralizedPareto>(xi_, alpha_, kappa_);
+    }
+
+    // Parameter covariance matrix, 3x3 over {location, scale, shape} (C#
+    // ParameterCovariance, line 635). Closed-form asymptotic formulas; only the
+    // MethodOfMoments and MaximumLikelihood branches exist upstream (anything else
+    // throws, C# NotImplementedException -> std::logic_error).
+    math::linalg::Matrix2D parameter_covariance(
+        int sample_size, ParameterEstimationMethod estimation_method) const {
+        if (estimation_method != ParameterEstimationMethod::MethodOfMoments &&
+            estimation_method != ParameterEstimationMethod::MaximumLikelihood) {
+            throw std::logic_error(
+                "GeneralizedPareto::parameter_covariance is only implemented for the "
+                "method of moments and maximum likelihood estimation methods.");
+        }
+        double a = alpha_;
+        double k = kappa_;
+        double n = static_cast<double>(sample_size);
+        math::linalg::Matrix2D covar(3, std::vector<double>(3, 0.0));
+        covar[0][0] = n * a * a / ((n + 2.0 * k) * std::pow(n + k, 2.0));  // location
+        if (estimation_method == ParameterEstimationMethod::MethodOfMoments) {
+            double num = std::pow(1.0 + k, 2.0) * (1.0 + 6.0 * k + 12.0 * std::pow(k, 2.0));
+            double den = (1.0 + 2.0 * k) * (1.0 + 3.0 * k) * (1.0 + 4.0 * k);
+            covar[1][1] = 2.0 * a * a / n * num / den;  // scale
+            //
+            num = std::pow(1.0 + k, 2.0) * std::pow(1.0 + 2.0 * k, 2.0) *
+                  (1.0 + k + 6.0 * std::pow(k, 2.0));
+            covar[2][2] = 1.0 / n * num / den;  // shape
+            //
+            covar[0][1] = 0.0;
+            covar[0][2] = 0.0;
+            covar[1][0] = 0.0;
+            covar[2][0] = 0.0;
+            //
+            num = std::pow(1.0 + k, 2.0) * (1.0 + 2.0 * k) *
+                  (1.0 + 4.0 * k + 12.0 * std::pow(k, 2.0));
+            den = (1.0 + 2.0 * k) * (1.0 + 3.0 * k) * (1.0 + 4.0 * k);
+            covar[2][1] = a / n * num / den;  // scale & shape
+            covar[1][2] = covar[2][1];
+        } else {
+            covar[1][1] = (1.0 - k) * (2.0 * a * a) / n;      // scale
+            covar[2][2] = 1.0 / n * std::pow(1.0 - k, 2.0);   // shape
+            //
+            covar[0][1] = 0.0;
+            covar[0][2] = 0.0;
+            covar[1][0] = 0.0;
+            covar[2][0] = 0.0;
+            //
+            covar[2][1] = a / n * (1.0 - k);  // scale & shape
+            covar[1][2] = covar[2][1];
+        }
+        return covar;
     }
 
     // --- Estimation ---
