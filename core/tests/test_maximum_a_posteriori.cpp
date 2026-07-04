@@ -64,7 +64,8 @@ void test_sign_convention_matches_log_likelihood() {
     MaximumAPosteriori map(model, OptimizationMethod::NelderMead);
     CHECK_TRUE(map.estimate());
 
-    double from_model = model.log_likelihood(map.best_parameter_set().values);
+    std::vector<double> best = map.best_parameter_set().values;  // mutable lvalue (M14 signature)
+    double from_model = model.log_likelihood(best);
     CHECK_NEAR(map.maximum_log_likelihood(), from_model, 1e-9);
 }
 

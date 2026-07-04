@@ -59,7 +59,8 @@ void test_sign_convention_matches_data_log_likelihood() {
     MaximumLikelihood mle(model, OptimizationMethod::NelderMead);
     CHECK_TRUE(mle.estimate());
 
-    double from_model = model.data_log_likelihood(mle.best_parameter_set().values);
+    std::vector<double> best = mle.best_parameter_set().values;  // mutable lvalue (M14 signature)
+    double from_model = model.data_log_likelihood(best);
     CHECK_NEAR(mle.maximum_log_likelihood(), from_model, 1e-9);
 }
 

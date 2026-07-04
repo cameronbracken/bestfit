@@ -32,7 +32,9 @@
 //   interval:  { "index": i, "lower": lo, "value": x, "upper": hi }
 //   threshold: { "start_index": i, "end_index": j, "value": x, "number_above": n }
 //   uncertain: { "index": i, "distribution": { "family": "<name>", "parameters": [ ... ] } }
-// plus an optional frame-level "low_outlier_threshold".
+// plus an optional frame-level "low_outlier_threshold" and an optional frame-level
+// "mgbt_low_outliers" flag (M14) that triggers the public set_low_outliers_from_mgbt() path
+// after the series are assigned.
 //
 // `trends` attach via UnivariateDistributionModel::set_trend_model (which supplies the
 // data-driven defaults exactly like the C# SetTrendModel); `start_index` then overrides the
@@ -132,6 +134,13 @@ inline DataFrame build_data_frame(const JsonValue& spec) {
 
     if (spec.contains("low_outlier_threshold"))
         df.set_low_outlier_threshold(spec.at("low_outlier_threshold").as_double());
+
+    // Optional MGBT trigger (M14): the public set_low_outliers_from_mgbt() path, run at the
+    // frame boundary (before the model ctor sees the frame) exactly like a C# caller would --
+    // flags low outliers, sets low_outlier_threshold, and thereby left-censors the flagged
+    // values in the model's likelihood. Mutually exclusive with explicit `is_low_outlier`
+    // flags / `low_outlier_threshold` by fixture convention (MGBT clears both first).
+    if (spec.value_or("mgbt_low_outliers", false)) df.set_low_outliers_from_mgbt();
 
     return df;
 }

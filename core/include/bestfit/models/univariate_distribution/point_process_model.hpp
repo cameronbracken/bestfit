@@ -556,7 +556,7 @@ class PointProcessModel : public UnivariateDistributionModelBase,
     // collapsed to -infinity at every step (the C# remark: the base implementation's
     // IsFinite check is bypassed by a NegativeInfinity sentinel, so this override forces
     // the canonical contract).
-    double log_likelihood(const std::vector<double>& parameters) const override {
+    double log_likelihood(std::vector<double>& parameters) const override {
         const double neg_inf = -std::numeric_limits<double>::infinity();
 
         double data_log_lh = data_log_likelihood(parameters);
@@ -575,7 +575,7 @@ class PointProcessModel : public UnivariateDistributionModelBase,
     // uncertain / interval / threshold data are evaluated against the composite
     // (competing-risks) likelihood -- they are block-indexed, not date-indexed, so
     // day-of-year season dispatch does not apply.
-    double data_log_likelihood(const std::vector<double>& parameters) const override {
+    double data_log_likelihood(std::vector<double>& parameters) const override {
         const double neg_inf = -std::numeric_limits<double>::infinity();
 
         if (distribution_ == nullptr || !has_data_frame()) return neg_inf;
@@ -1062,7 +1062,7 @@ class PointProcessModel : public UnivariateDistributionModelBase,
     // three-prior difference form with its quantile Jacobian). Like the C#, the raw sum is
     // returned (no finite collapse; LogLikelihood collapses). The C# `Parameters is null`
     // guard has no C++ analogue (the vector always exists).
-    double prior_log_likelihood(const std::vector<double>& parameters) const override {
+    double prior_log_likelihood(std::vector<double>& parameters) const override {
         const double neg_inf = -std::numeric_limits<double>::infinity();
 
         if (distribution_ == nullptr) return neg_inf;

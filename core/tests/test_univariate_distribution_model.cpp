@@ -436,7 +436,8 @@ void test_log_likelihood_returns_finite_value() {
     UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
                                       UnivariateDistributionType::Normal);
 
-    double ll = model.log_likelihood(kInlineNormalTrueParams);
+    std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
+    double ll = model.log_likelihood(params);
 
     CHECK_TRUE(!std::isnan(ll));
     CHECK_TRUE(!std::isinf(ll));
@@ -447,7 +448,8 @@ void test_log_likelihood_negative_for_continuous_distributions() {
     UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
                                       UnivariateDistributionType::Normal);
 
-    CHECK_TRUE(model.log_likelihood(kInlineNormalTrueParams) < 0.0);
+    std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
+    CHECK_TRUE(model.log_likelihood(params) < 0.0);
 }
 
 // C# Test_LogLikelihood_InvalidParameters_ReturnsNegativeInfinity.
@@ -455,7 +457,8 @@ void test_log_likelihood_invalid_parameters_returns_negative_infinity() {
     UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
                                       UnivariateDistributionType::Normal);
 
-    CHECK_TRUE(model.log_likelihood({100.0, -10.0}) == -kInf);
+    std::vector<double> params{100.0, -10.0};  // mutable lvalue (M14 signature)
+    CHECK_TRUE(model.log_likelihood(params) == -kInf);
 }
 
 // C# Test_LogPrior_WithUniformPrior_ReturnsFinite.
@@ -468,7 +471,8 @@ void test_log_prior_with_uniform_prior_returns_finite() {
     model.parameters()[1].set_prior_distribution(
         std::make_unique<bestfit::numerics::distributions::Uniform>(0.001, 1e10));
 
-    double log_prior = model.prior_log_likelihood(kInlineNormalTrueParams);
+    std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
+    double log_prior = model.prior_log_likelihood(params);
 
     CHECK_TRUE(!std::isnan(log_prior));
     CHECK_TRUE(log_prior != -kInf);
@@ -483,7 +487,8 @@ void test_log_prior_with_informative_prior_returns_finite() {
     model.parameters()[1].set_prior_distribution(
         std::make_unique<bestfit::numerics::distributions::Exponential>(0.001, 15.0));
 
-    double log_prior = model.prior_log_likelihood(kInlineNormalTrueParams);
+    std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
+    double log_prior = model.prior_log_likelihood(params);
 
     CHECK_TRUE(!std::isnan(log_prior));
     CHECK_TRUE(!std::isinf(log_prior));
@@ -500,7 +505,8 @@ void test_log_prior_outside_prior_support_returns_negative_infinity() {
         std::make_unique<bestfit::numerics::distributions::Uniform>(1.0, 100.0));
 
     // mu = 100 is outside [0, 50]
-    CHECK_TRUE(model.prior_log_likelihood({100.0, 15.0}) == -kInf);
+    std::vector<double> params{100.0, 15.0};  // mutable lvalue (M14 signature)
+    CHECK_TRUE(model.prior_log_likelihood(params) == -kInf);
 }
 
 // C# Test_Validate_ValidModel_ReturnsTrue.
@@ -783,7 +789,8 @@ void test_set_data_frame_processes_threshold_series_at_model_boundary() {
     // Zero the counts by hand; the likelihood entry points must not reprocess them.
     model.data_frame().threshold_series()[0].set_number_below(0);
     model.data_frame().threshold_series()[0].set_number_above(0);
-    CHECK_NEAR(model.data_log_likelihood({100.0, 10.0}), 0.0, 1e-12);
+    std::vector<double> params{100.0, 10.0};  // mutable lvalue (M14 signature)
+    CHECK_NEAR(model.data_log_likelihood(params), 0.0, 1e-12);
     CHECK_EQ(model.data_frame().threshold_series()[0].number_below(), 0);
     CHECK_EQ(model.data_frame().threshold_series()[0].number_above(), 0);
 }

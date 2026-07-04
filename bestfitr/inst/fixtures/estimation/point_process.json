@@ -1,7 +1,7 @@
 {
   "target": "MaximumLikelihood",
   "kind": "model_estimation",
-  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Exercises the `point_process` model type (non-seasonal only -- the seasonal path is a project-wide deferral): default-constructed PointProcessModel (single-GEV competing-risks distribution), the DataFrame/AMS cascade, and the explicit threshold/total_years knobs (an explicit total_years marks the exposure explicitly set and refreshes lambda). Parameter layout: the GEV mark distribution [location, scale, shape]. LOOSE smoke tolerances (rel 1e-5; the GEV likelihood surface is flatter than the Normal cases').",
+  "source": "Exact oracle values: authored self-computed (M13), then verified value-for-value against the REAL RMC.BestFit MaximumLikelihood by tools/verify_oracles.py (M14 -- every literal reproduces bit-for-bit from the C# library, so these ARE C#-oracle values). Exercises the `point_process` model type: DataFrame/AMS cascade with explicit threshold/total_years; single-GEV competing-risks mark distribution. rel 1e-8 (one order looser than the 1e-9 deterministic tier: the GEV point-process likelihood surface is flat enough that cross-platform libm ULP differences can shift the long NelderMead trajectory more than a Normal fit's).",
   "datasets": {
     "pot_peaks": [
       950,
@@ -41,7 +41,7 @@
           ],
           "expected": 749.9865433018036,
           "mode": "rel",
-          "tol": 1e-05
+          "tol": 1e-08
         },
         {
           "method": "parameter",
@@ -50,7 +50,7 @@
           ],
           "expected": 567.8416431105793,
           "mode": "rel",
-          "tol": 1e-05
+          "tol": 1e-08
         },
         {
           "method": "parameter",
@@ -59,14 +59,14 @@
           ],
           "expected": 0.6095659975230949,
           "mode": "rel",
-          "tol": 1e-05
+          "tol": 1e-08
         },
         {
           "method": "max_log_likelihood",
           "args": [],
           "expected": -117.66563619560641,
           "mode": "rel",
-          "tol": 1e-05
+          "tol": 1e-08
         }
       ]
     }

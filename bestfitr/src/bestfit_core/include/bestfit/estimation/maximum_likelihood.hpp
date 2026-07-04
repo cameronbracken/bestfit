@@ -185,7 +185,7 @@ class MaximumLikelihood {
                     // Compute Hessian with adaptive step sizes (flat-spot detection).
                     try {
                         hessian_ = NumericalDiff::compute_hessian(
-                            [this](const std::vector<double>& p) { return model_.data_log_likelihood(p); },
+                            [this](std::vector<double>& p) { return model_.data_log_likelihood(p); },
                             best_parameter_set_.values, number_of_parameters());
                     } catch (const std::exception&) {
                         // C# logs "Hessian computation failed: ..." via Debug.WriteLine; no C++
@@ -474,7 +474,10 @@ class MaximumLikelihood {
             upper_bounds_.push_back(parameter.upper_bound());
         }
 
-        Optimizer::Objective objective = [this](const std::vector<double>& p) {
+        // Mutable pass-through (M14): mirrors C# handing `Model.DataLogLikelihood` (a
+        // `Func<double[], double>`) straight to the optimizer -- a mutating model (MixtureModel)
+        // writes back into the optimizer's own working vectors.
+        Optimizer::Objective objective = [this](std::vector<double>& p) {
             return model_.data_log_likelihood(p);
         };
 

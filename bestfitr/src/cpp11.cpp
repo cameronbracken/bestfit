@@ -279,6 +279,13 @@ extern "C" SEXP _bestfitr_bf_estimation_bayes_run_(SEXP model_json, SEXP dataset
   END_CPP11
 }
 // estimation.cpp
+list bf_model_data_frame_(std::string model_json, doubles dataset);
+extern "C" SEXP _bestfitr_bf_model_data_frame_(SEXP model_json, SEXP dataset) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_model_data_frame_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset)));
+  END_CPP11
+}
+// estimation.cpp
 doubles bf_model_simulate_(std::string model_json, doubles dataset, int sample_size, int seed);
 extern "C" SEXP _bestfitr_bf_model_simulate_(SEXP model_json, SEXP dataset, SEXP sample_size, SEXP seed) {
   BEGIN_CPP11
@@ -482,6 +489,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_mix_pdf_",                  (DL_FUNC) &_bestfitr_bf_mix_pdf_,                   4},
     {"_bestfitr_bf_mix_quantile_",             (DL_FUNC) &_bestfitr_bf_mix_quantile_,              4},
     {"_bestfitr_bf_mix_valid_",                (DL_FUNC) &_bestfitr_bf_mix_valid_,                 3},
+    {"_bestfitr_bf_model_data_frame_",         (DL_FUNC) &_bestfitr_bf_model_data_frame_,          2},
     {"_bestfitr_bf_model_simulate_",           (DL_FUNC) &_bestfitr_bf_model_simulate_,            4},
     {"_bestfitr_bf_multinomial_val_",          (DL_FUNC) &_bestfitr_bf_multinomial_val_,           4},
     {"_bestfitr_bf_mvn_cdf_seq_",              (DL_FUNC) &_bestfitr_bf_mvn_cdf_seq_,               5},

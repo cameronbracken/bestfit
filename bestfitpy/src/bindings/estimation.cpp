@@ -45,6 +45,7 @@
 #include "bestfit/models/model_spec.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/support/simulatable.hpp"
+#include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
@@ -245,6 +246,47 @@ void register_estimation(py::module_& m) {
             return out;
         },
         py::arg("model_json"), py::arg("dataset"), py::arg("sampler"), py::arg("settings"));
+
+    // --- DataFrame assertion surface (M14) ---------------------------------------------
+    //
+    // Methods reachable from the model's DataFrame under ANY model_estimation target,
+    // corroborating the M1/M5 ctest oracles through the PUBLIC path. Builds a FRESH model
+    // via the shared spec builder (the frame surface is a pure function of the construct --
+    // low outliers / thresholds are set at construction and plotting positions of the
+    // collections, never of the fit -- so a rebuild returns byte-identical values; the
+    // `bic` lazy-rebuild precedent). Returns everything test_fixtures.py's data-frame
+    // dispatch arms read:
+    //   number_of_low_outliers, low_outlier_threshold -- scalars (frame state)
+    //   pp_exact / pp_interval / pp_uncertain -- plotting-position lists, in spec order,
+    //     after ONE calculate_plotting_positions() pass (idempotent). The threshold series
+    //     is NOT exposed: the C# assigns its positions to a sorted CLONE, so the original
+    //     items never carry one -- mirroring the C++/emitter/R dispatchers.
+    m.def(
+        "model_data_frame",
+        [](const std::string& model_json, const std::vector<double>& dataset) {
+            std::unique_ptr<models::ModelBase> model =
+                models::spec::build_model_from_json(model_json, dataset);
+            auto* udm = dynamic_cast<models::UnivariateDistributionModelBase*>(model.get());
+            if (udm == nullptr || !udm->has_data_frame())
+                throw py::value_error(
+                    "model_estimation data-frame method on a model without a DataFrame");
+            auto& df = udm->data_frame();
+            df.calculate_plotting_positions();
+
+            auto positions = [](const auto& series) {
+                std::vector<double> out(series.count());
+                for (std::size_t i = 0; i < series.count(); ++i) out[i] = series[i].plotting_position();
+                return out;
+            };
+            py::dict out;
+            out["number_of_low_outliers"] = df.number_of_low_outliers();
+            out["low_outlier_threshold"] = df.low_outlier_threshold();
+            out["pp_exact"] = positions(df.exact_series());
+            out["pp_interval"] = positions(df.interval_series());
+            out["pp_uncertain"] = positions(df.uncertain_series());
+            return out;
+        },
+        py::arg("model_json"), py::arg("dataset"));
 
     // --- Simulation (M13) -------------------------------------------------------------
     //

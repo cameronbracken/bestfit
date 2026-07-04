@@ -749,7 +749,7 @@ class MixtureModel : public UnivariateDistributionModelBase,
 
     // C# `LogLikelihood` override (line 913): data likelihood (early -inf), plus prior,
     // then the finite collapse.
-    double log_likelihood(const std::vector<double>& parameters) const override {
+    double log_likelihood(std::vector<double>& parameters) const override {
         // Get the data likelihood.
         double data_log_lh = data_log_likelihood(parameters);
         if (!numerics::is_finite(data_log_lh)) return -std::numeric_limits<double>::infinity();
@@ -765,9 +765,11 @@ class MixtureModel : public UnivariateDistributionModelBase,
     }
 
     // C# `DataLogLikelihood` override (line 930): the full censored likelihood over a
-    // working copy of the mixture. The proposal is normalized on a private copy (C#
-    // SetParameters(ref) -- see the file header).
-    double data_log_likelihood(const std::vector<double>& parameters) const override {
+    // working copy of the mixture. The weight entries are normalized IN THE CALLER'S vector
+    // (C# `model.SetParameters(ref parameters)`, line 940 -- the write-back that steers the
+    // optimizer's/numerical differentiator's own working arrays; see model_base.hpp's
+    // MUTABLE-PARAMETER note, M14).
+    double data_log_likelihood(std::vector<double>& parameters) const override {
         if (mixture_ == nullptr || !has_data_frame())
             return -std::numeric_limits<double>::infinity();
 
@@ -776,9 +778,8 @@ class MixtureModel : public UnivariateDistributionModelBase,
         double log_lh = 0.0;
         const double neg_inf = -std::numeric_limits<double>::infinity();
 
-        // Set model parameters (weights normalized in the copy).
-        std::vector<double> parms = parameters;
-        model.set_parameters_normalized(parms);
+        // Set model parameters (weights normalized in place, like the C# ref call).
+        model.set_parameters_normalized(parameters);
 
         const DataFrame& df = data_frame();
 
@@ -984,7 +985,7 @@ class MixtureModel : public UnivariateDistributionModelBase,
     // term per component (Gamma/Weibull carry the scale in parameter 0, all other supported
     // families in parameter 1), and the single quantile prior. Like the C#, the raw sum is
     // returned (no finite collapse; LogLikelihood collapses).
-    double prior_log_likelihood(const std::vector<double>& parameters) const override {
+    double prior_log_likelihood(std::vector<double>& parameters) const override {
         if (mixture_ == nullptr) return -std::numeric_limits<double>::infinity();
 
         std::unique_ptr<DistributionBase> model_owner = mixture_->clone();
@@ -992,14 +993,14 @@ class MixtureModel : public UnivariateDistributionModelBase,
         int k = model.component_count();
         double log_lh = 0.0;
 
-        // Set model parameters (normalized copy; the C# mutates the caller's array and
-        // reads the normalized values below).
-        std::vector<double> parms = parameters;
-        model.set_parameters_normalized(parms);
+        // Set model parameters (weights normalized in the CALLER'S vector, like the C#
+        // `Mixture!.SetParameters(ref parameters)` at line 1156; the priors below read the
+        // normalized values).
+        model.set_parameters_normalized(parameters);
 
         // Parameter Priors.
         for (std::size_t i = 0; i < parameters_.size(); ++i) {
-            log_lh += parameters_[i].prior_distribution().log_pdf(parms[i]);
+            log_lh += parameters_[i].prior_distribution().log_pdf(parameters[i]);
         }
 
         // Jeffreys rule on scale parameters for each component.

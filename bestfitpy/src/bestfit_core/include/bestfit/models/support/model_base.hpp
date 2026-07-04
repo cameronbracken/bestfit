@@ -74,15 +74,31 @@ class ModelBase {
     // --- Compute: virtual defaults mirroring ModelBase.cs bodies. ---
 
     // C# `LogLikelihood(double[] parameters)` (C# 104-110): data + prior; -inf if non-finite.
-    virtual double log_likelihood(const std::vector<double>& p) const {
-        double log_lh = data_log_likelihood(p) + prior_log_likelihood(p);
+    //
+    // MUTABLE-PARAMETER SEMANTICS (M14, C#-fidelity): C#'s likelihood surface takes
+    // `double[] parameters`, and .NET arrays are reference types -- a model MAY write back
+    // into the caller's array. RMC.BestFit's MixtureModel does exactly that: its
+    // DataLogLikelihood and PriorLogLikelihood call `Mixture.SetParameters(ref parameters)`,
+    // which normalizes the weight entries IN PLACE, re-projecting the optimizer's (and the
+    // numerical differentiator's) own working vectors onto the normalized-weights manifold
+    // and thereby steering the search path/finite differences. So `log_likelihood`,
+    // `data_log_likelihood`, and `prior_log_likelihood` take a NON-CONST reference here; the
+    // pointwise variants keep const (the C# pointwise methods normalize a private
+    // `parmsCopy`, never the caller's array). Data-then-prior evaluation order is explicit
+    // below because for a mutating model the prior must see the data call's write-back,
+    // exactly like the C# left-to-right `DataLogLikelihood(parameters) +
+    // PriorLogLikelihood(parameters)`.
+    virtual double log_likelihood(std::vector<double>& p) const {
+        double data_log_lh = data_log_likelihood(p);
+        double log_lh = data_log_lh + prior_log_likelihood(p);
         if (!std::isfinite(log_lh)) return -std::numeric_limits<double>::infinity();
         return log_lh;
     }
 
     // C# `PriorLogLikelihood(double[] parameters)` (C# 122-134): -inf on length mismatch;
-    // else sum of per-parameter prior LogPDF; -inf if the sum is non-finite.
-    virtual double prior_log_likelihood(const std::vector<double>& p) const {
+    // else sum of per-parameter prior LogPDF; -inf if the sum is non-finite. Non-const `p`:
+    // see the MUTABLE-PARAMETER note above (MixtureModel's override writes back).
+    virtual double prior_log_likelihood(std::vector<double>& p) const {
         if (p.size() != parameters_.size()) return -std::numeric_limits<double>::infinity();
 
         double log_lh = 0.0;
@@ -124,8 +140,9 @@ class ModelBase {
 
     // --- Pure virtual: concrete models (T6+) implement these. ---
 
-    // C# `DataLogLikelihood(double[] parameters)`.
-    virtual double data_log_likelihood(const std::vector<double>& p) const = 0;
+    // C# `DataLogLikelihood(double[] parameters)`. Non-const `p`: see the MUTABLE-PARAMETER
+    // note above (MixtureModel's override writes back).
+    virtual double data_log_likelihood(std::vector<double>& p) const = 0;
 
     // C# `PointwiseDataLogLikelihood(double[] parameters)`.
     virtual std::vector<double> pointwise_data_log_likelihood(const std::vector<double>& p) const = 0;

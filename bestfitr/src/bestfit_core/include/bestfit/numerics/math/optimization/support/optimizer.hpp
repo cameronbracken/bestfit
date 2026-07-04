@@ -91,7 +91,16 @@ class ArgumentException : public std::runtime_error {
 
 class Optimizer {
    public:
-    using Objective = std::function<double(const std::vector<double>&)>;
+    // MUTABLE-POINT SEMANTICS (M14, C#-fidelity): C# objectives are `Func<double[], double>`
+    // and .NET arrays are reference types, so an objective CAN write back into the point the
+    // optimizer hands it -- and the real RMC.BestFit MixtureModel does exactly that
+    // (`Mixture.SetParameters(ref parameters)` normalizes the weight entries in place during
+    // every DataLogLikelihood/PriorLogLikelihood evaluation, re-projecting the optimizer's own
+    // working vectors onto the normalized-weights manifold and thereby steering the search
+    // path). The Objective signature is therefore a NON-CONST reference. Callables that take
+    // `const std::vector<double>&` still convert to this std::function unchanged, so
+    // non-mutating callers (every Phase 0-4 objective) are unaffected.
+    using Objective = std::function<double(std::vector<double>&)>;
 
     // Construct a new optimization method. Validation order matches C# exactly: the ctor
     // assigns `ObjectiveFunction` (whose property setter null-checks) BEFORE validating
@@ -172,8 +181,10 @@ class Optimizer {
         try {
             optimize();
             if (status_ == OptimizationStatus::Success && compute_hessian) {
+                // By-value copy: the differentiation helper's point is const, but Objective
+                // takes a mutable reference (see the Objective note above).
                 hessian_ = linalg::Matrix(differentiation::hessian(
-                    [this](const std::vector<double>& x) { return objective_function_(x); },
+                    [this](std::vector<double> x) { return objective_function_(x); },
                     best_parameter_set_.values));
             }
         } catch (const ArgumentException& ex) {
@@ -192,8 +203,10 @@ class Optimizer {
         try {
             optimize();
             if (status_ == OptimizationStatus::Success && compute_hessian) {
+                // By-value copy: the differentiation helper's point is const, but Objective
+                // takes a mutable reference (see the Objective note above).
                 hessian_ = linalg::Matrix(differentiation::hessian(
-                    [this](const std::vector<double>& x) { return objective_function_(x); },
+                    [this](std::vector<double> x) { return objective_function_(x); },
                     best_parameter_set_.values));
             }
         } catch (const ArgumentException& ex) {
@@ -235,8 +248,12 @@ class Optimizer {
     // objective function.
     virtual void optimize() = 0;
 
-    // Evaluates the objective function and returns the fitness.
-    virtual double evaluate(const std::vector<double>& values, bool& cancel) {
+    // Evaluates the objective function and returns the fitness. `values` is a non-const
+    // reference (see the Objective note above): a mutating objective's write-back lands in the
+    // caller's own working vector, and the best-parameter-set copy below is taken AFTER the
+    // call -- both exactly like the C# base (`BestParameterSet = new ParameterSet(
+    // (double[])values.Clone(), fitness)` after `ObjectiveFunction(values)`).
+    virtual double evaluate(std::vector<double>& values, bool& cancel) {
         double fitness = static_cast<double>(function_scale_) * objective_function_(values);
 
         // Keep track of the best fit parameter set. `values.empty()` stands in for C#'s

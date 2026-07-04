@@ -1,7 +1,7 @@
 {
   "target": "Simulation",
   "kind": "model_estimation",
-  "source": "SMOKE (M13): self-computed seeded-simulation digests from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Each case builds a Phase 5 model through the shared model-spec builder (core/include/bestfit/models/model_spec.hpp), calls the ISimulatable generate_random_values(sample_size, seed) surface ONCE, and asserts individual draws (the Phase 3/4 short_exact digest precedent, chain_value-style; rel 1e-11, the chain_value tier). The point is cross-language bit-identity of the seeded Mersenne Twister stream: the same literals must pass in C++, R, and Python. Covers all four model types plus a nonstationary trend spec with explicit trend values/start_index (the distribution simulates at the trend-predicted parameters for parameter_time_index).",
+  "source": "Seeded-simulation digests: authored self-computed (M13), then verified value-for-value against the REAL RMC.BestFit ISimulatable.GenerateRandomValues by tools/verify_oracles.py (M14 -- every digest literal reproduces bit-for-bit from the C# Mersenne Twister stream, so these ARE C#-oracle values). One seeded digest per model type (univariate incl. a nonstationary trend case, mixture, competing_risks, point_process), each at explicit parameter_values / trend values (draws come from CURRENT parameters -- no fit). rel 1e-11 (chain_value digest tier); identical literals pass in C++, R, and Python, proving the cross-language stream bit-identity against the C# oracle.",
   "datasets": {
     "annual_peaks": [
       12500,

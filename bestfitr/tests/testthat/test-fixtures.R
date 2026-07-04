@@ -521,6 +521,13 @@ dispatch_estimation <- function(result, method, args, ctx) {
     },
     # simulated_value [i]: the seeded ISimulatable draw cached by bf_model_simulate_ (M13).
     simulated_value = result$simulated[[i1(args[[1]])]],
+    # The M14 DataFrame surface (works under any target -- it reads the model, not the
+    # estimator): ctx$df_fn() lazily builds the frame surface ONCE per case via
+    # bf_model_data_frame_ and memoizes it (the bic lazy-rebuild precedent).
+    number_of_low_outliers = ctx$df_fn()$number_of_low_outliers[[1]],
+    low_outlier_threshold = ctx$df_fn()$low_outlier_threshold[[1]],
+    # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain", in spec order.
+    plotting_position = ctx$df_fn()[[paste0("pp_", args[[1]])]][[i1(args[[2]])]],
     stop(sprintf("unknown model_estimation fixture method: %s", method))
   )
 }
@@ -531,6 +538,14 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
   # Re-serialize the parsed spec for the shared C++ builder (see the path comment above).
   model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
   data <- if (!is.null(model$dataset)) as.double(unlist(datasets[[model$dataset]])) else numeric(0)
+
+  # The M14 DataFrame surface: lazily build + memoize the frame-surface list (only cases
+  # that actually assert a data-frame method pay for the rebuild; see bf_model_data_frame_).
+  df_env <- new.env(parent = emptyenv())
+  df_fn <- function() {
+    if (is.null(df_env$df)) df_env$df <- ns$bf_model_data_frame_(model_json, data)
+    df_env$df
+  }
 
   if (target == "Simulation") {
     seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
@@ -554,6 +569,7 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     result <- ns$bf_estimation_run_(target, model_json, data, optimizer)
     ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model_json, data, optimizer, n))
   }
+  ctx$df_fn <- df_fn
 
   for (a in assertions) {
     args <- if (is.null(a$args)) list() else a$args

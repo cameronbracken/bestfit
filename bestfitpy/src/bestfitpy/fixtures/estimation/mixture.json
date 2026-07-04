@@ -1,7 +1,7 @@
 {
   "target": "MaximumLikelihood",
   "kind": "model_estimation",
-  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Exercises the `mixture` model type: component families through the factory, the internal EM default-parameter machinery, and the zero-inflation ctor option (second case: the zero weight is pinned to the data's zero-value relative frequency, not estimated). Parameter layout for a two-Normal mixture: [weight_1, mu_1, sigma_1, mu_2, sigma_2]. Covariance/standard errors are deliberately NOT asserted here: the symmetric two-component default sits on a near-singular Hessian (the M10 ledger finding); M14 pins them (if at all) with the loosened 1e-5..1e-8 band. LOOSE smoke tolerances (rel 1e-6).",
+  "source": "Exact oracle values dumped from the REAL RMC.BestFit MaximumLikelihood via tools/oracle_emitter --dump (M14) and reproduced by tools/verify_oracles.py. Exercises the `mixture` model type: EM-seeded defaults + NelderMead; the second case sets zero_inflated: true on data with zeros (the zero weight is pinned to the data's zero-value relative frequency, not estimated). Parameter layout: [w_1, w_2, mu_1, sigma_1, mu_2, sigma_2]. These fits exercise the C# SetParameters(ref) weight-normalization WRITE-BACK into the optimizer's own working vectors (ported in M14 -- see model_base.hpp's MUTABLE-PARAMETER note); the M13 self-computed values predate that fix and differed in the raw weight coordinates (scale-equivalent optimum). NelderMead point values rel 1e-9. Covariance/standard errors are deliberately NOT asserted: the real C# covariance at this optimum is INDEFINITE (negative diagonal entries; GetStandardErrors clamps to 0) with off-diagonals at finite-difference noise scale (~1e-10) -- the M10 near-singular-Hessian ledger finding, confirmed against the real library; asserting noise is meaningless.",
   "datasets": {
     "bimodal_series": [
       520,
@@ -63,52 +63,52 @@
           "args": [
             0
           ],
-          "expected": 1.0,
+          "expected": 0.7499898648904965,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "parameter",
           "args": [
             1
           ],
-          "expected": 0.3334646179975355,
+          "expected": 0.2500101351095036,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "parameter",
           "args": [
             2
           ],
-          "expected": 802.6801382287679,
+          "expected": 802.6471570503224,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "parameter",
           "args": [
             3
           ],
-          "expected": 165.85869159189076,
+          "expected": 165.8525571930645,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "parameter",
           "args": [
             4
           ],
-          "expected": 5860.0429650882115,
+          "expected": 5860.051762331863,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "max_log_likelihood",
           "args": [],
-          "expected": -148.58128103193022,
+          "expected": -148.58128125344734,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         }
       ]
     },
@@ -132,16 +132,16 @@
           "args": [
             0
           ],
-          "expected": 0.08068504389962458,
+          "expected": 0.28620053592973327,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "max_log_likelihood",
           "args": [],
-          "expected": -83.42145736333426,
+          "expected": -83.66069869697367,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         }
       ]
     }

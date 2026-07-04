@@ -328,7 +328,7 @@ class CompetingRisksModel : public UnivariateDistributionModelBase,
 
     // C# `LogLikelihood` override (line 422): data likelihood (early -inf), plus prior,
     // then the finite collapse.
-    double log_likelihood(const std::vector<double>& parameters) const override {
+    double log_likelihood(std::vector<double>& parameters) const override {
         // Get the data likelihood.
         double data_log_lh = data_log_likelihood(parameters);
         if (!numerics::is_finite(data_log_lh)) return -std::numeric_limits<double>::infinity();
@@ -346,7 +346,7 @@ class CompetingRisksModel : public UnivariateDistributionModelBase,
     // C# `DataLogLikelihood` override (line 439): the full censored likelihood over a
     // working copy of the competing risks distribution. (The C# declares an unused local
     // `int k = model.Distributions.Count;` here, omitted to keep -Wall clean.)
-    double data_log_likelihood(const std::vector<double>& parameters) const override {
+    double data_log_likelihood(std::vector<double>& parameters) const override {
         if (competing_risks_ == nullptr || !has_data_frame())
             return -std::numeric_limits<double>::infinity();
 
@@ -561,7 +561,7 @@ class CompetingRisksModel : public UnivariateDistributionModelBase,
     // families in parameter 1), and the single quantile prior. Like the C#, the raw sum is
     // returned (no finite collapse; LogLikelihood collapses). The C# `Parameters == null`
     // guard has no C++ analogue (the vector always exists).
-    double prior_log_likelihood(const std::vector<double>& parameters) const override {
+    double prior_log_likelihood(std::vector<double>& parameters) const override {
         if (competing_risks_ == nullptr) return -std::numeric_limits<double>::infinity();
 
         std::unique_ptr<DistributionBase> model_owner = competing_risks_->clone();

@@ -893,7 +893,12 @@ like every other fixture kind) and passed alongside the spec as a flat vector.
     "interval":  [ { "index": 1985, "lower": 12000, "value": 15000, "upper": 18000 } ],
     "threshold": [ { "start_index": 1900, "end_index": 1979, "value": 22000, "number_above": 1 } ],
     "uncertain": [ { "index": 1988, "distribution": { "family": "Normal", "parameters": [17000, 1500] } } ],
-    "low_outlier_threshold": 10000    // optional; the left-censoring bound for flagged exact points
+    "low_outlier_threshold": 10000,   // optional; the left-censoring bound for flagged exact points
+    "mgbt_low_outliers": true         // optional (M14): run the PUBLIC SetLowOutliersFromMGBT()
+                                      // path at the frame boundary instead -- flags the MGBT-detected
+                                      // low outliers and sets low_outlier_threshold itself. By fixture
+                                      // convention mutually exclusive with explicit `is_low_outlier`
+                                      // flags / `low_outlier_threshold` (MGBT clears both first).
   },
   // -- per-type fields: -------------------------------------------------------------------
   "family": "Normal",                 // univariate_distribution: a factory type name
@@ -1007,6 +1012,24 @@ and the cached `simulated` vector. Simulation draws come from the model's CURREN
 (EM defaults for `mixture` from `dataset`, factory defaults for the component distributions of
 `competing_risks`/`point_process`).
 
+**DataFrame surface (M14):** three methods reachable from the model's DataFrame under ANY
+file-level `target` (they read the model, not the estimator), corroborating the M1/M5
+plotting-position and MGBT ctest oracles through the PUBLIC model path:
+
+- `plotting_position [kind, i]` -- item `i`'s plotting position in the named series (`kind` is
+  `"exact"` | `"interval"` | `"uncertain"`, indices in spec order) after ONE
+  `calculate_plotting_positions()` pass (idempotent -- a pure function of the collections plus the
+  frame's plotting parameter). The threshold series is deliberately NOT exposed: the C# assigns
+  its positions to a sorted CLONE, so the original items never carry one.
+- `number_of_low_outliers []`, `low_outlier_threshold []` -- the frame's current state, as set by
+  the spec's `mgbt_low_outliers` MGBT trigger or the explicit `low_outlier_threshold`.
+
+C++/the emitter dispatch these straight off the cached model's frame; R
+(`bf_model_data_frame_`) and Python (`model_data_frame`) lazily build the frame surface once per
+case through the shared spec builder and memoize it (a rebuild is byte-identical -- the frame
+surface is a pure function of the construct, never of the fit -- the `bic` lazy-rebuild
+precedent).
+
 **Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
 port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of
 per-parameter Uniform priors only), which made `MaximumAPosteriori`'s posterior mode coincide with
@@ -1048,23 +1071,48 @@ fields for the measured tolerances).
   cases' `tol: 0.05`, because the divergent tail never gets long enough to amplify sub-ULP noise
   into a measurable difference.
 
-**M13 SMOKE fixtures (naming + tolerance policy):** the Phase 5 model paths landed with
-hand-authored `*_smoke.json` files under `fixtures/estimation/` -- `mle_censored_smoke.json` (all
-four data-array types incl. a flagged low outlier and an uncertain distribution spec),
-`mle_nonstationary_smoke.json` (trend specs, with and without explicit `start_index`/`values`),
-`mixture_smoke.json` (plain + zero-inflated), `competing_risks_smoke.json`,
-`point_process_smoke.json` (explicit threshold/total_years), and `simulation_smoke.json` (one
-seeded digest per model type plus a nonstationary trend case). Their values are SELF-COMPUTED from
-this port's own C++ build (each file's `source` field says so), NOT C#-reproduced oracles: they
-prove the three-harness plumbing and cross-language identity, not port fidelity. Tolerances are
-deliberately LOOSE -- `rel 1e-6` for the deterministic NelderMead fits (`1e-5` for the flatter
-GEV point-process surface) and `rel 1e-11` for the seeded `simulated_value` digests (the
-`chain_value` tier). Mixture covariance/standard errors are deliberately NOT asserted (the
-symmetric two-Normal default sits on a near-singular Hessian -- the M10 ledger finding). M14
-replaces these self-computed values with exact emitter-dumped oracles from the real RMC.BestFit
-and tightens per the T12 policy above; until then the smoke values may be re-derived from the C++
-build if an intentional core change shifts them, unlike the frozen T12 files
-(`mle_normal_smoke.json`, `map_normal.json`, `bayes_normal.json`), which must never change.
+**Port-fidelity finding (Task M14, real-C#-oracle-driven): the Mixture `SetParameters(ref)`
+write-back.** Dumping exact oracles for the M13 mixture smoke cases surfaced a real trajectory
+divergence: the C# `MixtureModel.DataLogLikelihood`/`PriorLogLikelihood` call
+`Mixture.SetParameters(ref parameters)`, which normalizes the weight entries IN THE CALLER'S
+ARRAY -- and since C# objectives are `Func<double[], double>` over reference-type arrays, that
+write-back lands in the optimizer's (and NumericalDiff's) own working vectors, re-projecting every
+evaluated point onto the normalized-weights manifold and steering the whole search path. The M13
+port normalized a private copy instead, converging to a scale-equivalent optimum with different
+raw weight coordinates (w = [1.0, 0.333] vs the C# [0.75, 0.25]; same likelihood). M14 ported the
+mutation semantics: the `Optimizer`/`NelderMead` `Objective` and `NumericalDiff`'s scalar function
+type became `std::function<double(std::vector<double>&)>` (non-const; const-taking lambdas still
+convert, so no other caller changed behavior), `ModelBase::log_likelihood`/`data_log_likelihood`/
+`prior_log_likelihood` take `std::vector<double>&` (the pointwise variants keep const -- the C#
+pointwise methods normalize a private `parmsCopy`), and `MixtureModel` now writes back. With the
+fix the C++ mixture fit reproduces the real C# values to rel 1e-12. ONE documented deviation: the
+MCMC sampler's `LogLikelihood` type stays const-ref (Phase 3, oracle-locked), so
+`BayesianAnalysis` hands the model a mutable COPY -- a mixture's write-back into the sampler's
+proposal/chain arrays is not ported (no fixture runs a mixture through BayesianAnalysis; every
+other model is non-mutating, so the copy is behaviorally identical for all wired paths).
+
+**M14 exact fixtures (naming + tolerance policy):** M14 re-pinned every M13 `*_smoke.json` against
+the real RMC.BestFit via the emitter dump path and dropped the suffix:
+`mle_censored.json` (all four data-array types + the M14 DataFrame surface incl. an MGBT case),
+`map_censored.json` + `bayes_censored.json` (the same censored frame through MaximumAPosteriori
+and seeded DEMCzs BayesianAnalysis), `mle_nonstationary.json`, `mixture.json`,
+`competing_risks.json` (re-derived dataset -- the M13 smoke data pinned the Weibull shape at its
+100 bound; the new 25-point max(Gumbel, Weibull) series fits fully interior, shape ~13.0),
+`point_process.json`, and `simulation.json`. Every value is either emitter-dumped from the real
+C# or byte-verified against it by `verify_oracles.py` (each file's `source` says which).
+Tolerances follow the T12 policy: `rel 1e-9` for the deterministic NelderMead point values
+(`1e-8` for the flatter GEV point-process surface), `rel 1e-11` for seeded `simulated_value`/
+`chain_value` digests, `1e-9`/`1e-8`/`1e-6` for posterior_mean/waic+looic/dic (bayes_normal
+precedent), and `rel 5e-3` for the censored/competing-risks covariance/SE/correlation -- a
+DOCUMENTED looser tier than the Phase 4 `1e-5` Hessian band: for O(1e4)-scale parameters
+NumericalDiff clamps the finite-difference step to `MaxStep = 1e-2`, putting the Hessian second
+difference (~`H*h^2` ~ 1e-10) within ~3e-4 of the `|logL|` ~ 1e2 double-rounding floor (measured
+C++-vs-C# divergence 2e-4..1.1e-3 -- pure cancellation noise; the underlying fits match to 1e-12
+or better). Mixture covariance/standard errors remain deliberately NOT asserted: the REAL C#
+covariance at that optimum is INDEFINITE (negative diagonals; `GetStandardErrors` clamps to 0)
+with off-diagonals at finite-difference noise scale (~1e-10) -- the M10 near-singular-Hessian
+finding, now confirmed against the real library. The frozen T12 files (`mle_normal_smoke.json`,
+`map_normal.json`, `bayes_normal.json`) are byte-identical to their Phase 4 state.
 
 **NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
 the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare

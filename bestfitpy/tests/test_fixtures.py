@@ -485,6 +485,17 @@ def _dispatch_estimation(
     if method == "simulated_value":
         # The seeded ISimulatable draw cached by _core.model_simulate (M13).
         return result["simulated"][int(args[0])]
+    # The M14 DataFrame surface (works under any target -- it reads the model, not the
+    # estimator): lazily build the frame surface ONCE per case via _core.model_data_frame
+    # and memoize it in the case's result dict (the bic lazy-rebuild precedent).
+    if method in ("number_of_low_outliers", "low_outlier_threshold", "plotting_position"):
+        if "_data_frame" not in result:
+            result["_data_frame"] = _core.model_data_frame(model_json, data)
+        frame = result["_data_frame"]
+        if method == "plotting_position":
+            # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain".
+            return frame[f"pp_{args[0]}"][int(args[1])]
+        return frame[method]
     raise KeyError(f"unknown model_estimation fixture method: {method}")
 
 

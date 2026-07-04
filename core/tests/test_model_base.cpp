@@ -51,7 +51,7 @@ class StubNormalModel : public ModelBase {
         return {};
     }
 
-    double data_log_likelihood(const std::vector<double>& p) const override {
+    double data_log_likelihood(std::vector<double>& p) const override {
         double mu = p[0];
         double sigma = p[1];
         if (sigma <= 0.0) return std::numeric_limits<double>::quiet_NaN();

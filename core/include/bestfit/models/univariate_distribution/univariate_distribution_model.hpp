@@ -474,7 +474,7 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     // C# `LogLikelihood` override (line 1116): ONE working copy of the distribution is
     // threaded through the data likelihood and then the prior likelihood (so the Jeffreys
     // term sees the parameters the data step set), then the finite collapse.
-    double log_likelihood(const std::vector<double>& p) const override {
+    double log_likelihood(std::vector<double>& p) const override {
         if (distribution_ == nullptr)
             throw std::runtime_error("Distribution must be set before computing log likelihood.");
 
@@ -492,7 +492,7 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     // for prediction only, per the C# remark) or at the supplied parameters when
     // stationary. Invalid proposals leave the working copy at its previous parameters (see
     // the validity-check note in the file header).
-    double prior_log_likelihood(const std::vector<double>& p) const override {
+    double prior_log_likelihood(std::vector<double>& p) const override {
         if (distribution_ == nullptr)
             throw std::runtime_error(
                 "Distribution must be set before computing prior log likelihood.");
@@ -595,7 +595,7 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
                                              const std::vector<double>& p) const;
 
     // C# `DataLogLikelihood` override (line 1361).
-    double data_log_likelihood(const std::vector<double>& p) const override {
+    double data_log_likelihood(std::vector<double>& p) const override {
         if (distribution_ == nullptr)
             throw std::runtime_error(
                 "Distribution must be set before computing data log likelihood.");

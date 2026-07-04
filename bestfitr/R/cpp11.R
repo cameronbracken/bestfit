@@ -156,6 +156,10 @@ bf_estimation_bayes_run_ <- function(model_json, dataset, sampler, seed, iterati
   .Call(`_bestfitr_bf_estimation_bayes_run_`, model_json, dataset, sampler, seed, iterations, warmup_iterations, number_of_chains, thinning_interval, initial_iterations, output_length)
 }
 
+bf_model_data_frame_ <- function(model_json, dataset) {
+  .Call(`_bestfitr_bf_model_data_frame_`, model_json, dataset)
+}
+
 bf_model_simulate_ <- function(model_json, dataset, sample_size, seed) {
   .Call(`_bestfitr_bf_model_simulate_`, model_json, dataset, sample_size, seed)
 }

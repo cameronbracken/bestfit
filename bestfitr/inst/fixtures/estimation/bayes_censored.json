@@ -1,0 +1,301 @@
+{
+  "target": "BayesianAnalysis",
+  "kind": "model_estimation",
+  "source": "Exact oracle values dumped from the REAL RMC.BestFit BayesianAnalysis (DEMCzs, serial chains via RunAsync(null, false, parallel: false)) via tools/oracle_emitter --dump (M14) and reproduced by tools/verify_oracles.py. The same censored DataFrame construct as mle_censored.json, seeded (12345) -- the chain_value digests are the C# Mersenne Twister stream R and Python must reproduce bit-identically (rel 1e-11, chain_value tier). posterior_mean rel 1e-9; waic/looic rel 1e-8 and dic rel 1e-6 (the C# computes them with Parallel.For -- the bayes_normal.json reduction-order precedent). output_length 400 keeps the Output-derived aggregates inside the population-sampler pre-amplification window (bayes_normal precedent).",
+  "datasets": {},
+  "cases": [
+    {
+      "name": "normal_censored_demczs_seeded",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "data_frame": {
+            "exact": [
+              {
+                "index": 1990,
+                "value": 12500
+              },
+              {
+                "index": 1991,
+                "value": 15300
+              },
+              {
+                "index": 1992,
+                "value": 9870,
+                "is_low_outlier": true
+              },
+              {
+                "index": 1993,
+                "value": 21000
+              },
+              {
+                "index": 1994,
+                "value": 18400
+              },
+              {
+                "index": 1995,
+                "value": 11200
+              },
+              {
+                "index": 1996,
+                "value": 26800
+              },
+              {
+                "index": 1997,
+                "value": 14100
+              },
+              {
+                "index": 1998,
+                "value": 19500
+              },
+              {
+                "index": 1999,
+                "value": 11600
+              }
+            ],
+            "interval": [
+              {
+                "index": 1985,
+                "lower": 12000,
+                "value": 15000,
+                "upper": 18000
+              },
+              {
+                "index": 1986,
+                "lower": 16000,
+                "value": 19000,
+                "upper": 23000
+              }
+            ],
+            "threshold": [
+              {
+                "start_index": 1900,
+                "end_index": 1979,
+                "value": 22000,
+                "number_above": 1
+              }
+            ],
+            "uncertain": [
+              {
+                "index": 1988,
+                "distribution": {
+                  "family": "Normal",
+                  "parameters": [
+                    17000,
+                    1500
+                  ]
+                }
+              }
+            ],
+            "low_outlier_threshold": 10000
+          }
+        },
+        "sampler": "DEMCzs",
+        "settings": {
+          "seed": 12345,
+          "number_of_chains": 4,
+          "iterations": 100,
+          "warmup_iterations": 50,
+          "thinning_interval": 1,
+          "output_length": 400
+        }
+      },
+      "assertions": [
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            0
+          ],
+          "expected": -19257.8988452442,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            0,
+            1
+          ],
+          "expected": 31976.769599248655,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            0
+          ],
+          "expected": -19257.8988452442,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            1,
+            1
+          ],
+          "expected": 31976.769599248655,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            50,
+            0
+          ],
+          "expected": -4259.22157791801,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            50,
+            1
+          ],
+          "expected": 24326.057600304142,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            99,
+            0
+          ],
+          "expected": 11772.040428246459,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            0,
+            99,
+            1
+          ],
+          "expected": 4428.138304028483,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            0,
+            0
+          ],
+          "expected": -45751.32059166208,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            1,
+            99,
+            1
+          ],
+          "expected": 7746.526427832011,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            0,
+            1
+          ],
+          "expected": 64602.440253598616,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            2,
+            99,
+            0
+          ],
+          "expected": 12527.856761087378,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            0,
+            0
+          ],
+          "expected": -57927.658807020634,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "chain_value",
+          "args": [
+            3,
+            99,
+            1
+          ],
+          "expected": 12382.660597818016,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            0
+          ],
+          "expected": 10442.364796316651,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "posterior_mean",
+          "args": [
+            1
+          ],
+          "expected": 5940.862144980043,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "dic",
+          "args": [],
+          "expected": 230.85128134119628,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "waic",
+          "args": [],
+          "expected": 234.7392690296976,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "looic",
+          "args": [],
+          "expected": 234.3925379062298,
+          "mode": "rel",
+          "tol": 1e-08
+        }
+      ]
+    }
+  ]
+}

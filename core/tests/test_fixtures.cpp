@@ -1667,11 +1667,41 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     throw std::runtime_error("unknown model_estimation target: " + target);
 }
 
+// The DataFrame assertion surface (M14): methods reachable from the model's DataFrame under
+// ANY model_estimation target, corroborating the M1/M5 ctest oracles through the PUBLIC path.
+// `plotting_position [kind, i]` reads item i's plotting position from the named series
+// ("exact" | "interval" | "uncertain", in spec order) after ONE calculate_plotting_positions()
+// pass (idempotent -- a pure function of the collections + the plotting parameter; the
+// threshold series is NOT exposed because the C# assigns its positions to a sorted CLONE, so
+// the original items never carry one). `number_of_low_outliers`/`low_outlier_threshold` read
+// the frame's current state (set by the spec's `mgbt_low_outliers` MGBT trigger, or the
+// explicit `low_outlier_threshold`).
+static double dispatch_model_data_frame(bestfit::models::ModelBase& model, const std::string& m,
+                                        const json& a) {
+    auto* udm = dynamic_cast<bestfit::models::UnivariateDistributionModelBase*>(&model);
+    if (udm == nullptr || !udm->has_data_frame())
+        throw std::runtime_error("model_estimation data-frame method on a model without a DataFrame");
+    auto& df = udm->data_frame();
+    if (m == "number_of_low_outliers") return df.number_of_low_outliers();
+    if (m == "low_outlier_threshold") return df.low_outlier_threshold();
+    // plotting_position [kind, i]
+    df.calculate_plotting_positions();
+    std::string kind = a[0].get<std::string>();
+    std::size_t i = static_cast<std::size_t>(a[1].get<int>());
+    if (kind == "exact") return df.exact_series()[i].plotting_position();
+    if (kind == "interval") return df.interval_series()[i].plotting_position();
+    if (kind == "uncertain") return df.uncertain_series()[i].plotting_position();
+    throw std::runtime_error("unknown plotting_position series kind: " + kind);
+}
+
 static double dispatch_estimation(const EstimationCase& ec, const std::string& m, const json& a) {
     auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
     // The seeded-simulation digest (M13): reads the vector cached at build time, so it works
     // for the Simulation target (no estimator) without touching the variant.
     if (m == "simulated_value") return ec.simulated.at(idx(0));
+    // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
+    if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
+        return dispatch_model_data_frame(*ec.model, m, a);
     return std::visit(
         [&](const auto& est) -> double {
             using Held = std::decay_t<decltype(est)>;

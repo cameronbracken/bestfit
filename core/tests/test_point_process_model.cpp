@@ -606,7 +606,8 @@ void test_prior_log_likelihood_returns_finite_value() {
 void test_data_log_likelihood_null_data_frame_returns_negative_infinity() {
     PointProcessModel model;
 
-    double result = model.data_log_likelihood({1, 2, 3});
+    std::vector<double> params{1, 2, 3};  // mutable lvalue (M14 signature)
+    double result = model.data_log_likelihood(params);
 
     CHECK_TRUE(result == -kInf);
 }

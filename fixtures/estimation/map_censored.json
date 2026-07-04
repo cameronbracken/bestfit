@@ -1,11 +1,11 @@
 {
-  "target": "MaximumLikelihood",
+  "target": "MaximumAPosteriori",
   "kind": "model_estimation",
-  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit with exact emitter-dumped oracles. Exercises the full fixture-JSON DataFrame construction path: all four data-array types (exact incl. a flagged low outlier + the frame-level low_outlier_threshold, interval, threshold, uncertain with a factory-built distribution spec) feeding UnivariateDistributionModel's censored-data likelihood, fit by the deterministic NelderMead simplex. LOOSE smoke tolerances (rel 1e-6) per the M13 smoke policy.",
+  "source": "Exact oracle values dumped from the REAL RMC.BestFit MaximumAPosteriori via tools/oracle_emitter --dump (M14) and reproduced by tools/verify_oracles.py. The same censored DataFrame construct as mle_censored.json (exact incl. flagged low outlier + low_outlier_threshold, interval, threshold, uncertain) fit by the posterior mode -- default flat parameter priors plus the Jeffreys 1/scale prior (UseJeffreysRuleForScale default), NelderMead. Point values rel 1e-9 (C++ reproduces the C# fit bit-for-bit). covariance/standard_error/correlation rel 5e-3, a DOCUMENTED looser tier than the Phase 4 1e-5 Hessian band: for O(1e4)-scale parameters NumericalDiff clamps the step to MaxStep = 1e-2, so the Hessian second difference (~H*h^2 ~ 1e-10) sits ~3e-4 above the |logL| ~ 144 double-rounding floor -- measured C++-vs-C# divergence is 2e-4..7e-4 (pure cancellation noise; the fit itself matches exactly). bic's arg is the sample size n=14 (the frame's total record length).",
   "datasets": {},
   "cases": [
     {
-      "name": "normal_censored_data_frame",
+      "name": "normal_censored_map",
       "construct": {
         "model": {
           "type": "univariate_distribution",
@@ -99,32 +99,89 @@
           "args": [
             0
           ],
-          "expected": 14812.190711796935,
+          "expected": 14911.82971320942,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "parameter",
           "args": [
             1
           ],
-          "expected": 3957.1748103120817,
+          "expected": 3865.448658455847,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "max_log_likelihood",
           "args": [],
-          "expected": -110.03531877464386,
+          "expected": -144.32852389089584,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
         },
         {
           "method": "aic",
           "args": [],
-          "expected": 224.0706375492877,
+          "expected": 292.6570477817917,
           "mode": "rel",
-          "tol": 1e-06
+          "tol": 1e-09
+        },
+        {
+          "method": "bic",
+          "args": [
+            14
+          ],
+          "expected": 293.9351624410222,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            0
+          ],
+          "expected": 1001.4927670755378,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            1
+          ],
+          "expected": 583.4537044768653,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "covariance",
+          "args": [
+            0,
+            0
+          ],
+          "expected": 1002987.7625046175,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "covariance",
+          "args": [
+            1,
+            1
+          ],
+          "expected": 340418.22526777716,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "correlation",
+          "args": [
+            0,
+            1
+          ],
+          "expected": -0.6313491129829746,
+          "mode": "rel",
+          "tol": 0.005
         }
       ]
     }
