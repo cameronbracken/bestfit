@@ -34,6 +34,7 @@ set(BF_TESTS
   test_data_frame
   test_plotting_positions_df
   test_threshold_diagnostics
+  test_trend_functions
 )
 
 # Sobol test takes the direction-number file as its sole argument.
