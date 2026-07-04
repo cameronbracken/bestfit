@@ -24,7 +24,8 @@
 //     _isDeserializing XML suppression is out of scope). `DistributionType` (line 368).
 //   - `SetDefaultParameters` (line 571), stationary: when a valid DataFrame with exact data
 //     is present, `GetParameterConstraints` supplies (initials, lowers, uppers) and one
-//     ModelParameter per distribution parameter gets Value/bounds/Uniform prior; otherwise
+//     ModelParameter per distribution parameter gets Value/bounds/IsPositive (lowers[i] ==
+//     Tools.DoubleMachineEpsilon, C# line 628)/Uniform prior; otherwise
 //     (the C# null/empty-frame skip path) one default ModelParameter per distribution
 //     parameter (upstream these come from the default ConstantTrend per parameter; the
 //     trend layer joins this class in M9 -- observably identical for the stationary case,
@@ -235,14 +236,17 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
                 data_frame().exact_series().values_to_list(), initials, lowers, uppers);
 
             // Stationary: one ModelParameter per distribution parameter with
-            // Value=initials[i], bounds, and a Uniform(lower, upper) prior; the Name is
-            // cleared for the stationary case (C# 756-760).
+            // Value=initials[i], bounds, IsPositive = (lowers[i] ==
+            // Tools.DoubleMachineEpsilon) -- the C# marks scale-type parameters positive
+            // off the constraint lower bound -- and a Uniform(lower, upper) prior; the
+            // Name is cleared for the stationary case (C# 756-760).
             parameters_.clear();
             parameters_.reserve(initials.size());
             for (std::size_t i = 0; i < initials.size(); ++i) {
                 parameters_.emplace_back(
                     /*owner_name=*/"", /*name=*/"", initials[i], lowers[i], uppers[i],
-                    std::make_unique<numerics::distributions::Uniform>(lowers[i], uppers[i]));
+                    std::make_unique<numerics::distributions::Uniform>(lowers[i], uppers[i]),
+                    /*is_positive=*/lowers[i] == numerics::kDoubleMachineEpsilon);
             }
 
             // Retained Phase 4 deviation (see file header): the C# leaves the distribution

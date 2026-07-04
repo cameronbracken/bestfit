@@ -34,6 +34,7 @@
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/math/integration/integration.hpp"
+#include "bestfit/numerics/tools.hpp"
 #include "check.hpp"
 
 using bestfit::models::DataComponent;
@@ -160,7 +161,16 @@ void test_set_default_parameters_populates_bounds_and_uniform_priors() {
         CHECK_TRUE(uniform_prior != nullptr);
         CHECK_NEAR(uniform_prior->min(), param.lower_bound(), 1e-12);
         CHECK_NEAR(uniform_prior->max(), param.upper_bound(), 1e-12);
+
+        // C# UnivariateDistribution.SetDefaultParameters (line 628):
+        // IsPositive = lowers[i] == Tools.DoubleMachineEpsilon. For Normal that flags
+        // sigma (scale, constraint lower bound == DoubleMachineEpsilon) positive and
+        // leaves mu (location) unflagged.
+        CHECK_EQ(param.is_positive(),
+                 param.lower_bound() == bestfit::numerics::kDoubleMachineEpsilon);
     }
+    CHECK_TRUE(!model.parameters()[0].is_positive());  // mu
+    CHECK_TRUE(model.parameters()[1].is_positive());   // sigma
 
     // The distribution itself is left set to the initials (mirrors the C# setter behavior).
     std::vector<double> dist_params = model.distribution().get_parameters();
