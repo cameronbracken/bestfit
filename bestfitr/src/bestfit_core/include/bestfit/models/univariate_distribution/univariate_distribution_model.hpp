@@ -1,12 +1,15 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/UnivariateDistribution.cs
-// @ fc28c0c -- STATIONARY path (Phase 5, M8; the Phase 4 T6 slice was exact-data-only).
+// @ fc28c0c -- stationary path (Phase 5, M8) + nonstationary trends, quantile priors,
+// Clone, and seeded simulation (M9). The Phase 4 T6 slice was exact-data-only.
 //
 // The univariate distribution model: a parent distribution plus a DataFrame of exact /
-// uncertain / interval / threshold observations, with the FULL stationary censored
-// likelihood (M8). The C++ class keeps the Phase 4 name `UnivariateDistributionModel`
-// (the C# class is `UnivariateDistribution`; the suffix avoids colliding with the Numerics
-// distribution layer). It derives from `UnivariateDistributionModelBase` (base/...) which
-// supplies the DataFrame, UseJeffreysRuleForScale, and IQuantilePriors state.
+// uncertain / interval / threshold observations, with the FULL censored likelihood --
+// stationary (M8) and nonstationary via per-parameter trend models (M9). The C++ class
+// keeps the Phase 4 name `UnivariateDistributionModel` (the C# class is
+// `UnivariateDistribution`; the suffix avoids colliding with the Numerics distribution
+// layer). It derives from `UnivariateDistributionModelBase` (base/...) which supplies the
+// DataFrame, UseJeffreysRuleForScale, and IQuantilePriors state, and (M9) from
+// `ISimulatable<std::vector<double>>` (C# ISimulatable<double[]>).
 //
 // Ported surface (stationary):
 //   - Ctors: parameterless (C# line 32: LogPearsonTypeIII, no data), (DataFrame,
@@ -61,27 +64,63 @@
 // `Normal.SetParameters` clamp), so a proposed sigma in [0, 1E-16) rounds up identically on
 // both sides of the port.
 //
-// Deliberately NOT ported in M8 (M9 unless noted):
-//   - Nonstationary: IsNonstationary, ParameterTimeIndex, Alpha, TrendModels, SetTrendModel,
-//     NonstationaryData_LogLikelihood, NonstationaryPointwise* (C# 1256, 1509, 1716),
-//     GetNonstationaryReturnLevel (2035), and the nonstationary branches of the ctor /
-//     DataFrame setter / SetDefaultParameters / SetParameterValues / Validate /
-//     DataFrame_PropertyChanged. The stationary methods here are the
-//     `IsNonstationary == false` sides of the C# ternaries.
-//   - Quantile-prior BODIES: SetDefaultQuantilePriors (1024) beyond its disabled early-exit
-//     (ProcessQuantilePriors (1089) IS ported -- both branches are self-contained), and the
-//     quantile-prior terms of Prior_LogLikelihood (1853-1875) / PointwisePriorLogLikelihood
-//     (1938-1972) -- the multi-quantile branch needs IStandardError.QuantileJacobian, not
-//     yet on the ported distribution base. Unreachable while EnableQuantilePriors is false;
-//     enabling it throws from the M9 stub in set_default_quantile_priors.
-//   - ISimulatable / GenerateRandomValues (2303) -- M9.
-//   - IModel.Clone (2058) -- M9 (deep-copies TrendModels/QuantilePriors/nonstationary state;
-//     also the C# clone ALIASES the DataFrame, which the value-typed C++ frame cannot).
-//   - IUnivariateModel -- M9 (its `distribution()` pointer accessor collides with this
-//     class's Phase 4 reference accessor; resolved when the bivariate consumers arrive).
+// M9 additions (each with per-method comments; the big trend-driven bodies are defined
+// out-of-line in univariate_distribution_model_trends.hpp, included at the bottom of this
+// file purely for file size -- the data_frame_plotting.hpp precedent):
+//   - Nonstationary state: IsNonstationary (398; the set-false branch resets the trends to
+//     one ConstantTrend per parameter and calls SetDefaultParameters; the set-true branch
+//     builds the full time series, re-centers ParameterTimeIndex off the exact series, and
+//     re-anchors every trend's StartIndex), ParameterTimeIndex (451; the setter re-applies
+//     the current parameter values so the distribution re-syncs at the new index), Alpha
+//     (473), TrendModels (386), SetTrendModel (794), and the nonstationary branches of the
+//     DataFrame setter (275) / DataFrame_PropertyChanged (493) / SetDefaultParameters (571)
+//     / SetParameterValues (1977) / Validate (2274) / PriorLogLikelihood (1143).
+//   - Nonstationary likelihoods: NonstationaryData_LogLikelihood (1256),
+//     NonstationaryPointwiseLogLikelihood (1716), NonstationaryPointwiseLogLikelihood-
+//     Components (1509), dispatched from LogLikelihood / DataLogLikelihood / the pointwise
+//     pair via the C# `IsNonstationary ?` ternaries. FullTimeSeries cadence: the C# getter
+//     rebuilds lazily on every access; the C++ DataFrame getter (M4) has the same lazy
+//     rebuild and is now const (M9), so the likelihood paths read it exactly as the C# does.
+//     Model-boundary rebuild triggers (CreateFullTimeSeries) mirror the C#: the DataFrame
+//     setter, the IsNonstationary setter, DataFrame_PropertyChanged, and the
+//     SetDefaultParameters/SetTrendModel staleness guard (C# 609/868).
+//   - Parameter plumbing: GetParameterValues(index) predicts through the trends (2006),
+//     SetDistributionParameterValues (2020), the SetParameterValues ->
+//     SetDistributionParameterValues(ParameterTimeIndex) call site (1998), and
+//     GetNonstationaryReturnLevel (2035; the C# `null` returns map to an empty vector).
+//   - Quantile priors: SetDefaultQuantilePriors (1024) fully ported (the M8 throwing stub
+//     is gone, and with it the flag-stays-true-on-throw wart); the single-quantile terms of
+//     Prior_LogLikelihood (1854-1857) / PointwisePriorLogLikelihood (1941-1946). DEFERRED:
+//     the multi-quantile branch (1858-1875 / 1947-1971) -- its Jacobian term calls
+//     IStandardError.QuantileJacobian, which is NOT on the ported distribution base
+//     (Numerics' IStandardError surface is unported). Porting only the LogPDF terms would
+//     silently drop the Jacobian and misfit, so the branch throws std::logic_error until
+//     QuantileJacobian is ported. NOTE (C# fidelity): SetDefaultQuantilePriors does NOT
+//     call ProcessQuantilePriors -- _quantilePriorsTrue stays empty (quantile terms inert)
+//     until the QuantilePriors setter, Clone(), or an explicit ProcessQuantilePriors runs.
+//   - ISimulatable / GenerateRandomValues (2303): guards, then delegates to
+//     Distribution.GenerateRandomValues -- the Numerics inverse-CDF Mersenne Twister stream
+//     (seed > 0 deterministic, else clock-seeded, exactly the C# semantics).
+//   - Clone (2058): deep-copies Parameters/QuantilePriors/TrendModels + the nonstationary
+//     flags and calls ProcessQuantilePriors() on the result. DIVERGENCE (the M8-flagged M9
+//     decision): the C# clone ALIASES the DataFrame; the value-typed move-only C++ frame
+//     cannot alias, so clone() DEEP-COPIES the frame (DataFrame::clone()). Mutating the
+//     clone's frame therefore does NOT affect the original's, unlike C#. Like the C# (whose
+//     (DataFrame, distribution) ctor throws ArgumentNullException), cloning a model with no
+//     frame throws std::invalid_argument.
+//
+// Still deliberately NOT ported:
+//   - IUnivariateModel (its `distribution()` pointer accessor collides with this class's
+//     Phase 4 reference accessor; resolved when the bivariate consumers arrive).
 //   - XML (XElement ctor, ToXElement), INotifyPropertyChanged, [attributes], and the
 //     parameter/owner display-name wiring from Distribution.ParameterNames (WPF display
-//     concerns; ModelParameter owner_name()/name() stay empty, Phase 4 decision).
+//     concerns; ModelParameter owner_name()/name() and the trends' OwnerName stay empty,
+//     Phase 4 decision restated -- ParameterNames is not on the ported distribution base).
+//   - C# `_parameters.AddRange(TrendModels[i].Parameters)` ALIASES the trend parameters
+//     into the model's list; the C++ ModelParameter is a value type, so `parameters_`
+//     holds COPIES and SetParameterValues writes both (which the C# does too -- its trend
+//     update is redundant only because of the aliasing). Callers must mutate through
+//     set_parameter_values, not by poking parameters() elements, to keep both in sync.
 //
 // EXCEPTION-TYPE MAPPING for THIS file: C# ArgumentNullException/ArgumentException ->
 // std::invalid_argument; ArgumentOutOfRangeException -> std::out_of_range;
@@ -89,6 +128,7 @@
 #pragma once
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -99,23 +139,40 @@
 #include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/support/data_component.hpp"
 #include "bestfit/models/support/model_parameter.hpp"
+#include "bestfit/models/support/simulatable.hpp"
 #include "bestfit/models/support/validation_result.hpp"
+#include "bestfit/models/trend_functions/constant_trend.hpp"
+#include "bestfit/models/trend_functions/cubic_trend.hpp"
+#include "bestfit/models/trend_functions/exponential_trend.hpp"
+#include "bestfit/models/trend_functions/linear_trend.hpp"
+#include "bestfit/models/trend_functions/logistic_trend.hpp"
+#include "bestfit/models/trend_functions/power_trend.hpp"
+#include "bestfit/models/trend_functions/quadratic_trend.hpp"
+#include "bestfit/models/trend_functions/reciprocal_trend.hpp"
+#include "bestfit/models/trend_functions/sinusoidal_trend.hpp"
+#include "bestfit/models/trend_functions/step_function.hpp"
+#include "bestfit/models/trend_functions/support/i_trend_model.hpp"
+#include "bestfit/models/trend_functions/support/trend_model_type.hpp"
 #include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/gamma_distribution.hpp"
+#include "bestfit/numerics/distributions/ln_normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/math/integration/integration.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::models {
 
-class UnivariateDistributionModel : public UnivariateDistributionModelBase {
+class UnivariateDistributionModel : public UnivariateDistributionModelBase,
+                                    public ISimulatable<std::vector<double>> {
    public:
     using DistributionBase = numerics::distributions::UnivariateDistributionBase;
     using DistributionType = numerics::distributions::UnivariateDistributionType;
+    using ITrendModel = trend_functions::ITrendModel;
+    using TrendModelType = trend_functions::TrendModelType;
 
     // C# parameterless ctor (line 32): Log-Pearson Type III and no data.
     UnivariateDistributionModel() {
@@ -191,13 +248,20 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
     DistributionBase& distribution() { return *distribution_; }
     const DistributionBase& distribution() const { return *distribution_; }
 
-    // C# setter: null check, assign, reset trend models (M9), then SetDefaultParameters()
-    // and SetDefaultQuantilePriors() (unconditionally -- not gated on UseDefaultFlatPriors;
-    // the XML `_isDeserializing` suppression is out of scope).
+    // C# setter: null check, assign, reset the trend models to one ConstantTrend per
+    // distribution parameter (C# 338-353; the OwnerName wiring from ParameterNames is a
+    // display-only non-port), then SetDefaultParameters() and SetDefaultQuantilePriors()
+    // (unconditionally -- not gated on UseDefaultFlatPriors; the XML `_isDeserializing`
+    // suppression is out of scope).
     void set_distribution(std::unique_ptr<DistributionBase> distribution) {
         if (distribution == nullptr)
             throw std::invalid_argument("Distribution");  // C# ArgumentNullException
         distribution_ = std::move(distribution);
+
+        trend_models_.clear();
+        for (int i = 0; i < distribution_->number_of_parameters(); ++i)
+            trend_models_.push_back(std::make_unique<trend_functions::ConstantTrend>());
+
         set_default_parameters();
         set_default_quantile_priors();
     }
@@ -209,80 +273,168 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         set_distribution(create_distribution(distribution_type));
     }
 
-    // --- SetDefaultParameters (C# line 571, stationary path) ------------------------------
-    void set_default_parameters() override {
-        if (distribution_ == nullptr) return;
+    // --- TrendModels (C# line 386: public get, private set -- list contents mutable). ---
+    std::vector<std::unique_ptr<ITrendModel>>& trend_models() { return trend_models_; }
+    const std::vector<std::unique_ptr<ITrendModel>>& trend_models() const {
+        return trend_models_;
+    }
 
-        // (Handler removal and the TrendModels bookkeeping are INPC/M9 concerns.)
-        // C# guard: DataFrame != null && DataFrame.Validate().IsValid &&
-        //           ExactSeries != null && ExactSeries.Count > 0.
-        if (has_data_frame() && data_frame().validate().is_valid &&
-            data_frame().exact_series().count() > 0) {
-            auto* ml_estimator =
-                dynamic_cast<numerics::distributions::IMaximumLikelihoodEstimation*>(
-                    distribution_.get());
-            if (ml_estimator == nullptr) {
-                // C# would fail the (IMaximumLikelihoodEstimation) cast, wrapped by the
-                // catch into InvalidOperationException.
-                throw std::runtime_error(
-                    "UnivariateDistributionModel: distribution does not implement "
-                    "IMaximumLikelihoodEstimation (GetParameterConstraints unavailable)");
-            }
+    // --- Nonstationarity (C# region, lines 388-486) ---------------------------------------
 
-            std::vector<double> initials;
-            std::vector<double> lowers;
-            std::vector<double> uppers;
-            ml_estimator->get_parameter_constraints(
-                data_frame().exact_series().values_to_list(), initials, lowers, uppers);
+    // C# `IsNonstationary` (line 398). Set-false: reset the trends to one ConstantTrend per
+    // parameter and SetDefaultParameters (unconditional). Set-true: build the full time
+    // series, re-center ParameterTimeIndex off the exact series, re-anchor every trend's
+    // StartIndex, then SetDefaultParameters when UseDefaultFlatPriors.
+    bool is_nonstationary() const { return is_nonstationary_; }
+    void set_is_nonstationary(bool value) {
+        if (is_nonstationary_ == value) return;
+        is_nonstationary_ = value;
 
-            // Stationary: one ModelParameter per distribution parameter with
-            // Value=initials[i], bounds, IsPositive = (lowers[i] ==
-            // Tools.DoubleMachineEpsilon) -- the C# marks scale-type parameters positive
-            // off the constraint lower bound -- and a Uniform(lower, upper) prior; the
-            // Name is cleared for the stationary case (C# 756-760).
-            parameters_.clear();
-            parameters_.reserve(initials.size());
-            for (std::size_t i = 0; i < initials.size(); ++i) {
-                parameters_.emplace_back(
-                    /*owner_name=*/"", /*name=*/"", initials[i], lowers[i], uppers[i],
-                    std::make_unique<numerics::distributions::Uniform>(lowers[i], uppers[i]),
-                    /*is_positive=*/lowers[i] == numerics::kDoubleMachineEpsilon);
-            }
-
-            // Retained Phase 4 deviation (see file header): the C# leaves the distribution
-            // at its previous parameters here.
-            distribution_->set_parameters(initials);
+        if (!is_nonstationary_ && distribution_ != nullptr) {
+            trend_models_.clear();
+            for (int i = 0; i < distribution_->number_of_parameters(); ++i)
+                trend_models_.push_back(std::make_unique<trend_functions::ConstantTrend>());
+            set_default_parameters();
         } else {
-            // C# skip path (null/invalid/empty frame): parameters come from the default
-            // ConstantTrend per distribution parameter -- a single default ModelParameter
-            // each -- with Name cleared for the stationary case (trend layer: M9).
-            parameters_.clear();
-            parameters_.reserve(static_cast<std::size_t>(distribution_->number_of_parameters()));
-            for (int i = 0; i < distribution_->number_of_parameters(); ++i) {
-                ModelParameter p;
-                p.set_name("");
-                parameters_.push_back(std::move(p));
+            if (has_data_frame()) {
+                data_frame().create_full_time_series();
+                if (data_frame().exact_series().count() > 0) {
+                    set_parameter_time_index(static_cast<int>(
+                        std::ceil((data_frame().exact_series().minimum_index() +
+                                   data_frame().exact_series().maximum_index()) /
+                                  2.0)));
+                }
+                const std::vector<std::unique_ptr<Data>>& fts = data_frame().full_time_series();
+                if (!fts.empty()) {
+                    int start_index = fts.front()->index();
+                    for (std::size_t i = 0; i < trend_models_.size(); ++i)
+                        trend_models_[i]->set_start_index(start_index);
+                }
             }
+            if (use_default_flat_priors()) set_default_parameters();
         }
     }
 
-    // --- Quantile priors (bodies; see the file-header deferral notes) ---------------------
+    // C# `ParameterTimeIndex` (line 451): the time step index at which the nonstationary
+    // distribution is evaluated. The setter re-applies the current parameter values so the
+    // distribution re-syncs at the new index (C# SetParameterValues call, line 461).
+    int parameter_time_index() const { return parameter_time_index_; }
+    void set_parameter_time_index(int value) {
+        if (parameter_time_index_ == value) return;
+        parameter_time_index_ = value;
+        std::vector<double> values;
+        values.reserve(parameters_.size());
+        for (const ModelParameter& mp : parameters_) values.push_back(mp.value());
+        set_parameter_values(values);
+    }
 
-    // C# `SetDefaultQuantilePriors` (line 1024). Only the disabled early-exit is ported in
-    // M8: with EnableQuantilePriors == false both lists are cleared (C# 1037-1043). The
-    // enabled branch (default LnNormal priors from the distribution quantiles) is M9.
+    // C# `Alpha` (line 473): the exceedance probability for the nonstationary chronology;
+    // default 0.5 (the 2-year return period).
+    double alpha() const { return alpha_; }
+    void set_alpha(double value) { alpha_ = value; }
+
+    // C# concrete `DataFrame` setter override (line 275): store, reprocess thresholds at
+    // the model boundary (the M4->M8 cadence), the nonstationary block (build the full time
+    // series, re-center an out-of-range ParameterTimeIndex off the exact series, re-anchor
+    // trend StartIndex), then SetDefaultParameters when UseDefaultFlatPriors.
+    void set_data_frame(DataFrame data_frame) override {
+        data_frame_ = std::move(data_frame);
+        data_frame_->process_threshold_series();
+
+        if (is_nonstationary_) {
+            data_frame_->create_full_time_series();
+            const std::vector<std::unique_ptr<Data>>& fts = data_frame_->full_time_series();
+            if (!fts.empty()) {
+                int first_index = fts.front()->index();
+                int last_index = fts.back()->index();
+
+                if (parameter_time_index_ < first_index ||
+                    parameter_time_index_ > last_index + 100) {
+                    if (data_frame_->exact_series().count() > 0) {
+                        set_parameter_time_index(static_cast<int>(
+                            std::ceil((data_frame_->exact_series().minimum_index() +
+                                       data_frame_->exact_series().maximum_index()) /
+                                      2.0)));
+                    }
+                }
+
+                for (std::size_t i = 0; i < trend_models_.size(); ++i)
+                    trend_models_[i]->set_start_index(first_index);
+            }
+        }
+
+        if (use_default_flat_priors()) set_default_parameters();
+    }
+
+    // C# `SetTrendModel(int index, TrendModelType type)` (line 794): replaces the indexed
+    // trend with a freshly constructed one, applies the constraint-driven defaults when a
+    // valid frame with exact data exists, and rebuilds the Parameters list from all trends.
+    // Defined out-of-line in univariate_distribution_model_trends.hpp.
+    void set_trend_model(int index, TrendModelType type);
+
+    // --- SetDefaultParameters (C# line 571, both paths) ------------------------------------
+    // Constraint path: trend defaults + StartIndex anchoring + the per-trend-type bound
+    // blocks (Linear/Quadratic/Cubic/Exponential/Logistic/Sinusoidal/StepFunction), with
+    // IsPositive = (lowers[i] == Tools.DoubleMachineEpsilon) on the location parameter (C#
+    // 628) AND on the StepFunction level parameter (C# 728 -- the M8 review ledger item).
+    // Skip path (null/invalid/empty frame): the trends keep their own defaults. Either way
+    // the Parameters list is rebuilt from all trend parameters, with names cleared for the
+    // first NumberOfParameters entries when stationary (C# 756-760). Defined out-of-line in
+    // univariate_distribution_model_trends.hpp.
+    void set_default_parameters() override;
+
+    // --- Quantile priors (see the file-header notes on the multi-quantile deferral) -------
+
+    // C# `SetDefaultQuantilePriors` (line 1024). Disabled: clear both lists (C# 1037-1043).
+    // Enabled: one LnNormal prior per quantile (1 with UseSingleQuantile, else one per
+    // distribution parameter) at alpha = 10^-i, mu = Round(InverseCDF(1 - alpha), 2), sigma
+    // = Round(0.15 * mu, 2); an existing list is shrunk from the back or extended with
+    // alpha = last / 10 (C# 1045-1078). NOTE: like the C#, this does NOT reprocess --
+    // _quantilePriorsTrue is untouched by the enabled branch.
     void set_default_quantile_priors() override {
         if (distribution_ == nullptr) return;
+        // (Handler removal for the old priors is INPC plumbing, skipped.)
         if (!enable_quantile_priors()) {
             quantile_priors_.clear();
             quantile_priors_true_.clear();
             return;
         }
-        // M9 stub: the default-prior construction (LnNormal at alpha = 10^-i off the
-        // distribution quantiles, C# 1045-1085). Throwing keeps the M8 surface honest --
-        // enabling quantile priors cannot silently misfit.
-        throw std::logic_error(
-            "UnivariateDistributionModel: default quantile priors are not ported yet (M9)");
+
+        std::vector<QuantilePrior> priors;
+        std::size_t q_count = use_single_quantile()
+                                  ? 1u
+                                  : static_cast<std::size_t>(distribution_->number_of_parameters());
+
+        // See if there are already quantile priors (the C# ToList copy aliases the prior
+        // objects; the C++ copy is deep -- same observable end state since the old list is
+        // replaced wholesale below).
+        if (!quantile_priors_.empty()) {
+            priors = quantile_priors_;
+            if (priors.size() > q_count) {
+                while (priors.size() != q_count) priors.pop_back();
+            } else if (priors.size() < q_count) {
+                while (priors.size() < q_count) {
+                    priors.emplace_back(priors.back().alpha() / 10.0,
+                                        std::make_unique<numerics::distributions::LnNormal>());
+                    double mu = round_half_even_2(
+                        distribution_->inverse_cdf(1.0 - priors.back().alpha()));
+                    double sigma = round_half_even_2(mu * 0.15);
+                    priors.back().distribution().set_parameters({mu, sigma});
+                }
+            }
+        } else {
+            for (std::size_t i = 1; i <= q_count; ++i) {
+                priors.emplace_back(std::pow(10.0, -static_cast<double>(i)),
+                                    std::make_unique<numerics::distributions::LnNormal>());
+                double mu =
+                    round_half_even_2(distribution_->inverse_cdf(1.0 - priors[i - 1].alpha()));
+                double sigma = round_half_even_2(mu * 0.15);
+                priors[i - 1].distribution().set_parameters({mu, sigma});
+            }
+        }
+
+        // Reset the quantile priors with the new list (handler re-adds skipped).
+        quantile_priors_ = std::move(priors);
     }
 
     // C# `ProcessQuantilePriors` (line 1089): the first prior stays; the remaining priors
@@ -322,7 +474,8 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             throw std::runtime_error("Distribution must be set before computing log likelihood.");
 
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        double data_log_lh = stationary_data_log_likelihood(*model, p);  // IsNonstationary: M9
+        double data_log_lh = is_nonstationary_ ? nonstationary_data_log_likelihood(*model, p)
+                                               : stationary_data_log_likelihood(*model, p);
         double prior_log_lh = prior_log_likelihood(*model, p);
 
         double log_lh = data_log_lh + prior_log_lh;
@@ -330,9 +483,10 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
     }
 
     // C# `PriorLogLikelihood` override (line 1143): priors are evaluated against the
-    // distribution at the supplied parameters (stationary; the nonstationary
-    // last-time-step path is M9). Invalid proposals leave the working copy at its previous
-    // parameters (see the validity-check note in the file header).
+    // distribution at the LAST TIME STEP for nonstationary models (ParameterTimeIndex is
+    // for prediction only, per the C# remark) or at the supplied parameters when
+    // stationary. Invalid proposals leave the working copy at its previous parameters (see
+    // the validity-check note in the file header).
     double prior_log_likelihood(const std::vector<double>& p) const override {
         if (distribution_ == nullptr)
             throw std::runtime_error(
@@ -340,8 +494,16 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         if (p.size() != parameters_.size()) return -std::numeric_limits<double>::infinity();
 
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        std::vector<double> dist_params(
-            p.begin(), p.begin() + static_cast<std::ptrdiff_t>(model->number_of_parameters()));
+        std::vector<double> dist_params;
+        if (is_nonstationary_) {
+            if (!has_data_frame() || data_frame().full_time_series().empty())
+                return -std::numeric_limits<double>::infinity();
+            dist_params = get_parameter_values(data_frame().full_time_series().back()->index());
+        } else {
+            dist_params.assign(
+                p.begin(),
+                p.begin() + static_cast<std::ptrdiff_t>(model->number_of_parameters()));
+        }
 
         std::unique_ptr<DistributionBase> probe = distribution_->clone();
         probe->set_parameters(dist_params);
@@ -420,13 +582,21 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         return log_lh;
     }
 
+    // C# `NonstationaryData_LogLikelihood(model, parameters)` (line 1256; public upstream):
+    // trend-model clones carry the proposed parameter slices, and every full-time-series
+    // ordinate is evaluated at its own Predict(index) parameter set. Defined out-of-line in
+    // univariate_distribution_model_trends.hpp.
+    double nonstationary_data_log_likelihood(DistributionBase& model,
+                                             const std::vector<double>& p) const;
+
     // C# `DataLogLikelihood` override (line 1361).
     double data_log_likelihood(const std::vector<double>& p) const override {
         if (distribution_ == nullptr)
             throw std::runtime_error(
                 "Distribution must be set before computing data log likelihood.");
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        double log_lh = stationary_data_log_likelihood(*model, p);  // IsNonstationary: M9
+        double log_lh = is_nonstationary_ ? nonstationary_data_log_likelihood(*model, p)
+                                          : stationary_data_log_likelihood(*model, p);
         if (!numerics::is_finite(log_lh)) return -std::numeric_limits<double>::infinity();
         return log_lh;
     }
@@ -437,7 +607,8 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             throw std::runtime_error(
                 "Distribution must be set before computing pointwise log likelihood.");
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        return stationary_pointwise_log_likelihood(*model, p);  // IsNonstationary: M9
+        return is_nonstationary_ ? nonstationary_pointwise_log_likelihood(*model, p)
+                                 : stationary_pointwise_log_likelihood(*model, p);
     }
 
     // C# `PointwiseDataLogLikelihoodComponents` override (line 1385).
@@ -447,13 +618,14 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             throw std::runtime_error(
                 "Distribution must be set before computing pointwise log likelihood components.");
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        return stationary_pointwise_log_likelihood_components(*model, p);  // IsNonstationary: M9
+        return is_nonstationary_ ? nonstationary_pointwise_log_likelihood_components(*model, p)
+                                 : stationary_pointwise_log_likelihood_components(*model, p);
     }
 
     // C# `Prior_LogLikelihood(model, parameters)` (line 1822): parameter priors + the
     // Jeffreys 1/scale term read off the WORKING COPY's parameters (not the raw proposal --
-    // this is why the callers set `model` first). The quantile-prior terms (1853-1875) are
-    // M9 and unreachable while EnableQuantilePriors is false.
+    // this is why the callers set `model` first) + the quantile-prior terms (single-quantile
+    // ported; the multi-quantile branch is DEFERRED, see the file header).
     double prior_log_likelihood(const DistributionBase& model,
                                 const std::vector<double>& p) const {
         double log_lh = 0.0;
@@ -479,7 +651,23 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             }
         }
 
-        // Quantile priors: M9 (see method comment).
+        // Quantile priors (C# 1853-1875).
+        if (enable_quantile_priors() && use_single_quantile() &&
+            quantile_priors_true_.size() == 1) {
+            log_lh += quantile_priors_true_[0].distribution().log_pdf(
+                model.inverse_cdf(1.0 - quantile_priors_true_[0].alpha()));
+        } else if (enable_quantile_priors() && !use_single_quantile() &&
+                   static_cast<int>(quantile_priors_true_.size()) ==
+                       distribution_->number_of_parameters()) {
+            // DEFERRED (C# 1858-1875): the difference-prior terms are portable but the
+            // branch's Jacobian term calls IStandardError.QuantileJacobian, which is not on
+            // the ported distribution base. Omitting the Jacobian would silently misfit, so
+            // the whole branch throws until QuantileJacobian is ported (file-header note).
+            throw std::logic_error(
+                "UnivariateDistributionModel: the multi-quantile prior branch requires "
+                "IStandardError::QuantileJacobian, which is not ported yet; use a single "
+                "quantile prior (use_single_quantile) or disable quantile priors.");
+        }
 
         if (!numerics::is_finite(log_lh)) return -std::numeric_limits<double>::infinity();
         return log_lh;
@@ -488,10 +676,13 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
     // C# `PointwisePriorLogLikelihood` override (line 1882): the per-parameter prior
     // components plus one JeffreysScale component -- appended only when the proposed
     // distribution parameters are VALID (C# `valid is null`, line 1917), unlike the scalar
-    // Prior_LogLikelihood which evaluates the term unconditionally off the working copy.
-    // The quantile-prior components (1938-1972) are M9. Component label: the C# suffixes
-    // the scale ParameterNames entry ("Jeffreys Scale: {name}"); ParameterNames is not on
-    // the ported distribution base, so the label stays "Jeffreys Scale" (display-only).
+    // Prior_LogLikelihood which evaluates the term unconditionally off the working copy --
+    // plus the quantile-prior components (single-quantile ported; multi-quantile DEFERRED,
+    // see the file header). Nonstationary: the distribution parameters come from the last
+    // time step (matches PriorLogLikelihood; ParameterTimeIndex is for prediction).
+    // Component label: the C# suffixes the scale ParameterNames entry ("Jeffreys Scale:
+    // {name}"); ParameterNames is not on the ported distribution base, so the label stays
+    // "Jeffreys Scale" (display-only).
     std::vector<PriorComponent> pointwise_prior_log_likelihood(
         const std::vector<double>& p) const override {
         if (distribution_ == nullptr)
@@ -504,8 +695,16 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         if (p.size() != parameters_.size()) return result;
 
         std::unique_ptr<DistributionBase> model = distribution_->clone();
-        std::vector<double> dist_params(
-            p.begin(), p.begin() + static_cast<std::ptrdiff_t>(model->number_of_parameters()));
+        std::vector<double> dist_params;
+        if (is_nonstationary_) {
+            // C# 1894-1899: no frame / empty full series -> empty component list.
+            if (!has_data_frame() || data_frame().full_time_series().empty()) return result;
+            dist_params = get_parameter_values(data_frame().full_time_series().back()->index());
+        } else {
+            dist_params.assign(
+                p.begin(),
+                p.begin() + static_cast<std::ptrdiff_t>(model->number_of_parameters()));
+        }
         std::unique_ptr<DistributionBase> probe = distribution_->clone();
         probe->set_parameters(dist_params);
         bool valid = probe->parameters_valid();
@@ -533,30 +732,63 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             }
         }
 
-        // Quantile priors: M9 (see method comment).
+        // Quantile priors (C# 1939-1972; components only when the proposal is valid).
+        if (enable_quantile_priors() && valid) {
+            if (use_single_quantile() && quantile_priors_true_.size() == 1) {
+                double quantile = model->inverse_cdf(1.0 - quantile_priors_true_[0].alpha());
+                double ll = quantile_priors_true_[0].distribution().log_pdf(quantile);
+                // C# label $"Quantile Prior: p={Alpha:G4}"; :G4 approximated with %.4g
+                // (display-only, the PriorComponent::to_string precedent).
+                char alpha_buf[64];
+                std::snprintf(alpha_buf, sizeof alpha_buf, "%.4g",
+                              quantile_priors_true_[0].alpha());
+                result.emplace_back(std::string("Quantile Prior: p=") + alpha_buf, ll,
+                                    PriorComponentType::QuantilePrior);
+            } else if (!use_single_quantile() &&
+                       static_cast<int>(quantile_priors_true_.size()) ==
+                           distribution_->number_of_parameters()) {
+                // DEFERRED: same IStandardError::QuantileJacobian gap as the scalar
+                // Prior_LogLikelihood branch (file-header note).
+                throw std::logic_error(
+                    "UnivariateDistributionModel: the multi-quantile prior branch requires "
+                    "IStandardError::QuantileJacobian, which is not ported yet; use a single "
+                    "quantile prior (use_single_quantile) or disable quantile priors.");
+            }
+        }
 
         return result;
     }
 
     // C# `SetParameterValues` override (line 1977): writes the model parameters, updates
-    // the trend models (M9), then sets the distribution parameters via
-    // SetDistributionParameterValues(ParameterTimeIndex) -- stationary, the ConstantTrend
-    // chain collapses to the parameter values themselves.
+    // the trend models with the per-trend parameter slices, then sets the distribution
+    // parameters via SetDistributionParameterValues(ParameterTimeIndex) -- stationary, the
+    // ConstantTrend chain collapses to the parameter values themselves.
     void set_parameter_values(const std::vector<double>& p) override {
         if (p.size() != static_cast<std::size_t>(number_of_parameters())) {
             throw std::invalid_argument("The length of the parameter list is incorrect.");
         }
         for (std::size_t i = 0; i < p.size(); ++i) parameters_[i].set_value(p[i]);
-        set_distribution_parameter_values(0);  // stationary ParameterTimeIndex (M9)
+
+        std::size_t t = 0;
+        for (std::size_t i = 0; i < trend_models_.size(); ++i) {
+            std::size_t n = static_cast<std::size_t>(trend_models_[i]->number_of_parameters());
+            std::vector<double> parms(p.begin() + static_cast<std::ptrdiff_t>(t),
+                                      p.begin() + static_cast<std::ptrdiff_t>(t + n));
+            trend_models_[i]->set_parameter_values(parms);
+            t += n;
+        }
+
+        set_distribution_parameter_values(parameter_time_index_);
     }
 
     // C# `GetParameterValues(int index)` (line 2006): the distribution parameters at a time
-    // step. Stationary: every trend model is the ConstantTrend whose Predict(index) is the
-    // parameter value, so the index is unused until M9.
-    std::vector<double> get_parameter_values(int /*index*/) const {
+    // step, predicted through the trend models (stationary ConstantTrends collapse to the
+    // parameter values, index unused).
+    std::vector<double> get_parameter_values(int index) const {
         std::vector<double> values(
             static_cast<std::size_t>(distribution_->number_of_parameters()));
-        for (std::size_t i = 0; i < values.size(); ++i) values[i] = parameters_[i].value();
+        for (std::size_t i = 0; i < values.size(); ++i)
+            values[i] = trend_models_[i]->predict(index);
         return values;
     }
 
@@ -565,8 +797,91 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         distribution_->set_parameters(get_parameter_values(index));
     }
 
-    // C# `Validate` override (line 2127), stationary checks. The nonstationary block
-    // (ParameterTimeIndex range, Alpha in (0,1); C# 2274-2293) is M9.
+    // C# `GetNonstationaryReturnLevel()` (line 2035): InverseCDF(1 - Alpha) at every index
+    // from the first full-time-series index to max(ParameterTimeIndex, last index). The C#
+    // returns null when the model is stationary or the series is unavailable; the C++
+    // `null` maps to an empty vector.
+    std::vector<double> get_nonstationary_return_level() const {
+        if (!is_nonstationary_ || !has_data_frame()) return {};
+        const std::vector<std::unique_ptr<Data>>& fts = data_frame().full_time_series();
+        if (fts.empty()) return {};
+
+        std::unique_ptr<DistributionBase> dist = distribution_->clone();
+        // C# Tools.Sequence(first, Math.Max(ParameterTimeIndex, last)): inclusive step-1.
+        int first_index = fts.front()->index();
+        int last_index = std::max(parameter_time_index_, fts.back()->index());
+
+        std::vector<double> result;
+        result.reserve(static_cast<std::size_t>(last_index - first_index + 1));
+        for (int index = first_index; index <= last_index; ++index) {
+            dist->set_parameters(get_parameter_values(index));
+            result.push_back(dist->inverse_cdf(1.0 - alpha_));
+        }
+        return result;
+    }
+
+    // C# `GenerateRandomValues(int sampleSize, int seed = -1)` (line 2303, the
+    // ISimulatable<double[]> surface): guards, then delegates to
+    // Distribution.GenerateRandomValues -- the Numerics inverse-CDF Mersenne Twister stream
+    // at the distribution's CURRENT parameters (seed > 0 deterministic, else clock-seeded).
+    // C# ArgumentOutOfRangeException -> std::out_of_range per the file-header mapping.
+    std::vector<double> generate_random_values(int sample_size, int seed = -1) const override {
+        if (sample_size <= 0)
+            throw std::out_of_range("Sample size must be positive.");
+        if (distribution_ == nullptr)
+            throw std::runtime_error(
+                "Distribution cannot be null when generating random values.");
+
+        return distribution_->generate_random_values(sample_size, seed);
+    }
+
+    // C# `Clone()` (line 2058): deep-copies Parameters, QuantilePriors, TrendModels, and
+    // the nonstationary flags, then calls ProcessQuantilePriors() on the result. C# returns
+    // IModel; the C++ Clone returns the concrete model by value (ModelBase carries no
+    // clone(), a Phase 4 decision). DIVERGENCE (see the file header): the C# ALIASES the
+    // DataFrame into the clone; the value-typed C++ frame is DEEP-COPIED instead. Like the
+    // C# ctor the clone routes through, a model with no frame cannot be cloned
+    // (ArgumentNullException -> std::invalid_argument).
+    UnivariateDistributionModel clone() const {
+        if (!has_data_frame())
+            throw std::invalid_argument("dataFrame");  // C# ctor ArgumentNullException
+
+        std::vector<ModelParameter> parms;
+        parms.reserve(parameters_.size());
+        for (std::size_t i = 0; i < parameters_.size(); ++i)
+            parms.push_back(parameters_[i].clone());
+
+        std::vector<QuantilePrior> quants;
+        quants.reserve(quantile_priors_.size());
+        for (std::size_t i = 0; i < quantile_priors_.size(); ++i)
+            quants.push_back(quantile_priors_[i].clone());
+
+        std::vector<std::unique_ptr<ITrendModel>> trends;
+        trends.reserve(trend_models_.size());
+        for (std::size_t i = 0; i < trend_models_.size(); ++i)
+            trends.push_back(trend_models_[i]->clone());
+
+        // C# `new UnivariateDistribution(DataFrame, Distribution)` (the ctor clones the
+        // distribution; the C++ ctor takes ownership of a clone) followed by the object
+        // initializer -- direct field writes here mirror the C# field-initializer syntax
+        // (no setter side effects).
+        UnivariateDistributionModel result(data_frame().clone(), distribution_->clone());
+        result.use_default_flat_priors_ = use_default_flat_priors_;
+        result.use_jeffreys_rule_for_scale_ = use_jeffreys_rule_for_scale_;
+        result.enable_quantile_priors_ = enable_quantile_priors_;
+        result.use_single_quantile_ = use_single_quantile_;
+        result.is_nonstationary_ = is_nonstationary_;
+        result.parameter_time_index_ = parameter_time_index_;
+        result.alpha_ = alpha_;
+        result.parameters_ = std::move(parms);
+        result.quantile_priors_ = std::move(quants);
+        result.trend_models_ = std::move(trends);
+
+        result.process_quantile_priors();
+        return result;
+    }
+
+    // C# `Validate` override (line 2127), including the nonstationary checks (2274-2293).
     ValidationResult validate() const override {
         ValidationResult result;
 
@@ -701,9 +1016,63 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
             }
         }
 
-        // Nonstationary checks (C# 2274-2293): M9.
+        // Nonstationary checks (C# 2274-2293). The frame is non-null here (early return
+        // above); the C# reads DataFrame.FullTimeSeries through its lazy getter.
+        if (is_nonstationary_) {
+            const std::vector<std::unique_ptr<Data>>& fts = data_frame().full_time_series();
+            if (!fts.empty()) {
+                int first_index = fts.front()->index();
+                int last_index = fts.back()->index();
+
+                if (parameter_time_index_ < first_index ||
+                    parameter_time_index_ > last_index + 100) {
+                    result.is_valid = false;
+                    result.validation_messages.push_back(
+                        "Error: ParameterTimeIndex is outside the valid range for the full "
+                        "time series.");
+                }
+            }
+
+            if (alpha_ <= 0.0 || alpha_ >= 1.0) {
+                result.is_valid = false;
+                result.validation_messages.push_back(
+                    "Error: Alpha must be strictly between 0 and 1 for nonstationary "
+                    "analysis.");
+            }
+        }
 
         return result;
+    }
+
+   protected:
+    // C# `DataFrame_PropertyChanged` override (line 493): the explicit-invalidation
+    // equivalent for in-place frame mutations (see the base header's cadence note) -- the
+    // PlottingParameter/PlottingPosition filtering has no C++ trigger to filter. Reprocess
+    // thresholds, SetDefaultParameters when flat priors, then the nonstationary side
+    // effects (rebuild the full series, re-center ParameterTimeIndex, re-anchor trend
+    // StartIndex). NEVER called from the likelihood paths.
+    void data_frame_property_changed() override {
+        if (!has_data_frame()) return;
+
+        data_frame().process_threshold_series();
+
+        if (use_default_flat_priors()) set_default_parameters();
+
+        if (is_nonstationary_) {
+            if (data_frame().exact_series().count() > 0) {
+                data_frame().create_full_time_series();
+                set_parameter_time_index(static_cast<int>(
+                    std::ceil((data_frame().exact_series().minimum_index() +
+                               data_frame().exact_series().maximum_index()) /
+                              2.0)));
+                const std::vector<std::unique_ptr<Data>>& fts = data_frame().full_time_series();
+                if (!fts.empty()) {
+                    int start_index = fts.front()->index();
+                    for (std::size_t i = 0; i < trend_models_.size(); ++i)
+                        trend_models_[i]->set_start_index(start_index);
+                }
+            }
+        }
     }
 
    private:
@@ -714,6 +1083,49 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
         df.set_exact_series(ExactSeries(values));
         return df;
     }
+
+    // C# `Math.Round(value, 2)` (MidpointRounding.ToEven): std::nearbyint under the default
+    // FE_TONEAREST mode rounds half-to-even. (.NET's decimal-digit rounding can differ in
+    // rare representation edge cases; these feed default priors only, not oracle values.)
+    static double round_half_even_2(double value) {
+        return std::nearbyint(value * 100.0) / 100.0;
+    }
+
+    // The C# SetTrendModel construction chain (line 817): default ConstantTrend, then the
+    // type if-chain. GeneralLinear has no branch upstream and falls through to
+    // ConstantTrend, mirrored by the default case.
+    static std::unique_ptr<ITrendModel> make_trend_model(TrendModelType type) {
+        switch (type) {
+            case TrendModelType::Cubic:
+                return std::make_unique<trend_functions::CubicTrend>();
+            case TrendModelType::Exponential:
+                return std::make_unique<trend_functions::ExponentialTrend>();
+            case TrendModelType::Linear:
+                return std::make_unique<trend_functions::LinearTrend>();
+            case TrendModelType::Logistic:
+                return std::make_unique<trend_functions::LogisticTrend>();
+            case TrendModelType::Power:
+                return std::make_unique<trend_functions::PowerTrend>();
+            case TrendModelType::Quadratic:
+                return std::make_unique<trend_functions::QuadraticTrend>();
+            case TrendModelType::Reciprocal:
+                return std::make_unique<trend_functions::ReciprocalTrend>();
+            case TrendModelType::Sinusoidal:
+                return std::make_unique<trend_functions::SinusoidalTrend>();
+            case TrendModelType::StepFunction:
+                return std::make_unique<trend_functions::StepFunction>();
+            default:
+                return std::make_unique<trend_functions::ConstantTrend>();
+        }
+    }
+
+    // C# `NonstationaryPointwiseLogLikelihood` (line 1716) and
+    // `NonstationaryPointwiseLogLikelihoodComponents` (line 1509). Defined out-of-line in
+    // univariate_distribution_model_trends.hpp.
+    std::vector<double> nonstationary_pointwise_log_likelihood(
+        DistributionBase& model, const std::vector<double>& p) const;
+    std::vector<DataComponent> nonstationary_pointwise_log_likelihood_components(
+        DistributionBase& model, const std::vector<double>& p) const;
 
     // Index of the scale parameter for the Jeffreys 1/scale prior (C# Prior_LogLikelihood,
     // 1834-1843): Gamma/Weibull scale is parameter 0, every other family's is parameter 1.
@@ -910,6 +1322,15 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase {
     }
 
     std::unique_ptr<DistributionBase> distribution_;
+    std::vector<std::unique_ptr<ITrendModel>> trend_models_;  // C# TrendModels (line 386)
+    bool is_nonstationary_ = false;                           // C# _isNonstationary (line 270)
+    int parameter_time_index_ = 0;                            // C# _parameterTimeIndex (line 271)
+    double alpha_ = 0.5;                                      // C# _alpha (line 272)
 };
 
 }  // namespace bestfit::models
+
+// Out-of-line definitions of the trend-driven surfaces (SetDefaultParameters,
+// SetTrendModel, and the three nonstationary likelihood bodies), split out purely for file
+// size like data_frame_plotting.hpp; the companion header must not be included directly.
+#include "bestfit/models/univariate_distribution/univariate_distribution_model_trends.hpp"  // NOLINT

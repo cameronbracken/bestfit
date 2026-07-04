@@ -29,9 +29,9 @@ class ISimulatable {
     // Generates random samples from the model using its current parameter values.
     // `seed` <= 0 means clock-seeded (non-reproducible); `seed` > 0 seeds the PRNG
     // deterministically (C# `GenerateRandomValues(int sampleSize, int seed = -1)`).
-    // Implementations throw std::invalid_argument / std::runtime_error where the C#
+    // Implementations throw std::out_of_range / std::runtime_error where the C#
     // documents ArgumentOutOfRangeException (sampleSize < 1) / InvalidOperationException
-    // (model not in a valid state to simulate).
+    // (model not in a valid state to simulate), per the model-layer exception mapping.
     virtual TData generate_random_values(int sample_size, int seed = -1) const = 0;
 };
 

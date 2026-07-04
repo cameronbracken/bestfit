@@ -13,6 +13,7 @@
 // consistency across the four series types). Hardcoded oracles are allowed here (internal
 // support); public-API oracle values stay in fixtures/ only. The absolute match to the real
 // C# model is validated by the T12 dotnet emitter against the fixture-driven runners.
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -25,12 +26,15 @@
 #include "bestfit/models/support/model_parameter.hpp"
 #include "bestfit/models/support/quantile_prior.hpp"
 #include "bestfit/models/support/validation_result.hpp"
+#include "bestfit/models/trend_functions/support/i_trend_model.hpp"
+#include "bestfit/models/trend_functions/support/trend_model_type.hpp"
 #include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
 #include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/exponential.hpp"
 #include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
 #include "bestfit/numerics/distributions/gumbel.hpp"
+#include "bestfit/numerics/distributions/ln_normal.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/math/integration/integration.hpp"
@@ -906,6 +910,629 @@ void test_mixed_censored_data_invalid_parameters_placeholders() {
 // M8: base-class (UnivariateDistributionModelBase) surface.
 // ===========================================================================================
 
+// ===========================================================================================
+// M9: nonstationary state + trends, quantile priors, Clone, seeded simulation.
+// Transcriptions: the 17 UnivariateDistributionExpandedTests.cs methods M8 deferred, every
+// NonstationaryLogLikelihoodHotPathTests.cs method, and ThresholdLikelihoodGuardTests.cs'
+// NonstationaryUnivariateThresholdLikelihood_SplitThresholdsRemainFinite. Internal-support
+// checks (clearly marked) pin the StepFunction IsPositive ledger item, the quantile-prior
+// defaults, the trend parameter plumbing, and the simulation delegation stream.
+// ===========================================================================================
+
+using bestfit::models::trend_functions::TrendModelType;
+
+// C# IsNonstationary_SetTrue_PopulatesTrendModels.
+void test_is_nonstationary_set_true_populates_trend_models() {
+    UnivariateDistributionModel model = make_normal_model();
+    CHECK_TRUE(!model.is_nonstationary());  // default should be stationary
+
+    model.set_is_nonstationary(true);
+
+    CHECK_TRUE(model.is_nonstationary());
+    CHECK_TRUE(model.trend_models().size() >=
+               static_cast<std::size_t>(model.distribution().number_of_parameters()));
+}
+
+// C# IsNonstationary_TrueThenFalse_TrendModelsAreConstant.
+void test_is_nonstationary_true_then_false_trend_models_are_constant() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);
+
+    model.set_is_nonstationary(false);
+
+    CHECK_TRUE(!model.is_nonstationary());
+    for (const auto& t : model.trend_models()) {
+        CHECK_TRUE(t->type() == TrendModelType::Constant);
+    }
+}
+// (C# IsNonstationary_SetToCurrentValue_DoesNotRaisePropertyChanged is SKIPPED: INPC.)
+
+// C# Alpha_SetterRoundTrips (the PropertyChanged half is INPC, skipped).
+void test_alpha_setter_round_trips() {
+    UnivariateDistributionModel model = make_normal_model();
+    CHECK_NEAR(model.alpha(), 0.5, 1e-15);  // C# _alpha default
+
+    model.set_alpha(0.05);
+
+    CHECK_NEAR(model.alpha(), 0.05, 1e-12);
+}
+
+// C# ParameterTimeIndex_SetterRoundTrips.
+void test_parameter_time_index_setter_round_trips() {
+    UnivariateDistributionModel model = make_normal_model();
+
+    model.set_parameter_time_index(1995);
+
+    CHECK_EQ(model.parameter_time_index(), 1995);
+}
+
+// C# Validate_NonstationaryWithZeroAlpha_IsInvalid.
+void test_validate_nonstationary_with_zero_alpha_is_invalid() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);
+    model.set_alpha(0.0);
+
+    ValidationResult result = model.validate();
+
+    CHECK_TRUE(!result.is_valid);
+    bool mentions_alpha = false;
+    for (const auto& m : result.validation_messages) {
+        if (m.find("Alpha") != std::string::npos) mentions_alpha = true;
+    }
+    CHECK_TRUE(mentions_alpha);
+}
+
+// C# Validate_NonstationaryWithAlphaOne_IsInvalid.
+void test_validate_nonstationary_with_alpha_one_is_invalid() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);
+    model.set_alpha(1.0);
+
+    ValidationResult result = model.validate();
+
+    CHECK_TRUE(!result.is_valid);
+    bool mentions_alpha = false;
+    for (const auto& m : result.validation_messages) {
+        if (m.find("Alpha") != std::string::npos) mentions_alpha = true;
+    }
+    CHECK_TRUE(mentions_alpha);
+}
+
+// Internal support: the C# Validate nonstationary ParameterTimeIndex range branch
+// (UnivariateDistribution.cs 2276-2286) -- outside [firstIndex, lastIndex + 100] is invalid.
+void test_validate_nonstationary_parameter_time_index_out_of_range_is_invalid() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);  // exact indexes 0..9 -> valid range [0, 109]
+    model.set_parameter_time_index(-50);
+
+    ValidationResult result = model.validate();
+
+    CHECK_TRUE(!result.is_valid);
+    bool mentions_pti = false;
+    for (const auto& m : result.validation_messages) {
+        if (m.find("ParameterTimeIndex") != std::string::npos) mentions_pti = true;
+    }
+    CHECK_TRUE(mentions_pti);
+}
+
+// C# GenerateRandomValues_RequestedSize_ReturnsArrayOfThatLength.
+void test_generate_random_values_requested_size() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({100.0, 15.0});
+
+    std::vector<double> samples = model.generate_random_values(50, /*seed=*/42);
+
+    CHECK_EQ(samples.size(), static_cast<std::size_t>(50));
+}
+
+// C# GenerateRandomValues_SameSeed_IsReproducible.
+void test_generate_random_values_same_seed_is_reproducible() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({100.0, 15.0});
+
+    std::vector<double> a = model.generate_random_values(20, /*seed=*/7);
+    std::vector<double> b = model.generate_random_values(20, /*seed=*/7);
+
+    for (std::size_t i = 0; i < 20; ++i) CHECK_NEAR(a[i], b[i], 1e-12);
+}
+
+// C# GenerateRandomValues_DifferentSeeds_ProducesDifferentSamples.
+void test_generate_random_values_different_seeds_produce_different_samples() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({100.0, 15.0});
+
+    std::vector<double> a = model.generate_random_values(20, /*seed=*/1);
+    std::vector<double> b = model.generate_random_values(20, /*seed=*/2);
+
+    bool any_diff = false;
+    for (std::size_t i = 0; i < 20; ++i) {
+        if (std::abs(a[i] - b[i]) > 1e-9) {
+            any_diff = true;
+            break;
+        }
+    }
+    CHECK_TRUE(any_diff);
+}
+
+// C# GenerateRandomValues_SampleSizeZero_Throws and _NegativeSampleSize_Throws
+// (ArgumentOutOfRangeException -> std::out_of_range per this file's exception mapping).
+void test_generate_random_values_non_positive_sample_size_throws() {
+    UnivariateDistributionModel model = make_normal_model();
+
+    bool threw = false;
+    try {
+        model.generate_random_values(0, /*seed=*/1);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+
+    threw = false;
+    try {
+        model.generate_random_values(-5, /*seed=*/1);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+}
+
+// Internal support (seeded-simulation determinism + route pin): the model delegates to
+// Distribution.GenerateRandomValues (C# 2310) -- the Numerics inverse-CDF Mersenne Twister
+// stream -- so the seeded model sample is bit-identical to the distribution's own.
+void test_generate_random_values_matches_distribution_stream() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({100.0, 15.0});
+
+    std::vector<double> expected = Normal(100.0, 15.0).generate_random_values(50, 42);
+    std::vector<double> actual = model.generate_random_values(50, 42);
+
+    CHECK_EQ(actual.size(), expected.size());
+    for (std::size_t i = 0; i < actual.size(); ++i) CHECK_TRUE(actual[i] == expected[i]);
+}
+
+// C# Clone_ProducesDistinctInstance (AreNotSame -> distinct objects by construction here).
+void test_clone_produces_distinct_instance() {
+    UnivariateDistributionModel original = make_normal_model();
+
+    UnivariateDistributionModel clone = original.clone();
+
+    CHECK_TRUE(&clone != &original);
+    CHECK_TRUE(&clone.distribution() != &original.distribution());
+}
+
+// C# Clone_PreservesDistributionType.
+void test_clone_preserves_distribution_type() {
+    UnivariateDistributionModel original = make_normal_model();
+
+    UnivariateDistributionModel clone = original.clone();
+
+    CHECK_TRUE(clone.distribution_type() == original.distribution_type());
+}
+
+// C# Clone_PreservesParameterValues.
+void test_clone_preserves_parameter_values() {
+    UnivariateDistributionModel original = make_normal_model();
+    original.set_parameter_values({105.0, 17.5});
+
+    UnivariateDistributionModel clone = original.clone();
+
+    CHECK_EQ(clone.parameters().size(), original.parameters().size());
+    for (std::size_t i = 0; i < original.parameters().size(); ++i) {
+        CHECK_NEAR(clone.parameters()[i].value(), original.parameters()[i].value(), 1e-12);
+    }
+}
+
+// C# Clone_PreservesIsNonstationary.
+void test_clone_preserves_is_nonstationary() {
+    UnivariateDistributionModel original = make_normal_model();
+    original.set_is_nonstationary(true);
+
+    UnivariateDistributionModel clone = original.clone();
+
+    CHECK_TRUE(clone.is_nonstationary() == original.is_nonstationary());
+    CHECK_EQ(clone.trend_models().size(), original.trend_models().size());
+}
+
+// C# Clone_PreservesAlpha.
+void test_clone_preserves_alpha() {
+    UnivariateDistributionModel original = make_normal_model();
+    original.set_alpha(0.25);
+
+    UnivariateDistributionModel clone = original.clone();
+
+    CHECK_NEAR(clone.alpha(), 0.25, 1e-12);
+}
+
+// C# Clone_ParametersAreIndependent. ADAPTED (the M9 decision the M8 report flagged): the
+// C# Clone ALIASES the DataFrame (the same frame object is shared), which the value-typed
+// move-only C++ frame cannot do -- clone() DEEP-COPIES the frame instead (divergence
+// documented in the model header). The parameter-independence assertion below is the C# test
+// unchanged; the frame independence is additionally pinned as the C++-only consequence.
+void test_clone_parameters_are_independent() {
+    UnivariateDistributionModel original = make_normal_model();
+    original.set_parameter_values({100.0, 15.0});
+
+    UnivariateDistributionModel clone = original.clone();
+    clone.parameters()[0].set_value(999.0);
+
+    CHECK_NEAR(original.parameters()[0].value(), 100.0, 1e-12);
+
+    // C++-only pin: the deep-copied frame is independent too (in C# it would be shared).
+    clone.data_frame().set_low_outlier_threshold(123.0);
+    CHECK_NEAR(original.data_frame().low_outlier_threshold(), 0.0, 1e-12);
+}
+
+// ===========================================================================================
+// M9: NonstationaryLogLikelihoodHotPathTests.cs (all five methods, values unaltered).
+// ===========================================================================================
+
+constexpr int kHotPathFixtureSize = 60;
+
+// C# InlineFloodData = new Normal(15000, 5000).GenerateRandomValues(60, 42) (bit-exact via
+// the shared Mersenne Twister).
+const std::vector<double>& inline_flood_data() {
+    static const std::vector<double> data =
+        Normal(15000.0, 5000.0).generate_random_values(kHotPathFixtureSize, 42);
+    return data;
+}
+
+// C# CreateDataFrame: ExactData(1960 + i, value).
+DataFrame create_hot_path_data_frame() {
+    DataFrame df;
+    for (int i = 0; i < kHotPathFixtureSize; ++i) {
+        df.exact_series().add(ExactData(1960 + i, inline_flood_data()[static_cast<std::size_t>(i)]));
+    }
+    return df;
+}
+
+// C# CreateNormalLinearMu: Normal NS distribution with a Linear trend on the location
+// parameter; FullTimeSeries pre-built like UnivariateAnalysis.RunAsync does before MCMC.
+UnivariateDistributionModel create_normal_linear_mu() {
+    UnivariateDistributionModel dist(create_hot_path_data_frame(),
+                                     UnivariateDistributionType::Normal);
+    dist.set_is_nonstationary(true);
+    dist.set_trend_model(0, TrendModelType::Linear);  // Linear on mu
+    dist.data_frame().create_full_time_series();
+    return dist;
+}
+
+// C# CallNonstationaryDataLogLikelihood: the same path BayesianAnalysis uses.
+double call_nonstationary_data_log_likelihood(const UnivariateDistributionModel& dist,
+                                              const std::vector<double>& parameters) {
+    std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase> working =
+        dist.distribution().clone();
+    return dist.nonstationary_data_log_likelihood(*working, parameters);
+}
+
+// C# NonstationaryDataLogLikelihood_MatchesSumOfPointwise.
+void test_nonstationary_data_log_likelihood_matches_sum_of_pointwise() {
+    UnivariateDistributionModel dist = create_normal_linear_mu();
+    // [mu_intercept, mu_slope, sigma]
+    std::vector<double> parameters{15000.0, 50.0, 5000.0};
+
+    double total = call_nonstationary_data_log_likelihood(dist, parameters);
+    std::vector<double> pointwise = dist.pointwise_data_log_likelihood(parameters);
+
+    CHECK_TRUE(std::isfinite(total));
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(kHotPathFixtureSize));
+    double sum = 0.0;
+    for (double v : pointwise) sum += v;
+    CHECK_NEAR(total, sum, 1e-6);
+}
+
+// C# NonstationaryDataLogLikelihood_RepeatedCallsReturnSameValue (bit-for-bit).
+void test_nonstationary_data_log_likelihood_repeated_calls_return_same_value() {
+    UnivariateDistributionModel dist = create_normal_linear_mu();
+    std::vector<double> parameters{15000.0, 50.0, 5000.0};
+
+    double a = call_nonstationary_data_log_likelihood(dist, parameters);
+    double b = call_nonstationary_data_log_likelihood(dist, parameters);
+    double c = call_nonstationary_data_log_likelihood(dist, parameters);
+
+    CHECK_TRUE(a == b);
+    CHECK_TRUE(b == c);
+}
+
+// C# NonstationaryDataLogLikelihood_DifferentParametersAreIndependent.
+void test_nonstationary_data_log_likelihood_different_parameters_are_independent() {
+    UnivariateDistributionModel dist = create_normal_linear_mu();
+    std::vector<double> params_a{15000.0, 50.0, 5000.0};
+    std::vector<double> params_b{14000.0, 80.0, 6000.0};
+
+    double a1 = call_nonstationary_data_log_likelihood(dist, params_a);
+    double b = call_nonstationary_data_log_likelihood(dist, params_b);
+    double a2 = call_nonstationary_data_log_likelihood(dist, params_a);
+
+    CHECK_TRUE(a1 == a2);
+    CHECK_TRUE(a1 != b);
+}
+
+// C# NonstationaryDataLogLikelihood_HotLoopSmokeTest (10,000 calls x 60 points < 10 s).
+void test_nonstationary_data_log_likelihood_hot_loop_smoke_test() {
+    UnivariateDistributionModel dist = create_normal_linear_mu();
+    std::vector<double> parameters{15000.0, 50.0, 5000.0};
+    call_nonstationary_data_log_likelihood(dist, parameters);  // warm-up (C# JIT parity)
+
+    constexpr int kIterations = 10000;
+    auto start = std::chrono::steady_clock::now();
+    double total_sink = 0.0;
+    for (int i = 0; i < kIterations; ++i) {
+        parameters[0] = 15000.0 + (i % 7);
+        total_sink += call_nonstationary_data_log_likelihood(dist, parameters);
+    }
+    std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
+
+    CHECK_TRUE(std::isfinite(total_sink));
+    CHECK_TRUE(elapsed.count() < 10.0);
+}
+
+// C# NonstationaryPointwise_LengthAndSum_AreCorrect.
+void test_nonstationary_pointwise_length_and_sum_are_correct() {
+    UnivariateDistributionModel dist = create_normal_linear_mu();
+    std::vector<double> parameters{15000.0, 50.0, 5000.0};
+
+    std::vector<double> pointwise = dist.pointwise_data_log_likelihood(parameters);
+    double sum = 0.0;
+    for (double v : pointwise) sum += v;
+
+    std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase> working =
+        dist.distribution().clone();
+    double total = dist.nonstationary_data_log_likelihood(*working, parameters);
+
+    CHECK_EQ(pointwise.size(), dist.data_frame().full_time_series().size());
+    CHECK_NEAR(total, sum, 1e-6);
+}
+
+// ===========================================================================================
+// M9: ThresholdLikelihoodGuardTests.cs -- the nonstationary split-threshold likelihood half
+// (the DataFrame-state half was transcribed in M4's test_data_frame.cpp).
+// ===========================================================================================
+
+// C# NonstationaryUnivariateThresholdLikelihood_SplitThresholdsRemainFinite.
+void test_nonstationary_split_threshold_likelihood_remains_finite() {
+    DataFrame df;
+    ThresholdData threshold(2000, 2002, 100.0);
+    threshold.set_number_above(1);
+    df.threshold_series().add(threshold);
+
+    UnivariateDistributionModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.set_data_frame(std::move(df));
+    model.set_is_nonstationary(true);
+
+    std::vector<double> parameters{100.0, 10.0};
+    double total = model.data_log_likelihood(parameters);
+    std::vector<double> pointwise = model.pointwise_data_log_likelihood(parameters);
+    std::vector<DataComponent> components =
+        model.pointwise_data_log_likelihood_components(parameters);
+
+    CHECK_TRUE(!std::isnan(total) && !std::isinf(total));
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(3));
+    double sum = 0.0;
+    for (double v : pointwise) sum += v;
+    CHECK_NEAR(total, sum, 1e-10);
+    CHECK_EQ(components.size(), static_cast<std::size_t>(3));
+    for (const auto& component : components) CHECK_EQ(component.count(), 1);
+    for (double v : pointwise) CHECK_TRUE(!std::isnan(v) && !std::isinf(v));
+}
+
+// ===========================================================================================
+// M9: internal-support checks -- trend plumbing, the StepFunction IsPositive ledger pin,
+// GetNonstationaryReturnLevel, and the quantile-prior default/likelihood surface.
+// ===========================================================================================
+
+// SetTrendModel replaces the indexed trend, rebuilds the Parameters list from all trends,
+// throws std::out_of_range for a bad index (C# ArgumentOutOfRangeException), and the
+// IsNonstationary set-false branch resets every trend to Constant (C# 408-417).
+void test_set_trend_model_replaces_trend_and_rebuilds_parameters() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(2));
+
+    model.set_trend_model(0, TrendModelType::Linear);
+
+    CHECK_TRUE(model.trend_models()[0]->type() == TrendModelType::Linear);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(3));  // linear mu + const sigma
+
+    // Linear slope defaults (C# 669-675): value 0, symmetric +-tdelta1 bounds.
+    const bestfit::models::ModelParameter& slope = model.trend_models()[0]->parameters()[1];
+    CHECK_NEAR(slope.value(), 0.0, 1e-12);
+    CHECK_NEAR(slope.lower_bound(), -slope.upper_bound(), 1e-12);
+
+    bool threw = false;
+    try {
+        model.set_trend_model(5, TrendModelType::Linear);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+
+    model.set_is_nonstationary(false);
+    for (const auto& t : model.trend_models()) CHECK_TRUE(t->type() == TrendModelType::Constant);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(2));
+}
+
+// >>> LEDGER MUST (M8 review hand-off): the C# StepFunction trend branches assign
+// Parameters[1].IsPositive = lowers[i] == Tools.DoubleMachineEpsilon (SetTrendModel line
+// ~986 and SetDefaultParameters line ~728). For Normal, sigma's constraint lower bound IS
+// DoubleMachineEpsilon and mu's is not, so the step level (mu_2) is flagged positive only on
+// the sigma trend.
+void test_step_function_trend_sets_is_positive_from_constraint_lower_bound() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_is_nonstationary(true);
+
+    model.set_trend_model(1, TrendModelType::StepFunction);  // sigma (scale)
+    const auto& sigma_trend = *model.trend_models()[1];
+    CHECK_TRUE(sigma_trend.type() == TrendModelType::StepFunction);
+    CHECK_TRUE(sigma_trend.parameters()[0].is_positive());
+    CHECK_TRUE(sigma_trend.parameters()[1].is_positive());  // the ledger MUST (C# ~986)
+
+    model.set_trend_model(0, TrendModelType::StepFunction);  // mu (location)
+    const auto& mu_trend = *model.trend_models()[0];
+    CHECK_TRUE(!mu_trend.parameters()[0].is_positive());
+    CHECK_TRUE(!mu_trend.parameters()[1].is_positive());
+    // Change point defaults: value tmid, bounds [tmin, tmax] (indexes 0..9 -> 4.5, [0, 9]).
+    CHECK_NEAR(mu_trend.parameters()[2].value(), 4.5, 1e-12);
+    CHECK_NEAR(mu_trend.parameters()[2].lower_bound(), 0.0, 1e-12);
+    CHECK_NEAR(mu_trend.parameters()[2].upper_bound(), 9.0, 1e-12);
+
+    // Re-running SetDefaultParameters exercises the C# ~728 StepFunction branch on the
+    // already-installed trends; the IsPositive assignment must survive it.
+    model.set_default_parameters();
+    CHECK_TRUE(model.trend_models()[1]->parameters()[1].is_positive());
+    CHECK_TRUE(!model.trend_models()[0]->parameters()[1].is_positive());
+}
+
+// Nonstationary parameter plumbing: GetParameterValues predicts through the trends,
+// SetParameterValues syncs the distribution at ParameterTimeIndex (C# 1998/2006/2020), and
+// the ParameterTimeIndex setter re-syncs (C# 456-463).
+void test_nonstationary_parameter_plumbing_syncs_distribution_at_time_index() {
+    UnivariateDistributionModel model = create_normal_linear_mu();
+    // IsNonstationary set-true: PTI = ceil((1960 + 2019) / 2) = 1990 (C# 425).
+    CHECK_EQ(model.parameter_time_index(), 1990);
+
+    model.set_parameter_values({15000.0, 50.0, 5000.0});
+
+    std::vector<double> v0 = model.get_parameter_values(1960);
+    CHECK_NEAR(v0[0], 15000.0, 1e-9);
+    CHECK_NEAR(v0[1], 5000.0, 1e-9);
+    std::vector<double> v1 = model.get_parameter_values(2000);
+    CHECK_NEAR(v1[0], 17000.0, 1e-9);  // 15000 + 50 * (2000 - 1960)
+
+    std::vector<double> dp = model.distribution().get_parameters();
+    CHECK_NEAR(dp[0], 16500.0, 1e-9);  // predicted at PTI = 1990
+    CHECK_NEAR(dp[1], 5000.0, 1e-9);
+
+    model.set_parameter_time_index(2000);
+    dp = model.distribution().get_parameters();
+    CHECK_NEAR(dp[0], 17000.0, 1e-9);
+}
+
+// GetNonstationaryReturnLevel (C# 2035): stationary -> null (empty here); nonstationary ->
+// InverseCDF(1 - Alpha) at each index from the first to max(ParameterTimeIndex, last).
+void test_get_nonstationary_return_level() {
+    UnivariateDistributionModel stationary = make_normal_model();
+    CHECK_TRUE(stationary.get_nonstationary_return_level().empty());
+
+    UnivariateDistributionModel model = create_normal_linear_mu();
+    model.set_parameter_values({15000.0, 50.0, 5000.0});
+
+    // Alpha default 0.5 -> Normal InverseCDF(0.5) == mu, so the return level is the mu trend.
+    std::vector<double> rl = model.get_nonstationary_return_level();
+    CHECK_EQ(rl.size(), static_cast<std::size_t>(kHotPathFixtureSize));  // 1960..2019
+    CHECK_NEAR(rl[0], 15000.0, 1e-9);
+    CHECK_NEAR(rl[30], 16500.0, 1e-9);
+    CHECK_NEAR(rl[59], 17950.0, 1e-9);
+
+    // A ParameterTimeIndex beyond the last index extends the sequence (C# Math.Max).
+    model.set_parameter_time_index(2030);
+    CHECK_EQ(model.get_nonstationary_return_level().size(), static_cast<std::size_t>(71));
+}
+
+// C# Math.Round(x, 2) equivalent (MidpointRounding.ToEven under the default FE_TONEAREST).
+double round_half_even_2(double value) { return std::nearbyint(value * 100.0) / 100.0; }
+
+// SetDefaultQuantilePriors (C# 1024), single-quantile: one LnNormal prior at alpha = 0.1 with
+// mu = Round(InverseCDF(0.9), 2) and sigma = Round(0.15 * mu, 2).
+void test_set_default_quantile_priors_single_quantile_builds_one_lnnormal() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_use_single_quantile(true);
+    model.set_enable_quantile_priors(true);  // triggers set_default_quantile_priors (enabled)
+
+    CHECK_EQ(model.quantile_priors().size(), static_cast<std::size_t>(1));
+    CHECK_NEAR(model.quantile_priors()[0].alpha(), 0.1, 1e-15);
+    const auto* ln = dynamic_cast<const bestfit::numerics::distributions::LnNormal*>(
+        &model.quantile_priors()[0].distribution());
+    CHECK_TRUE(ln != nullptr);
+
+    double mu = round_half_even_2(model.distribution().inverse_cdf(1.0 - 0.1));
+    double sigma = round_half_even_2(mu * 0.15);
+    bestfit::numerics::distributions::LnNormal expected;
+    expected.set_parameters({mu, sigma});
+    std::vector<double> actual_params = model.quantile_priors()[0].distribution().get_parameters();
+    std::vector<double> expected_params = expected.get_parameters();
+    CHECK_EQ(actual_params.size(), expected_params.size());
+    for (std::size_t i = 0; i < actual_params.size(); ++i) {
+        CHECK_NEAR(actual_params[i], expected_params[i], 1e-12);
+    }
+}
+
+// SetDefaultQuantilePriors, multi: one prior per distribution parameter at alpha = 10^-i,
+// plus the shrink (count > qCount) and extend (count < qCount, alpha = last/10) paths.
+void test_set_default_quantile_priors_multi_builds_one_per_parameter() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_enable_quantile_priors(true);  // use_single_quantile() false (default) -> 2
+
+    CHECK_EQ(model.quantile_priors().size(), static_cast<std::size_t>(2));
+    CHECK_NEAR(model.quantile_priors()[0].alpha(), 0.1, 1e-15);
+    CHECK_NEAR(model.quantile_priors()[1].alpha(), 0.01, 1e-15);
+
+    model.set_use_single_quantile(true);  // shrink path
+    CHECK_EQ(model.quantile_priors().size(), static_cast<std::size_t>(1));
+    CHECK_NEAR(model.quantile_priors()[0].alpha(), 0.1, 1e-15);
+
+    model.set_use_single_quantile(false);  // extend path: new alpha = last / 10
+    CHECK_EQ(model.quantile_priors().size(), static_cast<std::size_t>(2));
+    CHECK_NEAR(model.quantile_priors()[1].alpha(), 0.01, 1e-15);
+}
+
+// The single-quantile prior term of Prior_LogLikelihood (C# 1854-1857) and its
+// PointwisePriorLogLikelihood component (C# 1941-1946).
+void test_single_quantile_prior_term_in_prior_log_likelihood() {
+    UnivariateDistributionModel model = make_normal_model();
+    std::vector<double> p{16500.0, 6000.0};
+
+    double base = model.prior_log_likelihood(p);
+
+    model.set_use_single_quantile(true);
+    model.set_enable_quantile_priors(true);
+    // The C# SetDefaultQuantilePriors does NOT process; _quantilePriorsTrue stays empty and
+    // the quantile term stays inert until ProcessQuantilePriors runs (setter/analysis/Clone).
+    CHECK_NEAR(model.prior_log_likelihood(p), base, 1e-12);
+
+    model.process_quantile_priors();
+
+    double with_quantile = model.prior_log_likelihood(p);
+    double alpha = model.quantile_priors()[0].alpha();
+    double expected_term = model.quantile_priors()[0].distribution().log_pdf(
+        Normal(16500.0, 6000.0).inverse_cdf(1.0 - alpha));
+    CHECK_NEAR(with_quantile - base, expected_term, 1e-9);
+
+    std::vector<bestfit::models::PriorComponent> components =
+        model.pointwise_prior_log_likelihood(p);
+    // parameters + Jeffreys + the quantile component.
+    CHECK_EQ(components.size(), model.parameters().size() + 2);
+    CHECK_TRUE(components.back().type() == bestfit::models::PriorComponentType::QuantilePrior);
+    CHECK_NEAR(components.back().log_likelihood(), expected_term, 1e-9);
+}
+
+// DEFERRAL PIN: the multi-quantile branch (C# 1858-1875 / 1947-1971) requires
+// IStandardError::QuantileJacobian, which is not on the ported distribution base. Rather
+// than silently omitting the Jacobian term (a silent misfit), the branch throws.
+void test_multi_quantile_prior_branch_throws_logic_error() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_enable_quantile_priors(true);  // multi (use_single_quantile false)
+    model.process_quantile_priors();
+
+    std::vector<double> p{16500.0, 6000.0};
+    bool threw = false;
+    try {
+        model.prior_log_likelihood(p);
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+
+    threw = false;
+    try {
+        model.pointwise_prior_log_likelihood(p);
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+}
+
 void test_base_class_quantile_prior_state_defaults() {
     UnivariateDistributionModel model = make_normal_model();
     bestfit::models::UnivariateDistributionModelBase& base = model;
@@ -990,6 +1617,46 @@ int main() {
 
     // M8: base-class surface.
     test_base_class_quantile_prior_state_defaults();
+
+    // M9: UnivariateDistributionExpandedTests.cs transcriptions (the deferred 17).
+    test_is_nonstationary_set_true_populates_trend_models();
+    test_is_nonstationary_true_then_false_trend_models_are_constant();
+    test_alpha_setter_round_trips();
+    test_parameter_time_index_setter_round_trips();
+    test_validate_nonstationary_with_zero_alpha_is_invalid();
+    test_validate_nonstationary_with_alpha_one_is_invalid();
+    test_validate_nonstationary_parameter_time_index_out_of_range_is_invalid();
+    test_generate_random_values_requested_size();
+    test_generate_random_values_same_seed_is_reproducible();
+    test_generate_random_values_different_seeds_produce_different_samples();
+    test_generate_random_values_non_positive_sample_size_throws();
+    test_generate_random_values_matches_distribution_stream();
+    test_clone_produces_distinct_instance();
+    test_clone_preserves_distribution_type();
+    test_clone_preserves_parameter_values();
+    test_clone_preserves_is_nonstationary();
+    test_clone_preserves_alpha();
+    test_clone_parameters_are_independent();
+
+    // M9: NonstationaryLogLikelihoodHotPathTests.cs transcriptions.
+    test_nonstationary_data_log_likelihood_matches_sum_of_pointwise();
+    test_nonstationary_data_log_likelihood_repeated_calls_return_same_value();
+    test_nonstationary_data_log_likelihood_different_parameters_are_independent();
+    test_nonstationary_data_log_likelihood_hot_loop_smoke_test();
+    test_nonstationary_pointwise_length_and_sum_are_correct();
+
+    // M9: ThresholdLikelihoodGuardTests.cs -- the nonstationary split-threshold half.
+    test_nonstationary_split_threshold_likelihood_remains_finite();
+
+    // M9: internal-support checks (trend plumbing, ledger pin, quantile priors).
+    test_set_trend_model_replaces_trend_and_rebuilds_parameters();
+    test_step_function_trend_sets_is_positive_from_constraint_lower_bound();
+    test_nonstationary_parameter_plumbing_syncs_distribution_at_time_index();
+    test_get_nonstationary_return_level();
+    test_set_default_quantile_priors_single_quantile_builds_one_lnnormal();
+    test_set_default_quantile_priors_multi_builds_one_per_parameter();
+    test_single_quantile_prior_term_in_prior_log_likelihood();
+    test_multi_quantile_prior_branch_throws_logic_error();
 
     return bftest::summary("univariate_distribution_model");
 }

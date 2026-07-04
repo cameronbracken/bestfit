@@ -111,8 +111,10 @@ class DataFrame {
     // The full time series in chronological order (C# property, line 203). Lazy: rebuilds
     // when the cached size no longer matches TotalRecordLength() -- the C# getter's own
     // rebuild condition, minus the locking (see the invalidation-strategy note). The
-    // returned list must be treated as read-only.
-    const std::vector<std::unique_ptr<Data>>& full_time_series() {
+    // returned list must be treated as read-only. Const (M9): the C# getter is reachable
+    // from read-only paths (the nonstationary likelihoods evaluate it on every call), so
+    // the cache member is `mutable` and the getter/rebuild are logically const.
+    const std::vector<std::unique_ptr<Data>>& full_time_series() const {
         int total = total_record_length();
         if (total == 0 || static_cast<int>(full_time_series_.size()) == total)
             return full_time_series_;
@@ -256,8 +258,9 @@ class DataFrame {
 
     // Creates a full time series in chronological order by expanding threshold data into
     // per-index left/right-censored clones and combining all series (C# line 669; the
-    // concurrency snapshot/retry machinery is not ported).
-    void create_full_time_series() {
+    // concurrency snapshot/retry machinery is not ported). Const (M9): only refreshes the
+    // mutable full-time-series cache, so the lazy const getter above can call it.
+    void create_full_time_series() const {
         std::vector<std::unique_ptr<Data>> new_list;
 
         // Occupied indexes (Exact, Interval, Uncertain), built once per call as upstream.
@@ -410,7 +413,9 @@ class DataFrame {
     UncertainSeries uncertain_series_;
     IntervalSeries interval_series_;
     ThresholdSeries threshold_series_;
-    std::vector<std::unique_ptr<Data>> full_time_series_;
+    // Mutable: a logically-const cache, lazily rebuilt by the const full_time_series()
+    // getter exactly as the C# property getter does (see the M9 note there).
+    mutable std::vector<std::unique_ptr<Data>> full_time_series_;
 
     double lambda_ = 1.0;
     int number_of_low_outliers_ = 0;
