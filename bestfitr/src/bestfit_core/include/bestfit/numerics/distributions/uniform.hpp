@@ -42,13 +42,22 @@ class Uniform : public UnivariateDistributionBase {
     double maximum() const override { return max_; }
 
     // --- Distribution functions ---
+    // PDF/CDF/InverseCDF mirror the C# `if (_parametersValid == false)
+    // ValidateParameters(Min, Max, true)` guard: evaluating with invalid parameters
+    // (NaN/inf bounds or min > max) throws (C# ArgumentOutOfRangeException ->
+    // std::out_of_range). Added in M10 -- the MixtureModel degenerate-data contract
+    // (constant data => auto-fit Uniform(eps, 0) prior) relies on this throw.
     double pdf(double x) const override {
+        if (!parameters_valid_)
+            throw std::out_of_range("The min cannot be greater than the max.");
         if (min_ == max_) return 0.0;
         if (x < minimum() || x > maximum()) return 0.0;
         return 1.0 / (max_ - min_);
     }
 
     double cdf(double x) const override {
+        if (!parameters_valid_)
+            throw std::out_of_range("The min cannot be greater than the max.");
         if (min_ == max_) return 1.0;
         if (x <= minimum()) return 0.0;
         if (x >= maximum()) return 1.0;
@@ -61,6 +70,8 @@ class Uniform : public UnivariateDistributionBase {
         if (min_ == max_) return min_;
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
+        if (!parameters_valid_)
+            throw std::out_of_range("The min cannot be greater than the max.");
         return min_ + probability * (max_ - min_);
     }
 

@@ -27,6 +27,7 @@ set(BF_TESTS
   test_model_base
   test_quantile_prior
   test_univariate_distribution_model
+  test_mixture_model
   test_maximum_likelihood
   test_maximum_a_posteriori
   test_bayesian_analysis

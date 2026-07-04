@@ -27,9 +27,10 @@
 // (in C# the property setter is likewise the only way to trigger the rebuild).
 //
 // SubscriptFormatter: the C# calls SubscriptFormatter.ToSubscript(j)
-// (Models/Support/SubscriptFormatter.cs, deferred as WPF cosmetics), but here the subscript
-// digits are part of the parameter NAMES this class produces, so the digit -> U+2080..U+2089
-// mapping is ported as a small file-local helper below rather than a public support header.
+// (Models/Support/SubscriptFormatter.cs); the digit -> U+2080..U+2089 mapping was first
+// ported as a file-local helper here (M7) and hoisted to
+// models/support/subscript_formatter.hpp when MixtureModel became a second caller (M10);
+// the general_linear_detail alias below forwards to it for source compatibility.
 // Unicode is written as UTF-8 byte escapes (M6 convention; see quadratic_trend.hpp).
 //
 // Deliberately NOT ported (per the porting policy for this layer):
@@ -60,6 +61,7 @@
 #include <vector>
 
 #include "bestfit/models/support/model_parameter.hpp"
+#include "bestfit/models/support/subscript_formatter.hpp"
 #include "bestfit/models/trend_functions/support/i_trend_model.hpp"
 #include "bestfit/models/trend_functions/support/trend_model_type.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
@@ -69,26 +71,9 @@ namespace bestfit::models::trend_functions {
 
 namespace general_linear_detail {
 
-// Localized port of Models/Support/SubscriptFormatter.cs @ fc28c0c (ToSubscript): maps the
-// ASCII digits of the invariant-culture integer string to their Unicode subscript
-// counterparts U+2080..U+2089 (UTF-8 escapes); any non-digit character (e.g. the '-' of a
-// negative value) passes through unchanged, as in the C#.
-inline std::string to_subscript(int value) {
-    static const char* const kSubscripts[10] = {
-        "\xE2\x82\x80", "\xE2\x82\x81", "\xE2\x82\x82", "\xE2\x82\x83", "\xE2\x82\x84",
-        "\xE2\x82\x85", "\xE2\x82\x86", "\xE2\x82\x87", "\xE2\x82\x88", "\xE2\x82\x89"};
-    const std::string s = std::to_string(value);
-    std::string result;
-    result.reserve(s.size() * 3);
-    for (const char c : s) {
-        if (c >= '0' && c <= '9') {
-            result += kSubscripts[c - '0'];
-        } else {
-            result += c;
-        }
-    }
-    return result;
-}
+// Forwarding alias for the SubscriptFormatter port, hoisted to
+// models/support/subscript_formatter.hpp in M10 (see the file-header note).
+using bestfit::models::to_subscript;
 
 }  // namespace general_linear_detail
 

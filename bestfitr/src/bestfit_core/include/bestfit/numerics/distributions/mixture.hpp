@@ -20,9 +20,26 @@
 // Zero-inflation: is_zero_inflated / zero_weight properties (mirrors C# defaults).
 // Not in the factory — Mixture is composite-only (requires weights + components).
 // type() returns UnivariateDistributionType::Mixture (mirrors C#).
+//
+// M10 additions (completing the C# Mixture surface the MixtureModel port consumes):
+//   - IMaximumLikelihoodEstimation base + get_parameter_constraints (C# line 595):
+//     weight rows first (equal initials, [0,1] bounds), then each component's own
+//     IMaximumLikelihoodEstimation constraints. The internal mle() below still uses its
+//     Phase 2 heuristic bounds (documented divergence, unchanged in M10).
+//   - set_parameters(weights, parameters) (C# SetParameters(double[], double[]), line 411):
+//     weights + component-parameter slices; like the C#, does NOT update _parametersValid.
+//   - set_parameters_normalized(parameters&) (C# SetParameters(ref double[]), line 476):
+//     weights normalized to sum to 1 (or 1 - ZeroWeight) and written BACK into the passed
+//     vector, single-component special case, then validity update.
+//   - generate_random_values override (C# line 984): component-selection sampling from a
+//     seeded MersenneTwister (u picks the component through the cumulative weights, a second
+//     draw feeds the component's InverseCDF); zero inflation prepends a Deterministic(0)
+//     "component" with weight ZeroWeight. Replaces the base-class inverse-CDF stream so
+//     seeded mixture streams are bit-identical to the C#.
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -31,17 +48,22 @@
 
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/deterministic.hpp"
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
 
-class Mixture : public UnivariateDistributionBase, public IEstimation {
+class Mixture : public UnivariateDistributionBase,
+                public IEstimation,
+                public IMaximumLikelihoodEstimation {
    public:
     // Construct from weights + already-created component unique_ptrs (takes ownership).
     Mixture(std::vector<double> weights,
@@ -109,6 +131,166 @@ class Mixture : public UnivariateDistributionBase, public IEstimation {
         }
         parameters_valid_ = validate_weights() && validate_components();
         moments_computed_ = false;
+    }
+
+    // Mirrors C# SetParameters(double[] weights, double[] parameters) (Mixture.cs line 411):
+    // sets the weights and distributes the component-parameter slices. Like the C#, this
+    // overload does NOT update the parameters-valid flag (the EM E-step drives unnormalized
+    // intermediate states through it).
+    void set_parameters(const std::vector<double>& weights,
+                        const std::vector<double>& parameters) {
+        if (weights.size() != components_.size())
+            throw std::invalid_argument(
+                "The weight and distribution arrays must have the same length.");
+        int np = 0;
+        for (const auto& c : components_) np += c->number_of_parameters();
+        if (static_cast<int>(parameters.size()) != np)
+            throw std::invalid_argument("The length of the parameter array is invalid.");
+
+        weights_ = weights;
+        int t = 0;
+        for (std::size_t i = 0; i < components_.size(); ++i) {
+            int n = components_[i]->number_of_parameters();
+            std::vector<double> p(parameters.begin() + t, parameters.begin() + t + n);
+            components_[i]->set_parameters(p);
+            t += n;
+        }
+        moments_computed_ = false;
+    }
+
+    // Mirrors C# SetParameters(ref double[] parameters) (Mixture.cs line 476): weights are
+    // normalized to sum to 1 (or to 1 - ZeroWeight when zero-inflated) and written BACK into
+    // the passed vector -- the C# `ref` side effect the MixtureModel likelihood surface
+    // depends on. Single-component special case: `parameters` carries only the component's
+    // parameters and the weight is derived. Guard deviation (documented): the C# indexes an
+    // undersized array and throws IndexOutOfRangeException; C++ makes that an explicit
+    // std::invalid_argument instead of UB.
+    void set_parameters_normalized(std::vector<double>& parameters) {
+        if (weights_.empty()) return;
+        if (components_.empty()) return;
+        if (components_.size() == 1 &&
+            static_cast<int>(parameters.size()) == components_[0]->number_of_parameters()) {
+            weights_[0] = is_zero_inflated ? 1.0 - zero_weight : 1.0;
+            components_[0]->set_parameters(parameters);
+        } else {
+            if (static_cast<int>(parameters.size()) != number_of_parameters())
+                throw std::invalid_argument("The length of the parameter array is invalid.");
+
+            // Get the weights.
+            int K = static_cast<int>(components_.size());
+            int t = 0;  // keep track of parameter index
+
+            double sum = 0.0;
+            for (int i = 0; i < K; ++i) {
+                weights_[static_cast<std::size_t>(i)] = parameters[static_cast<std::size_t>(i)];
+                sum += weights_[static_cast<std::size_t>(i)];
+                t++;
+            }
+
+            if (sum <= 0.0) {
+                // If weights sum to 0, reset to be uniformly distributed.
+                double w = is_zero_inflated ? (1.0 - zero_weight) / K : 1.0 / K;
+                for (int i = 0; i < K; ++i) {
+                    weights_[static_cast<std::size_t>(i)] = w;
+                    parameters[static_cast<std::size_t>(i)] = w;
+                }
+            } else {
+                // Normalize weights to sum to 1.
+                double c = is_zero_inflated ? (1.0 - zero_weight) / sum : 1.0 / sum;
+                for (int i = 0; i < K; ++i) {
+                    weights_[static_cast<std::size_t>(i)] *= c;
+                    parameters[static_cast<std::size_t>(i)] = weights_[static_cast<std::size_t>(i)];
+                }
+            }
+
+            // Set distribution parameters.
+            for (std::size_t i = 0; i < components_.size(); ++i) {
+                int n = components_[i]->number_of_parameters();
+                std::vector<double> parms(parameters.begin() + t, parameters.begin() + t + n);
+                components_[i]->set_parameters(parms);
+                t += n;
+            }
+        }
+
+        parameters_valid_ = validate_weights() && validate_components();
+        moments_computed_ = false;
+    }
+
+    // Mirrors C# GetParameterConstraints (Mixture.cs line 595): weight rows first (equal
+    // initials in [0,1]), then each component's own IMaximumLikelihoodEstimation
+    // constraints. A component without the capability throws std::bad_cast (the C# hard
+    // cast's InvalidCastException).
+    void get_parameter_constraints(const std::vector<double>& sample,
+                                   std::vector<double>& initials, std::vector<double>& lowers,
+                                   std::vector<double>& uppers) const override {
+        int n = number_of_parameters();
+        int K = static_cast<int>(components_.size());
+        initials.assign(static_cast<std::size_t>(n), 0.0);
+        lowers.assign(static_cast<std::size_t>(n), 0.0);
+        uppers.assign(static_cast<std::size_t>(n), 0.0);
+
+        // Weights are first.
+        int t = 0;
+        for (int i = 0; i < K; ++i) {
+            initials[static_cast<std::size_t>(i)] =
+                is_zero_inflated ? (1.0 - zero_weight) / K : 1.0 / K;
+            lowers[static_cast<std::size_t>(i)] = 0.0;
+            uppers[static_cast<std::size_t>(i)] = 1.0;
+            t += 1;
+        }
+
+        for (int i = 0; i < K; ++i) {
+            const auto& est = dynamic_cast<const IMaximumLikelihoodEstimation&>(
+                *components_[static_cast<std::size_t>(i)]);
+            std::vector<double> ci, cl, cu;
+            est.get_parameter_constraints(sample, ci, cl, cu);
+
+            int np_i = components_[static_cast<std::size_t>(i)]->number_of_parameters();
+            for (int j = t; j < t + np_i; ++j) {
+                initials[static_cast<std::size_t>(j)] = ci[static_cast<std::size_t>(j - t)];
+                lowers[static_cast<std::size_t>(j)] = cl[static_cast<std::size_t>(j - t)];
+                uppers[static_cast<std::size_t>(j)] = cu[static_cast<std::size_t>(j - t)];
+            }
+            t += np_i;
+        }
+    }
+
+    // Mirrors C# GenerateRandomValues(int sampleSize, int seed = -1) (Mixture.cs line 984):
+    // component-selection sampling (NOT the base-class inverse-CDF stream). Each draw
+    // consumes one uniform for the component pick and one for the component's InverseCDF;
+    // zero inflation prepends a Deterministic(0) pseudo-component with weight ZeroWeight.
+    // C# `new double[sampleSize]` zero-fill is mirrored: if u falls past the cumulative
+    // weights (weights not summing to 1) the sample stays 0.
+    std::vector<double> generate_random_values(int sample_size, int seed = -1) const override {
+        sampling::MersenneTwister rnd =
+            seed > 0 ? sampling::MersenneTwister(static_cast<std::uint32_t>(seed))
+                     : sampling::MersenneTwister();
+        std::vector<double> weights;
+        std::vector<const UnivariateDistributionBase*> distributions;
+        Deterministic zero_component(0.0);
+        if (is_zero_inflated) {
+            weights.push_back(zero_weight);
+            distributions.push_back(&zero_component);
+        }
+        for (std::size_t i = 0; i < components_.size(); ++i) {
+            weights.push_back(weights_[i]);
+            distributions.push_back(components_[i].get());
+        }
+
+        std::vector<double> sample(static_cast<std::size_t>(sample_size), 0.0);
+        for (int i = 0; i < sample_size; ++i) {
+            double u = rnd.next_double();
+            double cdf_w = 0.0;
+            for (std::size_t j = 0; j < distributions.size(); ++j) {
+                cdf_w = j == 0 ? weights[j] : cdf_w + weights[j];
+                if (u <= cdf_w) {
+                    sample[static_cast<std::size_t>(i)] =
+                        distributions[j]->inverse_cdf(rnd.next_double());
+                    break;
+                }
+            }
+        }
+        return sample;
     }
 
     // --- Moments / support ---
