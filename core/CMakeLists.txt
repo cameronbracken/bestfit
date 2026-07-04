@@ -30,6 +30,7 @@ set(BF_TESTS
   test_maximum_likelihood
   test_maximum_a_posteriori
   test_bayesian_analysis
+  test_data_types
 )
 
 # Sobol test takes the direction-number file as its sole argument.
