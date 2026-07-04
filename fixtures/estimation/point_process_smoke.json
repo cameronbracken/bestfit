@@ -1,0 +1,74 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Exercises the `point_process` model type (non-seasonal only -- the seasonal path is a project-wide deferral): default-constructed PointProcessModel (single-GEV competing-risks distribution), the DataFrame/AMS cascade, and the explicit threshold/total_years knobs (an explicit total_years marks the exposure explicitly set and refreshes lambda). Parameter layout: the GEV mark distribution [location, scale, shape]. LOOSE smoke tolerances (rel 1e-5; the GEV likelihood surface is flatter than the Normal cases').",
+  "datasets": {
+    "pot_peaks": [
+      950,
+      1020,
+      1130,
+      980,
+      1250,
+      1090,
+      1430,
+      1010,
+      1180,
+      1620,
+      970,
+      1300,
+      1050,
+      1550,
+      1210
+    ]
+  },
+  "cases": [
+    {
+      "name": "gev_point_process_explicit_exposure",
+      "construct": {
+        "model": {
+          "type": "point_process",
+          "dataset": "pot_peaks",
+          "threshold": 900.0,
+          "total_years": 20.0
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 749.9865433018036,
+          "mode": "rel",
+          "tol": 1e-05
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 567.8416431105793,
+          "mode": "rel",
+          "tol": 1e-05
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 0.6095659975230949,
+          "mode": "rel",
+          "tol": 1e-05
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -117.66563619560641,
+          "mode": "rel",
+          "tol": 1e-05
+        }
+      ]
+    }
+  ]
+}

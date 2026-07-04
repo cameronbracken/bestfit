@@ -1,0 +1,142 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Exercises the nonstationary trend-spec path: attaching a trend sets is_nonstationary(true), set_trend_model supplies the C#-mirrored data-driven defaults, and the second case overrides the trend anchor (start_index) and initial values (applied through one sync-safe set_parameter_values call), which changes the deterministic NelderMead start point. Parameter layout for Normal + Linear location trend: [location intercept, location slope, scale]. LOOSE smoke tolerances (rel 1e-6).",
+  "datasets": {
+    "trending_series": [
+      980,
+      1120,
+      1230,
+      1290,
+      1410,
+      1500,
+      1580,
+      1720,
+      1840,
+      1900,
+      2050,
+      2110,
+      2230,
+      2340,
+      2410,
+      2520,
+      2660,
+      2720,
+      2850,
+      2930
+    ]
+  },
+  "cases": [
+    {
+      "name": "normal_linear_location_trend_defaults",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "dataset": "trending_series",
+          "trends": [
+            {
+              "parameter": 0,
+              "type": "Linear"
+            }
+          ]
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 999.1501799477969,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 102.1420915592524,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 18.219683554436617,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -86.4322727673465,
+          "mode": "rel",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "normal_linear_location_trend_explicit_start",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "dataset": "trending_series",
+          "trends": [
+            {
+              "parameter": 0,
+              "type": "Linear",
+              "start_index": 0,
+              "values": [
+                1000.0,
+                100.0
+              ]
+            }
+          ]
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 999.1401088498519,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 102.14280177679139,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 18.22410907077672,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -86.43227200968346,
+          "mode": "rel",
+          "tol": 1e-06
+        }
+      ]
+    }
+  ]
+}

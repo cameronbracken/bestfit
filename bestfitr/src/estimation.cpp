@@ -1,14 +1,24 @@
-// cpp11 glue exposing the Phase-4 estimation surface (MaximumLikelihood, MaximumAPosteriori,
-// and -- as of Task T12 -- BayesianAnalysis) of the shared C++ core to R. Like
-// `mcmc_sampler`/`bootstrap` fixtures, `model_estimation` fixtures are inherently STATEFUL --
-// one model construct + a single estimate() run backs every assertion in a case (see
-// fixtures/README.md's model_estimation schema) -- so this file exposes ONE function per
+// cpp11 glue exposing the estimation surface (MaximumLikelihood, MaximumAPosteriori,
+// BayesianAnalysis, and -- as of M13 -- the seeded ISimulatable draw) of the shared C++ core
+// to R. Like `mcmc_sampler`/`bootstrap` fixtures, `model_estimation` fixtures are inherently
+// STATEFUL -- one model construct + a single estimate() run backs every assertion in a case
+// (see fixtures/README.md's model_estimation schema) -- so this file exposes ONE function per
 // construct shape: `bf_estimation_run_` for MaximumLikelihood/MaximumAPosteriori (shared
-// {target, family, dataset, optimizer} signature) and `bf_estimation_bayes_run_` (T12) for
-// BayesianAnalysis (a disjoint {family, dataset, sampler, settings...} signature -- a sampler
-// type + numeric knobs, not an optimizer string). Each builds the model, runs estimate() once,
-// and returns every value test-fixtures.R's dispatcher needs in one named list. Core headers
-// are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// {target, model_json, dataset, optimizer} signature), `bf_estimation_bayes_run_` (T12) for
+// BayesianAnalysis (a disjoint {model_json, dataset, sampler, settings...} signature -- a
+// sampler type + numeric knobs, not an optimizer string), and `bf_model_simulate_` (M13) for
+// the estimator-less Simulation target. Each builds the model, runs its one stateful call,
+// and returns every value test-fixtures.R's dispatcher needs. Core headers are vendored under
+// src/bestfit_core/include (see tools/sync_core.py).
+//
+// M13 MODEL CONSTRUCTION: the flat Phase 4 `family` string became the serialized
+// `construct.model` JSON object (`model_json`), parsed and built by the SHARED spec builder
+// (bestfit/models/model_spec.hpp) -- the same code path the C++ test runner and the pybind11
+// glue call, so all three harnesses construct byte-identical models (UnivariateDistribution
+// incl. censored DataFrames + nonstationary trends, Mixture, CompetingRisks, PointProcess).
+// The runner re-serializes the parsed fixture spec with jsonlite::toJSON(digits = I(17)),
+// which round-trips doubles exactly. `dataset` stays a separate flat argument: the file-level
+// `datasets` map is resolved R-side, exactly like every other fixture kind.
 //
 // `bic` DESIGN NOTE: unlike every other wired ML/MAP method, C# `GetBIC(sampleSize)` takes an
 // actual sample size, not a 0-based index. Every other method's value is precomputed once here
@@ -30,13 +40,21 @@
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/models/model_spec.hpp"
+#include "bestfit/models/support/model_base.hpp"
+#include "bestfit/models/support/simulatable.hpp"
 
 namespace est = bestfit::estimation;
 namespace models = bestfit::models;
-namespace dist = bestfit::numerics::distributions;
 using namespace cpp11;
+
+// The shared construction path (see the file header): serialized `construct.model` JSON +
+// the R-resolved flat dataset -> a ModelBase through bestfit/models/model_spec.hpp.
+static std::unique_ptr<models::ModelBase> build_spec_model(const std::string& model_json,
+                                                           const doubles& dataset) {
+    std::vector<double> data(dataset.begin(), dataset.end());
+    return models::spec::build_model_from_json(model_json, data);
+}
 
 static est::OptimizationMethod parse_optimization_method(const std::string& s) {
     if (s == "Brent") return est::OptimizationMethod::Brent;
@@ -53,10 +71,10 @@ static est::SamplerType parse_sampler_type(const std::string& s) {
     stop("unknown model_estimation sampler '%s'", s.c_str());
 }
 
-// Builds the named model (`family` via the distribution factory + `dataset`), constructs
-// `target`'s estimator (`optimizer`, default "DifferentialEvolution"), runs estimate() once,
-// and returns a named list with the full surface test-fixtures.R's model_estimation
-// dispatcher reads assertions from:
+// Builds the model named by the serialized `construct.model` spec (`model_json`, via the
+// shared spec builder -- see the file header), constructs `target`'s estimator (`optimizer`,
+// default "DifferentialEvolution"), runs estimate() once, and returns a named list with the
+// full surface test-fixtures.R's model_estimation dispatcher reads assertions from:
 //   parameters       -- [n_params] vector (BestParameterSet.Values)
 //   max_log_likelihood -- scalar
 //   aic              -- scalar
@@ -71,9 +89,9 @@ static est::SamplerType parse_sampler_type(const std::string& s) {
 // correlation. `target == "BayesianAnalysis"` is NOT handled here (see
 // `bf_estimation_bayes_run_` below -- disjoint construct shape).
 [[cpp11::register]]
-list bf_estimation_run_(std::string target, std::string family, doubles dataset, std::string optimizer) {
-    std::vector<double> data(dataset.begin(), dataset.end());
-    models::UnivariateDistributionModel model(dist::create_distribution(family), data);
+list bf_estimation_run_(std::string target, std::string model_json, doubles dataset, std::string optimizer) {
+    std::unique_ptr<models::ModelBase> model_ptr = build_spec_model(model_json, dataset);
+    models::ModelBase& model = *model_ptr;
     auto method = parse_optimization_method(optimizer);
     int n_params = model.number_of_parameters();
 
@@ -129,9 +147,9 @@ list bf_estimation_run_(std::string target, std::string family, doubles dataset,
 // rather than folded into its returned list, since `n` is only known at assertion-dispatch
 // time (a fixture case's `bic` assertion supplies it via `args[0]`), not at construction time.
 [[cpp11::register]]
-double bf_estimation_bic_(std::string target, std::string family, doubles dataset, std::string optimizer, int n) {
-    std::vector<double> data(dataset.begin(), dataset.end());
-    models::UnivariateDistributionModel model(dist::create_distribution(family), data);
+double bf_estimation_bic_(std::string target, std::string model_json, doubles dataset, std::string optimizer, int n) {
+    std::unique_ptr<models::ModelBase> model_ptr = build_spec_model(model_json, dataset);
+    models::ModelBase& model = *model_ptr;
     auto method = parse_optimization_method(optimizer);
 
     if (target == "MaximumLikelihood") {
@@ -167,12 +185,12 @@ double bf_estimation_bic_(std::string target, std::string family, doubles datase
 // row-major index arithmetic (matching the C++/Python/C# access order:
 // chains[chain][iter].values[param]).
 [[cpp11::register]]
-list bf_estimation_bayes_run_(std::string family, doubles dataset, std::string sampler,
+list bf_estimation_bayes_run_(std::string model_json, doubles dataset, std::string sampler,
                                int seed, int iterations, int warmup_iterations,
                                int number_of_chains, int thinning_interval,
                                int initial_iterations, int output_length) {
-    std::vector<double> data(dataset.begin(), dataset.end());
-    models::UnivariateDistributionModel model(dist::create_distribution(family), data);
+    std::unique_ptr<models::ModelBase> model_ptr = build_spec_model(model_json, dataset);
+    models::ModelBase& model = *model_ptr;
     auto sampler_type = parse_sampler_type(sampler);
 
     est::BayesianAnalysis ba(model, sampler_type);
@@ -212,4 +230,23 @@ list bf_estimation_bayes_run_(std::string family, doubles dataset, std::string s
         "chain_values"_nm = chain_values,
         "chain_dims"_nm = writable::integers({n_chains, n_iterations, n_params}),
     });
+}
+
+// --- Simulation (M13) -----------------------------------------------------------------
+//
+// The estimator-less `Simulation` target: builds the model through the shared spec builder,
+// calls the ISimulatable surface (`generate_random_values(sample_size, seed)`) ONCE, and
+// returns the seeded draw vector; test-fixtures.R's `simulated_value [i]` dispatch indexes
+// it. All four Phase 5 model types implement ISimulatable<std::vector<double>>; the
+// dynamic_cast guard mirrors the C++ test runner's.
+[[cpp11::register]]
+doubles bf_model_simulate_(std::string model_json, doubles dataset, int sample_size, int seed) {
+    std::unique_ptr<models::ModelBase> model = build_spec_model(model_json, dataset);
+    auto* simulatable = dynamic_cast<models::ISimulatable<std::vector<double>>*>(model.get());
+    if (simulatable == nullptr)
+        stop("model_estimation Simulation target: model is not ISimulatable");
+    std::vector<double> draws = simulatable->generate_random_values(sample_size, seed);
+    writable::doubles out(static_cast<R_xlen_t>(draws.size()));
+    for (std::size_t i = 0; i < draws.size(); ++i) out[static_cast<R_xlen_t>(i)] = draws[i];
+    return out;
 }

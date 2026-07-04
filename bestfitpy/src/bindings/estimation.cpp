@@ -1,15 +1,25 @@
-// pybind11 glue exposing the Phase-4 estimation surface (MaximumLikelihood, MaximumAPosteriori,
-// and -- as of Task T12 -- BayesianAnalysis) of the shared C++ core to Python. Like
-// `mcmc_sampler`/`bootstrap` fixtures, `model_estimation` fixtures are inherently STATEFUL --
-// one model construct + a single estimate() run backs every assertion in a case (see
-// fixtures/README.md's model_estimation schema) -- so this file exposes TWO functions:
-// `estimation_run` for MaximumLikelihood/MaximumAPosteriori (shared {target, family, dataset,
-// optimizer} signature) and `estimation_bayes_run` (T12) for BayesianAnalysis (a disjoint
-// {family, dataset, sampler, settings...} signature -- a sampler type + numeric knobs, not an
-// optimizer string), mirroring bestfitr's `bf_estimation_run_`/`bf_estimation_bayes_run_` split.
-// Each builds the model, runs estimate() once, and returns every value test_fixtures.py's
-// dispatcher needs in one dict. Core headers are vendored under ../bestfit_core/include (see
-// tools/sync_core.py).
+// pybind11 glue exposing the estimation surface (MaximumLikelihood, MaximumAPosteriori,
+// BayesianAnalysis, and -- as of M13 -- the seeded ISimulatable draw) of the shared C++ core
+// to Python. Like `mcmc_sampler`/`bootstrap` fixtures, `model_estimation` fixtures are
+// inherently STATEFUL -- one model construct + a single estimate() run backs every assertion
+// in a case (see fixtures/README.md's model_estimation schema) -- so this file exposes ONE
+// function per construct shape: `estimation_run` for MaximumLikelihood/MaximumAPosteriori
+// (shared {target, model_json, dataset, optimizer} signature), `estimation_bayes_run` (T12)
+// for BayesianAnalysis (a disjoint {model_json, dataset, sampler, settings...} signature -- a
+// sampler type + numeric knobs, not an optimizer string), and `model_simulate` (M13) for the
+// estimator-less Simulation target, mirroring bestfitr's `bf_estimation_run_`/
+// `bf_estimation_bayes_run_`/`bf_model_simulate_` split. Each builds the model, runs its one
+// stateful call, and returns every value test_fixtures.py's dispatcher needs in one dict.
+// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+//
+// M13 MODEL CONSTRUCTION: the flat Phase 4 `family` string became the serialized
+// `construct.model` JSON object (`model_json`), parsed and built by the SHARED spec builder
+// (bestfit/models/model_spec.hpp) -- the same code path the C++ test runner and the cpp11
+// glue call, so all three harnesses construct byte-identical models (UnivariateDistribution
+// incl. censored DataFrames + nonstationary trends, Mixture, CompetingRisks, PointProcess).
+// The runner re-serializes the parsed fixture spec with `json.dumps()`, which round-trips
+// doubles exactly. `dataset` stays a separate flat argument: the file-level `datasets` map is
+// resolved Python-side, exactly like every other fixture kind.
 //
 // `bic` DESIGN NOTE: unlike every other wired ML/MAP method, C# `GetBIC(sampleSize)` takes an
 // actual sample size, not a 0-based index. Every other method's value is precomputed once here
@@ -32,14 +42,14 @@
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "bestfit/models/model_spec.hpp"
+#include "bestfit/models/support/model_base.hpp"
+#include "bestfit/models/support/simulatable.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
 namespace est = bestfit::estimation;
 namespace models = bestfit::models;
-namespace dist = bestfit::numerics::distributions;
 
 static est::OptimizationMethod parse_optimization_method(const std::string& s) {
     if (s == "Brent") return est::OptimizationMethod::Brent;
@@ -77,9 +87,11 @@ void register_estimation(py::module_& m) {
     // chain_value are BayesianAnalysis-only surface exposed there instead.
     m.def(
         "estimation_run",
-        [](const std::string& target, const std::string& family, const std::vector<double>& dataset,
+        [](const std::string& target, const std::string& model_json, const std::vector<double>& dataset,
            const std::string& optimizer) {
-            models::UnivariateDistributionModel model(dist::create_distribution(family), dataset);
+            std::unique_ptr<models::ModelBase> model_ptr =
+                models::spec::build_model_from_json(model_json, dataset);
+            models::ModelBase& model = *model_ptr;
             auto method = parse_optimization_method(optimizer);
             int n_params = model.number_of_parameters();
 
@@ -128,7 +140,7 @@ void register_estimation(py::module_& m) {
 
             return out;
         },
-        py::arg("target"), py::arg("family"), py::arg("dataset"), py::arg("optimizer"));
+        py::arg("target"), py::arg("model_json"), py::arg("dataset"), py::arg("optimizer"));
 
     // `bic [n]` accessor: rebuilds the same model + named estimator, runs `estimate()` once
     // (see the file header DESIGN NOTE for why this reproduces the exact same fit as
@@ -140,9 +152,11 @@ void register_estimation(py::module_& m) {
     // supplies it via `args[0]`), not at construction time.
     m.def(
         "estimation_bic",
-        [](const std::string& target, const std::string& family, const std::vector<double>& dataset,
+        [](const std::string& target, const std::string& model_json, const std::vector<double>& dataset,
            const std::string& optimizer, int n) {
-            models::UnivariateDistributionModel model(dist::create_distribution(family), dataset);
+            std::unique_ptr<models::ModelBase> model_ptr =
+                models::spec::build_model_from_json(model_json, dataset);
+            models::ModelBase& model = *model_ptr;
             auto method = parse_optimization_method(optimizer);
 
             if (target == "MaximumLikelihood") {
@@ -162,7 +176,7 @@ void register_estimation(py::module_& m) {
             }
             throw py::value_error("unknown model_estimation target: " + target);
         },
-        py::arg("target"), py::arg("family"), py::arg("dataset"), py::arg("optimizer"), py::arg("n"));
+        py::arg("target"), py::arg("model_json"), py::arg("dataset"), py::arg("optimizer"), py::arg("n"));
 
     // --- BayesianAnalysis (Task T12) -------------------------------------------------------
     //
@@ -184,9 +198,11 @@ void register_estimation(py::module_& m) {
     // list -- matching the C++/R/C# access order: chains[chain][iter].values[param].
     m.def(
         "estimation_bayes_run",
-        [](const std::string& family, const std::vector<double>& dataset, const std::string& sampler,
+        [](const std::string& model_json, const std::vector<double>& dataset, const std::string& sampler,
            const py::dict& settings) {
-            models::UnivariateDistributionModel model(dist::create_distribution(family), dataset);
+            std::unique_ptr<models::ModelBase> model_ptr =
+                models::spec::build_model_from_json(model_json, dataset);
+            models::ModelBase& model = *model_ptr;
             auto sampler_type = parse_sampler_type(sampler);
 
             est::BayesianAnalysis ba(model, sampler_type);
@@ -228,5 +244,28 @@ void register_estimation(py::module_& m) {
             out["chains"] = chains;
             return out;
         },
-        py::arg("family"), py::arg("dataset"), py::arg("sampler"), py::arg("settings"));
+        py::arg("model_json"), py::arg("dataset"), py::arg("sampler"), py::arg("settings"));
+
+    // --- Simulation (M13) -------------------------------------------------------------
+    //
+    // The estimator-less `Simulation` target: builds the model through the shared spec
+    // builder, calls the ISimulatable surface (`generate_random_values(sample_size, seed)`)
+    // ONCE, and returns the seeded draw vector; test_fixtures.py's `simulated_value [i]`
+    // dispatch indexes it. All four Phase 5 model types implement
+    // ISimulatable<std::vector<double>>; the dynamic_cast guard mirrors the C++ test
+    // runner's and bestfitr's.
+    m.def(
+        "model_simulate",
+        [](const std::string& model_json, const std::vector<double>& dataset, int sample_size,
+           int seed) {
+            std::unique_ptr<models::ModelBase> model =
+                models::spec::build_model_from_json(model_json, dataset);
+            auto* simulatable =
+                dynamic_cast<models::ISimulatable<std::vector<double>>*>(model.get());
+            if (simulatable == nullptr)
+                throw py::value_error(
+                    "model_estimation Simulation target: model is not ISimulatable");
+            return simulatable->generate_random_values(sample_size, seed);
+        },
+        py::arg("model_json"), py::arg("dataset"), py::arg("sample_size"), py::arg("seed"));
 }

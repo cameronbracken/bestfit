@@ -1,0 +1,132 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit with exact emitter-dumped oracles. Exercises the full fixture-JSON DataFrame construction path: all four data-array types (exact incl. a flagged low outlier + the frame-level low_outlier_threshold, interval, threshold, uncertain with a factory-built distribution spec) feeding UnivariateDistributionModel's censored-data likelihood, fit by the deterministic NelderMead simplex. LOOSE smoke tolerances (rel 1e-6) per the M13 smoke policy.",
+  "datasets": {},
+  "cases": [
+    {
+      "name": "normal_censored_data_frame",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "data_frame": {
+            "exact": [
+              {
+                "index": 1990,
+                "value": 12500
+              },
+              {
+                "index": 1991,
+                "value": 15300
+              },
+              {
+                "index": 1992,
+                "value": 9870,
+                "is_low_outlier": true
+              },
+              {
+                "index": 1993,
+                "value": 21000
+              },
+              {
+                "index": 1994,
+                "value": 18400
+              },
+              {
+                "index": 1995,
+                "value": 11200
+              },
+              {
+                "index": 1996,
+                "value": 26800
+              },
+              {
+                "index": 1997,
+                "value": 14100
+              },
+              {
+                "index": 1998,
+                "value": 19500
+              },
+              {
+                "index": 1999,
+                "value": 11600
+              }
+            ],
+            "interval": [
+              {
+                "index": 1985,
+                "lower": 12000,
+                "value": 15000,
+                "upper": 18000
+              },
+              {
+                "index": 1986,
+                "lower": 16000,
+                "value": 19000,
+                "upper": 23000
+              }
+            ],
+            "threshold": [
+              {
+                "start_index": 1900,
+                "end_index": 1979,
+                "value": 22000,
+                "number_above": 1
+              }
+            ],
+            "uncertain": [
+              {
+                "index": 1988,
+                "distribution": {
+                  "family": "Normal",
+                  "parameters": [
+                    17000,
+                    1500
+                  ]
+                }
+              }
+            ],
+            "low_outlier_threshold": 10000
+          }
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 14812.190711796935,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 3957.1748103120817,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -110.03531877464386,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "aic",
+          "args": [],
+          "expected": 224.0706375492877,
+          "mode": "rel",
+          "tol": 1e-06
+        }
+      ]
+    }
+  ]
+}

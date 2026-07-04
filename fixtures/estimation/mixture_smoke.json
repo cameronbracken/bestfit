@@ -1,0 +1,149 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "SMOKE (M13): self-computed values from this port's own C++ build (core/build), NOT C#-oracle values -- M14 re-pins them against the real RMC.BestFit. Exercises the `mixture` model type: component families through the factory, the internal EM default-parameter machinery, and the zero-inflation ctor option (second case: the zero weight is pinned to the data's zero-value relative frequency, not estimated). Parameter layout for a two-Normal mixture: [weight_1, mu_1, sigma_1, mu_2, sigma_2]. Covariance/standard errors are deliberately NOT asserted here: the symmetric two-component default sits on a near-singular Hessian (the M10 ledger finding); M14 pins them (if at all) with the loosened 1e-5..1e-8 band. LOOSE smoke tolerances (rel 1e-6).",
+  "datasets": {
+    "bimodal_series": [
+      520,
+      580,
+      610,
+      650,
+      700,
+      730,
+      760,
+      800,
+      850,
+      880,
+      910,
+      950,
+      990,
+      1030,
+      1080,
+      5000,
+      5400,
+      5800,
+      6300,
+      6800
+    ],
+    "zero_series": [
+      0,
+      0,
+      120,
+      340,
+      0,
+      560,
+      780,
+      150,
+      430,
+      920,
+      210,
+      380,
+      0,
+      640,
+      275
+    ]
+  },
+  "cases": [
+    {
+      "name": "two_normal_mixture",
+      "construct": {
+        "model": {
+          "type": "mixture",
+          "families": [
+            "Normal",
+            "Normal"
+          ],
+          "dataset": "bimodal_series"
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 1.0,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 0.3334646179975355,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 802.6801382287679,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            3
+          ],
+          "expected": 165.85869159189076,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "parameter",
+          "args": [
+            4
+          ],
+          "expected": 5860.0429650882115,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -148.58128103193022,
+          "mode": "rel",
+          "tol": 1e-06
+        }
+      ]
+    },
+    {
+      "name": "two_normal_mixture_zero_inflated",
+      "construct": {
+        "model": {
+          "type": "mixture",
+          "families": [
+            "Normal",
+            "Normal"
+          ],
+          "dataset": "zero_series",
+          "zero_inflated": true
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 0.08068504389962458,
+          "mode": "rel",
+          "tol": 1e-06
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -83.42145736333426,
+          "mode": "rel",
+          "tol": 1e-06
+        }
+      ]
+    }
+  ]
+}
