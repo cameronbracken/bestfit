@@ -83,6 +83,29 @@ class UnivariateDistributionBase {
         return ll;
     }
 
+    // --- Censored likelihood methods (M8, additive port of UnivariateDistributionBase.cs
+    // lines 165-201 @ a2c4dbf; term-for-term, C# `long` counts -> `long long`). ---
+
+    // C# `LogLikelihood(double value)` (line 165): single data point.
+    double log_likelihood(double value) const { return log_pdf(value); }
+
+    // C# `LogLikelihood_LeftCensored(double threshold, long numberBelow)` (line 173).
+    double log_likelihood_left_censored(double threshold, long long number_below) const {
+        return static_cast<double>(number_below) * log_cdf(threshold);
+    }
+
+    // C# `LogLikelihood_RightCensored(double threshold, long numberAbove)` (line 183).
+    double log_likelihood_right_censored(double threshold, long long number_above) const {
+        return static_cast<double>(number_above) * log_ccdf(threshold);
+    }
+
+    // C# `LogLikelihood_Intervals(double lowerLimit, double upperLimit)` (line 193):
+    // Math.Log of the interval mass (log(0) = -inf, log(negative) = NaN, as in C#).
+    double log_likelihood_intervals(double lower_limit, double upper_limit) const {
+        double interval = cdf(upper_limit) - cdf(lower_limit);
+        return std::log(interval);
+    }
+
     // Generates `sample_size` random values via inverse-CDF sampling. `seed > 0` seeds a
     // fresh MersenneTwister deterministically; otherwise a clock-seeded one is used (mirrors
     // C# `GenerateRandomValues(int sampleSize, int seed = -1)` -- see file header).

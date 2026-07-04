@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/univariate_distribution_model.hpp"
+#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "check.hpp"
 

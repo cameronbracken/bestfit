@@ -33,11 +33,15 @@
 // is deterministic (no RNG) regardless of component count. Only 2- and 3-component
 // configurations are fixture-covered (see fixtures/distributions/univariate/
 // competing_risks.json); the algorithm itself is a verbatim, dimension-general port.
+// GenerateRandomValues: ported override (C# line 1095) -- per-component inverse-CDF draws,
+//   min/max per sample (see the method comment; GenerateRandomValuesWithDependency is not
+//   ported, no ported caller).
 // type() returns UnivariateDistributionType::CompetingRisks (mirrors C#).
 // Not wired into the flat factory (composite-only, like Mixture).
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -54,6 +58,7 @@
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
@@ -298,6 +303,35 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         if (method != ParameterEstimationMethod::MaximumLikelihood)
             throw std::runtime_error("CompetingRisks only supports MaximumLikelihood estimation");
         set_parameters(mle(sample));
+    }
+
+    // Mirrors C# GenerateRandomValues(int sampleSize, int seed = -1) override (CompetingRisks
+    // .cs line 1095, added for the M11 CompetingRisksModel which delegates here): for each
+    // sample, draw one value from EVERY component (each draw consumes one uniform from the
+    // shared Mersenne Twister stream, j-major within each i), then take the minimum (min-rule)
+    // or maximum (max-rule). NOT the base class's composite inverse-CDF sampler. The
+    // dependency-aware variant `GenerateRandomValuesWithDependency` (C# line 1124) is not
+    // ported -- no ported caller uses it.
+    std::vector<double> generate_random_values(int sample_size, int seed = -1) const override {
+        // Create PRNG for generating random numbers.
+        sampling::MersenneTwister rnd =
+            seed > 0 ? sampling::MersenneTwister(static_cast<std::uint32_t>(seed))
+                     : sampling::MersenneTwister();
+        std::vector<double> sample(static_cast<std::size_t>(sample_size));
+        // Generate values.
+        for (int i = 0; i < sample_size; ++i) {
+            double x_min = std::numeric_limits<double>::max();
+            double x_max = std::numeric_limits<double>::lowest();  // C# double.MinValue
+            for (std::size_t j = 0; j < components_.size(); ++j) {
+                double x = components_[j]->inverse_cdf(rnd.next_double());
+                if (x < x_min) x_min = x;
+                if (x > x_max) x_max = x;
+            }
+            sample[static_cast<std::size_t>(i)] =
+                minimum_of_random_variables ? x_min : x_max;
+        }
+        // Return array of random values.
+        return sample;
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

@@ -19,15 +19,26 @@ set(BF_TESTS
   test_gev_estimation
   test_goodness_of_fit
   test_mcmc_extra
+  test_multiple_grubbs_beck
   test_matrix_regularization
   test_stratification
   test_numerical_diff
   test_model_parameter
   test_model_base
+  test_quantile_prior
   test_univariate_distribution_model
+  test_mixture_model
+  test_competing_risks_model
+  test_point_process_model
   test_maximum_likelihood
   test_maximum_a_posteriori
   test_bayesian_analysis
+  test_data_types
+  test_data_frame
+  test_plotting_positions_df
+  test_threshold_diagnostics
+  test_trend_functions
+  test_general_linear_function
 )
 
 # Sobol test takes the direction-number file as its sole argument.

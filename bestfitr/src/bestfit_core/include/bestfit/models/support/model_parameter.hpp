@@ -10,7 +10,10 @@
 // layer this class exists to support):
 //   - INotifyPropertyChanged / PropertyChanged / RaisePropertyChange
 //   - ToXElement() and the XElement constructor
-//   - Validate() (bounds/prior/positivity validation returning (bool, List<string>))
+// Validate() (deferred in the Phase 4 slice) is ported as of M8 -- the model-level
+// UnivariateDistribution.Validate() calls it per parameter. The C# prior check
+// `PriorDistribution.ValidateParameters(PriorDistribution.GetParameters, false) != null`
+// maps to the `parameters_valid()` flag, as in QuantilePrior::validate().
 //
 // Ownership of PriorDistribution: the C# property holds a plain `UnivariateDistributionBase`
 // reference with reference semantics (assigning `PriorDistribution = x` aliases `x`; cloning
@@ -28,13 +31,17 @@
 // to be at least movable, and deep-copy-on-copy is the safest default for forward use by the
 // Estimation/Models layers that build on this.
 #pragma once
+#include <cmath>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "bestfit/models/support/validation_result.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
+#include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::models {
 
@@ -137,6 +144,49 @@ class ModelParameter {
     void set_prior_distribution(
         std::unique_ptr<numerics::distributions::UnivariateDistributionBase> prior_distribution) {
         prior_distribution_ = std::move(prior_distribution);
+    }
+
+    // Validates the current state of the object and reports any issues found (C# Validate(),
+    // ModelParameter.cs line 277; ported additively in M8).
+    ValidationResult validate() const {
+        ValidationResult result;
+
+        if (lower_bound_ > upper_bound_) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: The lower bound cannot be greater than the upper bound for '" +
+                display_name() + "'.");
+        }
+        if (!numerics::is_finite(value_) || value_ < lower_bound_ || value_ > upper_bound_) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: The parameter value for '" + display_name() +
+                "' must be a finite number between the lower and upper bounds.");
+        }
+        // C#: PriorDistribution.ValidateParameters(PriorDistribution.GetParameters, false)
+        // != null -> the parameters_valid() flag here (see header comment).
+        if (!prior_distribution_->parameters_valid()) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: The prior distribution for the parameter '" + display_name() +
+                "' is invalid.");
+        }
+        if (is_positive_) {
+            double theta_min = numerics::kDoubleMachineEpsilon;
+            double min = std::isinf(prior_distribution_->minimum())
+                             ? prior_distribution_->inverse_cdf(1e-16)
+                             : prior_distribution_->minimum();
+            if (min < theta_min) {
+                char theta_buf[32];
+                std::snprintf(theta_buf, sizeof theta_buf, "%.17g", theta_min);
+                result.is_valid = false;
+                result.validation_messages.push_back(
+                    "Error: Prior distribution for " + display_name() +
+                    " is invalid. The minimum value allowable for " + display_name() + " is " +
+                    theta_buf + ".");
+            }
+        }
+        return result;
     }
 
    private:

@@ -1,0 +1,270 @@
+{
+  "target": "Simulation",
+  "kind": "model_estimation",
+  "source": "Seeded-simulation digests: authored self-computed (M13), then verified value-for-value against the REAL RMC.BestFit ISimulatable.GenerateRandomValues by tools/verify_oracles.py (M14 -- every digest literal reproduces bit-for-bit from the C# Mersenne Twister stream, so these ARE C#-oracle values). One seeded digest per model type (univariate incl. a nonstationary trend case, mixture, competing_risks, point_process), each at explicit parameter_values / trend values (draws come from CURRENT parameters -- no fit). rel 1e-11 (chain_value digest tier); identical literals pass in C++, R, and Python, proving the cross-language stream bit-identity against the C# oracle.",
+  "datasets": {
+    "annual_peaks": [
+      12500,
+      15300,
+      9870,
+      21000,
+      18400,
+      11200,
+      26800,
+      14100,
+      19500,
+      11600
+    ],
+    "bimodal_series": [
+      520,
+      580,
+      610,
+      650,
+      700,
+      730,
+      760,
+      800,
+      850,
+      880,
+      910,
+      950,
+      990,
+      1030,
+      1080,
+      5000,
+      5400,
+      5800,
+      6300,
+      6800
+    ],
+    "pot_peaks": [
+      950,
+      1020,
+      1130,
+      980,
+      1250,
+      1090,
+      1430,
+      1010,
+      1180,
+      1620,
+      970,
+      1300,
+      1050,
+      1550,
+      1210
+    ]
+  },
+  "cases": [
+    {
+      "name": "univariate_normal_seeded",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "dataset": "annual_peaks",
+          "parameter_values": [
+            16000.0,
+            5000.0
+          ]
+        },
+        "sample_size": 5,
+        "seed": 42
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 14400.738037017514,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            1
+          ],
+          "expected": 20146.682419754805,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            4
+          ],
+          "expected": 19094.273196363465,
+          "mode": "rel",
+          "tol": 1e-11
+        }
+      ]
+    },
+    {
+      "name": "univariate_nonstationary_trend_seeded",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "dataset": "annual_peaks",
+          "trends": [
+            {
+              "parameter": 0,
+              "type": "Linear",
+              "start_index": 0,
+              "values": [
+                15000.0,
+                120.0
+              ]
+            }
+          ]
+        },
+        "sample_size": 4,
+        "seed": 7
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 7971.919313926212,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            3
+          ],
+          "expected": 13090.417065750868,
+          "mode": "rel",
+          "tol": 1e-11
+        }
+      ]
+    },
+    {
+      "name": "mixture_seeded",
+      "construct": {
+        "model": {
+          "type": "mixture",
+          "families": [
+            "Normal",
+            "Normal"
+          ],
+          "dataset": "bimodal_series",
+          "parameter_values": [
+            0.7,
+            0.3,
+            700.0,
+            150.0,
+            5800.0,
+            600.0
+          ]
+        },
+        "sample_size": 4,
+        "seed": 123
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 784.3058699238804,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            3
+          ],
+          "expected": 787.047879900792,
+          "mode": "rel",
+          "tol": 1e-11
+        }
+      ]
+    },
+    {
+      "name": "competing_risks_seeded",
+      "construct": {
+        "model": {
+          "type": "competing_risks",
+          "families": [
+            "Gumbel",
+            "Weibull"
+          ],
+          "dataset": "annual_peaks",
+          "parameter_values": [
+            13800.0,
+            4100.0,
+            15000.0,
+            3.0
+          ]
+        },
+        "sample_size": 4,
+        "seed": 21
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 9266.322114252458,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            3
+          ],
+          "expected": 8289.6430567879,
+          "mode": "rel",
+          "tol": 1e-11
+        }
+      ]
+    },
+    {
+      "name": "point_process_seeded",
+      "construct": {
+        "model": {
+          "type": "point_process",
+          "dataset": "pot_peaks",
+          "threshold": 900.0,
+          "total_years": 20.0,
+          "parameter_values": [
+            1000.0,
+            200.0,
+            0.1
+          ]
+        },
+        "sample_size": 4,
+        "seed": 99
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 1176.4483381641187,
+          "mode": "rel",
+          "tol": 1e-11
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            3
+          ],
+          "expected": 1311.4718913172742,
+          "mode": "rel",
+          "tol": 1e-11
+        }
+      ]
+    }
+  ]
+}

@@ -858,21 +858,88 @@ do not paper over it with a looser tolerance.
 ```
 
 One `estimate()` run per case (mirrors `mcmc_sampler`'s/`bootstrap`'s single-stateful-glue-call
-contract): build a `UnivariateDistributionModel` from `construct.model.{family, dataset}` --
-`family` goes through the same univariate distribution factory every other kind uses
-(`create_distribution(name)`), `dataset` names an entry in the file-level `datasets` map -- then
+contract): build the model described by `construct.model` (see the schema below -- `family`
+goes through the same univariate distribution factory every other kind uses
+(`create_distribution(name)`), `dataset` names an entry in the file-level `datasets` map), then
 construct the estimator named by the file-level `target`, call `estimate()` **once**, then dispatch
 every assertion in the case against the cached `(model, estimator)` pair (or, for
 `BayesianAnalysis`, the cached `(model, analysis)` pair -- see below). Unlike `mcmc_sampler`'s
 and `bootstrap`'s model registries (each a small closed name -> construction-recipe map with no
-upstream C# library counterpart), `model_estimation`'s "registry" is the one-line factory call
-above: every family the factory supports, plus `UnivariateDistributionModel::set_default_parameters`
-(itself driven by `IMaximumLikelihoodEstimation::get_parameter_constraints`), is already enough to
-build a model -- there is no separate closed-name mapping to maintain.
+upstream C# library counterpart), `model_estimation`'s "registry" is the shared spec builder
+described next: every family the factory supports, plus each model's own default-parameter
+machinery (`set_default_parameters`, itself driven by
+`IMaximumLikelihoodEstimation::get_parameter_constraints`), is already enough to build a model --
+there is no separate closed-name mapping to maintain.
 
-`construct` fields for `MaximumLikelihood`/`MaximumAPosteriori`: `model.family` (a univariate
-distribution type name), `model.dataset` (a `datasets` key), `optimizer` (`"NelderMead"` |
-`"DifferentialEvolution"` | `"Brent"`; defaults to `"DifferentialEvolution"` when omitted, matching
+**The `construct.model` schema (M13).** All three harnesses hand the (re-serialized) spec to ONE
+shared C++ builder, `bestfit::models::spec::build_model_from_json` in
+`core/include/bestfit/models/model_spec.hpp` (a bestfit addition; it parses with the dependency-free
+mini reader `models/json_lite.hpp`). The C++ runner serializes with nlohmann `dump()`, R with
+`jsonlite::toJSON(auto_unbox = TRUE, digits = I(17))`, Python with `json.dumps()` -- all three
+round-trip doubles exactly, so the three harnesses construct byte-identical models. Only the
+`model.dataset` reference is resolved by the calling harness (from the file-level `datasets` map,
+like every other fixture kind) and passed alongside the spec as a flat vector.
+
+```jsonc
+"model": {
+  "type": "univariate_distribution",  // default when absent (the Phase 4 behavior) |
+                                      // "mixture" | "competing_risks" | "point_process"
+  // -- data (exactly ONE of): -------------------------------------------------------------
+  "dataset": "annual_peaks",          // a `datasets` key -> ExactSeries with sequential
+                                      // 0-based indexes (the Phase 4 vector-ctor path,
+                                      // byte-for-byte)
+  "data_frame": {                     // a full censored DataFrame, values inline:
+    "exact":     [ { "index": 1990, "value": 12500, "is_low_outlier": false } ],
+    "interval":  [ { "index": 1985, "lower": 12000, "value": 15000, "upper": 18000 } ],
+    "threshold": [ { "start_index": 1900, "end_index": 1979, "value": 22000, "number_above": 1 } ],
+    "uncertain": [ { "index": 1988, "distribution": { "family": "Normal", "parameters": [17000, 1500] } } ],
+    "low_outlier_threshold": 10000,   // optional; the left-censoring bound for flagged exact points
+    "mgbt_low_outliers": true         // optional (M14): run the PUBLIC SetLowOutliersFromMGBT()
+                                      // path at the frame boundary instead -- flags the MGBT-detected
+                                      // low outliers and sets low_outlier_threshold itself. By fixture
+                                      // convention mutually exclusive with explicit `is_low_outlier`
+                                      // flags / `low_outlier_threshold` (MGBT clears both first).
+  },
+  // -- per-type fields: -------------------------------------------------------------------
+  "family": "Normal",                 // univariate_distribution: a factory type name
+  "trends": [                         // univariate_distribution only, optional (M9 layer):
+    { "parameter": 0,                 //   0-based distribution parameter index
+      "type": "Linear",               //   a TrendModelType name: Constant | Cubic | Exponential |
+                                      //   Linear | Logistic | Power | Quadratic | Reciprocal |
+                                      //   Sinusoidal | StepFunction | GeneralLinear (which falls
+                                      //   through to ConstantTrend, mirroring the C# SetTrendModel
+                                      //   construction chain)
+      "start_index": 0,               //   optional: overrides the trend's time anchor
+      "values": [15000.0, 120.0] }    //   optional: the trend's own parameter values
+  ],
+  "families": ["Normal", "Normal"],   // mixture / competing_risks: component factory names
+  "zero_inflated": false,             // mixture only, optional (default false)
+  "use_defaults": true,               // point_process only, optional knobs, applied in this
+  "threshold": 900.0,                 //   order after the DataFrame cascade (an explicit
+  "total_years": 20.0,                //   threshold/total_years is never clobbered by defaults)
+  "parameter_values": [16000.0, 5000.0]  // optional, ALL types: applied last via ONE
+                                      // set_parameter_values call (the sync-safe setter)
+}
+```
+
+Notes on the trend spec: attaching any trend first sets `is_nonstationary(true)`;
+`set_trend_model` then supplies the C#-mirrored data-driven defaults per trend; the optional
+`start_index` overrides the anchor afterwards; and explicit trend `values` (plus the model-level
+`parameter_values`) are applied through ONE final `set_parameter_values` call after every trend is
+attached (the model header mandates that setter -- poking `parameters()` elements directly would
+desync the trend-owned copies). Uncertain items build their measurement-error distribution through
+the same factory (`family` + `parameters`, via `set_parameters`). Threshold items carry
+`number_above` only -- `number_below` is a derived value that `process_threshold_series` computes
+at the model boundary, exactly like the C#. `point_process` exposes the non-seasonal surface only
+(the seasonal path is a project-wide deferral) and takes no `family`: its mark distribution is the
+model's own single-GEV competing-risks default. `competing_risks` is NOT an `IUnivariateModel`
+(the C# omits it) but derives from `ModelBase` like the rest -- which is all the estimators
+accept, so the harness caches simply hold a `ModelBase` pointer (C++: the `EstimationCase.model`
+member; the `Simulation` target adds a `std::monostate` alternative to the estimator variant).
+
+`construct` fields for `MaximumLikelihood`/`MaximumAPosteriori`: `model` (the schema above),
+`optimizer` (`"NelderMead"` | `"DifferentialEvolution"` | `"Brent"`; defaults to
+`"DifferentialEvolution"` when omitted, matching
 both estimator classes' C# default). `construct` fields for `BayesianAnalysis` (Task T12): `model`
 (same shape), `sampler` (`"DEMCz"` | `"DEMCzs"` | `"ARWMH"` | `"NUTS"`; defaults to `"DEMCzs"`,
 matching the C# default), and an optional `settings` object with any of `seed`, `iterations`,
@@ -925,7 +992,43 @@ joining the ML/MAP method list, since the two surfaces are disjoint. R/Python ea
 `BayesianAnalysis` through a SEPARATE registered function (`bf_estimation_bayes_run_` / R,
 `estimation_bayes_run` / Python) rather than folding it into `bf_estimation_run_`/`estimation_run`,
 because its construct shape (`sampler` + numeric knobs) doesn't fit the ML/MAP
-`{target, family, dataset, optimizer}` signature.
+`{target, model_json, dataset, optimizer}` signature.
+
+**`Simulation` (M13):** a fourth file-level `target` with NO estimator: the case builds the model
+(any of the four types above), calls the ISimulatable surface
+`generate_random_values(construct.sample_size, construct.seed)` **once** (`seed` optional,
+defaulting to `-1` = clock-seeded -- seeded fixtures must always set it), caches the draw vector,
+and dispatches assertions against it:
+
+- `simulated_value [i]` -- the i-th draw of the cached seeded sample, following the Phase 3/4
+  `short_exact`/`chain_value` digest precedent: the point is cross-language bit-identity of the
+  seeded Mersenne Twister stream, so the same literals pass in C++, R, and Python.
+
+R/Python expose it through a third registered function (`bf_model_simulate_` / R,
+`model_simulate` / Python); C++'s `EstimationCase` holds `std::monostate` in place of an estimator
+and the cached `simulated` vector. Simulation draws come from the model's CURRENT parameters
+(there is no fit), so seeded cases should pin them explicitly via `parameter_values` (or trend
+`values`) -- otherwise the draw reflects whatever the model's construction defaults left behind
+(EM defaults for `mixture` from `dataset`, factory defaults for the component distributions of
+`competing_risks`/`point_process`).
+
+**DataFrame surface (M14):** three methods reachable from the model's DataFrame under ANY
+file-level `target` (they read the model, not the estimator), corroborating the M1/M5
+plotting-position and MGBT ctest oracles through the PUBLIC model path:
+
+- `plotting_position [kind, i]` -- item `i`'s plotting position in the named series (`kind` is
+  `"exact"` | `"interval"` | `"uncertain"`, indices in spec order) after ONE
+  `calculate_plotting_positions()` pass (idempotent -- a pure function of the collections plus the
+  frame's plotting parameter). The threshold series is deliberately NOT exposed: the C# assigns
+  its positions to a sorted CLONE, so the original items never carry one.
+- `number_of_low_outliers []`, `low_outlier_threshold []` -- the frame's current state, as set by
+  the spec's `mgbt_low_outliers` MGBT trigger or the explicit `low_outlier_threshold`.
+
+C++/the emitter dispatch these straight off the cached model's frame; R
+(`bf_model_data_frame_`) and Python (`model_data_frame`) lazily build the frame surface once per
+case through the shared spec builder and memoize it (a rebuild is byte-identical -- the frame
+surface is a pure function of the construct, never of the fit -- the `bic` lazy-rebuild
+precedent).
 
 **Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
 port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of
@@ -967,6 +1070,49 @@ fields for the measured tolerances).
   `output_length` the aggregates reproduce to ~1e-11..1e-14, far tighter than the long-run rstan
   cases' `tol: 0.05`, because the divergent tail never gets long enough to amplify sub-ULP noise
   into a measurable difference.
+
+**Port-fidelity finding (Task M14, real-C#-oracle-driven): the Mixture `SetParameters(ref)`
+write-back.** Dumping exact oracles for the M13 mixture smoke cases surfaced a real trajectory
+divergence: the C# `MixtureModel.DataLogLikelihood`/`PriorLogLikelihood` call
+`Mixture.SetParameters(ref parameters)`, which normalizes the weight entries IN THE CALLER'S
+ARRAY -- and since C# objectives are `Func<double[], double>` over reference-type arrays, that
+write-back lands in the optimizer's (and NumericalDiff's) own working vectors, re-projecting every
+evaluated point onto the normalized-weights manifold and steering the whole search path. The M13
+port normalized a private copy instead, converging to a scale-equivalent optimum with different
+raw weight coordinates (w = [1.0, 0.333] vs the C# [0.75, 0.25]; same likelihood). M14 ported the
+mutation semantics: the `Optimizer`/`NelderMead` `Objective` and `NumericalDiff`'s scalar function
+type became `std::function<double(std::vector<double>&)>` (non-const; const-taking lambdas still
+convert, so no other caller changed behavior), `ModelBase::log_likelihood`/`data_log_likelihood`/
+`prior_log_likelihood` take `std::vector<double>&` (the pointwise variants keep const -- the C#
+pointwise methods normalize a private `parmsCopy`), and `MixtureModel` now writes back. With the
+fix the C++ mixture fit reproduces the real C# values to rel 1e-12. ONE documented deviation: the
+MCMC sampler's `LogLikelihood` type stays const-ref (Phase 3, oracle-locked), so
+`BayesianAnalysis` hands the model a mutable COPY -- a mixture's write-back into the sampler's
+proposal/chain arrays is not ported (no fixture runs a mixture through BayesianAnalysis; every
+other model is non-mutating, so the copy is behaviorally identical for all wired paths).
+
+**M14 exact fixtures (naming + tolerance policy):** M14 re-pinned every M13 `*_smoke.json` against
+the real RMC.BestFit via the emitter dump path and dropped the suffix:
+`mle_censored.json` (all four data-array types + the M14 DataFrame surface incl. an MGBT case),
+`map_censored.json` + `bayes_censored.json` (the same censored frame through MaximumAPosteriori
+and seeded DEMCzs BayesianAnalysis), `mle_nonstationary.json`, `mixture.json`,
+`competing_risks.json` (re-derived dataset -- the M13 smoke data pinned the Weibull shape at its
+100 bound; the new 25-point max(Gumbel, Weibull) series fits fully interior, shape ~13.0),
+`point_process.json`, and `simulation.json`. Every value is either emitter-dumped from the real
+C# or byte-verified against it by `verify_oracles.py` (each file's `source` says which).
+Tolerances follow the T12 policy: `rel 1e-9` for the deterministic NelderMead point values
+(`1e-8` for the flatter GEV point-process surface), `rel 1e-11` for seeded `simulated_value`/
+`chain_value` digests, `1e-9`/`1e-8`/`1e-6` for posterior_mean/waic+looic/dic (bayes_normal
+precedent), and `rel 5e-3` for the censored/competing-risks covariance/SE/correlation -- a
+DOCUMENTED looser tier than the Phase 4 `1e-5` Hessian band: for O(1e4)-scale parameters
+NumericalDiff clamps the finite-difference step to `MaxStep = 1e-2`, putting the Hessian second
+difference (~`H*h^2` ~ 1e-10) within ~3e-4 of the `|logL|` ~ 1e2 double-rounding floor (measured
+C++-vs-C# divergence 2e-4..1.1e-3 -- pure cancellation noise; the underlying fits match to 1e-12
+or better). Mixture covariance/standard errors remain deliberately NOT asserted: the REAL C#
+covariance at that optimum is INDEFINITE (negative diagonals; `GetStandardErrors` clamps to 0)
+with off-diagonals at finite-difference noise scale (~1e-10) -- the M10 near-singular-Hessian
+finding, now confirmed against the real library. The frozen T12 files (`mle_normal_smoke.json`,
+`map_normal.json`, `bayes_normal.json`) are byte-identical to their Phase 4 state.
 
 **NEVER loosen a tolerance below what's documented above.** If a curated value fails to reproduce,
 the streams have desynced somewhere -- diagnose the draw path (`--dump` intermediates, compare

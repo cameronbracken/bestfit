@@ -132,8 +132,15 @@ class NumericalDiff {
     // number of parameters. lower_bounds/upper_bounds are optional (an empty vector
     // means "no bound in that direction", matching C#'s null). Returns the p x p
     // Hessian matrix of second partial derivatives.
+    // MUTABLE-POINT SEMANTICS (M14, C#-fidelity): the scalar `function` takes a NON-CONST
+    // vector, matching C#'s `Func<double[], double>` (arrays are reference types). The shared
+    // `perturbed` working array below is reused across evaluations with targeted per-slot
+    // resets, exactly like the C# source -- so a mutating function (RMC.BestFit's MixtureModel
+    // normalizes the weight entries in place) leaves its write-back in `perturbed` between
+    // evaluations, shaping the finite differences identically to upstream. Callables taking
+    // `const std::vector<double>&` still convert unchanged.
     static bestfit::numerics::math::linalg::Matrix compute_hessian(
-        const std::function<double(const std::vector<double>&)>& function,
+        const std::function<double(std::vector<double>&)>& function,
         const std::vector<double>& parameters, int p, const std::vector<double>& lower_bounds = {},
         const std::vector<double>& upper_bounds = {}) {
         bestfit::numerics::math::linalg::Matrix hessian(p, p);
@@ -208,7 +215,7 @@ class NumericalDiff {
     // Computes an adaptive step size for the j-th diagonal Hessian entry, escalating
     // through flat spots until curvature is detected.
     static double adaptive_hessian_diag_step(
-        const std::function<double(const std::vector<double>&)>& function,
+        const std::function<double(std::vector<double>&)>& function,
         const std::vector<double>& parameters, std::vector<double>& perturbed, int j, double f0,
         const std::vector<double>& lower_bounds, const std::vector<double>& upper_bounds) {
         std::size_t sj = static_cast<std::size_t>(j);
@@ -238,7 +245,7 @@ class NumericalDiff {
 
     // Evaluates the function with parameter j set to the given value (clamped to
     // bounds). Caller must reset perturbed[j] after use.
-    static double eval_perturbed(const std::function<double(const std::vector<double>&)>& function,
+    static double eval_perturbed(const std::function<double(std::vector<double>&)>& function,
                                   std::vector<double>& perturbed, double value, int j,
                                   const std::vector<double>& lower_bounds,
                                   const std::vector<double>& upper_bounds) {

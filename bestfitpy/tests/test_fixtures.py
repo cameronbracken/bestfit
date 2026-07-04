@@ -437,18 +437,26 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
 
 
 # --- model_estimation path -----------------------------------------------------------------
-# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run (ML/MAP) or
-# _core.estimation_bayes_run (BayesianAnalysis, T12) call per case builds the model, runs
-# estimate() ONCE, and returns the full result surface; every assertion in the case reads that
-# single cached dict. See fixtures/README.md's model_estimation section for the full method
-# list and the `bic`/`chain_value` design notes. `bic` is the one exception to the "cached
-# dict" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read
-# live from the fixture's `args[0]` at dispatch time via `_core.estimation_bic`, not
-# precomputed alongside the rest.
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run (ML/MAP),
+# _core.estimation_bayes_run (BayesianAnalysis, T12), or _core.model_simulate (Simulation,
+# M13) call per case builds the model, runs its one stateful call (estimate() or the seeded
+# ISimulatable draw), and returns the full result surface; every assertion in the case reads
+# that single cached dict. See fixtures/README.md's model_estimation section for the full
+# method list and the `bic`/`chain_value` design notes. `bic` is the one exception to the
+# "cached dict" contract for ML/MAP: it takes an actual sample size `n` (C#
+# `GetBIC(sampleSize)`), read live from the fixture's `args[0]` at dispatch time via
+# `_core.estimation_bic`, not precomputed alongside the rest.
+#
+# M13: `construct.model` is no longer a flat {family, dataset} pair -- it can name any of the
+# four Phase 5 model types, a full censored DataFrame, nonstationary trend specs, and explicit
+# parameter values. The parsed spec is re-serialized with json.dumps (which round-trips
+# doubles exactly) and handed to the SHARED C++ builder (bestfit/models/model_spec.hpp), the
+# same code path the C++ runner and the R glue use; only the `dataset` reference is still
+# resolved here, like every other fixture kind.
 
 
 def _dispatch_estimation(
-    result: dict, method: str, args: list, target: str, family: str, data: list, optimizer: str
+    result: dict, method: str, args: list, target: str, model_json: str, data: list, optimizer: str
 ):
     if method == "parameter":
         return result["parameters"][int(args[0])]
@@ -457,7 +465,7 @@ def _dispatch_estimation(
     if method == "aic":
         return result["aic"]
     if method == "bic":
-        return _core.estimation_bic(target, family, data, optimizer, int(args[0]))
+        return _core.estimation_bic(target, model_json, data, optimizer, int(args[0]))
     if method == "covariance":
         return result["covariance"][int(args[0])][int(args[1])]
     if method == "standard_error":
@@ -474,25 +482,47 @@ def _dispatch_estimation(
         return result["posterior_mean"][int(args[0])]
     if method == "chain_value":
         return result["chains"][int(args[0])][int(args[1])][int(args[2])]
+    if method == "simulated_value":
+        # The seeded ISimulatable draw cached by _core.model_simulate (M13).
+        return result["simulated"][int(args[0])]
+    # The M14 DataFrame surface (works under any target -- it reads the model, not the
+    # estimator): lazily build the frame surface ONCE per case via _core.model_data_frame
+    # and memoize it in the case's result dict (the bic lazy-rebuild precedent).
+    if method in ("number_of_low_outliers", "low_outlier_threshold", "plotting_position"):
+        if "_data_frame" not in result:
+            result["_data_frame"] = _core.model_data_frame(model_json, data)
+        frame = result["_data_frame"]
+        if method == "plotting_position":
+            # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain".
+            return frame[f"pp_{args[0]}"][int(args[1])]
+        return frame[method]
     raise KeyError(f"unknown model_estimation fixture method: {method}")
 
 
 def _run_estimation_case(target: str, construct: dict, assertions: list, datasets: dict):
     model = construct["model"]
-    data = [float(v) for v in datasets[model["dataset"]]]
+    # Re-serialize the parsed spec for the shared C++ builder (see the path comment above).
+    model_json = json.dumps(model)
+    data = [float(v) for v in datasets[model["dataset"]]] if "dataset" in model else []
 
-    if target == "BayesianAnalysis":
+    if target == "Simulation":
+        draws = _core.model_simulate(
+            model_json, data, int(construct["sample_size"]), int(construct.get("seed", -1))
+        )
+        result = {"simulated": draws}
+        optimizer = ""
+    elif target == "BayesianAnalysis":
         sampler = construct.get("sampler", "DEMCzs")
         settings = construct.get("settings", {})
-        result = _core.estimation_bayes_run(model["family"], data, sampler, settings)
+        result = _core.estimation_bayes_run(model_json, data, sampler, settings)
         optimizer = ""
     else:
         optimizer = construct.get("optimizer", "DifferentialEvolution")
-        result = _core.estimation_run(target, model["family"], data, optimizer)
+        result = _core.estimation_run(target, model_json, data, optimizer)
 
     for a in assertions:
         args = a.get("args", [])
-        actual = _dispatch_estimation(result, a["method"], args, target, model["family"], data, optimizer)
+        actual = _dispatch_estimation(result, a["method"], args, target, model_json, data, optimizer)
         _check(actual, a)
 
 

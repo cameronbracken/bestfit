@@ -1,0 +1,300 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Exact oracle values dumped from the REAL RMC.BestFit MaximumLikelihood via tools/oracle_emitter --dump (M14) and reproduced by tools/verify_oracles.py. Exercises the full fixture-JSON DataFrame construction path: all four data-array types (exact incl. a flagged low outlier + the frame-level low_outlier_threshold, interval, threshold, uncertain with a factory-built distribution spec) feeding UnivariateDistributionModel's censored-data likelihood, fit by the deterministic NelderMead simplex (rel 1e-9), plus the M14 DataFrame surface: plotting positions (Weibull default, censored-aware) and the MGBT low-outlier path (SetLowOutliersFromMGBT) through the public model boundary.",
+  "datasets": {},
+  "cases": [
+    {
+      "name": "normal_censored_data_frame",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "data_frame": {
+            "exact": [
+              {
+                "index": 1990,
+                "value": 12500
+              },
+              {
+                "index": 1991,
+                "value": 15300
+              },
+              {
+                "index": 1992,
+                "value": 9870,
+                "is_low_outlier": true
+              },
+              {
+                "index": 1993,
+                "value": 21000
+              },
+              {
+                "index": 1994,
+                "value": 18400
+              },
+              {
+                "index": 1995,
+                "value": 11200
+              },
+              {
+                "index": 1996,
+                "value": 26800
+              },
+              {
+                "index": 1997,
+                "value": 14100
+              },
+              {
+                "index": 1998,
+                "value": 19500
+              },
+              {
+                "index": 1999,
+                "value": 11600
+              }
+            ],
+            "interval": [
+              {
+                "index": 1985,
+                "lower": 12000,
+                "value": 15000,
+                "upper": 18000
+              },
+              {
+                "index": 1986,
+                "lower": 16000,
+                "value": 19000,
+                "upper": 23000
+              }
+            ],
+            "threshold": [
+              {
+                "start_index": 1900,
+                "end_index": 1979,
+                "value": 22000,
+                "number_above": 1
+              }
+            ],
+            "uncertain": [
+              {
+                "index": 1988,
+                "distribution": {
+                  "family": "Normal",
+                  "parameters": [
+                    17000,
+                    1500
+                  ]
+                }
+              }
+            ],
+            "low_outlier_threshold": 10000
+          }
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 14812.190711796935,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 3957.1748103120817,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -110.03531877464386,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "aic",
+          "args": [],
+          "expected": 224.0706375492877,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "low_outlier_threshold",
+          "args": [],
+          "expected": 10000.0,
+          "mode": "equal"
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "exact",
+            0
+          ],
+          "expected": 0.6956162117452439,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "exact",
+            6
+          ],
+          "expected": 0.005376344086021506,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "interval",
+            0
+          ],
+          "expected": 0.543424317617866,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "uncertain",
+            0
+          ],
+          "expected": 0.391232423490488,
+          "mode": "rel",
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "normal_mgbt_low_outliers",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "data_frame": {
+            "exact": [
+              {
+                "index": 2000,
+                "value": 500
+              },
+              {
+                "index": 2001,
+                "value": 4200
+              },
+              {
+                "index": 2002,
+                "value": 4800
+              },
+              {
+                "index": 2003,
+                "value": 5100
+              },
+              {
+                "index": 2004,
+                "value": 5600
+              },
+              {
+                "index": 2005,
+                "value": 6100
+              },
+              {
+                "index": 2006,
+                "value": 6800
+              },
+              {
+                "index": 2007,
+                "value": 7300
+              },
+              {
+                "index": 2008,
+                "value": 8100
+              },
+              {
+                "index": 2009,
+                "value": 9500
+              },
+              {
+                "index": 2010,
+                "value": 10800
+              },
+              {
+                "index": 2011,
+                "value": 12100
+              }
+            ],
+            "mgbt_low_outliers": true
+          }
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "number_of_low_outliers",
+          "args": [],
+          "expected": 1.0,
+          "mode": "equal"
+        },
+        {
+          "method": "low_outlier_threshold",
+          "args": [],
+          "expected": 4200.0,
+          "mode": "equal"
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "exact",
+            0
+          ],
+          "expected": 0.9230769230769231,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "plotting_position",
+          "args": [
+            "exact",
+            11
+          ],
+          "expected": 0.07692307692307693,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 6934.317207824424,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 2677.6690898545994,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -103.51524480683491,
+          "mode": "rel",
+          "tol": 1e-09
+        }
+      ]
+    }
+  ]
+}

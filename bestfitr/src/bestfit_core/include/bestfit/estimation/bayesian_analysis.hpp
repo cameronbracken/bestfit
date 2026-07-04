@@ -439,9 +439,15 @@ class BayesianAnalysis {
         }
 
         // The posterior (data + prior) log-likelihood closure (C# `x =>
-        // Model.LogLikelihood(x)`).
+        // Model.LogLikelihood(x)`). DOCUMENTED DEVIATION (M14): the MCMC sampler's
+        // LogLikelihood type is const-ref (Phase 3, oracle-locked), so the model sees a mutable
+        // COPY here -- MixtureModel's C# weight-normalization write-back into the SAMPLER'S
+        // proposal/chain arrays is NOT ported. No fixture runs a mixture model through
+        // BayesianAnalysis; every other model leaves the vector untouched, so the copy is
+        // behaviorally identical for all wired paths. Flagged in docs for the follow-up.
         bestfit::numerics::sampling::mcmc::LogLikelihood posterior = [this](const std::vector<double>& p) {
-            return model_.log_likelihood(p);
+            std::vector<double> point = p;
+            return model_.log_likelihood(point);
         };
 
         switch (type_) {

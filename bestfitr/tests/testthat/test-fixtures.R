@@ -480,14 +480,22 @@ run_bootstrap_case <- function(construct, assertions, datasets) {
 }
 
 # --- model_estimation path -------------------------------------------------------------------
-# Inherently STATEFUL like mcmc_sampler/bootstrap: one bf_estimation_run_ (ML/MAP) or
-# bf_estimation_bayes_run_ (BayesianAnalysis, T12) call per case builds the model, runs
-# estimate() ONCE, and returns the full result surface; every assertion in the case reads that
-# single cached list. See fixtures/README.md's model_estimation section for the full method
-# list and the `bic`/`chain_value` design notes. `bic` is the one exception to the "cached
-# list" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read
-# live from the fixture's `args[[1]]` at dispatch time via `bf_estimation_bic_`, not
-# precomputed alongside the rest.
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one bf_estimation_run_ (ML/MAP),
+# bf_estimation_bayes_run_ (BayesianAnalysis, T12), or bf_model_simulate_ (Simulation, M13)
+# call per case builds the model, runs its one stateful call (estimate() or the seeded
+# ISimulatable draw), and returns the full result surface; every assertion in the case reads
+# that single cached list. See fixtures/README.md's model_estimation section for the full
+# method list and the `bic`/`chain_value` design notes. `bic` is the one exception to the
+# "cached list" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(
+# sampleSize)`), read live from the fixture's `args[[1]]` at dispatch time via
+# `bf_estimation_bic_`, not precomputed alongside the rest.
+#
+# M13: `construct.model` is no longer a flat {family, dataset} pair -- it can name any of the
+# four Phase 5 model types, a full censored DataFrame, nonstationary trend specs, and explicit
+# parameter values. The parsed spec is re-serialized to JSON (digits = I(17) round-trips
+# doubles exactly) and handed to the SHARED C++ builder (bestfit/models/model_spec.hpp), the
+# same code path the C++ runner and the Python glue use; only the `dataset` reference is still
+# resolved here, like every other fixture kind.
 
 dispatch_estimation <- function(result, method, args, ctx) {
   i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
@@ -511,6 +519,15 @@ dispatch_estimation <- function(result, method, args, ctx) {
       idx <- args[[1]] * d[2] * d[3] + args[[2]] * d[3] + args[[3]] + 1L
       result$chain_values[[idx]]
     },
+    # simulated_value [i]: the seeded ISimulatable draw cached by bf_model_simulate_ (M13).
+    simulated_value = result$simulated[[i1(args[[1]])]],
+    # The M14 DataFrame surface (works under any target -- it reads the model, not the
+    # estimator): ctx$df_fn() lazily builds the frame surface ONCE per case via
+    # bf_model_data_frame_ and memoizes it (the bic lazy-rebuild precedent).
+    number_of_low_outliers = ctx$df_fn()$number_of_low_outliers[[1]],
+    low_outlier_threshold = ctx$df_fn()$low_outlier_threshold[[1]],
+    # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain", in spec order.
+    plotting_position = ctx$df_fn()[[paste0("pp_", args[[1]])]][[i1(args[[2]])]],
     stop(sprintf("unknown model_estimation fixture method: %s", method))
   )
 }
@@ -518,14 +535,29 @@ dispatch_estimation <- function(result, method, args, ctx) {
 run_estimation_case <- function(target, construct, assertions, datasets) {
   ns <- asNamespace("bestfitr")
   model <- construct$model
-  data <- as.double(unlist(datasets[[model$dataset]]))
+  # Re-serialize the parsed spec for the shared C++ builder (see the path comment above).
+  model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
+  data <- if (!is.null(model$dataset)) as.double(unlist(datasets[[model$dataset]])) else numeric(0)
 
-  if (target == "BayesianAnalysis") {
+  # The M14 DataFrame surface: lazily build + memoize the frame-surface list (only cases
+  # that actually assert a data-frame method pay for the rebuild; see bf_model_data_frame_).
+  df_env <- new.env(parent = emptyenv())
+  df_fn <- function() {
+    if (is.null(df_env$df)) df_env$df <- ns$bf_model_data_frame_(model_json, data)
+    df_env$df
+  }
+
+  if (target == "Simulation") {
+    seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
+    draws <- ns$bf_model_simulate_(model_json, data, as.integer(construct$sample_size), seed)
+    result <- list(simulated = draws)
+    ctx <- list()
+  } else if (target == "BayesianAnalysis") {
     sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
     s <- construct$settings
     geti <- function(name, default = -1L) if (!is.null(s[[name]])) as.integer(s[[name]]) else default
     result <- ns$bf_estimation_bayes_run_(
-      model$family, data, sampler,
+      model_json, data, sampler,
       seed = geti("seed"), iterations = geti("iterations"),
       warmup_iterations = geti("warmup_iterations"), number_of_chains = geti("number_of_chains"),
       thinning_interval = geti("thinning_interval"), initial_iterations = geti("initial_iterations"),
@@ -534,9 +566,10 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     ctx <- list()
   } else {
     optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
-    result <- ns$bf_estimation_run_(target, model$family, data, optimizer)
-    ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model$family, data, optimizer, n))
+    result <- ns$bf_estimation_run_(target, model_json, data, optimizer)
+    ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model_json, data, optimizer, n))
   }
+  ctx$df_fn <- df_fn
 
   for (a in assertions) {
     args <- if (is.null(a$args)) list() else a$args

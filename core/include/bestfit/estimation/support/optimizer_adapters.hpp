@@ -83,7 +83,12 @@ class BrentOptimizerAdapter final : public bestfit::numerics::math::optimization
         bestfit::numerics::math::optimization::BrentSearch solver(
             [this, &evaluations](double x) {
                 ++evaluations;
-                return objective_function_(std::vector<double>{x});
+                // Named lvalue: Objective takes a mutable reference (M14 mutable-point
+                // semantics -- see optimizer.hpp); the scalar Brent path has no caller-visible
+                // vector for a mutating objective to write back into, matching the C# BrentSearch
+                // wrapper, which also builds a fresh single-element array per evaluation.
+                std::vector<double> point{x};
+                return objective_function_(point);
             },
             lower_bound_, upper_bound_);
         solver.max_iterations = max_iterations;
@@ -126,7 +131,10 @@ class NelderMeadOptimizerAdapter final : public bestfit::numerics::math::optimiz
     void optimize() override {
         int evaluations = 0;
         bestfit::numerics::math::optimization::NelderMead solver(
-            [this, &evaluations](const std::vector<double>& x) {
+            // Non-const pass-through (M14 mutable-point semantics -- see optimizer.hpp): a
+            // mutating objective's write-back must reach the wrapped solver's own working
+            // vectors, exactly as C#'s NelderMead passes its arrays straight to the delegate.
+            [this, &evaluations](std::vector<double>& x) {
                 ++evaluations;
                 return objective_function_(x);
             },

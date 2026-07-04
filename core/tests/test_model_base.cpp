@@ -46,7 +46,12 @@ class StubNormalModel : public ModelBase {
         // No-op stub (T5 scope): SetDefaultParameters is exercised in the full Models phase.
     }
 
-    double data_log_likelihood(const std::vector<double>& p) const override {
+    bestfit::models::ValidationResult validate() const override {
+        // Trivially-valid stub (validate() became pure virtual on ModelBase in M8).
+        return {};
+    }
+
+    double data_log_likelihood(std::vector<double>& p) const override {
         double mu = p[0];
         double sigma = p[1];
         if (sigma <= 0.0) return std::numeric_limits<double>::quiet_NaN();

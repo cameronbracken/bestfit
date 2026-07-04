@@ -26,7 +26,7 @@
 
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/univariate_distribution_model.hpp"
+#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
@@ -64,7 +64,8 @@ void test_sign_convention_matches_log_likelihood() {
     MaximumAPosteriori map(model, OptimizationMethod::NelderMead);
     CHECK_TRUE(map.estimate());
 
-    double from_model = model.log_likelihood(map.best_parameter_set().values);
+    std::vector<double> best = map.best_parameter_set().values;  // mutable lvalue (M14 signature)
+    double from_model = model.log_likelihood(best);
     CHECK_NEAR(map.maximum_log_likelihood(), from_model, 1e-9);
 }
 

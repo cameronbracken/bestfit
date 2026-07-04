@@ -25,7 +25,10 @@
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/univariate_distribution_model.hpp"
+#include "bestfit/models/model_spec.hpp"
+#include "bestfit/models/support/model_base.hpp"
+#include "bestfit/models/support/simulatable.hpp"
+#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/data/histogram.hpp"
@@ -1549,13 +1552,17 @@ static void run_bootstrap(const json& spec) {
 // --- model_estimation path -----------------------------------------------------------------
 //
 // One estimate() run per case (mirrors mcmc_sampler's/bootstrap's single-stateful-glue-call
-// contract): build a `UnivariateDistributionModel` from `construct.model.{family, dataset}` via
-// the distribution factory (the "estimation registry" is this one-line call -- there is no
-// separate closed-name registry like mcmc/model_registry.hpp needs, since every family the
-// factory supports plus IMaximumLikelihoodEstimation's default-parameter machinery is already
-// enough to build a model), construct the estimator named by the file-level `target`, call
+// contract): build the model named by `construct.model` through the SHARED spec builder
+// (models/model_spec.hpp -- `type` selects UnivariateDistributionModel (default, incl.
+// censored DataFrames and nonstationary trend specs), MixtureModel, CompetingRisksModel, or
+// PointProcessModel; there is no separate closed-name registry like mcmc/model_registry.hpp
+// needs, since the spec's factory calls plus each model's default-parameter machinery are
+// already enough), construct the estimator named by the file-level `target`, call
 // `estimate()` ONCE, then dispatch every assertion in the case against the cached
-// (model, estimator) pair. See fixtures/README.md's model_estimation section for the schema.
+// (model, estimator) pair. The `Simulation` target (M13) builds the model, skips the
+// estimator, and caches ONE seeded ISimulatable::generate_random_values draw instead; the
+// `simulated_value [i]` method asserts individual draws (the chain_value digest precedent).
+// See fixtures/README.md's model_estimation section for the schema.
 //
 // WIRED (T11 + T12): MaximumLikelihood / MaximumAPosteriori share `parameter [p]`,
 // `max_log_likelihood []`, `aic []`, `bic [n]`, `covariance [i,j]`, `standard_error [p]`,
@@ -1583,23 +1590,40 @@ static estimation::SamplerType parse_sampler_type(const std::string& s) {
 // Holds the model (kept alive -- every estimator stores a reference, not a copy) plus whichever
 // estimator `target` selected, already `estimate()`d once. BayesianAnalysis joins the variant
 // (its method surface is disjoint from ML/MAP; `dispatch_estimation` branches on the held type).
+// M13: the model is now the ModelBase every estimator accepts (all four Phase 5 model types --
+// UnivariateDistributionModel, MixtureModel, CompetingRisksModel (NOT an IUnivariateModel; the
+// C# omits it), PointProcessModel -- derive from it), built through the SHARED spec builder
+// (models/model_spec.hpp) from the serialized `construct.model` object. The `Simulation`
+// target holds no estimator (std::monostate) -- just the cached seeded ISimulatable draw.
 struct EstimationCase {
-    std::unique_ptr<bestfit::models::UnivariateDistributionModel> model;
-    std::variant<std::unique_ptr<estimation::MaximumLikelihood>,
+    std::unique_ptr<bestfit::models::ModelBase> model;
+    std::variant<std::monostate, std::unique_ptr<estimation::MaximumLikelihood>,
                  std::unique_ptr<estimation::MaximumAPosteriori>,
                  std::unique_ptr<estimation::BayesianAnalysis>>
         estimator;
+    std::vector<double> simulated;  // Simulation target only
 };
 
 static EstimationCase build_and_run_estimation(const std::string& target, const json& construct,
                                                  const json& datasets) {
     const auto& model_spec = construct["model"];
     std::vector<double> data;
-    for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
+    if (model_spec.contains("dataset"))
+        for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
 
-    auto model = std::make_unique<bestfit::models::UnivariateDistributionModel>(
-        dist::create_distribution(model_spec["family"].get<std::string>()), data);
+    // One shared construction path for all three harnesses: serialize the spec back to JSON
+    // and hand it to models/model_spec.hpp (see that header for the schema).
+    auto model = bestfit::models::spec::build_model_from_json(model_spec.dump(), data);
 
+    if (target == "Simulation") {
+        auto* simulatable =
+            dynamic_cast<bestfit::models::ISimulatable<std::vector<double>>*>(model.get());
+        if (simulatable == nullptr)
+            throw std::runtime_error("model_estimation Simulation target: model is not ISimulatable");
+        std::vector<double> draws = simulatable->generate_random_values(
+            construct["sample_size"].get<int>(), construct.value("seed", -1));
+        return EstimationCase{std::move(model), std::monostate{}, std::move(draws)};
+    }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori") {
         auto method = construct.contains("optimizer")
                           ? parse_optimization_method(construct["optimizer"].get<std::string>())
@@ -1643,30 +1667,68 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     throw std::runtime_error("unknown model_estimation target: " + target);
 }
 
+// The DataFrame assertion surface (M14): methods reachable from the model's DataFrame under
+// ANY model_estimation target, corroborating the M1/M5 ctest oracles through the PUBLIC path.
+// `plotting_position [kind, i]` reads item i's plotting position from the named series
+// ("exact" | "interval" | "uncertain", in spec order) after ONE calculate_plotting_positions()
+// pass (idempotent -- a pure function of the collections + the plotting parameter; the
+// threshold series is NOT exposed because the C# assigns its positions to a sorted CLONE, so
+// the original items never carry one). `number_of_low_outliers`/`low_outlier_threshold` read
+// the frame's current state (set by the spec's `mgbt_low_outliers` MGBT trigger, or the
+// explicit `low_outlier_threshold`).
+static double dispatch_model_data_frame(bestfit::models::ModelBase& model, const std::string& m,
+                                        const json& a) {
+    auto* udm = dynamic_cast<bestfit::models::UnivariateDistributionModelBase*>(&model);
+    if (udm == nullptr || !udm->has_data_frame())
+        throw std::runtime_error("model_estimation data-frame method on a model without a DataFrame");
+    auto& df = udm->data_frame();
+    if (m == "number_of_low_outliers") return df.number_of_low_outliers();
+    if (m == "low_outlier_threshold") return df.low_outlier_threshold();
+    // plotting_position [kind, i]
+    df.calculate_plotting_positions();
+    std::string kind = a[0].get<std::string>();
+    std::size_t i = static_cast<std::size_t>(a[1].get<int>());
+    if (kind == "exact") return df.exact_series()[i].plotting_position();
+    if (kind == "interval") return df.interval_series()[i].plotting_position();
+    if (kind == "uncertain") return df.uncertain_series()[i].plotting_position();
+    throw std::runtime_error("unknown plotting_position series kind: " + kind);
+}
+
 static double dispatch_estimation(const EstimationCase& ec, const std::string& m, const json& a) {
     auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    // The seeded-simulation digest (M13): reads the vector cached at build time, so it works
+    // for the Simulation target (no estimator) without touching the variant.
+    if (m == "simulated_value") return ec.simulated.at(idx(0));
+    // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
+    if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
+        return dispatch_model_data_frame(*ec.model, m, a);
     return std::visit(
         [&](const auto& est) -> double {
-            using Estimator = std::decay_t<decltype(*est)>;
-            if constexpr (std::is_same_v<Estimator, estimation::BayesianAnalysis>) {
-                if (m == "dic") return est->dic();
-                if (m == "waic") return est->waic();
-                if (m == "looic") return est->looic();
-                if (m == "posterior_mean") return est->results()->posterior_mean.values[idx(0)];
-                if (m == "chain_value")
-                    return est->sampler()->markov_chains()[idx(0)][idx(1)].values[idx(2)];
-                throw std::runtime_error("unknown BayesianAnalysis fixture method: " + m);
+            using Held = std::decay_t<decltype(est)>;
+            if constexpr (std::is_same_v<Held, std::monostate>) {
+                throw std::runtime_error("unknown Simulation fixture method: " + m);
             } else {
-                if (m == "parameter") return est->best_parameter_set().values[idx(0)];
-                if (m == "max_log_likelihood") return est->maximum_log_likelihood();
-                if (m == "aic") return est->get_aic();
-                if (m == "bic") return est->get_bic(a[static_cast<std::size_t>(0)].get<int>());
-                if (m == "standard_error") return est->get_standard_errors()[idx(0)];
-                if (m == "covariance")
-                    return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
-                if (m == "correlation")
-                    return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
-                throw std::runtime_error("unknown model_estimation fixture method: " + m);
+                using Estimator = std::decay_t<decltype(*est)>;
+                if constexpr (std::is_same_v<Estimator, estimation::BayesianAnalysis>) {
+                    if (m == "dic") return est->dic();
+                    if (m == "waic") return est->waic();
+                    if (m == "looic") return est->looic();
+                    if (m == "posterior_mean") return est->results()->posterior_mean.values[idx(0)];
+                    if (m == "chain_value")
+                        return est->sampler()->markov_chains()[idx(0)][idx(1)].values[idx(2)];
+                    throw std::runtime_error("unknown BayesianAnalysis fixture method: " + m);
+                } else {
+                    if (m == "parameter") return est->best_parameter_set().values[idx(0)];
+                    if (m == "max_log_likelihood") return est->maximum_log_likelihood();
+                    if (m == "aic") return est->get_aic();
+                    if (m == "bic") return est->get_bic(a[static_cast<std::size_t>(0)].get<int>());
+                    if (m == "standard_error") return est->get_standard_errors()[idx(0)];
+                    if (m == "covariance")
+                        return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                    if (m == "correlation")
+                        return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                    throw std::runtime_error("unknown model_estimation fixture method: " + m);
+                }
             }
         },
         ec.estimator);

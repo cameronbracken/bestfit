@@ -1,0 +1,138 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Exact oracle values dumped from the REAL RMC.BestFit MaximumLikelihood via tools/oracle_emitter --dump (M14) and reproduced by tools/verify_oracles.py. Exercises the `competing_risks` model type: component families through the factory into CompetingRisksModel -- which is NOT an IUnivariateModel (the C# omits it) but IS a ModelBase, which is all the estimators require. Parameter layout: the concatenated component parameters [Gumbel location, Gumbel scale, Weibull scale, Weibull shape]. The M13 smoke dataset pinned the Weibull shape at ~99.998 (its 100 constraint bound); this dataset (25 draws of max(Gumbel, Weibull) processes, seed-derived, hand-rounded) fits fully interior (shape ~13.02). NelderMead point values rel 1e-9; standard errors rel 5e-3, a DOCUMENTED looser tier than the Phase 4 1e-5 Hessian band: for O(1e4)-scale parameters NumericalDiff clamps the step to MaxStep = 1e-2, so the Hessian second differences sit close to the double-rounding cancellation floor -- measured C++-vs-C# divergence up to ~1.1e-3 (pure noise; the fit itself matches to ~1e-12).",
+  "datasets": {
+    "cr_series": [
+      7872.0,
+      8624.0,
+      5894.0,
+      12540.0,
+      4322.0,
+      17586.0,
+      8307.0,
+      6009.0,
+      13320.0,
+      10641.0,
+      6301.0,
+      8458.0,
+      3545.0,
+      8838.0,
+      13628.0,
+      15105.0,
+      11742.0,
+      15763.0,
+      9117.0,
+      4116.0,
+      12372.0,
+      5902.0,
+      6038.0,
+      8381.0,
+      14452.0
+    ]
+  },
+  "cases": [
+    {
+      "name": "gumbel_weibull_competing_risks",
+      "construct": {
+        "model": {
+          "type": "competing_risks",
+          "families": [
+            "Gumbel",
+            "Weibull"
+          ],
+          "dataset": "cr_series"
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 7830.417656441772,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 3551.614179979547,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 16841.466370960698,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            3
+          ],
+          "expected": 13.021170408161922,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -240.25520201426502,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "aic",
+          "args": [],
+          "expected": 488.51040402853005,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            0
+          ],
+          "expected": 768.3342806506013,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            1
+          ],
+          "expected": 671.741314837781,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            2
+          ],
+          "expected": 1317.9854406849647,
+          "mode": "rel",
+          "tol": 0.005
+        },
+        {
+          "method": "standard_error",
+          "args": [
+            3
+          ],
+          "expected": 10.300908647129424,
+          "mode": "rel",
+          "tol": 0.005
+        }
+      ]
+    }
+  ]
+}

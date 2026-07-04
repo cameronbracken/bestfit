@@ -16,7 +16,17 @@ namespace bestfit::numerics::math::optimization {
 
 class NelderMead {
    public:
-    using Objective = std::function<double(const std::vector<double>&)>;
+    // MUTABLE-POINT SEMANTICS (M14, C#-fidelity): non-const reference, matching the C#
+    // `Func<double[], double>` objective (arrays are reference types -- an objective CAN
+    // write back into the evaluated point, and RMC.BestFit's MixtureModel does: its
+    // DataLogLikelihood normalizes the weight entries in place, so the reflection/
+    // contraction points this solver stores back into the simplex are the NORMALIZED ones,
+    // exactly like upstream). Lambdas taking `const std::vector<double>&` still convert to
+    // this std::function unchanged, so every non-mutating Phase 0/1 caller is unaffected.
+    // Buffer lifetimes mirror the C# source: the init loop evaluates a COPY of each vertex
+    // (PT), so vertex rows stay raw there; the loop evaluates pr/prr/z in place, so their
+    // post-evaluation values are what lands in the simplex -- identical to upstream.
+    using Objective = std::function<double(std::vector<double>&)>;
 
     NelderMead(Objective objective, int num_parameters, std::vector<double> initial_values,
                std::vector<double> lower_bounds, std::vector<double> upper_bounds)
@@ -59,7 +69,10 @@ class NelderMead {
         optimize();
     }
 
-    double evaluate(const std::vector<double>& values) {
+    // Non-const `values` (see the Objective note above); the best-values copy is taken AFTER
+    // the objective call, so a mutating objective's normalized point is what gets recorded --
+    // matching the C# base's Evaluate() (`values.Clone()` after `ObjectiveFunction(values)`).
+    double evaluate(std::vector<double>& values) {
         double fitness = function_scale_ * objective_(values);
         if (!has_best_ || fitness <= best_fitness_) {
             best_values_ = values;

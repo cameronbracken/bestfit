@@ -1,0 +1,74 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Exact oracle values: authored self-computed (M13), then verified value-for-value against the REAL RMC.BestFit MaximumLikelihood by tools/verify_oracles.py (M14 -- every literal reproduces bit-for-bit from the C# library, so these ARE C#-oracle values). Exercises the `point_process` model type: DataFrame/AMS cascade with explicit threshold/total_years; single-GEV competing-risks mark distribution. rel 1e-8 (one order looser than the 1e-9 deterministic tier: the GEV point-process likelihood surface is flat enough that cross-platform libm ULP differences can shift the long NelderMead trajectory more than a Normal fit's).",
+  "datasets": {
+    "pot_peaks": [
+      950,
+      1020,
+      1130,
+      980,
+      1250,
+      1090,
+      1430,
+      1010,
+      1180,
+      1620,
+      970,
+      1300,
+      1050,
+      1550,
+      1210
+    ]
+  },
+  "cases": [
+    {
+      "name": "gev_point_process_explicit_exposure",
+      "construct": {
+        "model": {
+          "type": "point_process",
+          "dataset": "pot_peaks",
+          "threshold": 900.0,
+          "total_years": 20.0
+        },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 749.9865433018036,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 567.8416431105793,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "parameter",
+          "args": [
+            2
+          ],
+          "expected": 0.6095659975230949,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "max_log_likelihood",
+          "args": [],
+          "expected": -117.66563619560641,
+          "mode": "rel",
+          "tol": 1e-08
+        }
+      ]
+    }
+  ]
+}

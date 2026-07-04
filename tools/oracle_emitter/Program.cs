@@ -1429,30 +1429,195 @@ static BayesianAnalysis.SamplerType ParseSamplerType(string s) => s switch
     _ => throw new Exception($"unknown model_estimation sampler: {s}")
 };
 
-// Builds the real BestFit `UnivariateDistribution` model from a case's `construct.model`
-// ({family, dataset}) and returns the already-run estimator selected by `target`. For
+// --- Phase 5 model-spec construction (Task M14) ---------------------------------------------
+//
+// Builds the SAME `construct.model` spec the three runners hand to the shared C++ builder
+// (core/include/bestfit/models/model_spec.hpp; schema in fixtures/README.md's model_estimation
+// section) against the REAL RMC.BestFit model classes, so one fixture file drives all four
+// harnesses. `type` dispatch, the `data_frame` inline arrays, `trends`, and `parameter_values`
+// mirror the C++ builder's semantics exactly. A spec without `type`/`data_frame`/`trends`
+// builds exactly what the Phase 4 emitter built (DataFrame { ExactSeries } +
+// UnivariateDistribution) -- byte-for-byte.
+
+// A `{ "family": ..., "parameters": [...] }` distribution spec -> a parameterized
+// distribution through the same factory every other fixture kind uses (mirrors
+// model_spec.hpp's build_spec_distribution).
+static UnivariateDistributionBase BuildSpecDistribution(JsonElement spec)
+{
+    var dist = UnivariateDistributionFactory.CreateDistribution(
+        Enum.Parse<UnivariateDistributionType>(spec.GetProperty("family").GetString()!));
+    if (spec.TryGetProperty("parameters", out var ps))
+        dist.SetParameters(ps.EnumerateArray().Select(ParseNum).ToArray());
+    return dist;
+}
+
+// A `data_frame` spec object -> a real RMC.BestFit DataFrame. Threshold processing happens at
+// the model boundary (every model's DataFrame setter runs ProcessThresholdSeries itself),
+// exactly like the C++ port. The optional `mgbt_low_outliers` flag (M14) triggers the PUBLIC
+// SetLowOutliersFromMGBT() path at the frame boundary, before the model ctor -- flagging low
+// outliers and setting LowOutlierThreshold, which left-censors the flagged values in the fit.
+static BestFitModels.DataFrame BuildSpecDataFrame(JsonElement dfSpec)
+{
+    var df = new BestFitModels.DataFrame();
+    if (dfSpec.TryGetProperty("exact", out var exactEl))
+        df.ExactSeries = new ExactSeries(exactEl.EnumerateArray().Select(e => new ExactData(
+            e.GetProperty("index").GetInt32(), e.GetProperty("value").GetDouble(), 0d,
+            e.TryGetProperty("is_low_outlier", out var lo) && lo.GetBoolean())).ToList());
+    if (dfSpec.TryGetProperty("interval", out var intervalEl))
+        df.IntervalSeries = new IntervalSeries(intervalEl.EnumerateArray().Select(e =>
+            new IntervalData(e.GetProperty("index").GetInt32(), e.GetProperty("lower").GetDouble(),
+                e.GetProperty("value").GetDouble(), e.GetProperty("upper").GetDouble())).ToList());
+    if (dfSpec.TryGetProperty("threshold", out var thresholdEl))
+        df.ThresholdSeries = new ThresholdSeries(thresholdEl.EnumerateArray().Select(e =>
+            new ThresholdData(e.GetProperty("start_index").GetInt32(),
+                              e.GetProperty("end_index").GetInt32(),
+                              e.GetProperty("value").GetDouble())
+            { NumberAbove = e.GetProperty("number_above").GetInt32() }).ToList());
+    if (dfSpec.TryGetProperty("uncertain", out var uncertainEl))
+        df.UncertainSeries = new UncertainSeries(uncertainEl.EnumerateArray().Select(e =>
+            new UncertainData(e.GetProperty("index").GetInt32(),
+                              BuildSpecDistribution(e.GetProperty("distribution")))).ToList());
+    if (dfSpec.TryGetProperty("low_outlier_threshold", out var lot))
+        df.LowOutlierThreshold = lot.GetDouble();
+    if (dfSpec.TryGetProperty("mgbt_low_outliers", out var mgbt) && mgbt.GetBoolean())
+        df.SetLowOutliersFromMGBT();
+    return df;
+}
+
+// Resolves a model spec's data source: the inline `data_frame` object when present, otherwise
+// an exact-only frame over the file-level `dataset` values (the Phase 4 path, byte-for-byte).
+static BestFitModels.DataFrame BuildModelDataFrame(JsonElement modelSpec,
+                                                   Dictionary<string, double[]> datasets)
+{
+    if (modelSpec.TryGetProperty("data_frame", out var dfSpec)) return BuildSpecDataFrame(dfSpec);
+    if (modelSpec.TryGetProperty("dataset", out var ds))
+        return new BestFitModels.DataFrame { ExactSeries = new ExactSeries(datasets[ds.GetString()!]) };
+    throw new Exception("model spec requires either 'dataset' or 'data_frame'");
+}
+
+// `families` -> distribution types (mixture / competing_risks component lists).
+static List<UnivariateDistributionType> ParseFamilies(JsonElement modelSpec) =>
+    modelSpec.GetProperty("families").EnumerateArray()
+        .Select(f => Enum.Parse<UnivariateDistributionType>(f.GetString()!)).ToList();
+
+// The `construct.model` dispatch (mirrors model_spec.hpp's build_model): `type` defaults to
+// "univariate_distribution" (the Phase 4 behavior). All four model types derive from
+// UnivariateDistributionModelBase, which carries the DataFrame property the M14 data-frame
+// assertion methods (plotting_position / number_of_low_outliers / low_outlier_threshold) read.
+static BestFitModels.UnivariateDistributionModelBase BuildSpecModel(
+    JsonElement modelSpec, Dictionary<string, double[]> datasets)
+{
+    string type = modelSpec.TryGetProperty("type", out var t)
+        ? t.GetString()! : "univariate_distribution";
+    BestFitModels.UnivariateDistributionModelBase model;
+    if (type == "univariate_distribution")
+    {
+        var distType = Enum.Parse<UnivariateDistributionType>(modelSpec.GetProperty("family").GetString()!);
+        var ud = new BestFitModels.UnivariateDistribution(
+            BuildModelDataFrame(modelSpec, datasets), distType);
+        if (modelSpec.TryGetProperty("trends", out var trendsEl))
+        {
+            var trends = trendsEl.EnumerateArray().ToArray();
+            ud.IsNonstationary = true;
+
+            // Pass 1: attach every trend (SetTrendModel supplies the data-driven defaults),
+            // then override the anchor where the spec asks -- mirroring model_spec.hpp.
+            foreach (var tr in trends)
+            {
+                int p = tr.GetProperty("parameter").GetInt32();
+                ud.SetTrendModel(p, Enum.Parse<RMC.BestFit.Models.TrendFunctions.Support.TrendModelType>(
+                    tr.GetProperty("type").GetString()!));
+                if (tr.TryGetProperty("start_index", out var si))
+                    ud.TrendModels[p].StartIndex = si.GetInt32();
+            }
+
+            // Pass 2 (after the parameter layout is final): explicit per-trend values
+            // overwrite their slice of the full parameter vector, applied through ONE
+            // SetParameterValues call (the sync-safe setter the model mandates).
+            bool hasValues = false;
+            var full = ud.Parameters.Select(mp => mp.Value).ToList();
+            foreach (var tr in trends)
+            {
+                if (!tr.TryGetProperty("values", out var valuesEl)) continue;
+                hasValues = true;
+                int p = tr.GetProperty("parameter").GetInt32();
+                int offset = 0;
+                for (int j = 0; j < p; j++) offset += ud.TrendModels[j].NumberOfParameters;
+                var values = valuesEl.EnumerateArray().Select(ParseNum).ToArray();
+                if (values.Length != ud.TrendModels[p].NumberOfParameters)
+                    throw new Exception("trend spec 'values' length does not match the trend's parameter count");
+                for (int k = 0; k < values.Length; k++) full[offset + k] = values[k];
+            }
+            if (hasValues) ud.SetParameterValues(full);
+        }
+        model = ud;
+    }
+    else if (type == "mixture")
+    {
+        model = new BestFitModels.MixtureModel(BuildModelDataFrame(modelSpec, datasets),
+            ParseFamilies(modelSpec),
+            modelSpec.TryGetProperty("zero_inflated", out var zi) && zi.GetBoolean());
+    }
+    else if (type == "competing_risks")
+    {
+        model = new BestFitModels.CompetingRisksModel(BuildModelDataFrame(modelSpec, datasets),
+            ParseFamilies(modelSpec));
+    }
+    else if (type == "point_process")
+    {
+        // Default-construct (non-seasonal GEV competing-risks distribution), assign the frame,
+        // then the optional knobs in C#-property order: UseDefaults before the explicit
+        // Threshold/TotalYears so an explicit value is never clobbered by the defaults cascade.
+        var pp = new BestFitModels.PointProcessModel();
+        pp.DataFrame = BuildModelDataFrame(modelSpec, datasets);
+        if (modelSpec.TryGetProperty("use_defaults", out var udFlag)) pp.UseDefaults = udFlag.GetBoolean();
+        if (modelSpec.TryGetProperty("threshold", out var th)) pp.Threshold = th.GetDouble();
+        if (modelSpec.TryGetProperty("total_years", out var ty)) pp.TotalYears = ty.GetDouble();
+        model = pp;
+    }
+    else
+    {
+        throw new Exception($"unknown model_estimation model type: {type}");
+    }
+
+    // Optional model-level `parameter_values`: one sync-safe SetParameterValues call, last.
+    if (modelSpec.TryGetProperty("parameter_values", out var pv))
+        model.SetParameterValues(pv.EnumerateArray().Select(ParseNum).ToList());
+    return model;
+}
+
+// Builds the real BestFit model from a case's `construct.model` (see BuildSpecModel) and
+// returns it together with the already-run estimator selected by `target` (null plus the
+// cached seeded draw vector for the estimator-less `Simulation` target). For
 // BayesianAnalysis, applies the fixture's `sampler` + `settings` knobs (UseSimulationDefaults /
 // UseAdvancedSimulationDefaults set false FIRST so the explicit values aren't clobbered by the
 // ctor's defaulting), then runs synchronously via `RunAsync(null, false, parallel: false)` --
 // `parallel: false` sets `Sampler.ParallelizeChains = false` so the chain generation is serial,
 // matching the C++ port (which has no ParallelizeChains) so the seeded chain digest reproduces
 // bit-identically. (DIC/WAIC/LOOIC still use Parallel.For internally; see the fixture note.)
-static object BuildEstimation(string target, JsonElement construct,
-                              Dictionary<string, double[]> datasets)
+static (BestFitModels.UnivariateDistributionModelBase model, object? estimator, double[]? simulated)
+    BuildEstimation(string target, JsonElement construct, Dictionary<string, double[]> datasets)
 {
-    var modelSpec = construct.GetProperty("model");
-    var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
-    var distType = Enum.Parse<UnivariateDistributionType>(modelSpec.GetProperty("family").GetString()!);
-    var model = new BestFitModels.UnivariateDistribution(
-        new BestFitModels.DataFrame { ExactSeries = new ExactSeries(data) }, distType);
+    var model = BuildSpecModel(construct.GetProperty("model"), datasets);
 
+    if (target == "Simulation")
+    {
+        // No estimator: ONE seeded ISimulatable draw cached at build time (M13/M14); the
+        // `simulated_value [i]` method asserts individual draws (the chain_value digest
+        // precedent -- the C# stream is the oracle R/Python must reproduce bit-identically).
+        if (model is not BestFitModels.ISimulatable<double[]> sim)
+            throw new Exception("model_estimation Simulation target: model is not ISimulatable");
+        var draws = sim.GenerateRandomValues(construct.GetProperty("sample_size").GetInt32(),
+            construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
+        return (model, null, draws);
+    }
     if (target == "MaximumLikelihood")
     {
         var method = construct.TryGetProperty("optimizer", out var o)
             ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.DifferentialEvolution;
         var mle = new MaximumLikelihood(model, method);
         if (!mle.Estimate()) throw new Exception("MaximumLikelihood.Estimate() returned false");
-        return mle;
+        return (model, mle, null);
     }
     if (target == "MaximumAPosteriori")
     {
@@ -1460,7 +1625,7 @@ static object BuildEstimation(string target, JsonElement construct,
             ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.DifferentialEvolution;
         var map = new MaximumAPosteriori(model, method);
         if (!map.Estimate()) throw new Exception("MaximumAPosteriori.Estimate() returned false");
-        return map;
+        return (model, map, null);
     }
     if (target == "BayesianAnalysis")
     {
@@ -1482,7 +1647,7 @@ static object BuildEstimation(string target, JsonElement construct,
             if (settings.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
         }
         ba.RunAsync(null, false, false).GetAwaiter().GetResult();
-        return ba;
+        return (model, ba, null);
     }
     throw new Exception($"unknown model_estimation target: {target}");
 }
@@ -1523,9 +1688,51 @@ static double DispatchBayesian(BayesianAnalysis ba, string m, JsonElement[] a)
     }
 }
 
-static double DispatchEstimation(object est, string m, JsonElement[] a)
+// The DataFrame assertion surface (M14): methods reachable from the model's DataFrame under
+// ANY model_estimation target, corroborating the M1/M5 ctest oracles through the PUBLIC path.
+// `plotting_position [kind, i]` reads item i's PlottingPosition from the named series
+// ("exact" | "interval" | "uncertain", in spec order) after ONE CalculatePlottingPositions()
+// pass (idempotent -- a pure function of the collections + PlottingParameter; threshold-series
+// positions are NOT exposed because the C# assigns them to a sorted CLONE, so the original
+// items never carry one). `number_of_low_outliers`/`low_outlier_threshold` read the frame's
+// current state (set by the spec's `mgbt_low_outliers` MGBT trigger, or the explicit
+// `low_outlier_threshold`).
+static double DispatchModelDataFrame(BestFitModels.UnivariateDistributionModelBase model,
+                                     string m, JsonElement[] a)
 {
-    switch (est)
+    var df = model.DataFrame;
+    switch (m)
+    {
+        case "number_of_low_outliers": return df.NumberOfLowOutliers;
+        case "low_outlier_threshold": return df.LowOutlierThreshold;
+        case "plotting_position":
+        {
+            df.CalculatePlottingPositions();
+            string seriesKind = a[0].GetString()!;
+            int i = a[1].GetInt32();
+            return seriesKind switch
+            {
+                "exact" => df.ExactSeries[i].PlottingPosition,
+                "interval" => df.IntervalSeries[i].PlottingPosition,
+                "uncertain" => df.UncertainSeries[i].PlottingPosition,
+                var s => throw new Exception($"unknown plotting_position series kind: {s}")
+            };
+        }
+        default: throw new Exception($"unknown model_estimation fixture method: {m}");
+    }
+}
+
+static double DispatchEstimation(
+    (BestFitModels.UnivariateDistributionModelBase model, object? estimator, double[]? simulated) ec,
+    string m, JsonElement[] a)
+{
+    // The seeded-simulation digest (M13/M14): reads the vector cached at build time.
+    if (m == "simulated_value")
+        return (ec.simulated ?? throw new Exception("simulated_value outside a Simulation case"))[a[0].GetInt32()];
+    // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
+    if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
+        return DispatchModelDataFrame(ec.model, m, a);
+    switch (ec.estimator)
     {
         case MaximumLikelihood mle:
             return DispatchMlMap(m, a, mle.BestParameterSet, mle.MaximumLogLikelihood, mle.GetAIC(),
@@ -1537,8 +1744,10 @@ static double DispatchEstimation(object est, string m, JsonElement[] a)
                 map.GetCorrelationMatrix());
         case BayesianAnalysis ba:
             return DispatchBayesian(ba, m, a);
+        case null:
+            throw new Exception($"unknown Simulation fixture method: {m}");
         default:
-            throw new Exception($"unknown estimator type: {est.GetType().Name}");
+            throw new Exception($"unknown estimator type: {ec.estimator.GetType().Name}");
     }
 }
 
@@ -1919,7 +2128,7 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
         foreach (var c in root.GetProperty("cases").EnumerateArray())
         {
             string caseName = c.GetProperty("name").GetString()!;
-            object estimator;
+            (BestFitModels.UnivariateDistributionModelBase model, object? estimator, double[]? simulated) estimator;
             try { estimator = BuildEstimation(estTarget, c.GetProperty("construct"), estDatasets); }
             catch (Exception ex)
             {
