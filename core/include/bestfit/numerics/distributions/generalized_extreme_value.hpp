@@ -213,6 +213,34 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase,
                     a / k * std::pow(mll, k) * std::log(mll)};
     }
 
+    // Jacobian of the quantile transformation for a set of probabilities (one per
+    // parameter), plus its determinant (C# IStandardError.QuantileJacobian, line 747;
+    // ported additively in M12 -- PointProcessModel's multi-quantile prior branch needs the
+    // determinant). C# ArgumentOutOfRangeException -> std::out_of_range.
+    math::linalg::Matrix2D quantile_jacobian(const std::vector<double>& probabilities,
+                                             double& determinant) const {
+        if (static_cast<int>(probabilities.size()) != number_of_parameters()) {
+            throw std::out_of_range(
+                "The number of probabilities must be the same length as the number of "
+                "distribution parameters.");
+        }
+        // Get gradients.
+        auto dQp1 = quantile_gradient(probabilities[0]);
+        auto dQp2 = quantile_gradient(probabilities[1]);
+        auto dQp3 = quantile_gradient(probabilities[2]);
+        // Compute determinant.
+        // |a b c|
+        // |d e f|
+        // |g h i|
+        // |A| = a(ei - fh) - b(di - fg) + c(dh - eg)
+        double a = dQp1[0], b = dQp1[1], c = dQp1[2];
+        double d = dQp2[0], e = dQp2[1], f = dQp2[2];
+        double g = dQp3[0], h = dQp3[1], i = dQp3[2];
+        determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+        // Return Jacobian.
+        return {{a, b, c}, {d, e, f}, {g, h, i}};
+    }
+
     // Delta-method variance of the quantile (MLE).
     double quantile_variance(double probability, int sample_size) const {
         auto covar = parameter_covariance(sample_size);
