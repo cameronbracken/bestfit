@@ -18,7 +18,10 @@
 //   - IModel.Clone() -- deep-copy semantics belong with the concrete models (T6+), which know
 //     their own non-ModelBase state.
 //   - ToXElement() -- XML serialization, no compute-layer caller.
-//   - Validate() -- returns (bool, List<string>), a desktop-app diagnostic surface.
+// Validate() (deferred in the Phase 4 slice) is ported as of M8: the C# abstract
+// `(bool IsValid, List<string> ValidationMessages) Validate()` is the pure-virtual
+// `validate()` below, returning the shared ValidationResult
+// (models/support/validation_result.hpp).
 //   - INotifyPropertyChanged / PropertyChanged / RaisePropertyChange / Parameter_PropertyChanged
 //     -- WPF data-binding plumbing; `parameters_` is a plain std::vector here, no change
 //     notification is threaded through it.
@@ -42,6 +45,7 @@
 #include "bestfit/models/support/data_component.hpp"
 #include "bestfit/models/support/model_parameter.hpp"
 #include "bestfit/models/support/prior_component.hpp"
+#include "bestfit/models/support/validation_result.hpp"
 
 namespace bestfit::models {
 
@@ -132,6 +136,10 @@ class ModelBase {
 
     // C# `SetDefaultParameters()`.
     virtual void set_default_parameters() = 0;
+
+    // C# `Validate()` (ModelBase.cs line 173, abstract): validates the current state of the
+    // model and reports any issues found.
+    virtual ValidationResult validate() const = 0;
 
    protected:
     std::vector<ModelParameter> parameters_;

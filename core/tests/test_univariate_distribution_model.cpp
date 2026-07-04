@@ -1,38 +1,69 @@
-// Standalone test for bestfit::models::UnivariateDistributionModel (Phase 4, Task T6).
+// Standalone test for bestfit::models::UnivariateDistributionModel (Phase 4 T6 + Phase 5 M8).
 //
-// Oracle for behavior is the C# source itself (upstream/RMC-BestFit/src/RMC.BestFit/Models/
-// UnivariateDistribution/UnivariateDistribution.cs @ fc28c0c), STATIONARY EXACT-DATA path
-// only -- see the header of univariate_distribution_model.hpp for the exact method/line
-// mapping. This ctest asserts SELF-CONSISTENCY (log-likelihood vs closed-form Normal,
-// pointwise sum, invalid-parameter -inf guards, default-parameter construction). The
-// absolute match to the real C# model's bounds/initials/priors is validated later by the
-// T12 emitter oracle against the fixture-driven runners; there is no fixtures/ entry for
-// this file (same rationale as test_model_base.cpp).
+// Oracle for behavior is the C# source itself:
+//   - upstream/RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
+//     UnivariateDistribution.cs @ fc28c0c (stationary path; nonstationary is M9), and its
+//     base UnivariateDistributionModelBase.cs @ fc28c0c;
+//   - transcriptions of the upstream test classes (stationary methods only):
+//     RMC.BestFit.Tests/Univariate/UnivariateDistributionTests.cs,
+//     UnivariateDistributionExpandedTests.cs, ThresholdLikelihoodGuardTests.cs, and
+//     Test_Numerics/Mathematics/Integration/Test_Integration.cs (Test_GaussLegendre20).
+// The remaining checks are SELF-CONSISTENCY (log-likelihood vs closed-form Normal, pointwise
+// sums, invalid-parameter -inf guards, default-parameter construction, censored-data
+// consistency across the four series types). Hardcoded oracles are allowed here (internal
+// support); public-API oracle values stay in fixtures/ only. The absolute match to the real
+// C# model is validated by the T12 dotnet emitter against the fixture-driven runners.
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
+#include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/support/data_component.hpp"
 #include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/univariate_distribution_model.hpp"
+#include "bestfit/models/support/quantile_prior.hpp"
+#include "bestfit/models/support/validation_result.hpp"
+#include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
+#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/exponential.hpp"
+#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "bestfit/numerics/distributions/gumbel.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/uniform.hpp"
+#include "bestfit/numerics/math/integration/integration.hpp"
 #include "check.hpp"
 
 using bestfit::models::DataComponent;
 using bestfit::models::DataComponentType;
+using bestfit::models::DataFrame;
+using bestfit::models::ExactData;
+using bestfit::models::ExactSeries;
+using bestfit::models::IntervalData;
+using bestfit::models::ThresholdData;
+using bestfit::models::UncertainData;
 using bestfit::models::UnivariateDistributionModel;
+using bestfit::models::ValidationResult;
+using bestfit::numerics::distributions::GeneralizedExtremeValue;
+using bestfit::numerics::distributions::Gumbel;
 using bestfit::numerics::distributions::Normal;
 using bestfit::numerics::distributions::UnivariateDistributionType;
+using bestfit::numerics::math::integration::Integration;
 
 namespace {
+
+constexpr double kInf = std::numeric_limits<double>::infinity();
 
 // Phase-4 dataset (brief's canonical sample).
 std::vector<double> sample_data() {
     return {12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600};
 }
+
+// ===========================================================================================
+// Phase 4 (T6/T12) checks -- must keep passing unchanged after the M8 DataFrame rebase.
+// ===========================================================================================
 
 void test_data_log_likelihood_matches_closed_form_normal() {
     UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
@@ -218,9 +249,676 @@ void test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component() {
     CHECK_EQ(without_jeffreys.size(), model.parameters().size());
 }
 
+// ===========================================================================================
+// M8: additive Numerics ports -- censored likelihood methods on UnivariateDistributionBase
+// (UnivariateDistributionBase.cs:146-201 @ a2c4dbf) and Integration.GaussLegendre20
+// (Integration.cs:62 @ a2c4dbf).
+// ===========================================================================================
+
+// Term-for-term contract of the four small censored-likelihood methods against the surface
+// they are defined from (C# bodies are one-liners over LogPDF/LogCDF/LogCCDF/CDF).
+void test_distribution_base_censored_log_likelihood_methods() {
+    Normal n(100.0, 10.0);
+
+    CHECK_NEAR(n.log_likelihood(105.0), n.log_pdf(105.0), 1e-15);
+    CHECK_NEAR(n.log_likelihood_left_censored(90.0, 3), 3.0 * n.log_cdf(90.0), 1e-12);
+    CHECK_NEAR(n.log_likelihood_right_censored(110.0, 2), 2.0 * n.log_ccdf(110.0), 1e-12);
+    CHECK_NEAR(n.log_likelihood_intervals(95.0, 105.0),
+               std::log(n.cdf(105.0) - n.cdf(95.0)), 1e-12);
+
+    // Degenerate interval -> log(0) = -inf (the C# Math.Log(0) behavior).
+    CHECK_TRUE(n.log_likelihood_intervals(105.0, 105.0) == -kInf);
+}
+
+// Transcribed: Test_Integration.Test_GaussLegendre20 (three oracle integrands).
+void test_gauss_legendre20_oracles() {
+    // x^3 over [0,1] = 0.25 (exact for degree <= 39)
+    double e1 = Integration::gauss_legendre20([](double x) { return x * x * x; }, 0.0, 1.0);
+    CHECK_NEAR(e1, 0.25, 1e-14);
+
+    // Cosine over [0,1] = sin(1)
+    double e2 = Integration::gauss_legendre20([](double x) { return std::cos(x); }, 0.0, 1.0);
+    CHECK_NEAR(e2, std::sin(1.0), 1e-14);
+
+    // log(x) over [1,2] = 2*ln(2) - 1
+    double e3 = Integration::gauss_legendre20([](double x) { return std::log(x); }, 1.0, 2.0);
+    CHECK_NEAR(e3, 2.0 * std::log(2.0) - 1.0, 1e-14);
+}
+
+// ===========================================================================================
+// M8: transcriptions of UnivariateDistributionTests.cs (stationary surface).
+// ===========================================================================================
+
+// Deterministic Normal(100, 15) fixture (C# InlineNormalData: fixed RNG seed 12345; the
+// bit-exact Mersenne Twister makes the C++ sample identical to the C# one).
+const std::vector<double>& inline_normal_data() {
+    static const std::vector<double> data = Normal(100.0, 15.0).generate_random_values(100, 12345);
+    return data;
+}
+
+// Deterministic GEV(50, 15, 0.1) fixture (C# InlineGEVData, seed 23456).
+const std::vector<double>& inline_gev_data() {
+    static const std::vector<double> data =
+        GeneralizedExtremeValue(50.0, 15.0, 0.1).generate_random_values(100, 23456);
+    return data;
+}
+
+DataFrame make_data_frame(const std::vector<double>& data) {
+    DataFrame df;
+    df.set_exact_series(ExactSeries(data));
+    return df;
+}
+
+const std::vector<double> kInlineNormalTrueParams{100.0, 15.0};
+
+// C# Test_Constructor_CreatesValidModel.
+void test_constructor_creates_valid_model() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    CHECK_TRUE(model.distribution_type() == UnivariateDistributionType::Normal);
+    CHECK_TRUE(model.parameters().size() > 0);
+}
+
+// C# Test_Constructor_AllDistributionTypes: every supported type constructs with a non-null
+// distribution and parameters (unsupported enum values throw in the C# ctor and are marked
+// Inconclusive there; here the unsupported-type throw is asserted explicitly).
+// GeneralizedNormal is on the C# whitelist but its distribution is not ported to the C++
+// core yet, so it is left out of the construct loop (the C# test's catch-all Inconclusive
+// gives the same tolerance); see the is_supported test below, where it still reports true.
+void test_constructor_all_supported_distribution_types() {
+    const UnivariateDistributionType supported[] = {
+        UnivariateDistributionType::Exponential,
+        UnivariateDistributionType::GammaDistribution,
+        UnivariateDistributionType::GeneralizedExtremeValue,
+        UnivariateDistributionType::GeneralizedLogistic,
+        UnivariateDistributionType::GeneralizedPareto,
+        UnivariateDistributionType::Gumbel,
+        UnivariateDistributionType::KappaFour,
+        UnivariateDistributionType::LnNormal,
+        UnivariateDistributionType::Logistic,
+        UnivariateDistributionType::LogNormal,
+        UnivariateDistributionType::LogPearsonTypeIII,
+        UnivariateDistributionType::Normal,
+        UnivariateDistributionType::PearsonTypeIII,
+        UnivariateDistributionType::Weibull,
+    };
+    for (UnivariateDistributionType t : supported) {
+        UnivariateDistributionModel model(make_data_frame(inline_normal_data()), t);
+        CHECK_TRUE(model.distribution().number_of_parameters() > 0);
+        CHECK_TRUE(model.parameters().size() > 0);
+    }
+
+    // Unsupported type -> C# ArgumentOutOfRangeException -> std::out_of_range.
+    bool threw = false;
+    try {
+        UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                          UnivariateDistributionType::TruncatedNormal);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK_TRUE(threw);
+}
+
+// C# Test_Constructor_NormalDistribution_HasTwoParameters.
+void test_constructor_normal_has_two_parameters() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(2));
+}
+
+// C# Test_Constructor_GEV_HasThreeParameters.
+void test_constructor_gev_has_three_parameters() {
+    UnivariateDistributionModel model(make_data_frame(inline_gev_data()),
+                                      UnivariateDistributionType::GeneralizedExtremeValue);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(3));
+}
+
+// C# Test_Parameters_HasCorrectCount.
+void test_parameters_has_correct_count() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+    CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(2));
+}
+
+// C# Test_SetParameterValues_UpdatesDistribution.
+void test_set_parameter_values_updates_distribution() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    model.set_parameter_values({123.0, 45.0});
+
+    std::vector<double> dist_params = model.distribution().get_parameters();
+    CHECK_NEAR(dist_params[0], 123.0, 1e-10);
+    CHECK_NEAR(dist_params[1], 45.0, 1e-10);
+}
+
+// C# Test_SetParameterValues_UpdatesModelParameters.
+void test_set_parameter_values_updates_model_parameters() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    model.set_parameter_values({50.0, 10.0});
+
+    CHECK_NEAR(model.parameters()[0].value(), 50.0, 1e-10);
+    CHECK_NEAR(model.parameters()[1].value(), 10.0, 1e-10);
+}
+
+// C# Test_SetParameterValues_RoundTrip (Math.PI / Math.E).
+void test_set_parameter_values_round_trip() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    std::vector<double> original{3.14159265358979312, 2.71828182845904509};
+    model.set_parameter_values(original);
+
+    for (std::size_t i = 0; i < original.size(); ++i) {
+        CHECK_NEAR(model.parameters()[i].value(), original[i], 1e-15);
+    }
+}
+
+// C# Test_LogLikelihood_ReturnsFiniteValue.
+void test_log_likelihood_returns_finite_value() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    double ll = model.log_likelihood(kInlineNormalTrueParams);
+
+    CHECK_TRUE(!std::isnan(ll));
+    CHECK_TRUE(!std::isinf(ll));
+}
+
+// C# Test_LogLikelihood_NegativeForContinuousDistributions.
+void test_log_likelihood_negative_for_continuous_distributions() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    CHECK_TRUE(model.log_likelihood(kInlineNormalTrueParams) < 0.0);
+}
+
+// C# Test_LogLikelihood_InvalidParameters_ReturnsNegativeInfinity.
+void test_log_likelihood_invalid_parameters_returns_negative_infinity() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    CHECK_TRUE(model.log_likelihood({100.0, -10.0}) == -kInf);
+}
+
+// C# Test_LogPrior_WithUniformPrior_ReturnsFinite.
+void test_log_prior_with_uniform_prior_returns_finite() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    model.parameters()[0].set_prior_distribution(
+        std::make_unique<bestfit::numerics::distributions::Uniform>(-1e10, 1e10));
+    model.parameters()[1].set_prior_distribution(
+        std::make_unique<bestfit::numerics::distributions::Uniform>(0.001, 1e10));
+
+    double log_prior = model.prior_log_likelihood(kInlineNormalTrueParams);
+
+    CHECK_TRUE(!std::isnan(log_prior));
+    CHECK_TRUE(log_prior != -kInf);
+}
+
+// C# Test_LogPrior_WithInformativePrior_ReturnsFinite.
+void test_log_prior_with_informative_prior_returns_finite() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    model.parameters()[0].set_prior_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.parameters()[1].set_prior_distribution(
+        std::make_unique<bestfit::numerics::distributions::Exponential>(0.001, 15.0));
+
+    double log_prior = model.prior_log_likelihood(kInlineNormalTrueParams);
+
+    CHECK_TRUE(!std::isnan(log_prior));
+    CHECK_TRUE(!std::isinf(log_prior));
+}
+
+// C# Test_LogPrior_OutsidePriorSupport_ReturnsNegativeInfinity.
+void test_log_prior_outside_prior_support_returns_negative_infinity() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    model.parameters()[0].set_prior_distribution(
+        std::make_unique<bestfit::numerics::distributions::Uniform>(0.0, 50.0));
+    model.parameters()[1].set_prior_distribution(
+        std::make_unique<bestfit::numerics::distributions::Uniform>(1.0, 100.0));
+
+    // mu = 100 is outside [0, 50]
+    CHECK_TRUE(model.prior_log_likelihood({100.0, 15.0}) == -kInf);
+}
+
+// C# Test_Validate_ValidModel_ReturnsTrue.
+void test_validate_valid_model_returns_true() {
+    UnivariateDistributionModel model(make_data_frame(inline_normal_data()),
+                                      UnivariateDistributionType::Normal);
+
+    ValidationResult result = model.validate();
+    CHECK_TRUE(result.is_valid);
+}
+
+// C# Test_ChangeDistributionType_UpdatesParameters.
+void test_change_distribution_type_updates_parameters() {
+    UnivariateDistributionModel normal_model(make_data_frame(inline_normal_data()),
+                                             UnivariateDistributionType::Normal);
+    UnivariateDistributionModel gev_model(make_data_frame(inline_normal_data()),
+                                          UnivariateDistributionType::GeneralizedExtremeValue);
+
+    CHECK_EQ(normal_model.parameters().size(), static_cast<std::size_t>(2));
+    CHECK_EQ(gev_model.parameters().size(), static_cast<std::size_t>(3));
+}
+
+// ===========================================================================================
+// M8: transcriptions of UnivariateDistributionExpandedTests.cs (stationary methods only).
+// ===========================================================================================
+
+// C# MakeNormalModel helper (deterministic, no RNG dependence).
+UnivariateDistributionModel make_normal_model() {
+    DataFrame df;
+    df.set_exact_series(ExactSeries(
+        {12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600}));
+    return UnivariateDistributionModel(std::move(df), UnivariateDistributionType::Normal);
+}
+
+// C# IsSupportedDistributionType_AllSupportedValues_ReturnTrue.
+void test_is_supported_distribution_type_all_supported_values_return_true() {
+    const UnivariateDistributionType supported[] = {
+        UnivariateDistributionType::Exponential,
+        UnivariateDistributionType::GammaDistribution,
+        UnivariateDistributionType::GeneralizedExtremeValue,
+        UnivariateDistributionType::GeneralizedLogistic,
+        UnivariateDistributionType::GeneralizedNormal,
+        UnivariateDistributionType::GeneralizedPareto,
+        UnivariateDistributionType::Gumbel,
+        UnivariateDistributionType::KappaFour,
+        UnivariateDistributionType::LnNormal,
+        UnivariateDistributionType::Logistic,
+        UnivariateDistributionType::LogNormal,
+        UnivariateDistributionType::LogPearsonTypeIII,
+        UnivariateDistributionType::Normal,
+        UnivariateDistributionType::PearsonTypeIII,
+        UnivariateDistributionType::Weibull,
+    };
+    for (UnivariateDistributionType t : supported) {
+        CHECK_TRUE(UnivariateDistributionModel::is_supported_distribution_type(t));
+    }
+    // And a not-in-whitelist type reports false.
+    CHECK_TRUE(!UnivariateDistributionModel::is_supported_distribution_type(
+        UnivariateDistributionType::TruncatedNormal));
+}
+
+// C# CreateDistribution_Normal_ReturnsNormalInstance.
+void test_create_distribution_normal_returns_normal_instance() {
+    auto dist = UnivariateDistributionModel::create_distribution(UnivariateDistributionType::Normal);
+    CHECK_TRUE(dynamic_cast<Normal*>(dist.get()) != nullptr);
+}
+
+// C# CreateDistribution_Gumbel_ReturnsGumbelInstance.
+void test_create_distribution_gumbel_returns_gumbel_instance() {
+    auto dist = UnivariateDistributionModel::create_distribution(UnivariateDistributionType::Gumbel);
+    CHECK_TRUE(dynamic_cast<Gumbel*>(dist.get()) != nullptr);
+}
+
+// C# CreateDistribution_GEV_ReturnsGEVInstance.
+void test_create_distribution_gev_returns_gev_instance() {
+    auto dist = UnivariateDistributionModel::create_distribution(
+        UnivariateDistributionType::GeneralizedExtremeValue);
+    CHECK_TRUE(dynamic_cast<GeneralizedExtremeValue*>(dist.get()) != nullptr);
+}
+
+// C# Validate_WellFormedModel_IsValid.
+void test_validate_well_formed_model_is_valid() {
+    UnivariateDistributionModel model = make_normal_model();
+    CHECK_TRUE(model.validate().is_valid);
+}
+
+// C# Validate_NullDataFrame_IsInvalid. ADAPTED: the C# test sets `model.DataFrame = null!`;
+// the C++ setter takes a DataFrame by value (no null), so the same validate branch is reached
+// through a model constructed without a data frame (the C# parameterless ctor state).
+void test_validate_no_data_frame_is_invalid() {
+    UnivariateDistributionModel model;  // C# default ctor: LP3, no DataFrame
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+
+    ValidationResult result = model.validate();
+
+    CHECK_TRUE(!result.is_valid);
+    bool mentions_data_frame = false;
+    for (const auto& m : result.validation_messages) {
+        if (m.find("DataFrame") != std::string::npos) mentions_data_frame = true;
+    }
+    CHECK_TRUE(mentions_data_frame);
+}
+
+// C# Validate_LogDistributionWithNegativeData_IsInvalid.
+void test_validate_log_distribution_with_negative_data_is_invalid() {
+    DataFrame df;
+    df.set_exact_series(ExactSeries({-1.0, 5.0, 10.0, 20.0, 100.0}));
+    UnivariateDistributionModel model(std::move(df), UnivariateDistributionType::LogNormal);
+
+    ValidationResult result = model.validate();
+
+    CHECK_TRUE(!result.is_valid);
+    bool mentions_log = false;
+    for (const auto& m : result.validation_messages) {
+        if (m.find("Log") != std::string::npos || m.find("non positive") != std::string::npos)
+            mentions_log = true;
+    }
+    CHECK_TRUE(mentions_log);
+}
+
+// C# GetParameterValues_ReturnsParameterCount (stationary path: index is unused by the
+// ConstantTrend-equivalent, see the model header).
+void test_get_parameter_values_returns_parameter_count() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({100.0, 15.0});
+
+    std::vector<double> values = model.get_parameter_values(0);
+    CHECK_EQ(values.size(), static_cast<std::size_t>(2));
+}
+
+// C# GetParameterValues_ReturnsCurrentValues.
+void test_get_parameter_values_returns_current_values() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({42.0, 7.5});
+
+    std::vector<double> values = model.get_parameter_values(0);
+    CHECK_NEAR(values[0], 42.0, 1e-12);
+    CHECK_NEAR(values[1], 7.5, 1e-12);
+}
+
+// C# PointwiseDataLogLikelihood_LengthEqualsSeriesCount.
+void test_pointwise_length_equals_series_count() {
+    UnivariateDistributionModel model = make_normal_model();
+    model.set_parameter_values({16500.0, 6000.0});
+
+    std::vector<double> pw = model.pointwise_data_log_likelihood({16500.0, 6000.0});
+    CHECK_EQ(pw.size(), model.data_frame().exact_series().count());
+}
+
+// C# PointwiseDataLogLikelihood_SumEqualsDataLogLikelihood.
+void test_pointwise_sum_equals_data_log_likelihood() {
+    UnivariateDistributionModel model = make_normal_model();
+    std::vector<double> p{16500.0, 6000.0};
+
+    std::vector<double> pw = model.pointwise_data_log_likelihood(p);
+    double total = model.data_log_likelihood(p);
+
+    double sum = 0.0;
+    for (double v : pw) sum += v;
+    CHECK_NEAR(sum, total, 1e-6);
+}
+
+// C# LogLikelihood_EqualsDataPlusPrior.
+void test_log_likelihood_equals_data_plus_prior() {
+    UnivariateDistributionModel model = make_normal_model();
+    std::vector<double> p{16500.0, 6000.0};
+
+    double total = model.log_likelihood(p);
+    double data_ll = model.data_log_likelihood(p);
+    double prior_ll = model.prior_log_likelihood(p);
+
+    CHECK_NEAR(total, data_ll + prior_ll, 1e-6);
+}
+
+// C# Distribution_SetToNewType_UpdatesDistributionType.
+void test_distribution_set_to_new_type_updates_distribution_type() {
+    UnivariateDistributionModel model = make_normal_model();
+
+    model.set_distribution(
+        UnivariateDistributionModel::create_distribution(UnivariateDistributionType::Gumbel));
+
+    CHECK_TRUE(model.distribution_type() == UnivariateDistributionType::Gumbel);
+}
+
+// ===========================================================================================
+// M8: transcriptions of ThresholdLikelihoodGuardTests.cs -- the ModelKind.Univariate /
+// stationary rows only. Deferred with the sibling models: the Mixture rows (M10), the
+// CompetingRisks rows (M11), the PointProcess rows + the PointProcess-only test (M12), and
+// the nonstationary split-threshold likelihood test (M9).
+// ===========================================================================================
+
+// C# CreateThresholdDataFrame + CreateUnivariateModel, then SetThresholdCounts (reflection
+// upstream; the C++ ThresholdData setters are public, so the counts are set directly --
+// crucially AFTER the model boundary, so nothing reprocesses/overwrites the edge case).
+UnivariateDistributionModel make_threshold_guard_model() {
+    DataFrame df;
+    df.threshold_series().add(ThresholdData(2000, 2002, 100.0));
+
+    UnivariateDistributionModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.set_data_frame(std::move(df));
+    return model;
+}
+
+// C# ThresholdLikelihood_OneZeroCountSide_RemainsFiniteAndPointwiseConsistent,
+// DataRows (Univariate, 0, 2) and (Univariate, 2, 0).
+void check_threshold_one_zero_count_side(int number_below, int number_above) {
+    UnivariateDistributionModel model = make_threshold_guard_model();
+    ThresholdData& threshold = model.data_frame().threshold_series()[0];
+    threshold.set_number_below(number_below);
+    threshold.set_number_above(number_above);
+
+    std::vector<double> p{100.0, 10.0};
+    double total = model.data_log_likelihood(p);
+    std::vector<double> pointwise = model.pointwise_data_log_likelihood(p);
+    std::vector<DataComponent> components = model.pointwise_data_log_likelihood_components(p);
+
+    CHECK_TRUE(!std::isnan(total) && !std::isinf(total));
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(components.size(), static_cast<std::size_t>(1));
+    CHECK_TRUE(!std::isnan(pointwise[0]) && !std::isinf(pointwise[0]));
+    double sum = 0.0;
+    for (double v : pointwise) sum += v;
+    CHECK_NEAR(total, sum, 1e-10);
+    CHECK_NEAR(pointwise[0], components[0].log_likelihood(), 1e-10);
+    CHECK_EQ(components[0].count(), number_below + number_above);
+}
+
+void test_threshold_likelihood_one_zero_count_side_remains_finite_and_pointwise_consistent() {
+    check_threshold_one_zero_count_side(0, 2);
+    check_threshold_one_zero_count_side(2, 0);
+}
+
+// C# ThresholdLikelihood_BothCountsZero_ContributesZero, DataRow(ModelKind.Univariate).
+void test_threshold_likelihood_both_counts_zero_contributes_zero() {
+    UnivariateDistributionModel model = make_threshold_guard_model();
+    ThresholdData& threshold = model.data_frame().threshold_series()[0];
+    threshold.set_number_below(0);
+    threshold.set_number_above(0);
+
+    std::vector<double> p{100.0, 10.0};
+    double total = model.data_log_likelihood(p);
+    std::vector<double> pointwise = model.pointwise_data_log_likelihood(p);
+    std::vector<DataComponent> components = model.pointwise_data_log_likelihood_components(p);
+
+    CHECK_NEAR(total, 0.0, 1e-12);
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(1));
+    CHECK_NEAR(pointwise[0], 0.0, 1e-12);
+    CHECK_EQ(components.size(), static_cast<std::size_t>(1));
+    CHECK_NEAR(components[0].log_likelihood(), 0.0, 1e-12);
+    CHECK_EQ(components[0].count(), 0);
+}
+
+// ===========================================================================================
+// M8: internal-support consistency checks for the full stationary censored likelihood
+// (exact / low-outlier / uncertain / interval / threshold). The C# source is the oracle for
+// structure; these checks recompute each branch term-for-term from the same primitives.
+// ===========================================================================================
+
+// The M4->M8 contract: set_data_frame() must run process_threshold_series() at the model
+// boundary (the effective C# once-per-mutation event cadence), and the likelihood entry
+// points must NOT reprocess (the C# StationaryData_LogLikelihood never calls
+// ProcessThresholdSeries -- see the base header's cadence note).
+void test_set_data_frame_processes_threshold_series_at_model_boundary() {
+    DataFrame df;
+    ThresholdData threshold(2000, 2002, 100.0);
+    threshold.set_number_above(1);
+    df.threshold_series().add(threshold);
+
+    UnivariateDistributionModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.set_data_frame(std::move(df));
+
+    // Duration 3, NumberAbove 1, no explicit points -> NumberBelow = 2.
+    CHECK_EQ(model.data_frame().threshold_series()[0].number_below(), 2);
+    CHECK_EQ(model.data_frame().threshold_series()[0].number_above(), 1);
+
+    // Zero the counts by hand; the likelihood entry points must not reprocess them.
+    model.data_frame().threshold_series()[0].set_number_below(0);
+    model.data_frame().threshold_series()[0].set_number_above(0);
+    CHECK_NEAR(model.data_log_likelihood({100.0, 10.0}), 0.0, 1e-12);
+    CHECK_EQ(model.data_frame().threshold_series()[0].number_below(), 0);
+    CHECK_EQ(model.data_frame().threshold_series()[0].number_above(), 0);
+}
+
+// Mixed-type frame: one plain exact, one low-outlier exact, one uncertain, one interval, one
+// threshold window. Every branch of the stationary type-switch is exercised and recomputed.
+void test_mixed_censored_data_log_likelihood_matches_componentwise_recomputation() {
+    DataFrame df;
+    df.exact_series().add(ExactData(0, 105.0));
+    df.exact_series().add(ExactData(1, 80.0, 0.0, /*is_low_outlier=*/true));
+    df.uncertain_series().add(UncertainData(2, std::make_unique<Normal>(102.0, 5.0)));
+    df.interval_series().add(IntervalData(3, 90.0, 95.0, 100.0));
+    df.threshold_series().add(ThresholdData(2000, 2002, 100.0));
+    df.set_low_outlier_threshold(95.0);
+
+    UnivariateDistributionModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.set_data_frame(std::move(df));
+
+    // Post-boundary: threshold window (duration 3) has NumberBelow = 3 (no explicit points
+    // inside its 2000-2002 window; the other series sit at indexes 0-3).
+    CHECK_EQ(model.data_frame().threshold_series()[0].number_below(), 3);
+    // Adjust to a two-sided window for coverage of both censored sides.
+    model.data_frame().threshold_series()[0].set_number_below(2);
+    model.data_frame().threshold_series()[0].set_number_above(1);
+
+    std::vector<double> p{100.0, 10.0};
+    Normal fitted(100.0, 10.0);
+
+    // Exact.
+    double expected_exact = fitted.log_pdf(105.0);
+    // Low outlier -> LogLikelihood_LeftCensored(LowOutlierThreshold, 1).
+    double expected_low_outlier = fitted.log_cdf(95.0);
+    // Uncertain -> log(GaussLegendre20(me.pdf * model.pdf) / mass) over the 1e-8 window.
+    Normal me(102.0, 5.0);
+    double a = me.inverse_cdf(1e-8);
+    double b = me.inverse_cdf(1.0 - 1e-8);
+    double mass = (1.0 - 1e-8) - 1e-8;
+    double ep = Integration::gauss_legendre20(
+                    [&](double q) { return me.pdf(q) * fitted.pdf(q); }, a, b) /
+                mass;
+    double expected_uncertain = std::log(ep);
+    // Interval -> log(CDF(upper) - CDF(lower)).
+    double expected_interval = std::log(fitted.cdf(100.0) - fitted.cdf(90.0));
+    // Threshold -> below * LogCDF + above * LogCCDF.
+    double expected_threshold = 2.0 * fitted.log_cdf(100.0) + 1.0 * fitted.log_ccdf(100.0);
+
+    double expected_total = expected_exact + expected_low_outlier + expected_uncertain +
+                            expected_interval + expected_threshold;
+
+    CHECK_NEAR(model.data_log_likelihood(p), expected_total, 1e-9);
+
+    // Pointwise: C# ordering is exact, uncertain, interval, threshold.
+    std::vector<double> pointwise = model.pointwise_data_log_likelihood(p);
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(5));
+    CHECK_NEAR(pointwise[0], expected_exact, 1e-9);
+    CHECK_NEAR(pointwise[1], expected_low_outlier, 1e-9);
+    CHECK_NEAR(pointwise[2], expected_uncertain, 1e-9);
+    CHECK_NEAR(pointwise[3], expected_interval, 1e-9);
+    CHECK_NEAR(pointwise[4], expected_threshold, 1e-9);
+
+    // Components: types, values, counts, and names per the C# component construction.
+    std::vector<DataComponent> components = model.pointwise_data_log_likelihood_components(p);
+    CHECK_EQ(components.size(), static_cast<std::size_t>(5));
+    for (std::size_t i = 0; i < components.size(); ++i) {
+        CHECK_EQ(components[i].index(), static_cast<int>(i));
+        CHECK_NEAR(components[i].log_likelihood(), pointwise[i], 1e-12);
+    }
+    CHECK_TRUE(components[0].type() == DataComponentType::Exact);
+    CHECK_NEAR(components[0].value(), 105.0, 1e-12);
+    // Low outlier component reports the low-outlier threshold as its value (C# 1450).
+    CHECK_TRUE(components[1].type() == DataComponentType::Exact);
+    CHECK_NEAR(components[1].value(), 95.0, 1e-12);
+    // Uncertain component reports the measurement-error distribution mean.
+    CHECK_TRUE(components[2].type() == DataComponentType::Uncertain);
+    CHECK_NEAR(components[2].value(), 102.0, 1e-12);
+    // Interval component reports the midpoint.
+    CHECK_TRUE(components[3].type() == DataComponentType::Interval);
+    CHECK_NEAR(components[3].value(), 95.0, 1e-12);
+    // Threshold component: LeftCensored with the combined count and "start-end" name.
+    CHECK_TRUE(components[4].type() == DataComponentType::LeftCensored);
+    CHECK_NEAR(components[4].value(), 100.0, 1e-12);
+    CHECK_EQ(components[4].count(), 3);
+    CHECK_TRUE(components[4].name().has_value());
+    CHECK_TRUE(*components[4].name() == "2000-2002");
+}
+
+// Invalid parameters against the mixed frame: the pointwise array covers the total explicit
+// record count and the component list carries the per-type placeholder values (C# 1410-1431).
+void test_mixed_censored_data_invalid_parameters_placeholders() {
+    DataFrame df;
+    df.exact_series().add(ExactData(0, 105.0));
+    df.uncertain_series().add(UncertainData(2, std::make_unique<Normal>(102.0, 5.0)));
+    df.interval_series().add(IntervalData(3, 90.0, 95.0, 100.0));
+    df.threshold_series().add(ThresholdData(2000, 2002, 100.0));
+
+    UnivariateDistributionModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_distribution(std::make_unique<Normal>(100.0, 10.0));
+    model.set_data_frame(std::move(df));
+
+    std::vector<double> invalid_p{100.0, -1.0};
+    CHECK_TRUE(model.data_log_likelihood(invalid_p) == -kInf);
+
+    std::vector<double> pointwise = model.pointwise_data_log_likelihood(invalid_p);
+    CHECK_EQ(pointwise.size(), static_cast<std::size_t>(4));
+    for (double v : pointwise) CHECK_TRUE(v == -kInf);
+
+    std::vector<DataComponent> components =
+        model.pointwise_data_log_likelihood_components(invalid_p);
+    CHECK_EQ(components.size(), static_cast<std::size_t>(4));
+    for (const auto& c : components) CHECK_TRUE(c.log_likelihood() == -kInf);
+    CHECK_TRUE(components[0].type() == DataComponentType::Exact);
+    CHECK_TRUE(components[1].type() == DataComponentType::Uncertain);
+    CHECK_NEAR(components[1].value(), 102.0, 1e-12);  // ME distribution mean
+    CHECK_TRUE(components[2].type() == DataComponentType::Interval);
+    CHECK_NEAR(components[2].value(), 95.0, 1e-12);  // interval midpoint
+    CHECK_TRUE(components[3].type() == DataComponentType::LeftCensored);
+    CHECK_EQ(components[3].count(), 3);  // NumberBelow + NumberAbove after boundary processing
+}
+
+// ===========================================================================================
+// M8: base-class (UnivariateDistributionModelBase) surface.
+// ===========================================================================================
+
+void test_base_class_quantile_prior_state_defaults() {
+    UnivariateDistributionModel model = make_normal_model();
+    bestfit::models::UnivariateDistributionModelBase& base = model;
+
+    // Defaults per the C# backing fields (lines 60-70).
+    CHECK_TRUE(base.use_jeffreys_rule_for_scale());
+    CHECK_TRUE(!base.enable_quantile_priors());
+    CHECK_TRUE(!base.use_single_quantile());
+    CHECK_TRUE(base.quantile_priors().empty());
+
+    // The QuantilePriors setter replaces the list (and reprocesses; observable here via the
+    // stored list -- _quantilePriorsTrue is protected in both languages).
+    std::vector<bestfit::models::QuantilePrior> priors;
+    priors.emplace_back(0.01, std::make_unique<Normal>(75000.0, 15000.0));
+    base.set_quantile_priors(std::move(priors));
+    CHECK_EQ(base.quantile_priors().size(), static_cast<std::size_t>(1));
+    CHECK_NEAR(base.quantile_priors()[0].alpha(), 0.01, 1e-15);
+}
+
 }  // namespace
 
 int main() {
+    // Phase 4 checks (unchanged).
     test_data_log_likelihood_matches_closed_form_normal();
     test_data_log_likelihood_negative_infinity_on_invalid_parameters();
     test_pointwise_sums_to_data_log_likelihood_and_has_matching_length();
@@ -233,6 +931,55 @@ int main() {
     test_jeffreys_prior_adds_negative_log_scale_term();
     test_jeffreys_prior_nonpositive_scale_is_negative_infinity();
     test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component();
+
+    // M8: additive Numerics ports.
+    test_distribution_base_censored_log_likelihood_methods();
+    test_gauss_legendre20_oracles();
+
+    // M8: UnivariateDistributionTests.cs transcriptions.
+    test_constructor_creates_valid_model();
+    test_constructor_all_supported_distribution_types();
+    test_constructor_normal_has_two_parameters();
+    test_constructor_gev_has_three_parameters();
+    test_parameters_has_correct_count();
+    test_set_parameter_values_updates_distribution();
+    test_set_parameter_values_updates_model_parameters();
+    test_set_parameter_values_round_trip();
+    test_log_likelihood_returns_finite_value();
+    test_log_likelihood_negative_for_continuous_distributions();
+    test_log_likelihood_invalid_parameters_returns_negative_infinity();
+    test_log_prior_with_uniform_prior_returns_finite();
+    test_log_prior_with_informative_prior_returns_finite();
+    test_log_prior_outside_prior_support_returns_negative_infinity();
+    test_validate_valid_model_returns_true();
+    test_change_distribution_type_updates_parameters();
+
+    // M8: UnivariateDistributionExpandedTests.cs transcriptions (stationary).
+    test_is_supported_distribution_type_all_supported_values_return_true();
+    test_create_distribution_normal_returns_normal_instance();
+    test_create_distribution_gumbel_returns_gumbel_instance();
+    test_create_distribution_gev_returns_gev_instance();
+    test_validate_well_formed_model_is_valid();
+    test_validate_no_data_frame_is_invalid();
+    test_validate_log_distribution_with_negative_data_is_invalid();
+    test_get_parameter_values_returns_parameter_count();
+    test_get_parameter_values_returns_current_values();
+    test_pointwise_length_equals_series_count();
+    test_pointwise_sum_equals_data_log_likelihood();
+    test_log_likelihood_equals_data_plus_prior();
+    test_distribution_set_to_new_type_updates_distribution_type();
+
+    // M8: ThresholdLikelihoodGuardTests.cs transcriptions (Univariate rows).
+    test_threshold_likelihood_one_zero_count_side_remains_finite_and_pointwise_consistent();
+    test_threshold_likelihood_both_counts_zero_contributes_zero();
+
+    // M8: internal-support consistency for the censored surface.
+    test_set_data_frame_processes_threshold_series_at_model_boundary();
+    test_mixed_censored_data_log_likelihood_matches_componentwise_recomputation();
+    test_mixed_censored_data_invalid_parameters_placeholders();
+
+    // M8: base-class surface.
+    test_base_class_quantile_prior_state_defaults();
 
     return bftest::summary("univariate_distribution_model");
 }
