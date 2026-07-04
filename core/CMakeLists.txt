@@ -19,6 +19,7 @@ set(BF_TESTS
   test_gev_estimation
   test_goodness_of_fit
   test_mcmc_extra
+  test_multiple_grubbs_beck
   test_matrix_regularization
   test_stratification
   test_numerical_diff
