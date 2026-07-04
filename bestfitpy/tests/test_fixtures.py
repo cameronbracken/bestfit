@@ -436,6 +436,66 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
         _check(actual, a)
 
 
+# --- model_estimation path -----------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one _core.estimation_run (ML/MAP) or
+# _core.estimation_bayes_run (BayesianAnalysis, T12) call per case builds the model, runs
+# estimate() ONCE, and returns the full result surface; every assertion in the case reads that
+# single cached dict. See fixtures/README.md's model_estimation section for the full method
+# list and the `bic`/`chain_value` design notes. `bic` is the one exception to the "cached
+# dict" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read
+# live from the fixture's `args[0]` at dispatch time via `_core.estimation_bic`, not
+# precomputed alongside the rest.
+
+
+def _dispatch_estimation(
+    result: dict, method: str, args: list, target: str, family: str, data: list, optimizer: str
+):
+    if method == "parameter":
+        return result["parameters"][int(args[0])]
+    if method == "max_log_likelihood":
+        return result["max_log_likelihood"]
+    if method == "aic":
+        return result["aic"]
+    if method == "bic":
+        return _core.estimation_bic(target, family, data, optimizer, int(args[0]))
+    if method == "covariance":
+        return result["covariance"][int(args[0])][int(args[1])]
+    if method == "standard_error":
+        return result["standard_errors"][int(args[0])]
+    if method == "correlation":
+        return result["correlation"][int(args[0])][int(args[1])]
+    if method == "dic":
+        return result["dic"]
+    if method == "waic":
+        return result["waic"]
+    if method == "looic":
+        return result["looic"]
+    if method == "posterior_mean":
+        return result["posterior_mean"][int(args[0])]
+    if method == "chain_value":
+        return result["chains"][int(args[0])][int(args[1])][int(args[2])]
+    raise KeyError(f"unknown model_estimation fixture method: {method}")
+
+
+def _run_estimation_case(target: str, construct: dict, assertions: list, datasets: dict):
+    model = construct["model"]
+    data = [float(v) for v in datasets[model["dataset"]]]
+
+    if target == "BayesianAnalysis":
+        sampler = construct.get("sampler", "DEMCzs")
+        settings = construct.get("settings", {})
+        result = _core.estimation_bayes_run(model["family"], data, sampler, settings)
+        optimizer = ""
+    else:
+        optimizer = construct.get("optimizer", "DifferentialEvolution")
+        result = _core.estimation_run(target, model["family"], data, optimizer)
+
+    for a in assertions:
+        args = a.get("args", [])
+        actual = _dispatch_estimation(result, a["method"], args, target, model["family"], data, optimizer)
+        _check(actual, a)
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -542,6 +602,7 @@ def _load_cases():
             "bivariate_copula",
             "mcmc_sampler",
             "bootstrap",
+            "model_estimation",
         ):
             continue
         for case in spec["cases"]:
@@ -556,6 +617,10 @@ CASES = _load_cases()
     "kind,target,datasets,case", CASES, ids=[f"{k}:{t}:{c['name']}" for k, t, _, c in CASES]
 )
 def test_fixture_case(kind, target, datasets, case):
+    if kind == "model_estimation":
+        _run_estimation_case(target, case["construct"], case["assertions"], datasets)
+        return
+
     if kind == "bootstrap":
         _run_bootstrap_case(case["construct"], case["assertions"], datasets)
         return

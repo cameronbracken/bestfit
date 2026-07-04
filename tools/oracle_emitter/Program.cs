@@ -21,6 +21,13 @@ using Numerics.Mathematics.Optimization;
 using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
 using Numerics.Sampling.MCMC;
+// Task T12: the real RMC.BestFit estimation path (subset-compiled -- see OracleEmitter.csproj).
+// `RMC.BestFit` holds ExactSeries; `RMC.BestFit.Models` holds DataFrame + the UnivariateDistribution
+// model; `RMC.BestFit.Estimation` holds MaximumLikelihood / MaximumAPosteriori / BayesianAnalysis /
+// OptimizationMethod. None of these names clash with Numerics (verified), so plain usings are safe.
+using RMC.BestFit;
+using RMC.BestFit.Estimation;
+using BestFitModels = RMC.BestFit.Models;
 
 static double ParseNum(JsonElement v)
 {
@@ -1395,6 +1402,146 @@ static double DispatchBootstrap(Bootstrap<double[]> boot, BootstrapResults resul
     }
 }
 
+// --- model_estimation helpers (Task T12) --------------------------------------------------
+//
+// Drives the REAL RMC.BestFit estimators (MaximumLikelihood / MaximumAPosteriori /
+// BayesianAnalysis), subset-compiled in place (see OracleEmitter.csproj). One build+run per
+// case (mirrors the mcmc_sampler/bootstrap single-stateful-glue-call contract); every assertion
+// dispatches against that one cached estimator. Method-name strings match the C++/R/Python
+// runners EXACTLY so the same fixture file drives all four.
+static OptimizationMethod ParseOptimizationMethod(string s) => s switch
+{
+    "Brent" => OptimizationMethod.Brent,
+    "BFGS" => OptimizationMethod.BFGS,
+    "NelderMead" => OptimizationMethod.NelderMead,
+    "Powell" => OptimizationMethod.Powell,
+    "DifferentialEvolution" => OptimizationMethod.DifferentialEvolution,
+    "MultilevelSingleLinkage" => OptimizationMethod.MultilevelSingleLinkage,
+    _ => throw new Exception($"unknown model_estimation optimizer: {s}")
+};
+
+static BayesianAnalysis.SamplerType ParseSamplerType(string s) => s switch
+{
+    "DEMCz" => BayesianAnalysis.SamplerType.DEMCz,
+    "DEMCzs" => BayesianAnalysis.SamplerType.DEMCzs,
+    "ARWMH" => BayesianAnalysis.SamplerType.ARWMH,
+    "NUTS" => BayesianAnalysis.SamplerType.NUTS,
+    _ => throw new Exception($"unknown model_estimation sampler: {s}")
+};
+
+// Builds the real BestFit `UnivariateDistribution` model from a case's `construct.model`
+// ({family, dataset}) and returns the already-run estimator selected by `target`. For
+// BayesianAnalysis, applies the fixture's `sampler` + `settings` knobs (UseSimulationDefaults /
+// UseAdvancedSimulationDefaults set false FIRST so the explicit values aren't clobbered by the
+// ctor's defaulting), then runs synchronously via `RunAsync(null, false, parallel: false)` --
+// `parallel: false` sets `Sampler.ParallelizeChains = false` so the chain generation is serial,
+// matching the C++ port (which has no ParallelizeChains) so the seeded chain digest reproduces
+// bit-identically. (DIC/WAIC/LOOIC still use Parallel.For internally; see the fixture note.)
+static object BuildEstimation(string target, JsonElement construct,
+                              Dictionary<string, double[]> datasets)
+{
+    var modelSpec = construct.GetProperty("model");
+    var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
+    var distType = Enum.Parse<UnivariateDistributionType>(modelSpec.GetProperty("family").GetString()!);
+    var model = new BestFitModels.UnivariateDistribution(
+        new BestFitModels.DataFrame { ExactSeries = new ExactSeries(data) }, distType);
+
+    if (target == "MaximumLikelihood")
+    {
+        var method = construct.TryGetProperty("optimizer", out var o)
+            ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.DifferentialEvolution;
+        var mle = new MaximumLikelihood(model, method);
+        if (!mle.Estimate()) throw new Exception("MaximumLikelihood.Estimate() returned false");
+        return mle;
+    }
+    if (target == "MaximumAPosteriori")
+    {
+        var method = construct.TryGetProperty("optimizer", out var o)
+            ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.DifferentialEvolution;
+        var map = new MaximumAPosteriori(model, method);
+        if (!map.Estimate()) throw new Exception("MaximumAPosteriori.Estimate() returned false");
+        return map;
+    }
+    if (target == "BayesianAnalysis")
+    {
+        var samplerType = construct.TryGetProperty("sampler", out var s)
+            ? ParseSamplerType(s.GetString()!) : BayesianAnalysis.SamplerType.DEMCzs;
+        var ba = new BayesianAnalysis(model, samplerType)
+        {
+            UseSimulationDefaults = false,
+            UseAdvancedSimulationDefaults = false,
+        };
+        if (construct.TryGetProperty("settings", out var settings))
+        {
+            if (settings.TryGetProperty("seed", out var seedEl)) ba.PRNGSeed = seedEl.GetInt32();
+            if (settings.TryGetProperty("iterations", out var itEl)) ba.Iterations = itEl.GetInt32();
+            if (settings.TryGetProperty("warmup_iterations", out var wiEl)) ba.WarmupIterations = wiEl.GetInt32();
+            if (settings.TryGetProperty("number_of_chains", out var ncEl)) ba.NumberOfChains = ncEl.GetInt32();
+            if (settings.TryGetProperty("thinning_interval", out var tiEl)) ba.ThinningInterval = tiEl.GetInt32();
+            if (settings.TryGetProperty("initial_iterations", out var iiEl)) ba.InitialIterations = iiEl.GetInt32();
+            if (settings.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+        }
+        ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+        return ba;
+    }
+    throw new Exception($"unknown model_estimation target: {target}");
+}
+
+// Shared MaximumLikelihood/MaximumAPosteriori dispatch surface (identical member names on both
+// C# classes). Passed the fit's already-computed pieces so each assertion is a cheap lookup.
+static double DispatchMlMap(string m, JsonElement[] a, ParameterSet best, double maxLL,
+                            double aic, Func<int, double> bic, Matrix cov, double[] se, Matrix corr)
+{
+    int I(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "parameter": return best.Values[I(0)];
+        case "max_log_likelihood": return maxLL;
+        case "aic": return aic;
+        case "bic": return bic(I(0));  // args[0] is a sample size n, not an index
+        case "covariance": return cov[I(0), I(1)];
+        case "standard_error": return se[I(0)];
+        case "correlation": return corr[I(0), I(1)];
+        default: throw new Exception($"unknown model_estimation method for ML/MAP: {m}");
+    }
+}
+
+static double DispatchBayesian(BayesianAnalysis ba, string m, JsonElement[] a)
+{
+    int I(int i) => a[i].GetInt32();
+    var results = ba.Results ?? throw new Exception("BayesianAnalysis.Results is null after RunAsync");
+    switch (m)
+    {
+        case "dic": return ba.DIC;
+        case "waic": return ba.WAIC;
+        case "looic": return ba.LOOIC;
+        case "posterior_mean": return results.PosteriorMean.Values[I(0)];
+        case "chain_value":
+            return (ba.Sampler ?? throw new Exception("BayesianAnalysis.Sampler is null"))
+                .MarkovChains![I(0)][I(1)].Values[I(2)];
+        default: throw new Exception($"unknown model_estimation method for BayesianAnalysis: {m}");
+    }
+}
+
+static double DispatchEstimation(object est, string m, JsonElement[] a)
+{
+    switch (est)
+    {
+        case MaximumLikelihood mle:
+            return DispatchMlMap(m, a, mle.BestParameterSet, mle.MaximumLogLikelihood, mle.GetAIC(),
+                n => mle.GetBIC(n), mle.GetCovarianceMatrix(), mle.GetStandardErrors(),
+                mle.GetCorrelationMatrix());
+        case MaximumAPosteriori map:
+            return DispatchMlMap(m, a, map.BestParameterSet, map.MaximumLogLikelihood, map.GetAIC(),
+                n => map.GetBIC(n), map.GetCovarianceMatrix(), map.GetStandardErrors(),
+                map.GetCorrelationMatrix());
+        case BayesianAnalysis ba:
+            return DispatchBayesian(ba, m, a);
+        default:
+            throw new Exception($"unknown estimator type: {est.GetType().Name}");
+    }
+}
+
 // --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
 // Author a fixture case with placeholder "expected" values, run
 // `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
@@ -1749,6 +1896,55 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 try
                 {
                     double actual = DispatchBootstrap(boot, results, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- model_estimation branch (Task T12) --------------------------------------------------
+    // One estimator build+run per case; dispatch every assertion against that cached estimator.
+    // Same "build once, dispatch many, --dump supported" shape as mcmc_sampler/bootstrap.
+    if (kindStr == "model_estimation")
+    {
+        string estTarget = root.GetProperty("target").GetString()!;
+        var estDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var estDs))
+            foreach (var kv in estDs.EnumerateObject())
+                estDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            object estimator;
+            try { estimator = BuildEstimation(estTarget, c.GetProperty("construct"), estDatasets); }
+            catch (Exception ex)
+            {
+                failures.Add($"{estTarget}/{caseName}: build/run failed: {ex.Message}");
+                fail++;
+                continue;
+            }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{estTarget}/{caseName}/{method}";
+
+                if (dump)
+                {
+                    DumpLine(estTarget, caseName, method, argList,
+                             () => (object)DispatchEstimation(estimator, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    double actual = DispatchEstimation(estimator, method, argList);
                     if (Compare(actual, asrt)) pass++;
                     else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
                 }

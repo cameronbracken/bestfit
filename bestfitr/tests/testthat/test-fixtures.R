@@ -479,6 +479,72 @@ run_bootstrap_case <- function(construct, assertions, datasets) {
   }
 }
 
+# --- model_estimation path -------------------------------------------------------------------
+# Inherently STATEFUL like mcmc_sampler/bootstrap: one bf_estimation_run_ (ML/MAP) or
+# bf_estimation_bayes_run_ (BayesianAnalysis, T12) call per case builds the model, runs
+# estimate() ONCE, and returns the full result surface; every assertion in the case reads that
+# single cached list. See fixtures/README.md's model_estimation section for the full method
+# list and the `bic`/`chain_value` design notes. `bic` is the one exception to the "cached
+# list" contract for ML/MAP: it takes an actual sample size `n` (C# `GetBIC(sampleSize)`), read
+# live from the fixture's `args[[1]]` at dispatch time via `bf_estimation_bic_`, not
+# precomputed alongside the rest.
+
+dispatch_estimation <- function(result, method, args, ctx) {
+  i1 <- function(x) as.integer(x) + 1L  # 0-based fixture index -> 1-based R index
+  switch(method,
+    parameter          = result$parameters[[i1(args[[1]])]],
+    max_log_likelihood = result$max_log_likelihood[[1]],
+    aic                = result$aic[[1]],
+    bic                = ctx$bic_fn(as.integer(args[[1]])),  # args[[1]] is a sample size n, not an index
+    covariance         = result$covariance[i1(args[[1]]), i1(args[[2]])],
+    standard_error     = result$standard_errors[[i1(args[[1]])]],
+    correlation        = result$correlation[i1(args[[1]]), i1(args[[2]])],
+    dic                = result$dic[[1]],
+    waic               = result$waic[[1]],
+    looic              = result$looic[[1]],
+    posterior_mean     = result$posterior_mean[[i1(args[[1]])]],
+    # chain_value [chain, iter, param]: bf_estimation_bayes_run_ returns a flattened
+    # `chain_values` vector + `chain_dims` (n_chains, n_iterations, n_params); recover the
+    # row-major (chain, iter, param) index the C++/Python/C# access order uses.
+    chain_value = {
+      d <- result$chain_dims
+      idx <- args[[1]] * d[2] * d[3] + args[[2]] * d[3] + args[[3]] + 1L
+      result$chain_values[[idx]]
+    },
+    stop(sprintf("unknown model_estimation fixture method: %s", method))
+  )
+}
+
+run_estimation_case <- function(target, construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  model <- construct$model
+  data <- as.double(unlist(datasets[[model$dataset]]))
+
+  if (target == "BayesianAnalysis") {
+    sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
+    s <- construct$settings
+    geti <- function(name, default = -1L) if (!is.null(s[[name]])) as.integer(s[[name]]) else default
+    result <- ns$bf_estimation_bayes_run_(
+      model$family, data, sampler,
+      seed = geti("seed"), iterations = geti("iterations"),
+      warmup_iterations = geti("warmup_iterations"), number_of_chains = geti("number_of_chains"),
+      thinning_interval = geti("thinning_interval"), initial_iterations = geti("initial_iterations"),
+      output_length = geti("output_length")
+    )
+    ctx <- list()
+  } else {
+    optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
+    result <- ns$bf_estimation_run_(target, model$family, data, optimizer)
+    ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model$family, data, optimizer, n))
+  }
+
+  for (a in assertions) {
+    args <- if (is.null(a$args)) list() else a$args
+    actual <- dispatch_estimation(result, a$method, args, ctx)
+    check_assertion(actual, a)
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -487,9 +553,17 @@ test_that("oracle fixtures validate", {
   for (f in files) {
     spec <- jsonlite::read_json(f, simplifyVector = FALSE)
     # Only validate univariate_distribution, multivariate_distribution,
-    # bivariate_copula, mcmc_sampler, and bootstrap fixtures; skip other kinds (e.g.
-    # special_function) which are validated in C++ only and are not exposed to the R
-    # package.
+    # bivariate_copula, mcmc_sampler, bootstrap, and model_estimation fixtures; skip other
+    # kinds (e.g. special_function) which are validated in C++ only and are not exposed to
+    # the R package.
+    if (identical(spec$kind, "model_estimation")) {
+      target <- spec$target
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_estimation_case(target, case$construct, case$assertions, datasets)
+      }
+      next
+    }
     if (identical(spec$kind, "bootstrap")) {
       datasets <- spec$datasets
       for (case in spec$cases) {

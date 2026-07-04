@@ -1,0 +1,32 @@
+{
+  "target": "MaximumAPosteriori",
+  "kind": "model_estimation",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumAPosteriori.cs @ fc28c0c -- exact oracle values dumped from the REAL C# MaximumAPosteriori via tools/oracle_emitter (Task T12). NelderMead is a deterministic simplex (no RNG, no parallel reduction), so the optimized posterior-mode quantities (parameter/max_log_likelihood/aic/bic) reproduce to rel 1e-9 across the 4 independently-built cores. Same tolerance tiers as mle_normal_smoke.json: diagonal covariance/standard_error/correlation at rel 1e-5 (numerical-Hessian finite-difference sensitivity), off-diagonal covariance/correlation at an absolute tolerance (near-zero for the Normal posterior; rel would divide by ~0). Note MAP != MLE here: the C# univariate model applies a Jeffreys 1/scale prior by default (UseJeffreysRuleForScale=true), and its -log(scale) term (derivative -1/sigma) pulls the posterior mode's sigma down relative to the pure MLE -- a flat Uniform(lower,upper) prior has zero gradient in its interior and cannot shift an interior mode. See fixtures/estimation/bayes_normal.json's source note for the same effect on the Bayesian posterior.",
+  "datasets": {
+    "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_nelder_mead",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "NelderMead"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16025.112431170044, "mode": "rel", "tol": 1e-9 },
+        { "method": "parameter", "args": [1], "expected": 4820.336059004547, "mode": "rel", "tol": 1e-9 },
+        { "method": "max_log_likelihood", "args": [], "expected": -134.00568236169357, "mode": "rel", "tol": 1e-9 },
+        { "method": "aic", "args": [], "expected": 272.01136472338715, "mode": "rel", "tol": 1e-9 },
+        { "method": "bic", "args": [10], "expected": 272.6165349093752, "mode": "rel", "tol": 1e-9 },
+        { "method": "covariance", "args": [0, 0], "expected": 2325471.445921774, "mode": "rel", "tol": 1e-5 },
+        { "method": "covariance", "args": [1, 1], "expected": 1054055.811260643, "mode": "rel", "tol": 1e-5 },
+        { "method": "covariance", "args": [0, 1], "expected": -870.832626480227, "mode": "abs", "tol": 1e-2 },
+        { "method": "standard_error", "args": [0], "expected": 1524.9496535695118, "mode": "rel", "tol": 1e-5 },
+        { "method": "standard_error", "args": [1], "expected": 1026.6722024388519, "mode": "rel", "tol": 1e-5 },
+        { "method": "correlation", "args": [0, 0], "expected": 1.0, "mode": "rel", "tol": 1e-9 },
+        { "method": "correlation", "args": [1, 1], "expected": 1.0, "mode": "rel", "tol": 1e-9 },
+        { "method": "correlation", "args": [0, 1], "expected": -0.0005562210015946896, "mode": "abs", "tol": 1e-8 }
+      ]
+    }
+  ]
+}

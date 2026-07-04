@@ -144,6 +144,18 @@ bf_cr_valid_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependen
   .Call(`_bestfitr_bf_cr_valid_`, comp_targets, comp_params_list, minimum_of_rv, dependency, correlation)
 }
 
+bf_estimation_run_ <- function(target, family, dataset, optimizer) {
+  .Call(`_bestfitr_bf_estimation_run_`, target, family, dataset, optimizer)
+}
+
+bf_estimation_bic_ <- function(target, family, dataset, optimizer, n) {
+  .Call(`_bestfitr_bf_estimation_bic_`, target, family, dataset, optimizer, n)
+}
+
+bf_estimation_bayes_run_ <- function(family, dataset, sampler, seed, iterations, warmup_iterations, number_of_chains, thinning_interval, initial_iterations, output_length) {
+  .Call(`_bestfitr_bf_estimation_bayes_run_`, family, dataset, sampler, seed, iterations, warmup_iterations, number_of_chains, thinning_interval, initial_iterations, output_length)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

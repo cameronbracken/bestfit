@@ -3,7 +3,7 @@
   <!-- Dev-only oracle verifier: reproduces the language-neutral fixtures against the real
        USACE-RMC Numerics library so every expected value is confirmed reproducible by the
        source the C++ core is ported from. Not part of any shipped package. Requires dotnet
-       and the upstream/Numerics submodule checked out. -->
+       and the upstream/Numerics + upstream/RMC-BestFit submodules checked out. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -11,10 +11,37 @@
     <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <AssemblyName>oracle_emitter</AssemblyName>
+    <!-- Task T12: subset-compile the REAL RMC.BestFit estimation path (MaximumLikelihood,
+         MaximumAPosteriori, BayesianAnalysis) in place. The full RMC.BestFit assembly does
+         NOT build (a CS0104 YeoJohnsonLink ambiguity in the Analyses layer), so we compile
+         only the Estimation + Models subset the estimators need. Disabling the default
+         compile-item glob (which would otherwise pull in every .cs under the project dir)
+         means the emitter's own sources must be listed explicitly below too (see the
+         DiagnosticsStubs.cs note). -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <BF>$(MSBuildThisFileDirectory)../../upstream/RMC-BestFit/src/RMC.BestFit</BF>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../upstream/Numerics/Numerics/Numerics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The emitter's own sources (must be listed because EnableDefaultCompileItems is off). -->
+    <Compile Include="Program.cs" />
+    <Compile Include="DiagnosticsStubs.cs" />
+
+    <!-- Real RMC.BestFit estimation + models, compiled in place (read-only; never copied or
+         modified under upstream/). Exclude the GMM estimator + its IGMMModel interface and the
+         Bulletin17C distribution (GMM-coupled), none of which the T12 estimators touch, and
+         which pull in additional broken dependencies. -->
+    <Compile Include="$(BF)/Estimation/**/*.cs"
+             Exclude="$(BF)/Estimation/GeneralizedMethodOfMoments.cs" />
+    <Compile Include="$(BF)/Models/**/*.cs"
+             Exclude="$(BF)/Models/Support/IGMMModel.cs;$(BF)/Models/UnivariateDistribution/Bulletin17CDistribution.cs" />
   </ItemGroup>
 
 </Project>

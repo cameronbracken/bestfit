@@ -1,6 +1,6 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, and Phase 3 are
+> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 are
 > **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
@@ -33,9 +33,30 @@
 > MatrixRegularization support) was scoped as the phase's severable final task and is tracked
 > separately as a follow-up rather than landing on this branch. Pending CI run and PR.
 >
+> Phase 4 delivered BestFit's `Estimation` layer (numbered phasing item 5 -- see the phasing
+> list below). The Estimation-support slice: `MatrixRegularization` (MakeSymmetricPositiveDefinite),
+> `Stratify`/`StratificationOptions`, `NumericalDiff` (Hessian + pointwise gradients), and the
+> `OptimizationMethod` enum. The Models slice: `ModelParameter`/`DataComponent`/`PriorComponent`,
+> `IModel`/`ModelBase`, and `UnivariateDistributionModel` (including the Jeffreys 1/scale prior on
+> MAP/Bayesian). The estimators: `MaximumLikelihood`, `MaximumAPosteriori`, and `BayesianAnalysis`
+> (4 samplers -- DEMCz/DEMCzs/ARWMH/NUTS) with diagnostics (DIC/WAIC/LOOIC via PSIS-LOO, point
+> estimates, posterior covariance). A new `model_estimation` fixture kind is wired end-to-end
+> across C++/R/Python with bindings. The oracle emitter now subset-compiles the REAL C#
+> estimators (`verify_oracles.py`: 3751 reproduced, 0 failed), and a seeded DEMCzs chain digest is
+> proven bit-identical across R/Python -- the estimation-layer parity payoff, matching the RNG/MCMC
+> parity Phase 3 established. SEVERED/DEFERRED: GMM + `IGMMModel` + BFGS + the Bulletin17C
+> coupling (blocked in part by an upstream CS0104 compile bug, see
+> `docs/upstream-csharp-issues.md`); the alternate optimizers Powell/MLSL/LocalMethod (gated,
+> throw); `LeverageDiagnostics` and the rest of the `Diagnostics` layer (Influence/PriorInfluence
+> -- the `Compute*Diagnostics` methods are gated stubs); `BayesianAnalysis`'s async/WPF/XML/
+> `GenerateReport` surface. Known limitation carried from Task T7: the Brent/NelderMead optimizer
+> adapters always report status `Success` (the standalone C++ optimizers expose no convergence
+> state) -- values are correct regardless, and the default DE path reports status faithfully.
+> Pending CI run and PR.
+>
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
-> Linux/macOS/Windows as of the Phase 2 merge (PR #4); the Phase 3 branch has not yet been
-> pushed for CI. The dotnet oracle gate is dev-only (not in CI).
+> Linux/macOS/Windows as of the Phase 2 merge (PR #4); the Phase 3 and Phase 4 branches have not
+> yet been pushed for CI. The dotnet oracle gate is dev-only (not in CI).
 >
 > Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
 > USACE-RMC `main`, shallow, dev-only). Still pending: `PORTING_MANIFEST.toml`,
@@ -247,6 +268,12 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
 4. Sampling/MCMC (RWMH, ARWMH, DEMCz/zs, HMC, NUTS, Gibbs, SNIS) + Bootstrap — fixture digests prove
    identical seeded chains across R/Python.
 5. BestFit `Estimation` (MaximumLikelihood, MAP, GMM, BayesianAnalysis, NumericalDiff, OptimizationMethod).
+   [DONE] MaximumLikelihood, MaximumAPosteriori, and BayesianAnalysis (DEMCz/DEMCzs/ARWMH/NUTS)
+   with diagnostics (DIC/WAIC/LOOIC), NumericalDiff, OptimizationMethod, MatrixRegularization,
+   Stratify/StratificationOptions, and the Models slice (ModelParameter/DataComponent/
+   PriorComponent, IModel/ModelBase, UnivariateDistributionModel) ported, fixture-validated in
+   C++/R/Python, and reproduced against C# by the dotnet oracle gate. GMM + IGMMModel + BFGS +
+   the Bulletin17C coupling severed to a follow-up. Pending CI run and PR.
 6. BestFit `Models` (UnivariateDistribution, Bulletin17C, Mixture, CompetingRisks, PointProcess,
    Bivariate, RatingCurve, TimeSeries, SpatialExtremes, Trend/Link functions) — boilerplate skipped,
    DataFrame as adapter.

@@ -725,6 +725,70 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## BUG — CS0104 ambiguous `YeoJohnsonLink` blocks the entire `RMC.BestFit` assembly from compiling
+
+- **Where:** `Analyses/Univariate/Bulletin17CAnalysis.cs` (~lines 2132, 2144).
+- **What:** both `RMC.BestFit.Models.LinkFunctions.YeoJohnsonLink` and `Numerics.Functions.
+  YeoJohnsonLink` are `using`-imported in this file; two unqualified `new YeoJohnsonLink(...)`
+  constructor calls are therefore ambiguous (CS0104), which fails compilation of the entire
+  `RMC.BestFit` assembly, not just this file.
+- **Evidence:** `tools/oracle_emitter` (Task T12) had to work around this to compile any real C#
+  estimator code at all.
+- **Port handling:** the oracle emitter subset-compiles only `Estimation/**` + `Models/**`
+  (excluding `Analyses/**` -- the two GMM/Bulletin17C files -- and GMM) against the clean
+  Numerics build, so the ambiguous file is never compiled. This is a build workaround, not a port
+  of the file; `Bulletin17CAnalysis`/GMM remain unported (severed, tracked separately).
+- **Suggested C# fix:** fully-qualify one of the two `new YeoJohnsonLink(...)` calls (e.g. `new
+  Numerics.Functions.YeoJohnsonLink(...)` or `new RMC.BestFit.Models.LinkFunctions.
+  YeoJohnsonLink(...)`), or remove one of the two conflicting `using` directives from the file.
+
+## ROBUSTNESS — DIC / WAIC / PSIS-LOO parallel-reduction non-reproducibility (extends the BCa `Tools.ParallelAdd` finding)
+
+- **Where:** `RMC.BestFit`'s `BayesianAnalysis.ComputeDIC` (and the population sampler's pooled
+  `Output` accumulation), following the same `Parallel.For`/`Tools.ParallelAdd` pattern as the
+  `Bootstrap.ComputeAccelerationConstants` finding above.
+- **What:** like the BCa acceleration constant, DIC's parallel reduction over posterior draws is
+  not bit-reproducible C#-to-C# run-to-run (~1e-13 relative), for the same reason:
+  `ParallelAdd`'s CAS-retry loop is race-free but not order-fixed, and floating-point addition is
+  not associative.
+- **Evidence:** measured during Task T12's oracle verification of the `bayes_normal` fixture; the
+  fixture's DIC tolerance (`rel: 1e-6`) is sized to this reduction-order noise, not to any
+  C++-vs-C# divergence.
+- **Port handling:** this port computes DIC/WAIC/LOOIC with a plain serial reduction
+  (deterministic within C++, consistent with the same choice made for BCa's acceleration
+  constant), documented at the relevant `bayesian_analysis.hpp` diagnostics code and in
+  `fixtures/README.md`'s tolerance-policy notes.
+- **Suggested C# fix:** none required for correctness; if bit-reproducible DIC/WAIC across runs
+  is a design goal, replace the `Parallel.For`/`ParallelAdd` reduction with a deterministic-order
+  accumulation, matching the suggested fix for the BCa finding above.
+
+## BUG (latent, untested) — UnivariateDistribution's Jeffreys-scale prior indexes `GetParameters[1]`, which throws for single-parameter families
+
+- **Where:** `Numerics/Distributions/Univariate/Base/UnivariateDistribution.cs`,
+  `Prior_LogLikelihood` (~1822-1843), under `UseJeffreysRuleForScale`.
+- **What:** the scale-parameter lookup is `GetParameters[1]` for every family except Gamma/Weibull
+  (which use index 0). For a genuine one-parameter family -- Poisson, Bernoulli, Geometric,
+  Deterministic -- there is no `GetParameters[1]`; indexing it would throw
+  `IndexOutOfRangeException`. This path is only reached if a MAP or Bayesian estimation is
+  actually run against a one-parameter model with the (default-true) `UseJeffreysRuleForScale`
+  flag set -- untested upstream (no `Test_UnivariateDistribution.cs` case constructs MAP/Bayesian
+  against a 1-parameter family) and flood-frequency-irrelevant in practice (GEV/LP3/etc. all have
+  two or more parameters).
+- **Evidence:** static inspection during Tasks T12/T13 while porting the Jeffreys 1/scale prior
+  (`UnivariateDistributionModel::prior_log_likelihood`, `core/include/bestfit/models/
+  univariate_distribution_model.hpp`); not independently reproduced against the real C# library
+  (no fixture exercises a 1-parameter family under MAP/Bayesian).
+- **Port handling:** **intentional divergence** -- the C++ port's `scale_parameter_index()`
+  returns 1 for these families same as C#, but the caller guards `scale_index < p.size()` and
+  silently skips the Jeffreys term instead of indexing out of range (see the code comment at that
+  guard). No crash, no oracle case exists either way.
+- **Suggested C# fix:** guard `GetParameters[1]` (e.g. `if (GetParameters.Length > 1)`) and skip
+  the Jeffreys scale term for one-parameter families, matching the C++ port's behavior; add a
+  regression test constructing MAP/Bayesian against Poisson/Bernoulli/Geometric/Deterministic
+  with `UseJeffreysRuleForScale = true`.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a
