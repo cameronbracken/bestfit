@@ -25,6 +25,7 @@ set(BF_TESTS
   test_numerical_diff
   test_model_parameter
   test_model_base
+  test_quantile_prior
   test_univariate_distribution_model
   test_maximum_likelihood
   test_maximum_a_posteriori
