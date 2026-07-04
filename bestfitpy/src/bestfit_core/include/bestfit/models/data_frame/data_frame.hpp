@@ -47,6 +47,15 @@
 //     ShiftDistribution -- follow-up alongside the estimation consumers)
 //   - XML (ToXElement / XElement constructor), INotifyPropertyChanged, and the
 //     concurrency machinery (_syncRoot, Volatile, SnapshotNonNull)
+//
+// FOLLOW-UPS (M5 ledger finding): create_full_time_series() below sorts the combined series
+// with std::stable_sort, while M5 proved the .NET List<T>.Sort introsort tie order IS
+// oracle-visible in plotting positions (data_frame_plotting.hpp carries the faithful
+// detail::dotnet_list_sort port for its three internal sorts for exactly that reason). No
+// tie-sensitive oracle exercises THIS sort today, but a future oracle pinned to a frame with
+// equal-index ties could trip on the tie order; if one does, switch this sort to the
+// dotnet_list_sort port rather than loosening the fixture. Do not change the sort without a
+// tie-sensitive oracle proving which order the C# produces here.
 #pragma once
 #include <algorithm>
 #include <cstddef>

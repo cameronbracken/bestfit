@@ -1,7 +1,7 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 are
-> **complete**.
+> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and
+> Phase 5 are **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -17,8 +17,8 @@
 > Normal, StudentT) sharing one copula-estimation base (tau/MPL/IFM/MLE fits) plus an
 > `IMaximumLikelihoodEstimation` mixin; and CompetingRisks' correlated dependency modes
 > (`PerfectlyNegative`/`CorrelationMatrix`), un-deferred from Phase 1. Fixture-validated in
-> C++/R/Python and reproduced against the real Numerics library by the dotnet oracle gate. Pending
-> CI run and PR.
+> C++/R/Python and reproduced against the real Numerics library by the dotnet oracle gate. Merged
+> as PR #4 with CI green.
 >
 > Phase 3 delivered Sampling/MCMC and Bootstrap. All 8 MCMC samplers (RWMH, ARWMH, DEMCz, DEMCzs,
 > HMC, NUTS, Gibbs, SNIS) plus the shared `MCMCSampler` base, model registry, and diagnostics/
@@ -31,7 +31,7 @@
 > `short_exact`-style digest fixtures (`rel: 1e-12`, measured ~1e-15). The covariance-aware
 > **pivotal** bootstrap workflow (`RunPivotalBootstrap` and its link-function/EVD/
 > MatrixRegularization support) was scoped as the phase's severable final task and is tracked
-> separately as a follow-up rather than landing on this branch. Pending CI run and PR.
+> separately as a follow-up rather than landing on this branch. Merged as PR #5 with CI green.
 >
 > Phase 4 delivered BestFit's `Estimation` layer (numbered phasing item 5 -- see the phasing
 > list below). The Estimation-support slice: `MatrixRegularization` (MakeSymmetricPositiveDefinite),
@@ -52,11 +52,42 @@
 > `GenerateReport` surface. Known limitation carried from Task T7: the Brent/NelderMead optimizer
 > adapters always report status `Success` (the standalone C++ optimizers expose no convergence
 > state) -- values are correct regardless, and the default DE path reports status faithfully.
-> Pending CI run and PR.
+> Merged as PR #6 with CI green.
+>
+> Phase 5 delivered BestFit's flood-frequency Models core (the first slice of phasing item 6 --
+> see the phasing list below). `MultipleGrubbsBeckTest` (the Numerics MGBT low-outlier test). The
+> DataFrame layer: the censored data types (Exact/Interval/Uncertain/Threshold over a shared
+> `Data` base), the four typed series collections, and `DataFrame` itself with `FullTimeSeries`
+> threshold expansion, `ProcessThresholdSeries` overlap exclusivity, and MGBT/explicit-threshold
+> low outliers; Hirsch-Stedinger plotting positions (`CalculatePlottingPositions`, which required
+> a faithful port of .NET's `ArraySortHelper` introsort because `List<T>.Sort` tie order is
+> oracle-visible); and `ThresholdDiagnostics` (mean residual life + GPD parameter stability). The
+> trend/link function layer: all ten trend models on a shared `TrendModelBase` plus
+> `GeneralLinearFunction`. The four models: `UnivariateDistributionModel` extended in place with
+> the nonstationary (trend) and censored likelihood surface, `MixtureModel` (EM fitting + zero
+> inflation), `CompetingRisksModel`, and the non-seasonal `PointProcessModel`. The
+> `model_estimation` fixture kind is extended across all three runners, and M14 re-pinned every
+> Phase 5 fixture against real C# oracles through the extended emitter (`verify_oracles.py`: 3837
+> reproduced, 0 failed, 11 documented GEV std-err skips); seeded simulation digests reproduce the
+> C# Mersenne Twister stream bit-for-bit and identically across R and Python. Port-fidelity items
+> worth surfacing: the oracle dumps caught a real divergence -- C# `Mixture.SetParameters(ref)`
+> normalizes weights in the optimizer's own arrays, so the Objective/ModelBase likelihood
+> signatures became mutable-ref (fixed in M14; the C++ mixture fit now matches the C# to 1e-12) --
+> with one documented deviation: `BayesianAnalysis` hands the oracle-locked const-ref MCMC
+> samplers a mutable copy, so a mixture-under-MCMC write-back is not ported (no fixture exercises
+> it). SEVERED/DEFERRED (documented in headers): the DataFrame hypothesis-test facade and
+> summary-statistics/Q-Q surface (Numerics HypothesisTests and the regression facades are
+> unported); the seasonal PointProcess data path plus GeneratePOTTimeSeries and CreateBlockSeries
+> (they need the unported 2,334-line TimeSeries container); the DataFrame bootstrap/resampling
+> surface (JackKnife/Resample/BootstrapDataFrame -- Bulletin17C-only, Phase 6);
+> `ExactData.DateTime`; `FittedDistribution`; USGSRawText/CreateFromUSGS; all XML/INPC surfaces;
+> and the GeneralizedNormal distribution (on the C# model whitelist but never ported in Phase 1,
+> so constructing a model by that type throws). The new NelderMead fit-tolerance tiers on the
+> M14 fixtures are untested on Linux/Windows until the CI run. Pending CI run and PR.
 >
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
-> Linux/macOS/Windows as of the Phase 2 merge (PR #4); the Phase 3 and Phase 4 branches have not
-> yet been pushed for CI. The dotnet oracle gate is dev-only (not in CI).
+> Linux/macOS/Windows as of the Phase 4 merge (PR #6); the Phase 5 branch (`phase5-models`) has
+> not yet been pushed for CI. The dotnet oracle gate is dev-only (not in CI).
 >
 > Upstream submodules are present (`upstream/Numerics`, `upstream/RMC-BestFit`, official
 > USACE-RMC `main`, shallow, dev-only). Still pending: `PORTING_MANIFEST.toml`,
@@ -264,7 +295,7 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    Normal, StudentT) with a shared copula-estimation base (tau/MPL/IFM/MLE fits) and an
    `IMaximumLikelihoodEstimation` mixin; CompetingRisks' correlated dependency modes un-deferred
    from Phase 1. Fixture-validated in C++/R/Python and reproduced against C# by the dotnet oracle
-   gate. Pending CI run and PR.
+   gate. Merged as PR #4 with CI green.
 4. Sampling/MCMC (RWMH, ARWMH, DEMCz/zs, HMC, NUTS, Gibbs, SNIS) + Bootstrap — fixture digests prove
    identical seeded chains across R/Python.
 5. BestFit `Estimation` (MaximumLikelihood, MAP, GMM, BayesianAnalysis, NumericalDiff, OptimizationMethod).
@@ -273,10 +304,20 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    Stratify/StratificationOptions, and the Models slice (ModelParameter/DataComponent/
    PriorComponent, IModel/ModelBase, UnivariateDistributionModel) ported, fixture-validated in
    C++/R/Python, and reproduced against C# by the dotnet oracle gate. GMM + IGMMModel + BFGS +
-   the Bulletin17C coupling severed to a follow-up. Pending CI run and PR.
+   the Bulletin17C coupling severed to a follow-up. Merged as PR #6 with CI green.
 6. BestFit `Models` (UnivariateDistribution, Bulletin17C, Mixture, CompetingRisks, PointProcess,
    Bivariate, RatingCurve, TimeSeries, SpatialExtremes, Trend/Link functions) — boilerplate skipped,
    DataFrame as adapter.
+   [DONE — first slice, the flood-frequency core] MultipleGrubbsBeckTest; the DataFrame layer
+   (data types, the four series collections, FullTimeSeries/ProcessThresholdSeries/MGBT low
+   outliers, Hirsch-Stedinger plotting positions, ThresholdDiagnostics); the trend/link functions
+   including GeneralLinearFunction; and the four models (nonstationary + censored
+   UnivariateDistributionModel extended in place, MixtureModel, CompetingRisksModel, non-seasonal
+   PointProcessModel) ported, fixture-validated in C++/R/Python, and reproduced against C# by the
+   dotnet oracle gate. Confirmed split for the remainder: Phase 6 = the Bulletin17C track
+   (Bulletin17CDistribution + GMM + IGMMModel + BFGS/Powell/MLSL + LinkFunctions +
+   ParameterPenalty/QuantilePenalty); Phase 7 = TimeSeries/SpatialExtremes/Bivariate/RatingCurve.
+   Pending CI run and PR.
 7. BestFit `Analyses` + `Diagnostics` — the user-facing API (`univariate_analysis()` etc.).
 
 Each phase merges only when its fixtures pass in all three harnesses and all CI jobs are green.

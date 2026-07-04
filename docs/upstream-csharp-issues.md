@@ -787,6 +787,65 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   regression test constructing MAP/Bayesian against Poisson/Bernoulli/Geometric/Deterministic
   with `UseJeffreysRuleForScale = true`.
 
+## BUG — MixtureModel.Clone() strips the cloned Mixture's zero-inflation while the cloned model still reports IsZeroInflated
+
+- **Where:** `RMC.BestFit/Models/UnivariateDistribution/MixtureModel.cs`, `Clone()` (~line 1276),
+  interacting with the `Mixture` property setter (~line 242), the `IsZeroInflated` property
+  setter (~line 285), and the `(DataFrame, Mixture)` constructor (~line 53).
+- **What:** `Clone()` builds `new MixtureModel(DataFrame, Mixture!) { _isZeroInflated =
+  IsZeroInflated, ... }`. The constructor runs `Mixture = (Mixture)distribution.Clone();` through
+  the `Mixture` property setter. Numerics' `Mixture.Clone()` itself correctly copies
+  `IsZeroInflated`/`ZeroWeight` (Mixture.cs ~line 1019), but at that moment the fresh model's
+  `_isZeroInflated` field still holds its default `false`, so the setter immediately overwrites
+  the cloned distribution with `IsZeroInflated = false; ZeroWeight = 0.0;`. The object
+  initializer then writes `_isZeroInflated = IsZeroInflated` DIRECTLY to the private field --
+  bypassing the `IsZeroInflated` property setter, the only code that would re-sync the
+  distribution. End state when cloning a zero-inflated model: the cloned MODEL reports
+  `IsZeroInflated == true` while its underlying `Mixture` has `IsZeroInflated == false,
+  ZeroWeight == 0` -- the clone's likelihood/PDF/CDF surface silently loses the zero-inflated
+  mass while claiming to have it.
+- **Evidence:** static inspection of the three members during Task M10 (the setter/field-write
+  ordering is unambiguous from the source); no upstream `MixtureModelTests` method clones a
+  zero-inflated model and asserts the distribution's state, so no C# test observes it.
+- **Port handling:** **intentional divergence** -- `mixture_model.hpp`'s `clone()` re-syncs the
+  cloned mixture's zero-inflation state from the original after the field writes, so the clone
+  ends in the same effective state as the original. Documented in the file header and pinned by
+  the extra checks in `test_clone_preserves_is_zero_inflated`.
+- **Suggested C# fix:** re-apply the zero-inflation to the cloned `Mixture` after the initializer
+  (or assign through the public `IsZeroInflated` property rather than the `_isZeroInflated`
+  field, minding its side effects); add a regression test that clones a zero-inflated model and
+  asserts the cloned distribution's `IsZeroInflated`/`ZeroWeight`.
+
+## ROBUSTNESS — DataFrame.ProcessThresholdSeries is destructive and not idempotent when explicit points exactly cover a threshold window
+
+- **Where:** `RMC.BestFit/Models/DataFrame/DataFrame.cs`, `ProcessThresholdSeries()` (~line 618).
+- **What:** the method reads the STORED `thresholdData.NumberAbove`, computes `nBelow = Duration
+  - nAbove - (explicit interval/uncertain/exact points inside the window)`, then writes both
+  counts back: `NumberAbove = nBelow == 0 ? 0 : nAbove; NumberBelow = Math.Max(0, nBelow);`.
+  Because the recomputation consumes its own previous output, the zeroing branch is destructive:
+  when the explicit points exactly account for `Duration - NumberAbove` (first run: `nBelow ==
+  0`, so `NumberAbove` is zeroed and `NumberBelow` set to 0), a SECOND run starts from `nAbove =
+  0` and computes `nBelow = Duration - overlaps` -- flipping `NumberBelow` from 0 to the original
+  `NumberAbove`, i.e. years the first pass classified as above-threshold are re-counted as
+  censored-below years. Upstream this method re-runs constantly: every series
+  `CollectionChanged`/item `PropertyChanged` event triggers it, and `CalculatePlottingPositions()`
+  calls it unconditionally as its first step (~lines 1142-1144) -- so in the exact-coverage edge
+  case any later mutation or a repeated plotting-positions call silently corrupts the threshold
+  likelihood counts.
+- **Evidence:** static inspection of the read-modify-write during Task M4 (report concern #1);
+  no upstream test hits the exact-coverage-then-rerun sequence, and no ported fixture exercises
+  the edge either.
+- **Port handling:** mirrored faithfully -- `data_frame.hpp`'s `process_threshold_series()` is
+  the same read-modify-write, and `calculate_plotting_positions()` calls it first exactly like
+  the C#. The C++ replaces the INPC auto-trigger with the documented explicit "call once after
+  mutations" cadence (see the file-header invalidation strategy), which matches the C#
+  once-per-mutation event cadence.
+- **Suggested C# fix:** make the pass idempotent by recomputing from immutable inputs -- retain
+  the originally supplied `NumberAbove` (e.g. a private `_originalNumberAbove` set on
+  construction/assignment) and derive both published counts from it on every pass; add a
+  regression test that processes a fully covered threshold window twice and asserts stable
+  counts.
+
 ---
 
 ## How to work this list later

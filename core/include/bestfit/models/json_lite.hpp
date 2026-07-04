@@ -236,6 +236,12 @@ class JsonParser {
         if (pos_ == start) fail("invalid JSON value");
         const std::string token = s_.substr(start, pos_ - start);
         char* end = nullptr;
+        // NOTE (M13 ledger): std::strtod is LC_NUMERIC locale-sensitive -- a host that
+        // setlocale()s a comma-decimal numeric locale would misparse "1.5" (nlohmann/json
+        // works around this; json_lite does not). Acceptable for the fixture-harness path
+        // only: the R runner pins LC_NUMERIC=C and the Python/C++ test hosts never call
+        // setlocale(). Revisit with a locale-independent parse (e.g. std::from_chars)
+        // if json_lite ever leaves the test/spec-builder surface.
         double value = std::strtod(token.c_str(), &end);
         if (end != token.c_str() + token.size()) fail("invalid number '" + token + "'");
         JsonValue v;

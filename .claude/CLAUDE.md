@@ -63,6 +63,25 @@ holds `ParameterSet`, `Optimizer` (the shared base every optimizer -- currently
 DifferentialEvolution -- builds on), and
 `DifferentialEvolution` itself, the global optimizer the MCMC MAP-initialization path depends on.
 
+`core/include/bestfit/models/` holds the RMC.BestFit Models port (Phase 5). `models/data_frame/`
+is the input-data container layer: `data_types/` (the `Data` base plus ExactData, IntervalData,
+UncertainData, ThresholdData), `data_collections/` (the generic `DataSeries` plus the four typed
+series), `data_frame.hpp` (`DataFrame` -- FullTimeSeries threshold expansion,
+ProcessThresholdSeries, MGBT and explicit-threshold low outliers) with `data_frame_plotting.hpp`
+(the Hirsch-Stedinger plotting positions, including a faithful port of .NET's ArraySortHelper
+introsort because `List<T>.Sort` tie order is oracle-visible), and `threshold_diagnostics.hpp`
+(mean residual life + GPD parameter stability). `models/trend_functions/` holds the ten trend
+models plus `general_linear_function.hpp` on the shared `support/` base
+(ITrendModel/TrendModelBase and the type enum). `models/univariate_distribution/` holds the four
+models: `univariate_distribution_model.hpp` (with its nonstationary companion
+`univariate_distribution_model_trends.hpp` and `base/univariate_distribution_model_base.hpp`),
+`mixture_model.hpp`, `competing_risks_model.hpp`, and `point_process_model.hpp`.
+`models/support/` carries the Phase 4 model-support types (ModelParameter, DataComponent,
+PriorComponent, ModelBase, QuantilePrior and its interfaces) plus `subscript_formatter.hpp` and
+`validation_result.hpp`; `models/json_lite.hpp` + `models/model_spec.hpp` are the shared fixture
+spec builder all three runners and the oracle emitter drive. The MultipleGrubbsBeckTest
+low-outlier test lives at `numerics/data/multiple_grubbs_beck_test.hpp`.
+
 ## Build & test commands
 
 ```bash
@@ -129,7 +148,8 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 are **complete**. Phase 1 delivered the full
+Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 are **complete**; Phases 1-4 are merged
+(latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
 Numerics math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for
 that merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
@@ -147,8 +167,23 @@ ModelBase, UnivariateDistributionModel including the Jeffreys 1/scale prior) and
 support layer (MatrixRegularization, Stratify/StratificationOptions, NumericalDiff,
 OptimizationMethod); GMM + IGMMModel + BFGS + the Bulletin17C coupling, the alternate optimizers
 (Powell/MLSL/LocalMethod), and the Diagnostics/LeverageDiagnostics layer are severed to follow-ups.
-Everything ported through Phase 4 is fixture-validated in C++/R/Python and reproduced against the
-real Numerics/RMC.BestFit libraries by the dotnet oracle gate (3751 reproduced, 0 failed); seeded
-MCMC chains, bootstrap replicate streams, and a DEMCzs posterior chain digest are all proven
+Phase 5 delivered BestFit's flood-frequency Models core, the first slice of the Models phase --
+MultipleGrubbsBeckTest; the DataFrame layer (censored data types, four series collections,
+FullTimeSeries/ProcessThresholdSeries/MGBT low outliers, Hirsch-Stedinger plotting positions via a
+faithful .NET ArraySortHelper introsort port, ThresholdDiagnostics); the trend/link functions
+including GeneralLinearFunction; and the four models (nonstationary + censored
+UnivariateDistributionModel extended in place, MixtureModel with EM + zero inflation,
+CompetingRisksModel, non-seasonal PointProcessModel), with the `model_estimation` fixture kind
+extended across all three runners. M14 re-pinned every Phase 5 fixture against real C# oracles and
+fixed a real port divergence (the C# `Mixture.SetParameters(ref)` weight-normalization write-back
+into the optimizer's arrays; the documented residual deviation is that BayesianAnalysis hands the
+const-ref MCMC samplers a mutable copy). Severed from Phase 5: the DataFrame
+hypothesis-test/summary-statistics facades, the seasonal PointProcess path +
+GeneratePOTTimeSeries + CreateBlockSeries (need the unported TimeSeries container), the DataFrame
+bootstrap/resampling surface (Phase 6), ExactData.DateTime, FittedDistribution, USGSRawText, and
+all XML/INPC. Everything ported through Phase 5 is fixture-validated in C++/R/Python and
+reproduced against the real Numerics/RMC.BestFit libraries by the dotnet oracle gate (3837
+reproduced, 0 failed, 11 documented GEV std-err skips); seeded MCMC chains, bootstrap replicate
+streams, a DEMCzs posterior chain digest, and the Phase 5 model simulation digests are all proven
 bit-identical across R and Python via `short_exact`-style digest fixtures. Pending: CI run and PR
-for the Phase 4 branch. See `PLAN.md`.
+for the Phase 5 branch. See `PLAN.md`.

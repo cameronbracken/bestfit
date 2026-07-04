@@ -15,18 +15,17 @@
 //
 // Deliberately NOT ported in this slice (desktop-app / XML / WPF concerns; the Estimation
 // layer never calls these on IModel):
-//   - IModel.Clone() -- deep-copy semantics belong with the concrete models (T6+), which know
-//     their own non-ModelBase state.
+//   - IModel.Clone() -- deep-copy semantics belong with the concrete models, which know
+//     their own non-ModelBase state (every Phase 5 concrete model, M9-M12, implements its
+//     own clone()).
 //   - ToXElement() -- XML serialization, no compute-layer caller.
+//   - INotifyPropertyChanged / PropertyChanged / RaisePropertyChange / Parameter_PropertyChanged
+//     -- WPF data-binding plumbing; `parameters_` is a plain std::vector here, no change
+//     notification is threaded through it. XML/INPC remain project-wide non-ports.
 // Validate() (deferred in the Phase 4 slice) is ported as of M8: the C# abstract
 // `(bool IsValid, List<string> ValidationMessages) Validate()` is the pure-virtual
 // `validate()` below, returning the shared ValidationResult
 // (models/support/validation_result.hpp).
-//   - INotifyPropertyChanged / PropertyChanged / RaisePropertyChange / Parameter_PropertyChanged
-//     -- WPF data-binding plumbing; `parameters_` is a plain std::vector here, no change
-//     notification is threaded through it.
-// The full Models phase (post-T5/T6) is expected to add these where a concrete model needs
-// them.
 //
 // UseDefaultFlatPriors (C# 56-70): ported as a plain bool getter/setter for forward
 // compatibility with concrete models (T6+) that read it, but this base class does NOT wire it
