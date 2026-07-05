@@ -12,7 +12,10 @@
 //     errors are all positive.
 //   - GetAIC/GetBIC match GoodnessOfFit::aic/bic directly.
 //   - ParameterConfidenceIntervals brackets the fitted point estimate.
-//   - Gating: BFGS/Powell/MultilevelSingleLinkage throw; Brent on a 2-parameter model throws.
+//   - Un-gated optimizers (Phase 6, B7): BFGS/Powell/MultilevelSingleLinkage construct for
+//     real, estimate() succeeds, the max log-likelihood matches the fixture anchor at rel
+//     1e-6, and the point estimates match the anchor at rel 1e-3 plus the analytic MLE at rel
+//     1e-4 (see that test's TOLERANCES note); Brent on a 2-parameter model still throws.
 //   - profile_likelihood()/get_sandwich_covariance_matrix()/get_robust_standard_errors()/
 //     get_observation_influence()/get_cooks_distance()/set_optimizer_method()/clear_results():
 //     self-consistency + shape checks only (exact oracles are T12's job).
@@ -131,12 +134,67 @@ void test_parameter_confidence_intervals_bracket_the_estimate() {
     }
 }
 
-void test_gated_optimization_methods_throw() {
-    UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+// B7 (Phase 6): the Phase-4 gate on BFGS/Powell/MultilevelSingleLinkage is GONE -- all three
+// construct for real (mirroring the C# SetUpOptimizer switch) and Estimate() succeeds. MLSL is
+// internally seeded (PRNGSeed = 12345), so its result is deterministic.
+//
+// TOLERANCES (investigated -- the brief asked for rel 1e-6 against the NelderMead anchor from
+// fixtures/estimation/mle_normal_smoke.json): the anchor is a simplex STOPPING POINT that
+// itself sits rel ~5.9e-5 (mu) / ~1.0e-4 (sigma) away from the analytic Normal MLE (mu =
+// sample mean = 16027 exactly; sigma = sqrt(SS/n)). BFGS/Powell land on the analytic optimum
+// to rel ~1e-8 and MLSL to ~5e-5 -- all three are CLOSER to the true optimum than the anchor,
+// so rel 1e-6 parameter agreement with the anchor is unattainable by construction. Parameters
+// therefore get rel 1e-3 against the anchor PLUS a tighter rel 1e-4 cross-check against the
+// analytic optimum; the maximum log-likelihood IS optimizer-stable (flat surface at the mode)
+// and keeps the brief's rel 1e-6 against the anchor.
+// B12 handoff: these are deliberate self-consistency tolerances for optimizer-dependent
+// quantities; B12 replaces them with exact emitter-produced oracles for each optimizer.
+void test_ungated_optimization_methods_estimate_and_match_anchor() {
+    const OptimizationMethod methods[] = {OptimizationMethod::BFGS, OptimizationMethod::Powell,
+                                          OptimizationMethod::MultilevelSingleLinkage};
+    const double anchor_mu = 16026.055013737448;    // fixtures/estimation/mle_normal_smoke.json
+    const double anchor_sigma = 5058.828006631213;  // (NelderMead, exact C# oracle values)
+    const double anchor_mll = -99.47930656785014;
+    const double anchor_rel_tol = 1e-3;  // see TOLERANCES note above (B12 handoff)
+    const double mll_rel_tol = 1e-6;
 
-    CHECK_THROWS(MaximumLikelihood(model, OptimizationMethod::BFGS));
-    CHECK_THROWS(MaximumLikelihood(model, OptimizationMethod::Powell));
-    CHECK_THROWS(MaximumLikelihood(model, OptimizationMethod::MultilevelSingleLinkage));
+    // Analytic Normal MLE (derived, not a hardcoded oracle): mu = sample mean,
+    // sigma = sqrt(sum((x - mu)^2) / n).
+    const std::vector<double> data = sample_data();
+    double mean = 0.0;
+    for (double v : data) mean += v;
+    mean /= static_cast<double>(data.size());
+    double ss = 0.0;
+    for (double v : data) ss += (v - mean) * (v - mean);
+    const double analytic_mu = mean;
+    const double analytic_sigma = std::sqrt(ss / static_cast<double>(data.size()));
+    const double analytic_rel_tol = 1e-4;  // MLSL's local NelderMead polish lands within ~5e-5
+
+    for (OptimizationMethod method : methods) {
+        UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
+        MaximumLikelihood mle(model, method);  // gate is gone: must not throw
+
+        CHECK_TRUE(mle.estimate());
+        CHECK_TRUE(mle.is_estimated());
+        CHECK_TRUE(mle.status() ==
+                   bestfit::numerics::math::optimization::OptimizationStatus::Success);
+        CHECK_TRUE(mle.total_function_evaluations() > 0);
+
+        const auto& best = mle.best_parameter_set().values;
+        CHECK_TRUE(best.size() == 2);
+        CHECK_TRUE(std::fabs(best[0] - anchor_mu) <= anchor_rel_tol * std::fabs(anchor_mu));
+        CHECK_TRUE(std::fabs(best[1] - anchor_sigma) <= anchor_rel_tol * std::fabs(anchor_sigma));
+        CHECK_TRUE(std::fabs(best[0] - analytic_mu) <= analytic_rel_tol * std::fabs(analytic_mu));
+        CHECK_TRUE(std::fabs(best[1] - analytic_sigma) <=
+                   analytic_rel_tol * std::fabs(analytic_sigma));
+        CHECK_TRUE(std::fabs(mle.maximum_log_likelihood() - anchor_mll) <=
+                   mll_rel_tol * std::fabs(anchor_mll));
+
+        // Sign convention holds for the new optimizers too (same 1e-9 identity the NelderMead
+        // test asserts): maximum_log_likelihood() == data_log_likelihood(best values).
+        std::vector<double> best_copy = best;  // mutable lvalue (M14 signature)
+        CHECK_NEAR(mle.maximum_log_likelihood(), model.data_log_likelihood(best_copy), 1e-9);
+    }
 }
 
 void test_brent_on_two_parameter_model_throws() {
@@ -263,7 +321,7 @@ int main() {
     test_covariance_matrix_is_symmetric_and_positive_definite();
     test_aic_and_bic_match_goodness_of_fit();
     test_parameter_confidence_intervals_bracket_the_estimate();
-    test_gated_optimization_methods_throw();
+    test_ungated_optimization_methods_estimate_and_match_anchor();
     test_brent_on_two_parameter_model_throws();
     test_profile_likelihood_shape_and_finiteness();
     test_sandwich_covariance_and_robust_standard_errors();
