@@ -6,11 +6,11 @@
 // SafeLogLikelihood(y), x.ToArray(), _lowerBounds, _upperBounds)`) and
 // Optimizer.ComputeHessian's MAP-init Hessian (`NumericalDerivative.Hessian((x) =>
 // ObjectiveFunction(x), BestParameterSet.Values)`, called with no bounds) actually need.
-// NOT ported: the unbounded scalar derivative helpers (ForwardDifference/
-// BackwardDifference/CentralDifference/Derivative/RiddersMethod) and the CalculateStepSize
-// helper only they use, both Jacobian overloads (fixed-step and bound-aware), and IsBad
-// (private to the bound-aware Jacobian overload) -- no caller in this port's scope needs
-// them; add them if a later task does. Also NOT ported: the "Second Derivatives - Single
+// B4 ports the unbounded scalar helpers CentralDifference/Derivative and CalculateStepSize
+// (GammaDistribution.PartialKp's |skew| > 2 fallback calls Derivative). NOT ported:
+// ForwardDifference/BackwardDifference/RiddersMethod, both Jacobian overloads (fixed-step
+// and bound-aware), and IsBad (private to the bound-aware Jacobian overload) -- no caller
+// in this port's scope needs them; add them if a later task does. Also NOT ported: the "Second Derivatives - Single
 // Variable" region's SecondDerivative/SecondDerivativeForward/SecondDerivativeBackward
 // (lines ~252-306) -- grep-confirmed zero callers anywhere in Numerics or RMC-BestFit
 // (only Test_Differentiation.cs and docs/mathematics/differentiation.md reference them);
@@ -69,6 +69,33 @@ inline double available_right(const std::vector<double>& theta, int j, const std
 }
 
 }  // namespace detail
+
+// Calculates the optimal finite-difference step size h = eps^(1/(1+order)) * (1 + |x|)
+// (C# NumericalDerivative.CalculateStepSize, line 1161). For first derivatives
+// h ~ eps^(1/2); the (1 + |x|) term scales the step to the magnitude of the input.
+inline double calculate_step_size(double x, int order = 1) {
+    // Machine epsilon for double precision: approximately 2.22e-16
+    // For first derivatives: eps^(1/2) ~ 1.5e-8
+    // For second derivatives: eps^(1/3) ~ 6.1e-6
+    return std::pow(bestfit::numerics::kDoubleMachineEpsilon, 1.0 / (1.0 + order)) *
+           (1.0 + std::fabs(x));
+}
+
+// Central-difference first derivative f'(x) ~ [f(x+h) - f(x-h)] / (2h) (C#
+// NumericalDerivative.CentralDifference, line 124). Second-order accurate, O(h^2).
+// stepSize <= 0 selects the adaptive step from calculate_step_size.
+inline double central_difference(const std::function<double(double)>& f, double point,
+                                  double step_size = -1) {
+    double h = step_size <= 0 ? calculate_step_size(point) : step_size;
+    return (f(point + h) - f(point - h)) / (2.0 * h);
+}
+
+// First derivative of a function -- alias for central_difference (C#
+// NumericalDerivative.Derivative, line 143).
+inline double derivative(const std::function<double(double)>& f, double point,
+                          double step_size = -1) {
+    return central_difference(f, point, step_size);
+}
 
 // Computes the gradient of a scalar function f: R^p -> R at theta, with adaptive
 // bound-aware steps: central differences when there's room on both sides of theta[j],

@@ -1,9 +1,11 @@
 // ported from: Numerics/Distributions/Univariate/GammaDistribution.cs @ a2c4dbf
 //
 // Gamma distribution with scale θ (theta) and shape κ (kappa). Logic mirrors the C#
-// source method-for-method. The WPF helpers, IBootstrappable, IStandardError,
-// ConditionalMoments, WilsonHilferty, and PartialKp are not ported (desktop / uncertainty
-// analysis concerns).
+// source method-for-method. The WPF helpers, IBootstrappable, the rest of
+// IStandardError (ParameterCovariance/QuantileVariance/QuantileJacobian), and
+// WilsonHilferty are not ported (desktop / uncertainty analysis concerns). B4 adds the
+// FrequencyFactorKp/PartialKp statics, QuantileGradient, and the ConditionalMoments
+// override for the Bulletin 17C GMM track.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -15,6 +17,8 @@
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "bestfit/numerics/distributions/normal.hpp"
+#include "bestfit/numerics/math/differentiation/numerical_derivative.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/special/gamma.hpp"
 #include "bestfit/numerics/tools.hpp"
@@ -202,7 +206,217 @@ class GammaDistribution : public UnivariateDistributionBase,
         return solver.best_parameters();
     }
 
+    // Gets the K frequency factor given the skewness coefficient through Cornish-Fisher
+    // transformation (Fisher and Cornish, 1960) for abs(skew) <= 2. If abs(skew) > 2 then
+    // use Modified Wilson-Hilferty transformation (Kirby, 1972). (C#
+    // GammaDistribution.FrequencyFactorKp, line 611.)
+    static double frequency_factor_kp(double skewness, double probability) {
+        double C = skewness;
+        double absC = std::fabs(C);
+        // If skew is sufficiently close to zero, return standard Normal Z variate.
+        if (absC < 0.0001) return Normal::standard_z(probability);
+
+        // If abs(skew) is less than or equal to 2, use Cornish-Fisher transformation
+        // (Fisher and Cornish, 1960)
+        if (absC <= 2.0) {
+            double C2 = std::pow(C, 2.0);
+            double C3 = std::pow(C, 3.0);
+            double C4 = std::pow(C, 4.0);
+            double C5 = std::pow(C, 5.0);
+            double C6 = std::pow(C, 6.0);
+            double U = Normal::standard_z(probability);
+            double U2 = std::pow(U, 2.0);
+            double U3 = std::pow(U, 3.0);
+            double U4 = std::pow(U, 4.0);
+            double U5 = std::pow(U, 5.0);
+            double U6 = std::pow(U, 6.0);
+            double U7 = std::pow(U, 7.0);
+            double Kterm0 = U;
+            double Kterm1 = C / 2.0 * ((U2 - 1.0) / 3.0);
+            double Kterm2 = C2 / std::pow(2.0, 4.0) * ((U3 - 7.0 * U) / 9.0);
+            double Kterm3 = C3 / std::pow(2.0, 5.0) * ((6.0 * U4 + 14.0 * U2 - 32.0) / 405.0);
+            double Kterm4 = C4 / std::pow(2.0, 7.0) * ((9.0 * U5 + 256.0 * U3 - 433.0 * U) / 4860.0);
+            double Kterm5 = C5 / std::pow(2.0, 8.0) *
+                            ((12.0 * U6 - 143.0 * U4 - 923.0 * U2 + 1472.0) / 25515.0);
+            double Kterm6 = C6 / std::pow(2.0, 10.0) *
+                            ((3753.0 * U7 + 4353.0 * U5 - 289517.0 * U3 - 289717.0 * U) / 9185400.0);
+            return Kterm0 + Kterm1 + Kterm2 - Kterm3 + Kterm4 + Kterm5 - Kterm6;
+        } else {
+            // If abs(skew) is greater than 2, use Modified Wilson-Hilferty transformation
+            // (Kirby, 1972). Only valid if abs(skew) <= 9.75. Enforce limits.
+            if (C < -9.75) C = -9.75;
+            if (C > 9.75) C = 9.75;
+
+            // Hoshi and Burges (1981b) gave polynomial expressions for 1/A, B, G and H^3
+            // as a function of Cs
+            // Compute skew orders
+            double C2 = std::pow(absC, 2.0);
+            double C3 = std::pow(absC, 3.0);
+            double C4 = std::pow(absC, 4.0);
+            double C5 = std::pow(absC, 5.0);
+            // Compute A
+            double a0 = 0.00199447;
+            double a1 = 0.48489;
+            double a2 = 0.0230935;
+            double a3 = -0.0152435;
+            double a4 = 0.00160597;
+            double a5 = -0.000055869;
+            double A = 1.0 / (a0 + a1 * C + a2 * C2 + a3 * C3 + a4 * C4 + a5 * C5);
+            // Compute B
+            double b0 = 0.990562;
+            double b1 = 0.0319647;
+            double b2 = -0.0274231;
+            double b3 = 0.00777405;
+            double b4 = -0.000571184;
+            double b5 = 0.0000142077;
+            double B = b0 + b1 * C + b2 * C2 + b3 * C3 + b4 * C4 + b5 * C5;
+            // Compute G
+            double g0 = -0.00385205;
+            double g1 = 1.00426;
+            double g2 = 0.00651207;
+            double g3 = -0.0149166;
+            double g4 = 0.00163945;
+            double g5 = -0.0000583804;
+            double G = g0 + g1 * C + g2 * C2 + g3 * C3 + g4 * C4 + g5 * C5;
+            // Compute H
+            double H = std::pow(B - 2.0 / absC / A, 1.0 / 3.0);
+            double sign = C > 0.0 ? 1.0 : (C < 0.0 ? -1.0 : 0.0);  // Math.Sign
+            return sign * A *
+                   (std::pow(std::max(H, 1.0 - std::pow(G / 6.0, 2.0) +
+                                             G / 6.0 * Normal::standard_z(probability)),
+                             3.0) -
+                    B);
+        }
+    }
+
+    // Gets the partial derivative of the frequency factor Kp with respect to skew. (C#
+    // GammaDistribution.PartialKp, line 692; the |skew| > 2 branch falls back to
+    // NumericalDerivative.Derivative of FrequencyFactorKp with step 1e-4.)
+    static double partial_kp(double skewness, double probability) {
+        double C = skewness;
+        double absC = std::fabs(C);
+        // If skew is sufficiently close to zero, return standard Normal Z variate.
+        if (absC < 0.0001) return Normal::standard_z(probability);
+
+        // If abs(skew) is less than or equal to 2, use Cornish-Fisher transformation
+        // (Fisher and Cornish, 1960)
+        if (absC <= 2.0) {
+            double C2 = std::pow(C, 2.0);
+            double C3 = std::pow(C, 3.0);
+            double C4 = std::pow(C, 4.0);
+            double C5 = std::pow(C, 5.0);
+            double U = Normal::standard_z(probability);
+            double U2 = std::pow(U, 2.0);
+            double U3 = std::pow(U, 3.0);
+            double U4 = std::pow(U, 4.0);
+            double U5 = std::pow(U, 5.0);
+            double U6 = std::pow(U, 6.0);
+            double U7 = std::pow(U, 7.0);
+            // Determine the first derivative of K with respect to skew
+            double dKterm0 = 0.0;
+            double dKterm1 = 1.0 / 2.0 * ((U2 - 1.0) / 3.0);
+            double dKterm2 = 2.0 * (C / std::pow(2.0, 4.0)) * ((U3 - 7.0 * U) / 9.0);
+            double dKterm3 = 3.0 * (C2 / std::pow(2.0, 5.0)) * ((6.0 * U4 + 14.0 * U2 - 32.0) / 405.0);
+            double dKterm4 = 4.0 * (C3 / std::pow(2.0, 7.0)) * ((9.0 * U5 + 256.0 * U3 - 433.0 * U) / 4860.0);
+            double dKterm5 = 5.0 * (C4 / std::pow(2.0, 8.0)) *
+                             ((12.0 * U6 - 143.0 * U4 - 923.0 * U2 + 1472.0) / 25515.0);
+            double dKterm6 = 6.0 * (C5 / std::pow(2.0, 10.0)) *
+                             ((3753.0 * U7 + 4353.0 * U5 - 289517.0 * U3 - 289717.0 * U) / 9185400.0);
+            //
+            return dKterm0 + dKterm1 + dKterm2 - dKterm3 + dKterm4 + dKterm5 - dKterm6;
+        } else {
+            // If abs(skew) is greater than 2, use Modified Wilson-Hilferty transformation
+            // (Kirby, 1972)
+            return math::differentiation::derivative(
+                [probability](double x) { return frequency_factor_kp(x, probability); },
+                skewness, 0.0001);
+        }
+    }
+
+    // Gradient of the quantile function wrt {theta, kappa} (C#
+    // IStandardError.QuantileGradient, GammaDistribution.cs:835). Q(p) = kappa*theta +
+    // sqrt(kappa)*theta*Kp(skew, p) in the (theta, kappa) parameterization. C#
+    // ValidateParameters(..., true) throw -> std::invalid_argument.
+    std::vector<double> quantile_gradient(double probability) const {
+        // Validate parameters
+        if (!parameters_valid_)
+            throw std::invalid_argument("GammaDistribution: invalid parameters");
+        return {
+            partial_for_theta(probability),  // dQ/dtheta
+            partial_for_kappa(probability)   // dQ/dkappa
+        };
+    }
+
+    // ConditionalMoments override (C# GammaDistribution.cs:889): truncated-Gamma raw
+    // moments via regularized lower incomplete gamma differences, converted to central
+    // moments about the UNCONDITIONAL mean mu = alpha*beta.
+    std::vector<double> conditional_moments(double a, double b) const override {
+        if (a >= b) return {kNaN, kNaN, kNaN, kNaN};
+
+        double alpha = kappa_;  // shape > 0
+        double beta = theta_;   // scale > 0
+        if (!(alpha > 0.0) || !(beta > 0.0)) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Effective bounds within support [0, inf)
+        double A = std::max(0.0, a);
+        double B = b;
+
+        // Standardized bounds in z = x / beta
+        double zA = A / beta;
+        double zB = std::isinf(B) ? kInf : (B / beta);
+
+        // Regularized lower incomplete gamma CDF P(s, z)
+        auto Pg = [](double s, double z) {
+            if (std::isinf(z) && z < 0.0) return 0.0;
+            if (z <= 0.0) return 0.0;
+            if (std::isinf(z)) return 1.0;
+            return sf::lower_incomplete(s, z);  // P(s,z)
+        };
+
+        // Normalizing probability over (a,b): P0 = P(alpha, zB) - P(alpha, zA)
+        double P0 = Pg(alpha, zB) - Pg(alpha, zA);
+        if (P0 <= 1e-15) return {kNaN, kNaN, kNaN, kNaN};
+
+        // For stability: Gamma(alpha+k)/Gamma(alpha) via log-gamma differences
+        double lgAlpha = sf::log_gamma(alpha);
+        double gr[5];  // gr[k] = Gamma(alpha+k)/Gamma(alpha)
+        for (int k = 0; k <= 4; k++)
+            gr[k] = std::exp(sf::log_gamma(alpha + k) - lgAlpha);
+
+        // Truncated raw moments E[X^k | a < X < b], k = 1..4
+        double EX[5];
+        EX[0] = 1.0;  // by definition under conditioning
+        for (int k = 1; k <= 4; k++) {
+            double deltaPk = Pg(alpha + k, zB) - Pg(alpha + k, zA);
+            EX[k] = std::pow(beta, k) * gr[k] * (deltaPk / P0);
+        }
+
+        // Central moments about the *unconditional* mean mu = alpha*beta
+        double mu = alpha * beta;
+        double m1 = EX[1];
+        double m2 = EX[2] - 2.0 * mu * EX[1] + mu * mu;
+        double m3 = EX[3] - 3.0 * mu * EX[2] + 3.0 * mu * mu * EX[1] - mu * mu * mu;
+        double m4 = EX[4]
+                  - 4.0 * mu * EX[3]
+                  + 6.0 * mu * mu * EX[2]
+                  - 4.0 * mu * mu * mu * EX[1]
+                  + mu * mu * mu * mu;
+
+        return {m1, m2, m3, m4};
+    }
+
    private:
+    // Partial derivative of the quantile with respect to theta (C# PartialforTheta).
+    double partial_for_theta(double probability) const {
+        return frequency_factor_kp(skewness(), probability) * std::sqrt(kappa_) + kappa_;
+    }
+
+    // Partial derivative of the quantile with respect to kappa (C# PartialforKappa).
+    double partial_for_kappa(double probability) const {
+        return theta_ * (frequency_factor_kp(skewness(), probability) / (2.0 * std::sqrt(kappa_)) +
+                         1.0 - partial_kp(skewness(), probability) / kappa_);
+    }
+
     static bool validate(double scale, double shape) {
         if (std::isnan(scale) || std::isinf(scale) || scale <= 0.0) return false;
         if (std::isnan(shape) || std::isinf(shape) || shape <= 0.0) return false;
