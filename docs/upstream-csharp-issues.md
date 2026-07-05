@@ -848,6 +848,36 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## DESIGN NOTE (not a bug) — Bulletin17CDistribution GMM is always just-identified, so the J-stat specification test is unreachable
+
+- **Where:** `Models/UnivariateDistribution/Bulletin17CDistribution.cs` @ fc28c0c, lines 434 and 437.
+- **What:** `NumberOfParameters => Parameters.Count` and `NumberOfMomentConditions => Parameters.Count`
+  are defined identically, so a `Bulletin17CDistribution` GMM fit is ALWAYS just-identified
+  (q = p). `GeneralizedMethodOfMoments.DegreeOfFreedom = max(0, q - p)` is therefore always 0,
+  `JStatPval` is always `NaN`, and the over-identified J-statistic specification test (`GetGamma`
+  chi-square path) can never fire through this model. Confirmed against the real library by the
+  B12 emitter: the LP3 exact-data fit dumps `JStat ≈ 2.13e-6` (pure catastrophic-cancellation noise
+  in `g' V⁻¹ g`, since `g(θ̂) ≈ 0`) and `JStatPval = NaN`.
+- **Consequence for oracles:** the GMM/B17C fixture (`fixtures/estimation/gmm_bulletin17c_smoke.json`)
+  asserts `j_stat` with an ABSOLUTE tolerance against 0 (the exact residual is unreproducible across
+  compilers — the C++ core lands a differently-signed ~-5e-7) and `j_stat_pval` as `nan` via
+  `mode:equal`. No censored/threshold B17C DataFrame can change q relative to p, so there is no
+  reachable over-identified oracle to add. Every other GMM/B17C quantity (params, standard errors,
+  covariance, correlation, quantile variance, the seeded ISimulatable stream) IS deterministic and
+  reproduces to ~1e-12 or better against the real library.
+- **Port handling:** the C++ `Bulletin17CDistribution` mirrors both accessors, so the property holds
+  identically in the port; no divergence.
+- **B13 follow-up:** the brief's "J-statistic p-value where over-identified" and the extended
+  Normal-family / censored / TwoStep / Link / ConditionalMoments / Penalty / MomentConditions dump
+  coverage were NOT added as fixture cases: the p-value case is structurally impossible for B17C, and
+  the remaining internal accessors (Link/InverseLink/DLink, ConditionalMoments, ParametersFromMoments,
+  Penalty.Function, MomentConditions G/S) are not on the B11-established public GMM dispatch surface
+  (parameter / standard_error / covariance / correlation / j_stat / j_stat_pval / quantile_variance /
+  simulated_value) and would need new dispatch arms in all three runners. They are corroborated by the
+  B4/B8/B10 C++-only ctests and remain a severable follow-up.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

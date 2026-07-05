@@ -1429,6 +1429,91 @@ static BayesianAnalysis.SamplerType ParseSamplerType(string s) => s switch
     _ => throw new Exception($"unknown model_estimation sampler: {s}")
 };
 
+// --- GMM / Bulletin17C helpers (Task B12) -------------------------------------------------
+//
+// Drives the REAL RMC.BestFit GeneralizedMethodOfMoments over a concrete Bulletin17CDistribution
+// (un-excluded from the subset by B12; see OracleEmitter.csproj). Mirrors the C++ runner's GMM
+// path in core/tests/test_fixtures.cpp (build_and_run_estimation's GeneralizedMethodOfMoments
+// arm) EXACTLY so the same fixture file drives all four harnesses: build the B17C model from the
+// `construct.model` spec, construct GMM (default optimizer = BFGS, the C# GMM ctor default),
+// apply the strategy/iterations knobs, Estimate() once, then PostProcess(sandwich: true,
+// computeJstat: true) so the accessors return deterministic cached Sigma + J-statistic. The
+// seeded-draw digest (optional `sample_size`/`seed`) pins the fitted best parameters into the
+// B17C parent and takes one ISimulatable stream -- the same DRY choice the C++ runner makes.
+static GeneralizedMethodOfMoments.GMMEstimationStrategy ParseGmmStrategy(string s) => s switch
+{
+    "OneStep" => GeneralizedMethodOfMoments.GMMEstimationStrategy.OneStep,
+    "TwoStep" => GeneralizedMethodOfMoments.GMMEstimationStrategy.TwoStep,
+    "Iterative" => GeneralizedMethodOfMoments.GMMEstimationStrategy.Iterative,
+    _ => throw new Exception($"unknown GMM estimation strategy: {s}")
+};
+
+// A `type: "bulletin17c"` model spec -> a concrete Bulletin17CDistribution, mirroring
+// model_spec.hpp's build_bulletin17c_model: family (default LogPearsonTypeIII) + the shared
+// DataFrame builder + optional explicit parameter_values applied last.
+static BestFitModels.Bulletin17CDistribution BuildBulletin17CModel(
+    JsonElement modelSpec, Dictionary<string, double[]> datasets)
+{
+    var df = BuildModelDataFrame(modelSpec, datasets);
+    var distType = modelSpec.TryGetProperty("family", out var fam)
+        ? Enum.Parse<UnivariateDistributionType>(fam.GetString()!)
+        : UnivariateDistributionType.LogPearsonTypeIII;
+    var m = new BestFitModels.Bulletin17CDistribution(df, distType);
+    if (modelSpec.TryGetProperty("parameter_values", out var pv))
+        m.SetParameterValues(pv.EnumerateArray().Select(ParseNum).ToList());
+    return m;
+}
+
+static (BestFitModels.Bulletin17CDistribution b17c, GeneralizedMethodOfMoments gmm, double[]? simulated)
+    BuildGmm(JsonElement construct, Dictionary<string, double[]> datasets)
+{
+    var b17c = BuildBulletin17CModel(construct.GetProperty("model"), datasets);
+    var method = construct.TryGetProperty("optimizer", out var o)
+        ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.BFGS;
+    var gmm = new GeneralizedMethodOfMoments(b17c, method);
+    if (construct.TryGetProperty("strategy", out var st))
+        gmm.EstimationStrategy = ParseGmmStrategy(st.GetString()!);
+    if (construct.TryGetProperty("max_gmm_iterations", out var mgi))
+        gmm.MaxGMMIterations = mgi.GetInt32();
+    if (!gmm.Estimate())
+        throw new Exception("GeneralizedMethodOfMoments.Estimate() returned false");
+    gmm.PostProcess(useSandwich: true, computeJstat: true);
+    double[]? draws = null;
+    if (construct.TryGetProperty("sample_size", out var ss))
+    {
+        b17c.SetParameterValues(gmm.BestParameterSet.Values);
+        draws = b17c.GenerateRandomValues(ss.GetInt32(),
+            construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
+    }
+    return (b17c, gmm, draws);
+}
+
+// GMM assertion surface: shares parameter/standard_error/covariance/correlation names with
+// ML/MAP; adds j_stat/j_stat_pval and the B17C quantile_variance. quantile_variance lives on the
+// B17C MODEL (not the estimator): args[0] is the annual EXCEEDANCE probability (AEP) and the C#
+// QuantileVariance takes a NON-exceedance probability, so pass 1 - AEP, feeding it the fitted
+// parameters + the estimator's covariance -- exactly the C++ runner's arm.
+static double DispatchGmm(BestFitModels.Bulletin17CDistribution b17c, GeneralizedMethodOfMoments gmm,
+                          double[]? simulated, string m, JsonElement[] a)
+{
+    int I(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "simulated_value":
+            return (simulated ?? throw new Exception("simulated_value outside a seeded GMM case"))[I(0)];
+        case "parameter": return gmm.BestParameterSet.Values[I(0)];
+        case "standard_error": return gmm.GetStandardErrors()[I(0)];
+        case "covariance": return gmm.GetCovarianceMatrix()[I(0), I(1)];
+        case "correlation": return gmm.GetCorrelationMatrix()[I(0), I(1)];
+        case "j_stat": return gmm.JStat;
+        case "j_stat_pval": return gmm.JStatPval;
+        case "quantile_variance":
+            return b17c.QuantileVariance(1.0 - a[0].GetDouble(), gmm.BestParameterSet.Values,
+                gmm.GetCovarianceMatrix().ToArray());
+        default: throw new Exception($"unknown GMM fixture method: {m}");
+    }
+}
+
 // --- Phase 5 model-spec construction (Task M14) ---------------------------------------------
 //
 // Builds the SAME `construct.model` spec the three runners hand to the shared C++ builder
@@ -2128,6 +2213,45 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
         foreach (var c in root.GetProperty("cases").EnumerateArray())
         {
             string caseName = c.GetProperty("name").GetString()!;
+
+            // GMM/B17C target (B12): the concrete Bulletin17CDistribution is NOT a ModelBase, so
+            // it takes its own build+dispatch path (mirrors the C++ runner's separate GMM arm).
+            if (estTarget == "GeneralizedMethodOfMoments")
+            {
+                (BestFitModels.Bulletin17CDistribution b17c, GeneralizedMethodOfMoments gmm, double[]? simulated) gmmCase;
+                try { gmmCase = BuildGmm(c.GetProperty("construct"), estDatasets); }
+                catch (Exception ex)
+                {
+                    failures.Add($"{estTarget}/{caseName}: build/run failed: {ex.Message}");
+                    fail++;
+                    continue;
+                }
+
+                foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+                {
+                    string method = asrt.GetProperty("method").GetString()!;
+                    var argList = asrt.TryGetProperty("args", out var av)
+                        ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                    string where = $"{estTarget}/{caseName}/{method}";
+
+                    if (dump)
+                    {
+                        DumpLine(estTarget, caseName, method, argList,
+                                 () => (object)DispatchGmm(gmmCase.b17c, gmmCase.gmm, gmmCase.simulated, method, argList));
+                        continue;
+                    }
+
+                    try
+                    {
+                        double actual = DispatchGmm(gmmCase.b17c, gmmCase.gmm, gmmCase.simulated, method, argList);
+                        if (Compare(actual, asrt)) pass++;
+                        else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                    }
+                    catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+                }
+                continue;
+            }
+
             (BestFitModels.UnivariateDistributionModelBase model, object? estimator, double[]? simulated) estimator;
             try { estimator = BuildEstimation(estTarget, c.GetProperty("construct"), estDatasets); }
             catch (Exception ex)
