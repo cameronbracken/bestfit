@@ -4,8 +4,9 @@
 // internally the distribution stores the natural-log-space parameters mu_ and sigma_.
 // Constructor SetParameters(mean, sd) calls DirectMethodOfMoments to derive mu and sigma.
 // GetParameters returns [Mean, StandardDeviation] (real-space, not log-space).
-// Logic mirrors the C# source method-for-method. IBootstrappable, IStandardError, and
-// ConditionalMoments are not ported (desktop / advanced analysis concerns).
+// Logic mirrors the C# source method-for-method. IBootstrappable and IStandardError are
+// not ported (desktop / advanced analysis concerns). B4 adds ParametersFromMoments/
+// MomentsFromParameters and the ConditionalMoments override for the Bulletin 17C GMM track.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -162,6 +163,25 @@ class LnNormal : public UnivariateDistributionBase,
         return {mu, sigma};
     }
 
+    // ParametersFromMoments (C# LnNormal.cs:356): real-space {mean, sd} -> log-space
+    // {mu, sigma}. The C# body duplicates DirectMethodOfMoments verbatim (guards
+    // included), so this port delegates to direct_mom.
+    std::vector<double> parameters_from_moments(const std::vector<double>& moments) const {
+        return direct_mom(moments[0], moments[1]);
+    }
+
+    // MomentsFromParameters (C# LnNormal.cs:370): {Mean, StandardDeviation, Skewness,
+    // Kurtosis} of an LnNormal built from the (real-space) parameters.
+    std::vector<double> moments_from_parameters(const std::vector<double>& parameters) const {
+        LnNormal dist;
+        dist.set_parameters(parameters);
+        double m1 = dist.mean();
+        double m2 = dist.standard_deviation();
+        double m3 = dist.skewness();
+        double m4 = dist.kurtosis();
+        return {m1, m2, m3, m4};
+    }
+
     // ParametersFromLinearMoments: mu = L1, sigma = L2*sqrt(pi)  (log-space)
     std::vector<double> parameters_from_linear_moments(
         const std::vector<double>& moments) const override {
@@ -204,6 +224,63 @@ class LnNormal : public UnivariateDistributionBase,
         math::optimization::NelderMead solver(log_lh, 2, initials, lowers, uppers);
         solver.maximize();
         return solver.best_parameters();
+    }
+
+    // ConditionalMoments override (C# LnNormal.cs:560): closed-form truncated-lognormal
+    // raw moments via shifted standard-normal CDF differences, converted to central
+    // moments about the UNCONDITIONAL mean muX = exp(mu + sigma^2/2).
+    std::vector<double> conditional_moments(double a, double b) const override {
+        if (a >= b) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Log-space Normal parameters: Y = ln X ~ N(mu, sigma^2)
+        double mu = mu_;
+        double sigma = sigma_;
+        if (!(sigma > 0.0)) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Map bounds to log-space [A, B], allowing a <= 0 (A = -inf) and b = +inf
+        double A = (a > 0.0) ? std::log(a) : -kInf;
+        double B = std::isinf(b) && b > 0.0 ? kInf : (b > 0.0 ? std::log(b) : -kInf);
+
+        // Standardized limits for Y
+        double alpha = (A - mu) / sigma;  // can be -inf
+        double beta = (B - mu) / sigma;   // can be +inf
+
+        // Standard normal CDF helper (consistent with the Normal code)
+        auto Phi = [](double x) { return 0.5 * (1.0 + std::erf(x / kSqrt2)); };
+
+        double PhiA = (std::isinf(alpha) && alpha < 0.0) ? 0.0 : Phi(alpha);
+        double PhiB = (std::isinf(beta) && beta > 0.0) ? 1.0 : Phi(beta);
+
+        double Z = PhiB - PhiA;  // normalization (P(a < X < b))
+        if (Z <= 1e-15) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Raw truncated moments: E[X^k | a < X < b] for k = 1..4
+        double Eraw[5] = {0.0, 0.0, 0.0, 0.0, 0.0};  // filled for 1..4
+
+        for (int k = 1; k <= 4; k++) {
+            double ks = k * sigma;
+            // shifted limits: Phi(beta - k*sigma) - Phi(alpha - k*sigma)
+            double PhiBk = (std::isinf(beta) && beta > 0.0) ? 1.0 : Phi(beta - ks);
+            double PhiAk = (std::isinf(alpha) && alpha < 0.0) ? 0.0 : Phi(alpha - ks);
+
+            double scale = std::exp(k * mu + 0.5 * k * k * sigma * sigma);
+            Eraw[k] = scale * (PhiBk - PhiAk) / Z;
+        }
+
+        // Unconditional mean of X (about which we take central moments)
+        double muX = std::exp(mu + 0.5 * sigma * sigma);
+
+        // Central moments about mu_X (unconditional)
+        double m1 = Eraw[1];
+        double m2 = Eraw[2] - 2.0 * muX * Eraw[1] + muX * muX;
+        double m3 = Eraw[3] - 3.0 * muX * Eraw[2] + 3.0 * muX * muX * Eraw[1] - muX * muX * muX;
+        double m4 = Eraw[4]
+                  - 4.0 * muX * Eraw[3]
+                  + 6.0 * muX * muX * Eraw[2]
+                  - 4.0 * muX * muX * muX * Eraw[1]
+                  + muX * muX * muX * muX;
+
+        return {m1, m2, m3, m4};
     }
 
    private:

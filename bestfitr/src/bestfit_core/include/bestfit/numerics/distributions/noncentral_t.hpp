@@ -89,6 +89,9 @@ class NoncentralT : public UnivariateDistributionBase {
     // (not yet ported). Accurate for near-symmetric cases (small |lambda|); for large |lambda|
     // with small df these can diverge from the C# value and are NOT oracle-verified there.
     // Revisit once the adaptive integrator (planned foundation task A7) is ported.
+    // (B9 additive: re-expose the base trapezoidal central_moments(int steps) overload,
+    // which the local central_moments(double) helper below would otherwise name-hide.)
+    using UnivariateDistributionBase::central_moments;
     double skewness() const override { return central_moments(1e-8)[2]; }
     double kurtosis() const override { return central_moments(1e-8)[3]; }
 

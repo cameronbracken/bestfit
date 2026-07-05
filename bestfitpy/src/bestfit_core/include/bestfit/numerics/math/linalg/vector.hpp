@@ -13,11 +13,13 @@
 // Omitted (not needed by any ported caller): the `Header` UI-metadata property, `Array`
 // (raw-array reference property; `to_array()`/`ToArray()`, a copy, is provided instead),
 // `Clone`/`Clear`/`CopyFrom`/`ToList`, `Multiply`/`Add`/`Subtract` overloads taking a
-// raw `double[]` (only the `Vector`-`Vector` forms are used), `Divide`/`operator/`,
-// `operator^` (power), and `operator*(Vector, Matrix)`. Also omitted: `operator*(double,
-// Vector)` (scalar on the left) -- unlike `Matrix.cs`, `Vector.cs` has no such overload
-// (only `operator*(Vector, double)`), so none is added here either, matching the C#
-// source exactly.
+// raw `double[]` (only the `Vector`-`Vector` forms are used), `operator^` (power), and
+// `operator*(Vector, Matrix)`. Also omitted: `operator*(double, Vector)` (scalar on the
+// left) -- unlike `Matrix.cs`, `Vector.cs` has no such overload (only
+// `operator*(Vector, double)`), so none is added here either, matching the C# source
+// exactly. B10 adds `divide`/`operator/` (C# Vector.Divide, line 318 / operator/, line
+// 371): Bulletin17CDistribution::MomentConditions normalizes its accumulated moment sum
+// with `mean /= (double)n`.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -95,6 +97,13 @@ class Vector {
         return Vector(std::move(result));
     }
 
+    // Divide by a scalar (C# Vector.Divide, line 318; B10).
+    Vector divide(double scalar) const {
+        std::vector<double> result(data_.size());
+        for (std::size_t i = 0; i < data_.size(); ++i) result[i] = data_[i] / scalar;
+        return Vector(std::move(result));
+    }
+
     // Returns the Euclidean distance between two vectors ||x - y||.
     static double distance(const Vector& a, const Vector& b) {
         if (a.length() != b.length()) throw std::invalid_argument("The vectors must be the same length.");
@@ -136,5 +145,8 @@ inline Vector operator*(const Vector& a, const Vector& b) { return a.multiply(b)
 
 // Multiplies a vector A with a scalar.
 inline Vector operator*(const Vector& a, double scalar) { return a.multiply(scalar); }
+
+// Divides a vector A by a scalar (C# operator/, line 371; B10).
+inline Vector operator/(const Vector& a, double scalar) { return a.divide(scalar); }
 
 }  // namespace bestfit::numerics::math::linalg

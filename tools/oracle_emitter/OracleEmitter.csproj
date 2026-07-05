@@ -35,13 +35,16 @@
     <Compile Include="DiagnosticsStubs.cs" />
 
     <!-- Real RMC.BestFit estimation + models, compiled in place (read-only; never copied or
-         modified under upstream/). Exclude the GMM estimator + its IGMMModel interface and the
-         Bulletin17C distribution (GMM-coupled), none of which the T12 estimators touch, and
-         which pull in additional broken dependencies. -->
-    <Compile Include="$(BF)/Estimation/**/*.cs"
-             Exclude="$(BF)/Estimation/GeneralizedMethodOfMoments.cs" />
-    <Compile Include="$(BF)/Models/**/*.cs"
-             Exclude="$(BF)/Models/Support/IGMMModel.cs;$(BF)/Models/UnivariateDistribution/Bulletin17CDistribution.cs" />
+         modified under upstream/). Task B12 INCLUDES the GMM estimator, its IGMMModel interface,
+         and the Bulletin17C distribution so their exact GMM/B17C fit oracles can be dumped from
+         the real library (the upstream GMM tests are structural-only, so no numeric oracle can
+         come from the C# test files). The GMM Influence/Leverage-Diagnostics region references a
+         larger RMC.BestFit.Diagnostics surface that is still stubbed compile-only in
+         DiagnosticsStubs.cs (that region is deferred and on NO dumped-oracle path). Analyses/**
+         stays OUT: the full assembly does not build (a CS0104 YeoJohnsonLink ambiguity in the
+         Analyses layer), so EnableDefaultCompileItems is off and the compile list is explicit. -->
+    <Compile Include="$(BF)/Estimation/**/*.cs" />
+    <Compile Include="$(BF)/Models/**/*.cs" />
   </ItemGroup>
 
 </Project>

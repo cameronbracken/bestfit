@@ -164,6 +164,14 @@ bf_model_simulate_ <- function(model_json, dataset, sample_size, seed) {
   .Call(`_bestfitr_bf_model_simulate_`, model_json, dataset, sample_size, seed)
 }
 
+bf_estimation_gmm_run_ <- function(model_json, dataset, strategy, optimizer, max_gmm_iterations, sample_size, seed) {
+  .Call(`_bestfitr_bf_estimation_gmm_run_`, model_json, dataset, strategy, optimizer, max_gmm_iterations, sample_size, seed)
+}
+
+bf_estimation_gmm_qvar_ <- function(model_json, dataset, strategy, optimizer, max_gmm_iterations, aep) {
+  .Call(`_bestfitr_bf_estimation_gmm_qvar_`, model_json, dataset, strategy, optimizer, max_gmm_iterations, aep)
+}
+
 bf_gev_pdf_ <- function(x, location, scale, shape) {
   .Call(`_bestfitr_bf_gev_pdf_`, x, location, scale, shape)
 }

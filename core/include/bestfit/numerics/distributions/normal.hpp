@@ -5,6 +5,8 @@
 // well within oracle tolerances); InverseCDF ports Wichura's AS241 (r8_normal_01_cdf_inverse)
 // verbatim, the same routine the C# uses. Logic mirrors the C# source method-for-method;
 // the WPF confidence-interval helpers (Normal/NoncentralT/MonteCarlo) are not ported.
+// B4 adds ParametersFromMoments/MomentsFromParameters, QuantileGradient, and the
+// ConditionalMoments override for the Bulletin 17C GMM track.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -89,6 +91,24 @@ class Normal : public UnivariateDistributionBase,
         }
     }
 
+    // ParametersFromMoments (C# Normal.cs:267): the Normal is parameterized by its
+    // first two moments (C# moments.ToArray().Subset(0, 1)).
+    std::vector<double> parameters_from_moments(const std::vector<double>& moments) const {
+        return {moments[0], moments[1]};
+    }
+
+    // MomentsFromParameters (C# Normal.cs:273): {Mean, StandardDeviation, Skewness,
+    // Kurtosis} of a Normal built from the parameters.
+    std::vector<double> moments_from_parameters(const std::vector<double>& parameters) const {
+        Normal dist;
+        dist.set_parameters(parameters);
+        double m1 = dist.mean();
+        double m2 = dist.standard_deviation();
+        double m3 = dist.skewness();
+        double m4 = dist.kurtosis();
+        return {m1, m2, m3, m4};
+    }
+
     std::vector<double> parameters_from_linear_moments(
         const std::vector<double>& moments) const override {
         double mu = moments[0];
@@ -131,6 +151,58 @@ class Normal : public UnivariateDistributionBase,
         math::optimization::NelderMead solver(log_lh, 2, initials, lowers, uppers);
         solver.maximize();
         return solver.best_parameters();
+    }
+
+    // Gradient of the quantile function wrt {mu, sigma} (C# IStandardError.QuantileGradient,
+    // Normal.cs:833). Q(p) = mu + sigma*z(p), so dQ/dmu = 1, dQ/dsigma = z(p). C#
+    // ValidateParameters(..., true) throw -> std::invalid_argument.
+    std::vector<double> quantile_gradient(double probability) const {
+        // Validate parameters
+        if (!parameters_valid_) throw std::invalid_argument("Normal: invalid parameters");
+        double z = standard_z(probability);
+        return {
+            1.0,  // dQ/dmu
+            z     // dQ/dsigma
+        };
+    }
+
+    // ConditionalMoments override (C# Normal.cs:873): closed-form truncated-normal
+    // moments; m2-m4 are central about the UNCONDITIONAL mean, mirroring the base virtual.
+    std::vector<double> conditional_moments(double a, double b) const override {
+        if (a >= b) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Unconditional parameters
+        double mu = mu_;
+        double sigma = sigma_;
+
+        // Standardized limits
+        double alpha_s = (a - mu) / sigma;
+        double beta_s = (b - mu) / sigma;
+
+        // CDF of standard normal
+        double Phi_a = 0.5 * (1.0 + std::erf(alpha_s / kSqrt2));
+        double Phi_b = 0.5 * (1.0 + std::erf(beta_s / kSqrt2));
+        double Z = Phi_b - Phi_a;  // normalization
+
+        // PDF of standard normal
+        double phi_a = std::exp(-0.5 * alpha_s * alpha_s) / kSqrt2PI;
+        double phi_b = std::exp(-0.5 * beta_s * beta_s) / kSqrt2PI;
+
+        // auxiliary ratios
+        double lambda = (phi_a - phi_b) / Z;                    // E[Z]
+        double delta = (alpha_s * phi_a - beta_s * phi_b) / Z;  // E[Z^2]-1
+        double tau = ((alpha_s * alpha_s + 2.0) * phi_a -
+                      (beta_s * beta_s + 2.0) * phi_b) / Z;     // E[Z^3]
+        double kap = (alpha_s * alpha_s * alpha_s * phi_a -
+                      beta_s * beta_s * beta_s * phi_b) / Z;    // for E[Z^4]
+
+        // now build the moments
+        double m1 = mu + sigma * lambda;
+        double m2 = sigma * sigma * (1.0 + delta);
+        double m3 = sigma * sigma * sigma * tau;
+        double m4 = sigma * sigma * sigma * sigma * (3.0 + kap + 3.0 * delta);
+
+        return {m1, m2, m3, m4};
     }
 
     // --- Standard normal helpers (static, mirror the C# public API) ---

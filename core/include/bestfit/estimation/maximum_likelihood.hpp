@@ -41,11 +41,12 @@
 // reported best point and scaling by `function_scale_` reproduces the same fitness convention.
 // The C++-only ctest (test_maximum_likelihood.cpp) asserts this equality directly to 1e-9.
 //
-// GATING (deliberate Phase-4 sever, matches the task brief): `OptimizationMethod::BFGS`,
-// `::Powell`, and `::MultilevelSingleLinkage` are NOT constructed -- none of the three has been
-// ported (BFGS/Powell/MLSL are deferred alongside GeneralizedMethodOfMoments, per
-// `.claude/PLAN.md`). Selecting one of them throws `std::invalid_argument` from
-// `set_up_optimizer()` without ever touching an (nonexistent) optimizer type.
+// UN-GATED (Phase 6, Task B7): `OptimizationMethod::BFGS`, `::Powell`, and
+// `::MultilevelSingleLinkage` are now constructed for real, mirroring the C# `SetUpOptimizer`
+// switch. The deliberate Phase-4 sever (which threw `std::invalid_argument` for the three
+// then-unported methods) is lifted now that B5/B6 ported BFGS, Powell, MLSL, and `LocalMethod`.
+// MLSL is constructed with `LocalMethod::NelderMead` explicitly, per the C# call site (the C++
+// MLSL ctor default is `LocalMethod::BFGS`, so the default must not be relied on).
 //
 // EXCEPTION-TYPE MAPPING for THIS file: C# `ArgumentException`/`InvalidOperationException`
 // (state guards: not-yet-estimated, wrong parameter count, null Hessian) -> `std::invalid_argument`;
@@ -87,7 +88,11 @@
 #include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/matrix_regularization.hpp"
+#include "bestfit/numerics/math/optimization/bfgs.hpp"
 #include "bestfit/numerics/math/optimization/differential_evolution.hpp"
+#include "bestfit/numerics/math/optimization/mlsl.hpp"
+#include "bestfit/numerics/math/optimization/powell.hpp"
+#include "bestfit/numerics/math/optimization/support/local_method.hpp"
 #include "bestfit/numerics/math/optimization/support/optimizer.hpp"
 #include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
@@ -463,7 +468,7 @@ class MaximumLikelihood {
     int total_function_evaluations_ = 0;
 
     // Builds the optimizer for the selected method (C# 176-218). See this file's header
-    // ADAPTER NOTE and GATING comment.
+    // ADAPTER NOTE and UN-GATED note.
     void set_up_optimizer() {
         initial_values_.clear();
         lower_bounds_.clear();
@@ -497,18 +502,25 @@ class MaximumLikelihood {
                     objective, number_of_parameters(), lower_bounds_, upper_bounds_);
                 break;
             case OptimizationMethod::BFGS:
-                throw std::invalid_argument(
-                    "Optimization method 'BFGS' is not supported in this build; BFGS is deferred "
-                    "alongside GeneralizedMethodOfMoments (Phase 4 scope decision).");
+                // The trailing GradientFunction defaults to nullptr = finite differences,
+                // matching the C# call that omits the optional gradient (C# 190-193).
+                optimizer_ = std::make_unique<bestfit::numerics::math::optimization::BFGS>(
+                    objective, number_of_parameters(), initial_values_, lower_bounds_,
+                    upper_bounds_);
+                break;
             case OptimizationMethod::Powell:
-                throw std::invalid_argument(
-                    "Optimization method 'Powell' is not supported in this build; Powell is "
-                    "deferred alongside GeneralizedMethodOfMoments (Phase 4 scope decision).");
+                optimizer_ = std::make_unique<bestfit::numerics::math::optimization::Powell>(
+                    objective, number_of_parameters(), initial_values_, lower_bounds_,
+                    upper_bounds_);
+                break;
             case OptimizationMethod::MultilevelSingleLinkage:
-                throw std::invalid_argument(
-                    "Optimization method 'MultilevelSingleLinkage' is not supported in this "
-                    "build; MultilevelSingleLinkage is deferred alongside "
-                    "GeneralizedMethodOfMoments (Phase 4 scope decision).");
+                // C# passes LocalMethod.NelderMead explicitly (C# 206-209); the C++ MLSL ctor
+                // default is LocalMethod::BFGS, so the default must not be relied on.
+                optimizer_ = std::make_unique<bestfit::numerics::math::optimization::MLSL>(
+                    objective, number_of_parameters(), initial_values_, lower_bounds_,
+                    upper_bounds_,
+                    bestfit::numerics::math::optimization::LocalMethod::NelderMead);
+                break;
         }
 
         optimizer_->report_failure = report_failure_;

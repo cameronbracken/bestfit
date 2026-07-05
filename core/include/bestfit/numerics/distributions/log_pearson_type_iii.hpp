@@ -297,6 +297,27 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
         }
     }
 
+    // ParametersFromMoments (C# LogPearsonTypeIII.cs:559): the LP3 is parameterized by
+    // the first three (log10-space) moments (C# moments.ToArray().Subset(0, 2)).
+    // Added in B4 for the Bulletin 17C GMM track.
+    std::vector<double> parameters_from_moments(const std::vector<double>& moments) const {
+        return {moments[0], moments[1], moments[2]};
+    }
+
+    // MomentsFromParameters (C# LogPearsonTypeIII.cs:565): {Mean, StandardDeviation,
+    // Skewness, Kurtosis} of an LP3 built from the parameters. Note these are the
+    // REAL-SPACE moments of X, not the log-space parameters (upstream asymmetry; C#
+    // governs). Added in B4.
+    std::vector<double> moments_from_parameters(const std::vector<double>& parameters) const {
+        LogPearsonTypeIII dist;
+        dist.set_parameters(parameters);
+        double m1 = dist.mean();
+        double m2 = dist.standard_deviation();
+        double m3 = dist.skewness();
+        double m4 = dist.kurtosis();
+        return {m1, m2, m3, m4};
+    }
+
     // ParametersFromLinearMoments: rational-function approximation (Hosking).
     // Mirrors C# ParametersFromLinearMoments exactly (same code as PearsonTypeIII).
     std::vector<double> parameters_from_linear_moments(

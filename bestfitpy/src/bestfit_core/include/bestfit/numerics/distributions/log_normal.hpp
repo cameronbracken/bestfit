@@ -3,6 +3,7 @@
 // The Log-Normal distribution (base 10) with location µ (mean of log) and scale σ (std dev of log).
 // Logic mirrors the C# source method-for-method. The base is fixed at 10 (the C# default);
 // IBootstrappable, IStandardError, and the Monte Carlo confidence-interval helper are not ported.
+// B4 adds ParametersFromMoments/MomentsFromParameters for the Bulletin 17C GMM track.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -175,6 +176,30 @@ class LogNormal : public UnivariateDistributionBase,
             log_sample.push_back(std::log(x) / lnB);
         }
         return data::linear_moments(log_sample);  // returns {L1, L2, T3, T4}
+    }
+
+    // ParametersFromMoments (C# LogNormal.cs:408): real-space {mean, sd} -> base-10
+    // log-space {mu, sigma}. C# Math.Log(x, Base) = ln(x)/ln(Base) with Base = 10.
+    std::vector<double> parameters_from_moments(const std::vector<double>& moments) const {
+        double mean = moments[0];
+        double standard_deviation = moments[1];
+        double lnB = std::log(kBase);
+        double variance = standard_deviation * standard_deviation;
+        double mu = std::log(mean * mean / std::sqrt(variance + mean * mean)) / lnB;
+        double sigma = std::sqrt(std::log(1.0 + variance / (mean * mean)) / lnB);
+        return {mu, sigma};
+    }
+
+    // MomentsFromParameters (C# LogNormal.cs:419): {Mean, StandardDeviation, Skewness,
+    // Kurtosis} of a LogNormal built from the (base-10 log-space) parameters.
+    std::vector<double> moments_from_parameters(const std::vector<double>& parameters) const {
+        LogNormal dist;
+        dist.set_parameters(parameters);
+        double m1 = dist.mean();
+        double m2 = dist.standard_deviation();
+        double m3 = dist.skewness();
+        double m4 = dist.kurtosis();
+        return {m1, m2, m3, m4};
     }
 
     // ParametersFromLinearMoments: mu = L1, sigma = L2 * sqrt(pi)

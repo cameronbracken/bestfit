@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "bestfit/estimation/bayesian_analysis.hpp"
+#include "bestfit/estimation/generalized_method_of_moments.hpp"
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
@@ -46,17 +47,53 @@
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/support/simulatable.hpp"
 #include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
+#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bindings.hpp"
 
 namespace py = pybind11;
 namespace est = bestfit::estimation;
 namespace models = bestfit::models;
 
+// Shared optimizer-method parser for ML/MAP AND the GMM `optimizer` knob. B11 extends it with
+// the B7-un-gated BFGS/Powell/MultilevelSingleLinkage methods (with the "MLSL" alias).
 static est::OptimizationMethod parse_optimization_method(const std::string& s) {
     if (s == "Brent") return est::OptimizationMethod::Brent;
     if (s == "NelderMead") return est::OptimizationMethod::NelderMead;
     if (s == "DifferentialEvolution") return est::OptimizationMethod::DifferentialEvolution;
+    if (s == "BFGS") return est::OptimizationMethod::BFGS;
+    if (s == "Powell") return est::OptimizationMethod::Powell;
+    if (s == "MultilevelSingleLinkage" || s == "MLSL")
+        return est::OptimizationMethod::MultilevelSingleLinkage;
     throw py::value_error("unknown model_estimation optimizer: " + s);
+}
+
+// The GMM estimation-strategy knob (default Iterative, matching the C# GMM default).
+static est::GeneralizedMethodOfMoments::GMMEstimationStrategy parse_gmm_strategy(
+    const std::string& s) {
+    using Strat = est::GeneralizedMethodOfMoments::GMMEstimationStrategy;
+    if (s == "OneStep") return Strat::OneStep;
+    if (s == "TwoStep") return Strat::TwoStep;
+    if (s == "Iterative") return Strat::Iterative;
+    throw py::value_error("unknown GMM estimation strategy: " + s);
+}
+
+// Builds a B17C model, fits it by GMM, and (optionally) post_processes for the covariance
+// stack + J-statistic. Shared by estimation_gmm_run and estimation_gmm_qvar so both take the
+// exact same deterministic path (BFGS + numerical Jacobian have no RNG, so a rebuild
+// reproduces the same fit -- the same lazy-rebuild contract `estimation_bic` relies on).
+static std::unique_ptr<est::GeneralizedMethodOfMoments> build_and_fit_gmm(
+    std::unique_ptr<models::Bulletin17CDistribution>& model, const std::string& model_json,
+    const std::vector<double>& dataset, const std::string& strategy, const std::string& optimizer,
+    int max_gmm_iterations) {
+    model = models::spec::build_bulletin17c_from_json(model_json, dataset);
+    auto gmm = std::make_unique<est::GeneralizedMethodOfMoments>(*model,
+                                                                 parse_optimization_method(optimizer));
+    gmm->set_estimation_strategy(parse_gmm_strategy(strategy));
+    if (max_gmm_iterations > 0) gmm->set_max_gmm_iterations(max_gmm_iterations);
+    if (!gmm->estimate())
+        throw py::value_error("GeneralizedMethodOfMoments::estimate() failed for a fixture case");
+    gmm->post_process(/*use_sandwich=*/true, /*compute_jstat=*/true);
+    return gmm;
 }
 
 static est::SamplerType parse_sampler_type(const std::string& s) {
@@ -310,4 +347,78 @@ void register_estimation(py::module_& m) {
             return simulatable->generate_random_values(sample_size, seed);
         },
         py::arg("model_json"), py::arg("dataset"), py::arg("sample_size"), py::arg("seed"));
+
+    // --- GeneralizedMethodOfMoments (B11) --------------------------------------------------
+    //
+    // Disjoint construct shape from ML/MAP (a strategy + max_gmm_iterations instead of just an
+    // optimizer string) AND a different model type -- the concrete Bulletin17CDistribution the
+    // GMM ctor takes as IGMMModel& (NOT a ModelBase; see model_spec.hpp's build_bulletin17c_model
+    // note), built here through the shared spec builder's dedicated bulletin17c entry point. So
+    // this is a separate registered function, mirroring the estimation_bayes_run split. Builds
+    // the model, fits once, post_processes, and returns every value the GMM dispatcher reads:
+    //   parameters/standard_errors     -- [p] lists
+    //   covariance/correlation         -- [p][p] nested lists
+    //   j_stat/j_stat_pval             -- scalars (pval is NaN when q - p == 0)
+    //   simulated                      -- [sample_size] seeded ISimulatable draw off the FITTED
+    //                                     model (present only when construct supplies sample_size),
+    //                                     read by the shared `simulated_value` dispatch arm.
+    // quantile_variance rides estimation_gmm_qvar (it needs a per-assertion AEP, exactly like
+    // `bic`'s per-assertion sample size -- see below).
+    m.def(
+        "estimation_gmm_run",
+        [](const std::string& model_json, const std::vector<double>& dataset,
+           const std::string& strategy, const std::string& optimizer, int max_gmm_iterations,
+           int sample_size, int seed) {
+            std::unique_ptr<models::Bulletin17CDistribution> model;
+            auto gmm = build_and_fit_gmm(model, model_json, dataset, strategy, optimizer,
+                                         max_gmm_iterations);
+            int p = model->number_of_parameters();
+
+            py::dict out;
+            out["parameters"] = gmm->best_parameter_set().values;
+            out["standard_errors"] = gmm->get_standard_errors();
+
+            auto cov = gmm->get_covariance_matrix();
+            auto corr = gmm->get_correlation_matrix();
+            std::vector<std::vector<double>> covariance(static_cast<std::size_t>(p));
+            std::vector<std::vector<double>> correlation(static_cast<std::size_t>(p));
+            for (int i = 0; i < p; ++i) {
+                covariance[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(p));
+                correlation[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(p));
+                for (int j = 0; j < p; ++j) {
+                    covariance[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = cov(i, j);
+                    correlation[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = corr(i, j);
+                }
+            }
+            out["covariance"] = covariance;
+            out["correlation"] = correlation;
+            out["j_stat"] = gmm->jstat();
+            out["j_stat_pval"] = gmm->jstat_pval();
+
+            if (sample_size > 0) {
+                model->set_parameter_values(gmm->best_parameter_set().values);
+                out["simulated"] = model->generate_random_values(sample_size, seed);
+            }
+            return out;
+        },
+        py::arg("model_json"), py::arg("dataset"), py::arg("strategy"), py::arg("optimizer"),
+        py::arg("max_gmm_iterations"), py::arg("sample_size"), py::arg("seed"));
+
+    // `quantile_variance [aep]`: like `bic [n]`, the AEP is only known at assertion-dispatch
+    // time, so this rebuilds the same deterministic fit (see build_and_fit_gmm) and evaluates
+    // the B17C delta-method Var(Q_p) live. args[0] is the annual EXCEEDANCE probability; the C#
+    // QuantileVariance takes a NON-exceedance probability, so pass 1 - AEP.
+    m.def(
+        "estimation_gmm_qvar",
+        [](const std::string& model_json, const std::vector<double>& dataset,
+           const std::string& strategy, const std::string& optimizer, int max_gmm_iterations,
+           double aep) {
+            std::unique_ptr<models::Bulletin17CDistribution> model;
+            auto gmm = build_and_fit_gmm(model, model_json, dataset, strategy, optimizer,
+                                         max_gmm_iterations);
+            return model->quantile_variance(1.0 - aep, gmm->best_parameter_set().values,
+                                            gmm->get_covariance_matrix().to_array());
+        },
+        py::arg("model_json"), py::arg("dataset"), py::arg("strategy"), py::arg("optimizer"),
+        py::arg("max_gmm_iterations"), py::arg("aep"));
 }

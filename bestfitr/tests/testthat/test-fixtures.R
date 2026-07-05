@@ -510,6 +510,11 @@ dispatch_estimation <- function(result, method, args, ctx) {
     dic                = result$dic[[1]],
     waic               = result$waic[[1]],
     looic              = result$looic[[1]],
+    # GMM (B11): j_stat/j_stat_pval from the cached run list; quantile_variance takes a
+    # per-assertion AEP, so it rebuilds the deterministic fit live (the `bic` precedent).
+    j_stat             = result$j_stat[[1]],
+    j_stat_pval        = result$j_stat_pval[[1]],
+    quantile_variance  = ctx$qvar_fn(as.double(args[[1]])),
     posterior_mean     = result$posterior_mean[[i1(args[[1]])]],
     # chain_value [chain, iter, param]: bf_estimation_bayes_run_ returns a flattened
     # `chain_values` vector + `chain_dims` (n_chains, n_iterations, n_params); recover the
@@ -564,6 +569,16 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
       output_length = geti("output_length")
     )
     ctx <- list()
+  } else if (target == "GeneralizedMethodOfMoments") {
+    # GMM (B11): a bulletin17c model fit by GMM. One stateful estimate()+post_process caches the
+    # full surface; quantile_variance rebuilds the deterministic fit live at dispatch.
+    strategy <- if (!is.null(construct$strategy)) construct$strategy else "Iterative"
+    optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "BFGS"
+    max_gmm_iterations <- if (!is.null(construct$max_gmm_iterations)) as.integer(construct$max_gmm_iterations) else -1L
+    sample_size <- if (!is.null(construct$sample_size)) as.integer(construct$sample_size) else 0L
+    seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
+    result <- ns$bf_estimation_gmm_run_(model_json, data, strategy, optimizer, max_gmm_iterations, sample_size, seed)
+    ctx <- list(qvar_fn = function(aep) ns$bf_estimation_gmm_qvar_(model_json, data, strategy, optimizer, max_gmm_iterations, aep))
   } else {
     optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
     result <- ns$bf_estimation_run_(target, model_json, data, optimizer)

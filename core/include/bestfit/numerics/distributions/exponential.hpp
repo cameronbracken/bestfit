@@ -1,7 +1,8 @@
 // ported from: Numerics/Distributions/Univariate/Exponential.cs @ a2c4dbf
 //
 // The (two-parameter) Exponential distribution, location ξ and scale α. Logic mirrors
-// the C# source method-for-method. The WPF ConditionalMoments helper is not ported.
+// the C# source method-for-method. B4 adds QuantileGradient and the ConditionalMoments
+// override for the Bulletin 17C GMM track.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -15,6 +16,7 @@
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
+#include "bestfit/numerics/math/special/factorial.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
@@ -138,6 +140,103 @@ class Exponential : public UnivariateDistributionBase,
         math::optimization::NelderMead solver(log_lh, 2, initials, lowers, uppers);
         solver.maximize();
         return solver.best_parameters();
+    }
+
+    // Gradient of the quantile function wrt {location, scale} (C#
+    // IStandardError.QuantileGradient, Exponential.cs:457). Q(p) = xi - alpha*log(1-p).
+    // C# ValidateParameters(..., true) throw -> std::invalid_argument.
+    std::vector<double> quantile_gradient(double probability) const {
+        // Validate parameters
+        if (!parameters_valid_) throw std::invalid_argument("Exponential: invalid parameters");
+        return {
+            1.0,                           // location
+            -std::log(1.0 - probability)  // scale
+        };
+    }
+
+    // ConditionalMoments override (C# Exponential.cs:495): closed-form truncated-
+    // exponential raw moments via lower incomplete gamma partial sums, converted to
+    // central moments about the UNCONDITIONAL mean mu = xi + alpha.
+    std::vector<double> conditional_moments(double a, double b) const override {
+        if (a >= b) return {kNaN, kNaN, kNaN, kNaN};
+
+        double xi = xi_;
+        double alpha = alpha_;
+        if (!(alpha > 0.0)) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Map to Y = X - xi, truncated on (A, B)
+        // Note: support is y >= 0
+        double A = std::max(0.0, a - xi);
+        double B = b - xi;
+
+        // interval entirely left of support or invalid
+        if (std::isnan(A) || std::isnan(B) || B <= 0.0) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Standardized limits t = y/alpha
+        double tA = A / alpha;
+        double tB = std::isinf(B) ? kInf : (B / alpha);
+
+        // Normalizing probability Z = P(A < Y < B) = e^{-tA} - e^{-tB}
+        double eA = std::exp(-tA);
+        double eB = std::isinf(tB) ? 0.0 : std::exp(-tB);
+        double Z = eA - eB;
+        if (Z <= 1e-15) return {kNaN, kNaN, kNaN, kNaN};
+
+        // Helper: S_n(t) = e^{-t} * sum_{k=0}^n t^k/k!
+        // (appears in lower incomplete gamma(n+1, t) = n! * (1 - S_n(t)))
+        auto Sn = [](double t, int n) {
+            if (std::isinf(t)) return 0.0;
+            double term = 1.0;  // t^0/0!
+            double sum = term;
+            for (int k = 1; k <= n; k++) {
+                term *= t / k;  // t^k/k!
+                sum += term;
+            }
+            return std::exp(-t) * sum;
+        };
+
+        // Precompute factorials for n = 0..4
+        const double fact[5] = {1.0, 1.0, 2.0, 6.0, 24.0};
+
+        // Raw truncated moments of Y: E[Y^n | A<Y<B] for n = 0..4
+        // Using: int_A^B y^n (1/alpha) e^{-y/alpha} dy
+        //          = alpha^n * [g(n+1, B/alpha) - g(n+1, A/alpha)]
+        // and g(n+1, t) = n! * (1 - S_n(t)).
+        double EY[5];
+        EY[0] = 1.0;  // by definition under conditioning
+
+        for (int n = 1; n <= 4; n++) {
+            double SnA = Sn(tA, n);
+            double SnB = Sn(tB, n);
+            // alpha^n n! [S_n(tA) - S_n(tB)]
+            double numer = std::pow(alpha, n) * fact[n] * (SnA - SnB);
+            EY[n] = numer / Z;
+        }
+
+        // Convert to raw moments of X via binomial expansion:
+        // E[X^k] = sum_{r=0}^k C(k,r) xi^(k-r) E[Y^r]
+        double EX[5];
+        for (int k = 0; k <= 4; k++) {
+            double sum = 0.0;
+            for (int r = 0; r <= k; r++) {
+                double bc = math::special::factorial::binomial_coefficient(k, r);
+                sum += bc * std::pow(xi, k - r) * EY[r];
+            }
+            EX[k] = sum;
+        }
+
+        // Central moments about the *unconditional* mean mu = xi + alpha
+        double mu = xi + alpha;
+        double m1 = EX[1];
+        double m2 = EX[2] - 2.0 * mu * EX[1] + mu * mu;
+        double m3 = EX[3] - 3.0 * mu * EX[2] + 3.0 * mu * mu * EX[1] - mu * mu * mu;
+        double m4 = EX[4]
+                  - 4.0 * mu * EX[3]
+                  + 6.0 * mu * mu * EX[2]
+                  - 4.0 * mu * mu * mu * EX[1]
+                  + mu * mu * mu * mu;
+
+        return {m1, m2, m3, m4};
     }
 
    private:
