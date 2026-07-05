@@ -52,6 +52,7 @@ set(BF_TESTS
   test_p1_iunivariate_model
   test_box_cox
   test_time_series
+  test_spatial_correlation
 )
 
 # Sobol test takes the direction-number file as its sole argument.
