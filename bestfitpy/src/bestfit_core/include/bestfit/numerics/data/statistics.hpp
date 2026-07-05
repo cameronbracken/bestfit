@@ -26,6 +26,11 @@
 // `product_moments()`'s internal stdev which requires N>=4) -- Bootstrap's SE/CI computation
 // needs a 2-sample-minimum variance with no such floor. `PopulationVariance`/
 // `PopulationStandardDeviation` (N normalizer) are not ported -- no caller needs them yet.
+//
+// P1 adds `maximum()`, the plain `Statistics.Maximum(IList<double>)` overload
+// (Statistics.cs:90-105), for SpatialGEV::SetDefaultParameters (SpatialGEV.cs:480,487,494).
+// The C# `data == null` throw has no C++ analogue (a `const std::vector<double>&` is never
+// null); the `Minimum` overload is not ported -- no caller needs it yet.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -62,6 +67,20 @@ inline double variance(const std::vector<double>& data) {
 
 // Sample standard deviation (sqrt of `variance`). Mirrors Statistics.StandardDeviation.
 inline double standard_deviation(const std::vector<double>& data) { return std::sqrt(variance(data)); }
+
+// Returns the largest value of the unsorted data array (mirrors Statistics.Maximum's
+// `IList<double>` overload). Returns NaN for an empty sequence or if any entry is NaN; the
+// running max is seeded at -inf and an all-empty result collapses back to NaN.
+inline double maximum(const std::vector<double>& data) {
+    if (data.empty()) return std::numeric_limits<double>::quiet_NaN();
+
+    double max = -std::numeric_limits<double>::infinity();
+    for (double x : data) {
+        if (std::isnan(x)) return std::numeric_limits<double>::quiet_NaN();
+        if (x > max) max = x;
+    }
+    return std::isinf(max) && max < 0.0 ? std::numeric_limits<double>::quiet_NaN() : max;
+}
 
 // Returns {mean, stdev (sample), bias-corrected skewness, bias-corrected excess kurtosis}.
 inline std::vector<double> product_moments(const std::vector<double>& data) {

@@ -49,6 +49,7 @@ set(BF_TESTS
   test_singular_value_decomposition
   test_linear_regression
   test_bulletin17c
+  test_p1_iunivariate_model
 )
 
 # Sobol test takes the direction-number file as its sole argument.
