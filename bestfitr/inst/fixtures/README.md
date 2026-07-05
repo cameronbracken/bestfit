@@ -838,7 +838,9 @@ do not paper over it with a looser tolerance.
 
 ```jsonc
 {
-  "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" | "BayesianAnalysis"
+  "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" |
+                                            // "BayesianAnalysis" | "Simulation" |
+                                            // "GeneralizedMethodOfMoments" (B11)
   "kind":    "model_estimation",
   "source":  "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs ; core/tests/test_maximum_likelihood.cpp",
   "datasets": { "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600] },
@@ -883,7 +885,8 @@ like every other fixture kind) and passed alongside the spec as a flat vector.
 ```jsonc
 "model": {
   "type": "univariate_distribution",  // default when absent (the Phase 4 behavior) |
-                                      // "mixture" | "competing_risks" | "point_process"
+                                      // "mixture" | "competing_risks" | "point_process" |
+                                      // "bulletin17c" (B11; the GMM/Simulation model type)
   // -- data (exactly ONE of): -------------------------------------------------------------
   "dataset": "annual_peaks",          // a `datasets` key -> ExactSeries with sequential
                                       // 0-based indexes (the Phase 4 vector-ctor path,
@@ -917,6 +920,12 @@ like every other fixture kind) and passed alongside the spec as a flat vector.
   "use_defaults": true,               // point_process only, optional knobs, applied in this
   "threshold": 900.0,                 //   order after the DataFrame cascade (an explicit
   "total_years": 20.0,                //   threshold/total_years is never clobbered by defaults)
+  // bulletin17c (B11): `family` is one of the six IsSupportedDistributionType families
+  //   (Exponential | Gamma | LogNormal | LogPearsonTypeIII (default) | Normal | PearsonTypeIII);
+  //   data via `dataset` or `data_frame` (censored series + low_outlier_threshold /
+  //   mgbt_low_outliers all supported). Unlike the other types it is NOT a ModelBase (it is an
+  //   IGMMModel + ISimulatable + IUnivariateModel), so the shared builder exposes it through a
+  //   dedicated build_bulletin17c_from_json entry point returning the concrete type.
   "parameter_values": [16000.0, 5000.0]  // optional, ALL types: applied last via ONE
                                       // set_parameter_values call (the sync-safe setter)
 }
@@ -938,9 +947,10 @@ accept, so the harness caches simply hold a `ModelBase` pointer (C++: the `Estim
 member; the `Simulation` target adds a `std::monostate` alternative to the estimator variant).
 
 `construct` fields for `MaximumLikelihood`/`MaximumAPosteriori`: `model` (the schema above),
-`optimizer` (`"NelderMead"` | `"DifferentialEvolution"` | `"Brent"`; defaults to
-`"DifferentialEvolution"` when omitted, matching
-both estimator classes' C# default). `construct` fields for `BayesianAnalysis` (Task T12): `model`
+`optimizer` (`"NelderMead"` | `"DifferentialEvolution"` | `"Brent"` | `"BFGS"` | `"Powell"` |
+`"MultilevelSingleLinkage"` (alias `"MLSL"`); defaults to `"DifferentialEvolution"` when omitted,
+matching both estimator classes' C# default -- the last three were un-gated in B7 and exposed to
+the fixture parser in B11). `construct` fields for `BayesianAnalysis` (Task T12): `model`
 (same shape), `sampler` (`"DEMCz"` | `"DEMCzs"` | `"ARWMH"` | `"NUTS"`; defaults to `"DEMCzs"`,
 matching the C# default), and an optional `settings` object with any of `seed`, `iterations`,
 `warmup_iterations`, `number_of_chains`, `thinning_interval`, `initial_iterations`,
@@ -1010,7 +1020,40 @@ and the cached `simulated` vector. Simulation draws come from the model's CURREN
 (there is no fit), so seeded cases should pin them explicitly via `parameter_values` (or trend
 `values`) -- otherwise the draw reflects whatever the model's construction defaults left behind
 (EM defaults for `mixture` from `dataset`, factory defaults for the component distributions of
-`competing_risks`/`point_process`).
+`competing_risks`/`point_process`). (The `Simulation` target builds a ModelBase; the
+`bulletin17c` model type is NOT a ModelBase, so its seeded draw rides the GMM case below instead
+of a standalone `Simulation` case.)
+
+**`GeneralizedMethodOfMoments` (B11):** a file-level `target` that fits a `bulletin17c` model by
+GMM. `construct` fields: `model` (a `type: "bulletin17c"` spec), `strategy` (`"OneStep"` |
+`"TwoStep"` | `"Iterative"`; default `"Iterative"`, the C# GMM default), `optimizer` (the same
+shared parser as ML/MAP; the GMM ctor's own default is `"BFGS"`), an optional
+`max_gmm_iterations` (int), and -- to ride the seeded-draw digest on this case -- an optional
+`sample_size` (+ `seed`). One `estimate()` + `post_process(sandwich=true, jstat=true)` runs per
+case, caching the full surface. Assertion methods:
+- `parameter [p]` -- `BestParameterSet().Values[p]`.
+- `standard_error [p]` -- `GetStandardErrors()[p]`.
+- `covariance [i,j]` / `correlation [i,j]` -- `GetCovarianceMatrix()[i,j]` /
+  `GetCorrelationMatrix()[i,j]` (same names/semantics as ML/MAP, so the dispatcher reuses those
+  arms).
+- `j_stat []` -- `Jstat()` (Hansen's J; ~0 for a just-identified fit where `g(theta-hat) ~ 0`).
+- `j_stat_pval []` -- `JstatPval()` (NaN when the degrees of freedom `q - p == 0`, i.e. a
+  just-identified fit cannot test its own specification).
+- `quantile_variance [aep]` -- the B17C delta-method `Var(Q_p) = g' Sigma g` evaluated at the
+  fitted parameters and the fitted covariance. `args[0]` is the annual EXCEEDANCE probability
+  (AEP); the C# `QuantileVariance` takes a NON-exceedance probability, so the harness passes
+  `1 - aep`. Like `bic [n]`, the AEP is per-assertion, so R/Python rebuild the deterministic fit
+  live (`bf_estimation_gmm_qvar_` / `estimation_gmm_qvar`).
+- `simulated_value [i]` -- the shared seeded-draw arm: after the fit, the estimator's best
+  parameters are pinned into the B17C parent and a seeded `generate_random_values(sample_size,
+  seed)` stream is drawn (the same `short_exact` digest semantics as `Simulation`).
+
+The GMM surface is disjoint enough from ML/MAP (adds `j_stat`/`j_stat_pval`/`quantile_variance`,
+drops `max_log_likelihood`/`aic`/`bic`) that it joins the estimator `std::variant` on its own
+`std::visit` arm, and R/Python expose it through a SEPARATE registered function
+(`bf_estimation_gmm_run_` / `estimation_gmm_run`) -- the same split pattern `BayesianAnalysis`
+uses, since its construct shape (`strategy` + `max_gmm_iterations`, and a `bulletin17c` model)
+doesn't fit the ML/MAP signature.
 
 **DataFrame surface (M14):** three methods reachable from the model's DataFrame under ANY
 file-level `target` (they read the model, not the estimator), corroborating the M1/M5

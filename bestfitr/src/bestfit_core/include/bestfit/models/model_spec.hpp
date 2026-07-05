@@ -58,6 +58,7 @@
 #include "bestfit/models/json_lite.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/trend_functions/support/trend_model_type.hpp"
+#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/models/univariate_distribution/competing_risks_model.hpp"
 #include "bestfit/models/univariate_distribution/mixture_model.hpp"
 #include "bestfit/models/univariate_distribution/point_process_model.hpp"
@@ -282,6 +283,42 @@ inline std::unique_ptr<ModelBase> build_model(const JsonValue& model,
 inline std::unique_ptr<ModelBase> build_model_from_json(const std::string& model_json,
                                                         const std::vector<double>& dataset) {
     return build_model(parse_json(model_json), dataset);
+}
+
+// A `type: "bulletin17c"` spec -> a concrete Bulletin17CDistribution (B11).
+//
+// WIRING DECISION (deviation from the brief -- documented): the brief assumed
+// Bulletin17CDistribution "derives from ModelBase" and could ride the build_model_from_json ->
+// ModelBase path. It does NOT: it derives from IGMMModel + ISimulatable + IUnivariateModel, and
+// NONE of those derive from ModelBase (IUnivariateModel is a deliberately minimal capability
+// mixin, i_univariate_model.hpp). So a Bulletin17CDistribution* is not convertible to a
+// ModelBase*, and this needs its OWN construction entry point returning the CONCRETE type. That
+// concrete pointer is exactly what both consumers want anyway: the GMM glue passes it straight
+// as the IGMMModel& the estimator ctor takes (no cross-cast), and the seeded-draw glue calls
+// its ISimulatable generate_random_values directly.
+//
+// The spec carries the distribution `family` (any of the six IsSupportedDistributionType
+// families -- Exponential, Gamma, LogNormal, LogPearsonTypeIII (default), Normal,
+// PearsonTypeIII; an unsupported type throws from the B17C ctor), the Phase 5 DataFrame block or
+// a flat `dataset` (via build_model_data_frame, carrying the same low_outlier_threshold /
+// mgbt_low_outliers keys), and optional explicit `parameter_values` (applied last, exactly like
+// every other model type).
+inline std::unique_ptr<Bulletin17CDistribution> build_bulletin17c_model(
+    const JsonValue& model, const std::vector<double>& dataset) {
+    DataFrame df = build_model_data_frame(model, dataset);
+    numerics::distributions::UnivariateDistributionType type =
+        model.contains("family")
+            ? numerics::distributions::create_distribution(model.at("family").as_string())->type()
+            : numerics::distributions::UnivariateDistributionType::LogPearsonTypeIII;
+    auto m = std::make_unique<Bulletin17CDistribution>(std::move(df), type);
+    if (model.contains("parameter_values"))
+        m->set_parameter_values(model.at("parameter_values").as_double_vector());
+    return m;
+}
+
+inline std::unique_ptr<Bulletin17CDistribution> build_bulletin17c_from_json(
+    const std::string& model_json, const std::vector<double>& dataset) {
+    return build_bulletin17c_model(parse_json(model_json), dataset);
 }
 
 }  // namespace bestfit::models::spec

@@ -292,6 +292,20 @@ extern "C" SEXP _bestfitr_bf_model_simulate_(SEXP model_json, SEXP dataset, SEXP
     return cpp11::as_sexp(bf_model_simulate_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size), cpp11::as_cpp<cpp11::decay_t<int>>(seed)));
   END_CPP11
 }
+// estimation.cpp
+list bf_estimation_gmm_run_(std::string model_json, doubles dataset, std::string strategy, std::string optimizer, int max_gmm_iterations, int sample_size, int seed);
+extern "C" SEXP _bestfitr_bf_estimation_gmm_run_(SEXP model_json, SEXP dataset, SEXP strategy, SEXP optimizer, SEXP max_gmm_iterations, SEXP sample_size, SEXP seed) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_estimation_gmm_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(strategy), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer), cpp11::as_cpp<cpp11::decay_t<int>>(max_gmm_iterations), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size), cpp11::as_cpp<cpp11::decay_t<int>>(seed)));
+  END_CPP11
+}
+// estimation.cpp
+double bf_estimation_gmm_qvar_(std::string model_json, doubles dataset, std::string strategy, std::string optimizer, int max_gmm_iterations, double aep);
+extern "C" SEXP _bestfitr_bf_estimation_gmm_qvar_(SEXP model_json, SEXP dataset, SEXP strategy, SEXP optimizer, SEXP max_gmm_iterations, SEXP aep) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_estimation_gmm_qvar_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(strategy), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer), cpp11::as_cpp<cpp11::decay_t<int>>(max_gmm_iterations), cpp11::as_cpp<cpp11::decay_t<double>>(aep)));
+  END_CPP11
+}
 // gev.cpp
 doubles bf_gev_pdf_(doubles x, double location, double scale, double shape);
 extern "C" SEXP _bestfitr_bf_gev_pdf_(SEXP x, SEXP location, SEXP scale, SEXP shape) {
@@ -467,6 +481,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_emp_valid_",                (DL_FUNC) &_bestfitr_bf_emp_valid_,                 3},
     {"_bestfitr_bf_estimation_bayes_run_",     (DL_FUNC) &_bestfitr_bf_estimation_bayes_run_,     10},
     {"_bestfitr_bf_estimation_bic_",           (DL_FUNC) &_bestfitr_bf_estimation_bic_,            5},
+    {"_bestfitr_bf_estimation_gmm_qvar_",      (DL_FUNC) &_bestfitr_bf_estimation_gmm_qvar_,       6},
+    {"_bestfitr_bf_estimation_gmm_run_",       (DL_FUNC) &_bestfitr_bf_estimation_gmm_run_,        7},
     {"_bestfitr_bf_estimation_run_",           (DL_FUNC) &_bestfitr_bf_estimation_run_,            4},
     {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                   4},
     {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                   2},

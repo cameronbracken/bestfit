@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "bestfit/estimation/bayesian_analysis.hpp"
+#include "bestfit/estimation/generalized_method_of_moments.hpp"
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
@@ -44,6 +45,7 @@
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/support/simulatable.hpp"
 #include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
+#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 
 namespace est = bestfit::estimation;
 namespace models = bestfit::models;
@@ -57,11 +59,47 @@ static std::unique_ptr<models::ModelBase> build_spec_model(const std::string& mo
     return models::spec::build_model_from_json(model_json, data);
 }
 
+// Shared optimizer-method parser for ML/MAP AND the GMM `optimizer` knob. B11 extends it with
+// the B7-un-gated BFGS/Powell/MultilevelSingleLinkage methods (with the "MLSL" alias).
 static est::OptimizationMethod parse_optimization_method(const std::string& s) {
     if (s == "Brent") return est::OptimizationMethod::Brent;
     if (s == "NelderMead") return est::OptimizationMethod::NelderMead;
     if (s == "DifferentialEvolution") return est::OptimizationMethod::DifferentialEvolution;
+    if (s == "BFGS") return est::OptimizationMethod::BFGS;
+    if (s == "Powell") return est::OptimizationMethod::Powell;
+    if (s == "MultilevelSingleLinkage" || s == "MLSL")
+        return est::OptimizationMethod::MultilevelSingleLinkage;
     stop("unknown model_estimation optimizer '%s'", s.c_str());
+}
+
+// The GMM estimation-strategy knob (default Iterative, matching the C# GMM default).
+static est::GeneralizedMethodOfMoments::GMMEstimationStrategy parse_gmm_strategy(
+    const std::string& s) {
+    using Strat = est::GeneralizedMethodOfMoments::GMMEstimationStrategy;
+    if (s == "OneStep") return Strat::OneStep;
+    if (s == "TwoStep") return Strat::TwoStep;
+    if (s == "Iterative") return Strat::Iterative;
+    stop("unknown GMM estimation strategy '%s'", s.c_str());
+}
+
+// Builds a concrete B17C model (NOT a ModelBase; see model_spec.hpp's build_bulletin17c_model
+// note -- the GMM ctor takes it as IGMMModel&), fits it by GMM, and post_processes for the
+// covariance stack + J-statistic. Shared by bf_estimation_gmm_run_ and bf_estimation_gmm_qvar_
+// so both take the same deterministic path (BFGS + numerical Jacobian have no RNG, so a rebuild
+// reproduces the same fit -- the lazy-rebuild contract `bf_estimation_bic_` relies on).
+static std::unique_ptr<est::GeneralizedMethodOfMoments> build_and_fit_gmm(
+    std::unique_ptr<models::Bulletin17CDistribution>& model, const std::string& model_json,
+    const doubles& dataset, const std::string& strategy, const std::string& optimizer,
+    int max_gmm_iterations) {
+    std::vector<double> data(dataset.begin(), dataset.end());
+    model = models::spec::build_bulletin17c_from_json(model_json, data);
+    auto gmm = std::make_unique<est::GeneralizedMethodOfMoments>(
+        *model, parse_optimization_method(optimizer));
+    gmm->set_estimation_strategy(parse_gmm_strategy(strategy));
+    if (max_gmm_iterations > 0) gmm->set_max_gmm_iterations(max_gmm_iterations);
+    if (!gmm->estimate()) stop("GeneralizedMethodOfMoments::estimate() failed for a fixture case");
+    gmm->post_process(/*use_sandwich=*/true, /*compute_jstat=*/true);
+    return gmm;
 }
 
 static est::SamplerType parse_sampler_type(const std::string& s) {
@@ -287,4 +325,76 @@ doubles bf_model_simulate_(std::string model_json, doubles dataset, int sample_s
     writable::doubles out(static_cast<R_xlen_t>(draws.size()));
     for (std::size_t i = 0; i < draws.size(); ++i) out[static_cast<R_xlen_t>(i)] = draws[i];
     return out;
+}
+
+// --- GeneralizedMethodOfMoments (B11) --------------------------------------------------
+//
+// Disjoint construct shape from ML/MAP (a strategy + max_gmm_iterations instead of just an
+// optimizer string) AND a different model type -- the concrete Bulletin17CDistribution the GMM
+// ctor takes as IGMMModel& (NOT a ModelBase; see model_spec.hpp), built through the shared spec
+// builder's dedicated bulletin17c entry point. So this is a separate registered function,
+// mirroring the bf_estimation_bayes_run_ split. Fits once, post_processes, and returns every
+// value test-fixtures.R's GMM dispatcher reads:
+//   parameters / standard_errors     -- [p] vectors
+//   covariance / correlation         -- [p x p] matrices
+//   j_stat / j_stat_pval             -- scalars (pval is NaN when q - p == 0)
+//   simulated                        -- [sample_size] seeded ISimulatable draw off the FITTED
+//                                       model (present only when construct supplies sample_size),
+//                                       read by the shared `simulated_value` dispatch arm.
+// quantile_variance rides bf_estimation_gmm_qvar_ (per-assertion AEP, exactly like `bic`'s
+// per-assertion sample size).
+[[cpp11::register]]
+list bf_estimation_gmm_run_(std::string model_json, doubles dataset, std::string strategy,
+                            std::string optimizer, int max_gmm_iterations, int sample_size,
+                            int seed) {
+    std::unique_ptr<models::Bulletin17CDistribution> model;
+    auto gmm = build_and_fit_gmm(model, model_json, dataset, strategy, optimizer, max_gmm_iterations);
+    int p = model->number_of_parameters();
+
+    writable::doubles parameters(p);
+    const auto& best = gmm->best_parameter_set().values;
+    for (int i = 0; i < p; ++i) parameters[i] = best[static_cast<std::size_t>(i)];
+    writable::doubles standard_errors(p);
+    auto se = gmm->get_standard_errors();
+    for (int i = 0; i < p; ++i) standard_errors[i] = se[static_cast<std::size_t>(i)];
+    writable::doubles_matrix<by_column> covariance(p, p);
+    writable::doubles_matrix<by_column> correlation(p, p);
+    auto cov = gmm->get_covariance_matrix();
+    auto corr = gmm->get_correlation_matrix();
+    for (int i = 0; i < p; ++i)
+        for (int j = 0; j < p; ++j) {
+            covariance(i, j) = cov(i, j);
+            correlation(i, j) = corr(i, j);
+        }
+
+    writable::doubles simulated(static_cast<R_xlen_t>(0));
+    if (sample_size > 0) {
+        model->set_parameter_values(gmm->best_parameter_set().values);
+        std::vector<double> draws = model->generate_random_values(sample_size, seed);
+        simulated = writable::doubles(static_cast<R_xlen_t>(draws.size()));
+        for (std::size_t i = 0; i < draws.size(); ++i) simulated[static_cast<R_xlen_t>(i)] = draws[i];
+    }
+
+    return writable::list({
+        "parameters"_nm = parameters,
+        "standard_errors"_nm = standard_errors,
+        "covariance"_nm = covariance,
+        "correlation"_nm = correlation,
+        "j_stat"_nm = writable::doubles({gmm->jstat()}),
+        "j_stat_pval"_nm = writable::doubles({gmm->jstat_pval()}),
+        "simulated"_nm = simulated,
+    });
+}
+
+// `quantile_variance [aep]`: like `bic [n]`, the AEP is only known at assertion-dispatch time,
+// so this rebuilds the same deterministic fit and evaluates the B17C delta-method Var(Q_p) live.
+// `aep` is the annual EXCEEDANCE probability; the C# QuantileVariance takes a NON-exceedance
+// probability, so pass 1 - AEP.
+[[cpp11::register]]
+double bf_estimation_gmm_qvar_(std::string model_json, doubles dataset, std::string strategy,
+                               std::string optimizer, int max_gmm_iterations, double aep) {
+    std::unique_ptr<models::Bulletin17CDistribution> model;
+    auto gmm = build_and_fit_gmm(model, model_json, dataset, strategy, optimizer, max_gmm_iterations);
+    return model->quantile_variance(1.0 - aep, gmm->best_parameter_set().values,
+                                    gmm->get_covariance_matrix().to_array());
 }

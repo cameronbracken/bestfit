@@ -1,0 +1,44 @@
+{
+  "target": "GeneralizedMethodOfMoments",
+  "kind": "model_estimation",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs @ fc28c0c ; RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/Bulletin17CDistribution.cs @ fc28c0c -- PROVISIONAL SELF-COMPUTED SMOKE VALUES (Task B11), NOT emitter oracles. The upstream GMM/B17C test files are structural-only, so no numeric GMM oracle has crossed into the fixture layer yet. These values were read back from the C++ core itself (a just-identified LP3 Bulletin17C GMM fit, Iterative strategy, BFGS optimizer + numerical Jacobian) and transcribed with loose tolerances; the point is that the new GMM/B17C path RUNS and reproduces the SAME numbers bit-for-identically across the C++/R/Python harnesses (identical compiled core). Task B12 REPLACES every value here with exact oracles emitted from the real C# GeneralizedMethodOfMoments/Bulletin17CDistribution and tightens the tolerances. The optimizer-dependent quantities (parameter) ride rel 1e-6; the finite-difference-sensitive covariance/standard_error/correlation/quantile_variance ride rel 1e-4 (a cross-compiler margin, per fixtures/README.md's tolerance policy loosened for B11 smoke); j_stat is ~0 for a just-identified fit (g(theta-hat) ~ 0), checked with an ABSOLUTE tolerance; j_stat_pval is NaN because the degrees of freedom q - p = 0 (a just-identified LP3 fit cannot test its own specification). simulated_value rides THIS case: after the fit, the estimator's best parameters are pinned into the B17C parent and a seeded (sample_size=8, seed=20250705) ISimulatable stream is drawn -- proving cross-language bit-identity of the seeded Mersenne-Twister draw off the fitted model (the short_exact digest precedent).",
+  "datasets": {
+    "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600]
+  },
+  "cases": [
+    {
+      "name": "lp3_exact_iterative_bfgs",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "annual_peaks" },
+        "strategy": "Iterative",
+        "optimizer": "BFGS",
+        "sample_size": 8,
+        "seed": 20250705
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 4.1844020244185867, "mode": "rel", "tol": 1e-6 },
+        { "method": "parameter", "args": [1], "expected": 0.13892864856824907, "mode": "rel", "tol": 1e-6 },
+        { "method": "parameter", "args": [2], "expected": 0.36349746603940941, "mode": "rel", "tol": 1e-6 },
+        { "method": "standard_error", "args": [0], "expected": 0.043933096322996378, "mode": "rel", "tol": 1e-4 },
+        { "method": "standard_error", "args": [1], "expected": 0.032568292391055444, "mode": "rel", "tol": 1e-4 },
+        { "method": "standard_error", "args": [2], "expected": 0.88229453460163687, "mode": "rel", "tol": 1e-4 },
+        { "method": "covariance", "args": [0, 0], "expected": 0.0019301169525256781, "mode": "rel", "tol": 1e-4 },
+        { "method": "covariance", "args": [1, 1], "expected": 0.0010606936692692799, "mode": "rel", "tol": 1e-4 },
+        { "method": "covariance", "args": [2, 2], "expected": 0.77844364578791891, "mode": "rel", "tol": 1e-4 },
+        { "method": "covariance", "args": [0, 2], "expected": -0.010419917032406552, "mode": "rel", "tol": 1e-4 },
+        { "method": "correlation", "args": [0, 0], "expected": 1.0, "mode": "rel", "tol": 1e-9 },
+        { "method": "correlation", "args": [0, 1], "expected": 0.245170505176492, "mode": "rel", "tol": 1e-4 },
+        { "method": "correlation", "args": [0, 2], "expected": -0.268818317982778, "mode": "rel", "tol": 1e-4 },
+        { "method": "correlation", "args": [1, 2], "expected": 0.20642009492804977, "mode": "rel", "tol": 1e-4 },
+        { "method": "j_stat", "args": [], "expected": 0.0, "mode": "abs", "tol": 1e-3 },
+        { "method": "j_stat_pval", "args": [], "expected": "nan", "mode": "equal" },
+        { "method": "quantile_variance", "args": [0.01], "expected": 0.019425122454480741, "mode": "rel", "tol": 1e-4 },
+        { "method": "quantile_variance", "args": [0.5], "expected": 0.0028001060841753474, "mode": "rel", "tol": 1e-4 },
+        { "method": "simulated_value", "args": [0], "expected": 36075.83409349533, "mode": "rel", "tol": 1e-6 },
+        { "method": "simulated_value", "args": [1], "expected": 16970.486588312935, "mode": "rel", "tol": 1e-6 },
+        { "method": "simulated_value", "args": [2], "expected": 12580.851600085507, "mode": "rel", "tol": 1e-6 },
+        { "method": "simulated_value", "args": [3], "expected": 12682.9584899247, "mode": "rel", "tol": 1e-6 }
+      ]
+    }
+  ]
+}

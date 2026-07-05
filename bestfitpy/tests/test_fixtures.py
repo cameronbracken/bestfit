@@ -456,8 +456,32 @@ def _run_bootstrap_case(construct: dict, assertions: list, datasets: dict):
 
 
 def _dispatch_estimation(
-    result: dict, method: str, args: list, target: str, model_json: str, data: list, optimizer: str
+    result: dict,
+    method: str,
+    args: list,
+    target: str,
+    model_json: str,
+    data: list,
+    optimizer: str,
+    construct: dict,
 ):
+    # GMM (B11): j_stat/j_stat_pval come from the cached run dict; quantile_variance takes a
+    # per-assertion AEP, so -- exactly like `bic`'s per-assertion sample size -- it rebuilds the
+    # deterministic fit live via estimation_gmm_qvar. parameter/standard_error/covariance/
+    # correlation/simulated_value reuse the shared arms below (the GMM run returns the same keys).
+    if method == "j_stat":
+        return result["j_stat"]
+    if method == "j_stat_pval":
+        return result["j_stat_pval"]
+    if method == "quantile_variance":
+        return _core.estimation_gmm_qvar(
+            model_json,
+            data,
+            construct.get("strategy", "Iterative"),
+            construct.get("optimizer", "BFGS"),
+            int(construct.get("max_gmm_iterations", -1)),
+            float(args[0]),
+        )
     if method == "parameter":
         return result["parameters"][int(args[0])]
     if method == "max_log_likelihood":
@@ -516,13 +540,28 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
         settings = construct.get("settings", {})
         result = _core.estimation_bayes_run(model_json, data, sampler, settings)
         optimizer = ""
+    elif target == "GeneralizedMethodOfMoments":
+        # GMM (B11): a bulletin17c model fit by GMM. One stateful estimate()+post_process, whose
+        # full surface is cached here; quantile_variance rebuilds live at dispatch (see above).
+        result = _core.estimation_gmm_run(
+            model_json,
+            data,
+            construct.get("strategy", "Iterative"),
+            construct.get("optimizer", "BFGS"),
+            int(construct.get("max_gmm_iterations", -1)),
+            int(construct.get("sample_size", 0)),
+            int(construct.get("seed", -1)),
+        )
+        optimizer = ""
     else:
         optimizer = construct.get("optimizer", "DifferentialEvolution")
         result = _core.estimation_run(target, model_json, data, optimizer)
 
     for a in assertions:
         args = a.get("args", [])
-        actual = _dispatch_estimation(result, a["method"], args, target, model_json, data, optimizer)
+        actual = _dispatch_estimation(
+            result, a["method"], args, target, model_json, data, optimizer, construct
+        )
         _check(actual, a)
 
 

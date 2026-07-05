@@ -1,0 +1,49 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs @ fc28c0c -- PROVISIONAL SELF-COMPUTED SMOKE VALUES (Task B11), NOT emitter oracles. B7 un-gated BFGS/Powell/MultilevelSingleLinkage in the MLE/MAP optimizer switch, but the fixture optimizer parser never exposed them; B11 does. These three cases fit a Normal by MLE selecting each newly exposed optimizer, proving the path RUNS and reproduces the same optimum across the C++/R/Python cores. Values were read back from the C++ core itself and transcribed with loose tolerances; BFGS/Powell are deterministic, MLSL uses the core's fixed-seed multistart so it too reproduces bit-for-bit across harnesses. Task B12 replaces every value with exact C# emitter oracles and tightens the tolerances.",
+  "datasets": {
+    "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_bfgs",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "BFGS"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16027.0, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [1], "expected": 5059.3438208704483, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": -99.479306289374676, "mode": "rel", "tol": 1e-6 },
+        { "method": "aic", "args": [], "expected": 202.95861257874935, "mode": "rel", "tol": 1e-6 }
+      ]
+    },
+    {
+      "name": "normal_powell",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "Powell"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16026.999999749589, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [1], "expected": 5059.3439404397841, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": -99.479306289374648, "mode": "rel", "tol": 1e-6 },
+        { "method": "aic", "args": [], "expected": 202.9586125787493, "mode": "rel", "tol": 1e-6 }
+      ]
+    },
+    {
+      "name": "normal_mlsl",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "annual_peaks" },
+        "optimizer": "MultilevelSingleLinkage"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 16027.657719238821, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [1], "expected": 5059.333989431876, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": -99.479306373914781, "mode": "rel", "tol": 1e-6 },
+        { "method": "aic", "args": [], "expected": 202.95861274782956, "mode": "rel", "tol": 1e-6 }
+      ]
+    }
+  ]
+}

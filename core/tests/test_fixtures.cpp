@@ -22,12 +22,14 @@
 #include <vector>
 
 #include "bestfit/estimation/bayesian_analysis.hpp"
+#include "bestfit/estimation/generalized_method_of_moments.hpp"
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
 #include "bestfit/models/model_spec.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/support/simulatable.hpp"
+#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
@@ -1572,11 +1574,28 @@ static void run_bootstrap(const json& spec) {
 // surface handled by a separate std::visit branch (it shares no methods with ML/MAP).
 namespace estimation = bestfit::estimation;
 
+// Shared optimizer-method parser for ML/MAP (`optimizer` knob) AND the GMM `optimizer` knob.
+// B11 extends it with the B7-un-gated BFGS/Powell/MultilevelSingleLinkage methods (with the
+// "MLSL" alias), so fixtures can pin them for ML/MAP and select them for a GMM fit.
 static estimation::OptimizationMethod parse_optimization_method(const std::string& s) {
     if (s == "Brent") return estimation::OptimizationMethod::Brent;
     if (s == "NelderMead") return estimation::OptimizationMethod::NelderMead;
     if (s == "DifferentialEvolution") return estimation::OptimizationMethod::DifferentialEvolution;
+    if (s == "BFGS") return estimation::OptimizationMethod::BFGS;
+    if (s == "Powell") return estimation::OptimizationMethod::Powell;
+    if (s == "MultilevelSingleLinkage" || s == "MLSL")
+        return estimation::OptimizationMethod::MultilevelSingleLinkage;
     throw std::runtime_error("unknown model_estimation optimizer: " + s);
+}
+
+// The GMM estimation-strategy knob (default Iterative, matching the C# GMM default).
+static estimation::GeneralizedMethodOfMoments::GMMEstimationStrategy parse_gmm_strategy(
+    const std::string& s) {
+    using Strat = estimation::GeneralizedMethodOfMoments::GMMEstimationStrategy;
+    if (s == "OneStep") return Strat::OneStep;
+    if (s == "TwoStep") return Strat::TwoStep;
+    if (s == "Iterative") return Strat::Iterative;
+    throw std::runtime_error("unknown GMM estimation strategy: " + s);
 }
 
 static estimation::SamplerType parse_sampler_type(const std::string& s) {
@@ -1599,9 +1618,14 @@ struct EstimationCase {
     std::unique_ptr<bestfit::models::ModelBase> model;
     std::variant<std::monostate, std::unique_ptr<estimation::MaximumLikelihood>,
                  std::unique_ptr<estimation::MaximumAPosteriori>,
-                 std::unique_ptr<estimation::BayesianAnalysis>>
+                 std::unique_ptr<estimation::BayesianAnalysis>,
+                 std::unique_ptr<estimation::GeneralizedMethodOfMoments>>
         estimator;
-    std::vector<double> simulated;  // Simulation target only
+    std::vector<double> simulated;  // Simulation target, and the GMM seeded-draw digest
+    // GMM target only: the concrete B17C model the estimator references (NOT a ModelBase, so it
+    // cannot live in `model`). Kept alive here so the estimator's IGMMModel& stays valid and the
+    // quantile_variance arm can reach the model.
+    std::unique_ptr<bestfit::models::Bulletin17CDistribution> b17c;
 };
 
 static EstimationCase build_and_run_estimation(const std::string& target, const json& construct,
@@ -1610,6 +1634,36 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     std::vector<double> data;
     if (model_spec.contains("dataset"))
         for (const auto& v : datasets[model_spec["dataset"].get<std::string>()]) data.push_back(parse_num(v));
+
+    // GMM builds the CONCRETE Bulletin17CDistribution (not a ModelBase -- see model_spec.hpp's
+    // build_bulletin17c_model wiring note) and fits it, optionally caching a seeded draw from the
+    // fitted model for the `simulated_value` digest (the DRY choice: `simulated_value` is already
+    // dispatched from ec.simulated for every target, so riding the GMM case needs no new arm).
+    if (target == "GeneralizedMethodOfMoments") {
+        auto b17c = bestfit::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
+        auto method = construct.contains("optimizer")
+                          ? parse_optimization_method(construct["optimizer"].get<std::string>())
+                          : estimation::OptimizationMethod::BFGS;
+        auto gmm = std::make_unique<estimation::GeneralizedMethodOfMoments>(*b17c, method);
+        if (construct.contains("strategy"))
+            gmm->set_estimation_strategy(parse_gmm_strategy(construct["strategy"].get<std::string>()));
+        if (construct.contains("max_gmm_iterations"))
+            gmm->set_max_gmm_iterations(construct["max_gmm_iterations"].get<int>());
+        if (!gmm->estimate())
+            throw std::runtime_error("GeneralizedMethodOfMoments::estimate() failed for a fixture case");
+        // post_process(sandwich, jstat) caches Sigma + the J-statistic so the accessors return
+        // deterministic cached values.
+        gmm->post_process(/*use_sandwich=*/true, /*compute_jstat=*/true);
+        std::vector<double> draws;
+        if (construct.contains("sample_size")) {
+            // Draw from the FITTED model: pin the estimator's best parameters into the B17C
+            // parent, then take a seeded ISimulatable stream (deterministic across harnesses).
+            b17c->set_parameter_values(gmm->best_parameter_set().values);
+            draws = b17c->generate_random_values(construct["sample_size"].get<int>(),
+                                                 construct.value("seed", -1));
+        }
+        return EstimationCase{nullptr, std::move(gmm), std::move(draws), std::move(b17c)};
+    }
 
     // One shared construction path for all three harnesses: serialize the spec back to JSON
     // and hand it to models/model_spec.hpp (see that header for the schema).
@@ -1694,7 +1748,11 @@ static double dispatch_model_data_frame(bestfit::models::ModelBase& model, const
     throw std::runtime_error("unknown plotting_position series kind: " + kind);
 }
 
-static double dispatch_estimation(const EstimationCase& ec, const std::string& m, const json& a) {
+// GMM shares an accessor family with ML/MAP but its accessors are non-const (they cache Sigma
+// on demand), so dispatch takes a non-const EstimationCase& (the caller's `ec` is a non-const
+// local). quantile_variance lives on the B17C MODEL, not the estimator, so its arm recovers the
+// concrete model from ec and feeds it the fitted parameters + the estimator's covariance.
+static double dispatch_estimation(EstimationCase& ec, const std::string& m, const json& a) {
     auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
     // The seeded-simulation digest (M13): reads the vector cached at build time, so it works
     // for the Simulation target (no estimator) without touching the variant.
@@ -1703,13 +1761,36 @@ static double dispatch_estimation(const EstimationCase& ec, const std::string& m
     if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
         return dispatch_model_data_frame(*ec.model, m, a);
     return std::visit(
-        [&](const auto& est) -> double {
+        [&](auto& est) -> double {
             using Held = std::decay_t<decltype(est)>;
             if constexpr (std::is_same_v<Held, std::monostate>) {
                 throw std::runtime_error("unknown Simulation fixture method: " + m);
             } else {
                 using Estimator = std::decay_t<decltype(*est)>;
-                if constexpr (std::is_same_v<Estimator, estimation::BayesianAnalysis>) {
+                if constexpr (std::is_same_v<Estimator,
+                                             estimation::GeneralizedMethodOfMoments>) {
+                    // GMM (B11): shares parameter/standard_error/covariance/correlation names
+                    // with ML/MAP; adds j_stat/j_stat_pval and the B17C quantile_variance.
+                    if (m == "parameter") return est->best_parameter_set().values[idx(0)];
+                    if (m == "standard_error") return est->get_standard_errors()[idx(0)];
+                    if (m == "covariance")
+                        return est->get_covariance_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                    if (m == "correlation")
+                        return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
+                    if (m == "j_stat") return est->jstat();
+                    if (m == "j_stat_pval") return est->jstat_pval();
+                    if (m == "quantile_variance") {
+                        // args[0] is the annual EXCEEDANCE probability (AEP); the C#
+                        // QuantileVariance takes a NON-exceedance probability, so pass 1 - AEP.
+                        if (ec.b17c == nullptr)
+                            throw std::runtime_error(
+                                "quantile_variance requires a Bulletin17CDistribution model");
+                        double aep = a[0].get<double>();
+                        return ec.b17c->quantile_variance(1.0 - aep, est->best_parameter_set().values,
+                                                          est->get_covariance_matrix().to_array());
+                    }
+                    throw std::runtime_error("unknown GMM fixture method: " + m);
+                } else if constexpr (std::is_same_v<Estimator, estimation::BayesianAnalysis>) {
                     if (m == "dic") return est->dic();
                     if (m == "waic") return est->waic();
                     if (m == "looic") return est->looic();
