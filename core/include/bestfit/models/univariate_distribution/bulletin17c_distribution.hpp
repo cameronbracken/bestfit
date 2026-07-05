@@ -1,18 +1,20 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
 //              Bulletin17CDistribution.cs @ fc28c0c
 //
-// Bulletin 17C (B17C) distribution model. Task B9 lands the CONSTRUCTION slice: the ctors,
+// Bulletin 17C (B17C) distribution model. Task B9 landed the CONSTRUCTION slice: the ctors,
 // the six-family distribution factory + supported-type gate, LinkController wiring,
 // parameter initialization (SetInitialParameters / SetDefaultParameters), the penalty
 // surface (SetUpQuantilePenalties, SetPenaltyFunction, SetRandomPenaltyFunction),
 // SetParameterValues, Validate, Clone, and GenerateRandomValues. Task B10 adds the moment
-// machinery to this same header: MomentConditions, RepairErrors,
-// Mu456_Pearson3_FromSigmaGamma, ConditionalMomentsForUncertainData,
-// MomentConditionsForUncertainData, UpdateMomentMeanCovariance, CensoringAsymmetryScore,
+// machinery: MomentConditions, RepairErrors, Mu456_Pearson3_FromSigmaGamma,
+// ConditionalMomentsForUncertainData, MomentConditionsForUncertainData,
+// UpdateMomentMeanCovariance, CensoringAsymmetryScore,
 // WeightedErrorDirectionScore(+FromLinked), PointwiseMomentConditionsImpl,
-// QuantileGradient, and QuantileVariance. Until then, moment_condition_function() and
-// pointwise_moment_conditions() return callable stubs that throw std::logic_error when
-// invoked (// B10 markers below).
+// QuantileGradient, and QuantileVariance. The class stays ONE class mirroring the one C#
+// file; to keep this header under the repo's file-size cap the moment-machinery method
+// BODIES live in the companion header bulletin17c_moment_machinery.hpp (an .ipp-style
+// include pulled in at the bottom of this file), with the declarations and their C# line
+// anchors below.
 //
 // Type-system design note (kept from the C#): Bulletin17CDistribution intentionally does
 // NOT derive from ModelBase and does NOT implement IModel. The Bulletin 17C procedure is
@@ -163,11 +165,16 @@ class Bulletin17CDistribution : public IGMMModel,
     // (The two XElement constructors, C# lines 106 and 183, are XML-skipped.)
 
     // The model owns move-only state (DataFrame, unique_ptr distribution); use clone()
-    // for a deep copy, as the C# Clone() contract intends.
+    // for a deep copy, as the C# Clone() contract intends. Moves are DELETED (B10, the B9
+    // reviewer follow-up): set_penalty_function / set_random_penalty_function store
+    // this-capturing closures in penalty_function_, and the accessor-returned delegate
+    // closures capture this too, so a defaulted move would leave the moved-into object's
+    // stored penalty function pointing at the moved-from object. The C# reference type
+    // has no move to mirror; deleting them is the safe structural analog.
     Bulletin17CDistribution(const Bulletin17CDistribution&) = delete;
     Bulletin17CDistribution& operator=(const Bulletin17CDistribution&) = delete;
-    Bulletin17CDistribution(Bulletin17CDistribution&&) = default;
-    Bulletin17CDistribution& operator=(Bulletin17CDistribution&&) = default;
+    Bulletin17CDistribution(Bulletin17CDistribution&&) = delete;
+    Bulletin17CDistribution& operator=(Bulletin17CDistribution&&) = delete;
     ~Bulletin17CDistribution() override = default;
 
     // --- Members -------------------------------------------------------------------------
@@ -259,13 +266,12 @@ class Bulletin17CDistribution : public IGMMModel,
         return has_data_frame() ? data_frame().total_record_length() : 0;
     }
 
-    // The moment condition function (C# line 492: `=> MomentConditions`). The
-    // MomentConditions body is Task B10's; until it lands the returned callable throws.
+    // The moment condition function (C# line 492: `=> MomentConditions`). The C# method
+    // group conversion becomes a this-capturing closure; the caller-lifetime contract is
+    // the GMM estimator's (the model must outlive the returned callable).
     estimation::MomentConditionFunction moment_condition_function() const override {
-        return [](const std::vector<double>&) -> estimation::MomentConditionResult {
-            // B10: Bulletin17CDistribution::MomentConditions (C# line 1043).
-            throw std::logic_error(
-                "Bulletin17CDistribution::MomentConditions is ported in B10.");
+        return [this](const std::vector<double>& parameters) {
+            return moment_conditions(parameters);
         };
     }
 
@@ -279,13 +285,10 @@ class Bulletin17CDistribution : public IGMMModel,
     estimation::PenaltyFunction penalty_function() const override { return penalty_function_; }
 
     // The pointwise moment condition function (C# line 501:
-    // `=> PointwiseMomentConditionsImpl`). The implementation is Task B10's; until it
-    // lands the returned callable throws.
+    // `=> PointwiseMomentConditionsImpl`; same closure/lifetime note as above).
     estimation::PointwiseMomentConditionFunction pointwise_moment_conditions() const override {
-        return [](const std::vector<double>&) -> numerics::math::linalg::Matrix2D {
-            // B10: Bulletin17CDistribution::PointwiseMomentConditionsImpl (C# line 2128).
-            throw std::logic_error(
-                "Bulletin17CDistribution::PointwiseMomentConditionsImpl is ported in B10.");
+        return [this](const std::vector<double>& parameters) {
+            return pointwise_moment_conditions_impl(parameters);
         };
     }
 
@@ -601,12 +604,48 @@ class Bulletin17CDistribution : public IGMMModel,
         };
     }
 
-    // (The moment machinery -- MomentConditions (C# 1043), RepairErrors (1223),
-    // Mu456_Pearson3_FromSigmaGamma (1280), ConditionalMomentsForUncertainData (1325),
-    // MomentConditionsForUncertainData (1418), UpdateMomentMeanCovariance (1490),
-    // CensoringAsymmetryScore (1691), WeightedErrorDirectionScore (1901),
-    // WeightedErrorDirectionScoreFromLinked (2090), PointwiseMomentConditionsImpl (2128),
-    // QuantileGradient (2315), QuantileVariance (2388) -- lands in Task B10.)
+    // --- Moment machinery (B10; bodies in bulletin17c_moment_machinery.hpp) --------------
+
+    // Computes the GMM moment condition vector G and its covariance matrix S (C# line
+    // 1043): g(Y; theta) = [Y - mu, (Y - mu)^2 - sigma^2, (Y - mu)^3 - mu3], accumulated
+    // per data type (low outliers, exact, uncertain, interval, threshold), repaired for
+    // non-finite values, then normalized to G = sum(g)/n and S = E[gg'] - G G'. The
+    // parameter vector is in LINK space (inverse-linked on entry). Invalid parameters
+    // return a double-max-filled G (the optimizer-rejection sentinel), not a throw.
+    estimation::MomentConditionResult moment_conditions(std::vector<double> parameters) const;
+
+    // Computes a directional censoring asymmetry score in [-1, 1] per moment condition
+    // (C# line 1691): posPull/negPull decomposition over all data types with the final
+    // (posPull - negPull) / (posPull + negPull + 1e-12) normalization. Link-space
+    // parameters; a NaN-filled array signals invalid parameters.
+    std::vector<double> censoring_asymmetry_score(std::vector<double> parameters) const;
+
+    // Computes the weighted error direction score (WEDS) per parameter (C# line 1901).
+    // Deliberately operates on NATURAL-space parameters -- this is the one scoring method
+    // that does NOT inverse-link, so the diagnostic stays invariant to temporary
+    // uncertainty-link choices (see the C# doc remarks). NaN-filled on invalid parameters.
+    std::vector<double> weighted_error_direction_score(
+        const std::vector<double>& parameters) const;
+
+    // Computes WEDS from link-space parameters by inverse-linking through the current
+    // LinkController first, then delegating (C# line 2090).
+    std::vector<double> weighted_error_direction_score_from_linked(
+        const std::vector<double>& linked_parameters) const;
+
+    // Computes the gradient of the quantile function with respect to the distribution
+    // parameters (C# line 2315). PT3/LP3 use PearsonTypeIII::quantile_gradient_for_moments
+    // (moment-space gradient); the other families use the IStandardError QuantileGradient
+    // (C# line 2355 cast -- a per-type dispatch here, see the companion header). Guards:
+    // probability outside (0, 1) -> std::out_of_range; wrong parameter arity or invalid
+    // parameters -> std::invalid_argument (C# ArgumentOutOfRange/ArgumentException).
+    std::vector<double> quantile_gradient(double probability,
+                                          const std::vector<double>& parameters) const;
+
+    // Computes the variance of a quantile estimate with the delta method Var(Q_p) =
+    // g' Sigma g via quantile_gradient (C# line 2388). A covariance matrix whose
+    // dimensions do not match NumberOfParameters throws std::invalid_argument.
+    double quantile_variance(double probability, const std::vector<double>& parameters,
+                             const numerics::math::linalg::Matrix2D& covariance_matrix) const;
 
     // Return a deep copy of the model (C# line 2413; the XElement round trip becomes a
     // direct deep clone -- see the header note on the preserved observable behavior and
@@ -923,6 +962,57 @@ class Bulletin17CDistribution : public IGMMModel,
         }
     }
 
+    // --- Private moment machinery (B10; bodies in bulletin17c_moment_machinery.hpp) ------
+
+    // Detects non-finite values in the moment condition vector or covariance accumulator
+    // and replaces them with the optimizer-rejection sentinels (C# line 1223: errors ->
+    // double.MaxValue, covariance -> 0). The C# passes the raw backing arrays
+    // (mean.Array / covariance.Array); the port mutates the Vector/Matrix directly.
+    void repair_errors(numerics::math::linalg::Vector& errors,
+                       numerics::math::linalg::Matrix& covariance) const;
+
+    // Computes the 4th-6th central moments of a Pearson Type III distribution from sigma
+    // and skew gamma (C# line 1280): mu4 = s^4(3 + 3g^2/2), mu5 = s^5 g(10 + 3g^2),
+    // mu6 = s^6(15 + 65g^2/2 + 15g^4/2). C# out params -> reference params.
+    static void mu456_pearson3_from_sigma_gamma(double sigma, double gamma, double& mu4,
+                                                double& mu5, double& mu6);
+
+    // Computes conditional central moments for an uncertain observation by 20-point
+    // Gauss-Legendre integration over the measurement-error distribution, normalized by
+    // the retained probability mass (C# line 1325). The optional matrix receives the raw
+    // E_ME[gg'] second moment (C# `Matrix?` -> nullable pointer, nullptr = C# null).
+    std::vector<double> conditional_moments_for_uncertain_data(
+        const std::vector<double>& unconditional_moments, const UncertainData& uncertain_data,
+        bool is_log10,
+        numerics::math::linalg::Matrix* measurement_error_second_moment = nullptr) const;
+
+    // Computes moment condition errors (g-vector) for an uncertain observation by
+    // delegating to conditional_moments_for_uncertain_data and subtracting the
+    // unconditional moments (C# line 1418).
+    std::vector<double> moment_conditions_for_uncertain_data(
+        const std::vector<double>& unconditional_moments, const UncertainData& uncertain_data,
+        bool is_log10) const;
+
+    // Accumulates running sums for the moment condition mean vector and second-moment
+    // matrix, one observation (or censored group) per call (C# line 1490): the
+    // model-based mu4-mu6 covariance path for supported families vs the outer-product
+    // fallback, plus the optional measurement-error second-moment term (law of total
+    // variance).
+    void update_moment_mean_covariance(
+        const std::vector<double>& c, const std::vector<double>& m,
+        numerics::math::linalg::Vector& mean, numerics::math::linalg::Matrix& covariance,
+        double w, bool is_censored = false, bool use_model_covariance = true,
+        double model_sigma = 0.0, double model_gamma = 0.0,
+        const numerics::math::linalg::Matrix* measurement_error_second_moment = nullptr) const;
+
+    // Computes per-observation moment condition g-vectors as an [n x q] matrix (C# line
+    // 2128; the delegate target of pointwise_moment_conditions()). Row order: low
+    // outliers -> exact -> uncertain -> interval -> threshold (NumberBelow + NumberAbove
+    // rows each). Column means equal moment_conditions' G (the CON-23 invariant). A
+    // zero-filled matrix signals invalid parameters.
+    numerics::math::linalg::Matrix2D pointwise_moment_conditions_impl(
+        std::vector<double> parameters) const;
+
     std::optional<DataFrame> data_frame_;                       // C# _dataFrame (line 290)
     std::unique_ptr<DistributionBase> distribution_;            // C# _distribution (line 291)
     std::vector<ModelParameter> parameters_;                    // C# _parameters (line 292)
@@ -933,3 +1023,6 @@ class Bulletin17CDistribution : public IGMMModel,
 };
 
 }  // namespace bestfit::models
+
+// The B10 moment-machinery method bodies (an .ipp-style companion; see the file header).
+#include "bestfit/models/univariate_distribution/bulletin17c_moment_machinery.hpp"

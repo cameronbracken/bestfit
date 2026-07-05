@@ -1,6 +1,7 @@
 // Transcribed from: upstream/RMC-BestFit/src/RMC.BestFit.Tests/Univariate/
 // Bulletin17CDistributionTests.cs (@ fc28c0c) for the Phase 6 Task B9 construction slice.
-// B10 extends this file with the moment-machinery tests.
+// B10 extends this file with the moment-machinery tests (the four upstream methods below
+// plus the self-consistency supplements).
 //
 // Transcribed structural methods (values/tolerances unaltered):
 //   Constructor_Default_UsesLogPearsonTypeIII, Constructor_WithDataFrameAndType_BuildsParameters,
@@ -14,15 +15,14 @@
 //   Validate_LogDistribution_NonPositiveData_IsInvalid, Clone_ReturnsSeparateInstance_WithMatchingState
 //   (extended with a clone-independence mutation check per the task brief),
 //   GenerateRandomValues_FixedSeed_IsDeterministic, GenerateRandomValues_NonPositiveSampleSize_Throws,
-//   GenerateRandomValues_RequiresDistribution.
+//   GenerateRandomValues_RequiresDistribution,
+//   PointwiseMomentConditions_ColumnMeans_MatchMomentConditionsG_LP3 / _Normal (B10, the
+//   CON-23 invariant), WeightedErrorDirectionScore_NaturalParameters_IgnoresCurrentLinkController
+//   (B10), WeightedErrorDirectionScoreFromLinked_InverseLinksBeforeScoring (B10).
 //
 // SKIPPED upstream methods (each with reason):
 //   - ToXElement_FromXElement_RoundTripsCoreState, FromXElement_NoDataFrame_ConstructsWithoutThrowing,
 //     FromXElement_NullXml_Throws: XML serialization is a project-wide deliberate skip.
-//   - PointwiseMomentConditions_ColumnMeans_MatchMomentConditionsG_LP3 / _Normal,
-//     WeightedErrorDirectionScore_NaturalParameters_IgnoresCurrentLinkController,
-//     WeightedErrorDirectionScoreFromLinked_InverseLinksBeforeScoring: the moment machinery
-//     (MomentConditions, PointwiseMomentConditions, WEDS) is Task B10's slice.
 //   - Constructor_NullDataFrame_Throws: the C++ DataFrame is a move-only VALUE type (M4
 //     decision); a null frame is structurally unrepresentable, so the guard has no analog.
 //     The distribution-null half of the C# null-guard pair IS transcribed below.
@@ -45,7 +45,11 @@
 //   - DataFrame::GetNonparametricMoments / GetNonparametricMomentsROS deterministic checks
 //     (grep-verified: NO upstream test exists for either method -- see the B9 report);
 //   - SetPenaltyFunction / SetRandomPenaltyFunction closure wiring and guards;
-//   - SetInitialParameters restores constraint initials.
+//   - SetInitialParameters restores constraint initials;
+//   - (B10) exact-data-only MomentConditions against hand-computed sample moments, the
+//     mixed-frame CON-23 invariant + CensoringAsymmetryScore bounds, QuantileVariance vs
+//     an independent finite-difference delta method, and a GeneralizedMethodOfMoments
+//     end-to-end smoke run (finiteness only; exact fit oracles land at B12).
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -56,10 +60,18 @@
 
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
 #include "bestfit/models/data_frame/data_frame.hpp"
+#include "bestfit/models/data_frame/data_types/interval_data.hpp"
+#include "bestfit/models/data_frame/data_types/threshold_data.hpp"
+#include "bestfit/models/data_frame/data_types/uncertain_data.hpp"
+#include "bestfit/models/link_functions/asinh_link.hpp"
 #include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/numerics/distributions/log_normal.hpp"
 #include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
+#include "bestfit/numerics/distributions/pearson_type_iii.hpp"
+#include "bestfit/numerics/functions/i_link_function.hpp"
+#include "bestfit/numerics/functions/link_controller.hpp"
+#include "bestfit/numerics/functions/log_link.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
@@ -67,10 +79,18 @@ using bestfit::estimation::GeneralizedMethodOfMoments;
 using bestfit::models::Bulletin17CDistribution;
 using bestfit::models::DataFrame;
 using bestfit::models::ExactData;
+using bestfit::models::IntervalData;
+using bestfit::models::ThresholdData;
+using bestfit::models::UncertainData;
+using bestfit::models::link_functions::ASinHLink;
 using bestfit::numerics::distributions::LogNormal;
 using bestfit::numerics::distributions::LogPearsonTypeIII;
 using bestfit::numerics::distributions::Normal;
+using bestfit::numerics::distributions::PearsonTypeIII;
 using bestfit::numerics::distributions::UnivariateDistributionType;
+using bestfit::numerics::functions::ILinkFunction;
+using bestfit::numerics::functions::LinkController;
+using bestfit::numerics::functions::LogLink;
 using bestfit::numerics::sampling::MersenneTwister;
 
 namespace {
@@ -359,9 +379,15 @@ void test_gmm_model_constructor_wiring() {
     CHECK_NEAR(gmm.initial_values()[1], model.parameters()[1].value(), 0.0);
     CHECK_NEAR(gmm.lower_bounds()[0], model.parameters()[0].lower_bound(), 0.0);
     CHECK_NEAR(gmm.upper_bounds()[1], model.parameters()[1].upper_bound(), 0.0);
-    // The moment-condition machinery is B10; the B9 accessor returns a callable stub that
-    // throws std::logic_error when invoked.
-    CHECK_THROWS(gmm.moment_condition_function()({100.0, 15.0}));
+    // B10: the delegate now runs the real MomentConditions and returns finite results.
+    bestfit::estimation::MomentConditionResult mc = gmm.moment_condition_function()({100.0, 15.0});
+    CHECK_EQ(mc.G.length(), 2);
+    CHECK_EQ(mc.S.number_of_rows(), 2);
+    CHECK_EQ(mc.S.number_of_columns(), 2);
+    for (int i = 0; i < 2; ++i) {
+        CHECK_TRUE(std::isfinite(mc.G[i]));
+        for (int j = 0; j < 2; ++j) CHECK_TRUE(std::isfinite(mc.S(i, j)));
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -581,6 +607,324 @@ void test_nonparametric_moments_ros_imputes_from_regression() {
     CHECK_TRUE(std::fabs((*plain_corrupted)[0] - (*clean_moments)[0]) > 1e-3);
 }
 
+// ---------------------------------------------------------------------------------------
+// B10: Pointwise vs Scalar Moment-Condition Row-Ordering Invariant (CON-23)
+// ---------------------------------------------------------------------------------------
+
+// C# PointwiseMomentConditions_ColumnMeans_MatchMomentConditionsG_LP3 (line 476): the
+// column-wise mean of PointwiseMomentConditions equals the G vector from MomentConditions,
+// i.e. (1/n) sum_i result[i, j] = G[j].
+void test_pointwise_column_means_match_g_lp3() {
+    Bulletin17CDistribution model(create_flood_data_frame(),
+                                  UnivariateDistributionType::LogPearsonTypeIII);
+    model.set_default_parameters();
+
+    std::vector<double> p;
+    for (const auto& mp : model.parameters()) p.push_back(mp.value());
+
+    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    // "PointwiseMomentConditions delegate must be exposed by Bulletin17CDistribution."
+    CHECK_TRUE(static_cast<bool>(model.pointwise_moment_conditions()));
+    auto pointwise = model.pointwise_moment_conditions()(p);
+
+    int n = static_cast<int>(pointwise.size());
+    int q = n > 0 ? static_cast<int>(pointwise[0].size()) : 0;
+    // "Pointwise matrix must have one column per parameter (q)."
+    CHECK_EQ(model.number_of_parameters(), q);
+    // "Scalar G vector length must match parameter count."
+    CHECK_EQ(mc.G.length(), q);
+
+    for (int j = 0; j < q; ++j) {
+        double col_mean = 0.0;
+        for (int i = 0; i < n; ++i)
+            col_mean += pointwise[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        col_mean /= n;
+        CHECK_NEAR(mc.G[j], col_mean, 1e-9);
+    }
+}
+
+// C# PointwiseMomentConditions_ColumnMeans_MatchMomentConditionsG_Normal (line 511): the
+// same invariant against a Normal distribution (a different supported-distribution branch
+// in the moment-condition setup).
+void test_pointwise_column_means_match_g_normal() {
+    Bulletin17CDistribution model(create_flood_data_frame(), UnivariateDistributionType::Normal);
+    model.set_default_parameters();
+
+    std::vector<double> p;
+    for (const auto& mp : model.parameters()) p.push_back(mp.value());
+
+    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    CHECK_TRUE(static_cast<bool>(model.pointwise_moment_conditions()));
+    auto pointwise = model.pointwise_moment_conditions()(p);
+
+    int n = static_cast<int>(pointwise.size());
+    int q = n > 0 ? static_cast<int>(pointwise[0].size()) : 0;
+    for (int j = 0; j < q; ++j) {
+        double col_mean = 0.0;
+        for (int i = 0; i < n; ++i)
+            col_mean += pointwise[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        col_mean /= n;
+        CHECK_NEAR(mc.G[j], col_mean, 1e-9);
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// B10: Weighted Error Direction Score
+// ---------------------------------------------------------------------------------------
+
+// The upstream tests' LinkController fixture: ASinHLink(theta0, 0.5, 0.25), LogLink,
+// ASinHLink(theta2, 0.5, -0.25).
+LinkController make_weds_link_controller(const std::vector<double>& theta) {
+    std::vector<std::unique_ptr<ILinkFunction>> links;
+    links.push_back(std::make_unique<ASinHLink>(theta[0], /*scale=*/0.5, /*epsilon=*/0.25));
+    links.push_back(std::make_unique<LogLink>());
+    links.push_back(std::make_unique<ASinHLink>(theta[2], /*scale=*/0.5, /*epsilon=*/-0.25));
+    return LinkController(std::move(links));
+}
+
+// C# WeightedErrorDirectionScore_NaturalParameters_IgnoresCurrentLinkController (line 544):
+// WEDS is a natural-parameter diagnostic; installing a non-identity LinkController must not
+// change the score when the caller supplies theta-space parameters.
+void test_weds_natural_parameters_ignores_current_link_controller() {
+    Bulletin17CDistribution model(create_flood_data_frame(),
+                                  UnivariateDistributionType::LogPearsonTypeIII);
+    model.set_default_parameters();
+    std::vector<double> theta;
+    for (const auto& mp : model.parameters()) theta.push_back(mp.value());
+
+    std::vector<double> baseline = model.weighted_error_direction_score(theta);
+
+    model.set_link_controller(make_weds_link_controller(theta));
+
+    std::vector<double> with_temporary_links = model.weighted_error_direction_score(theta);
+
+    CHECK_EQ(static_cast<int>(baseline.size()), static_cast<int>(with_temporary_links.size()));
+    for (std::size_t i = 0; i < baseline.size(); ++i) {
+        // "Baseline WEDS[i] should be finite for the inline fixture."
+        CHECK_TRUE(std::isfinite(baseline[i]));
+        // "WEDS[i] changed after installing temporary uncertainty links."
+        CHECK_NEAR(baseline[i], with_temporary_links[i], 1e-12);
+    }
+}
+
+// C# WeightedErrorDirectionScoreFromLinked_InverseLinksBeforeScoring (line 577): the
+// explicit link-space helper matches the natural-parameter method after inverse-linking
+// through the current controller.
+void test_weds_from_linked_inverse_links_before_scoring() {
+    Bulletin17CDistribution model(create_flood_data_frame(),
+                                  UnivariateDistributionType::LogPearsonTypeIII);
+    model.set_default_parameters();
+    std::vector<double> theta;
+    for (const auto& mp : model.parameters()) theta.push_back(mp.value());
+
+    model.set_link_controller(make_weds_link_controller(theta));
+
+    std::vector<double> linked = model.link_controller().link(theta);
+    std::vector<double> natural_score = model.weighted_error_direction_score(theta);
+    std::vector<double> linked_score = model.weighted_error_direction_score_from_linked(linked);
+
+    CHECK_EQ(static_cast<int>(natural_score.size()), static_cast<int>(linked_score.size()));
+    for (std::size_t i = 0; i < natural_score.size(); ++i)
+        CHECK_NEAR(natural_score[i], linked_score[i], 1e-12);
+}
+
+// ---------------------------------------------------------------------------------------
+// B10 SUPPLEMENT: exact-data-only MomentConditions against hand-computed sample moments
+// ---------------------------------------------------------------------------------------
+
+// Frame: y = {8, 10, 12, 14} (n = Ns = 4), Normal model evaluated at (mu, sigma) = (11, 2),
+// so q = 2 and the moment conditions are g = [y - mu, c2 (y - mu)^2 - sigma^2].
+//
+// Bessel corrections: c2 = Ns/(Ns-1) = 4/3 (c3 unused, q = 2).
+// Unconditional moments: mu = 11, sigma^2 = 4.
+// Row contributions [eg1, eg2]:
+//   y = 8:  [-3, (4/3)*9 - 4 =  8   ]     y = 10: [-1, (4/3)*1 - 4 = -8/3]
+//   y = 12: [ 1, (4/3)*1 - 4 = -8/3 ]     y = 14: [ 3, (4/3)*9 - 4 =  8  ]
+// G = column means = [0, (8 - 8/3 - 8/3 + 8)/4] = [0, (32/3)/4] = [0, 8/3].
+//
+// Covariance: no low outliers and a Normal family, so every exact row takes the MODEL-BASED
+// path with mu2 = sigma^2 = 4, mu4 = 3 sigma^4 = 48:
+//   M11 = mu2 = 4, M12 = model mu3 = gamma sigma^3 = 0, M22 = mu4 - mu2^2 = 48 - 16 = 32.
+// Sum over 4 rows / n = [[4, 0], [0, 32]]; final S = E[gg'] - G G' =
+//   [[4, 0 - 0*(8/3)], [0, 32 - (8/3)^2]] = [[4, 0], [0, 32 - 64/9]].
+void test_moment_conditions_exact_data_hand_computed() {
+    DataFrame df;
+    df.exact_series().add(ExactData(2000, 8.0));
+    df.exact_series().add(ExactData(2001, 10.0));
+    df.exact_series().add(ExactData(2002, 12.0));
+    df.exact_series().add(ExactData(2003, 14.0));
+
+    Bulletin17CDistribution model(std::move(df), UnivariateDistributionType::Normal);
+    bestfit::estimation::MomentConditionResult mc = model.moment_conditions({11.0, 2.0});
+
+    CHECK_EQ(mc.G.length(), 2);
+    CHECK_NEAR(mc.G[0], 0.0, 1e-12);
+    CHECK_NEAR(mc.G[1], 8.0 / 3.0, 1e-12);
+    CHECK_NEAR(mc.S(0, 0), 4.0, 1e-12);
+    CHECK_NEAR(mc.S(0, 1), 0.0, 1e-12);
+    CHECK_NEAR(mc.S(1, 0), 0.0, 1e-12);
+    CHECK_NEAR(mc.S(1, 1), 32.0 - 64.0 / 9.0, 1e-12);
+}
+
+// ---------------------------------------------------------------------------------------
+// B10 SUPPLEMENT: mixed-data frame -- CensoringAsymmetryScore bounds + CON-23 invariant
+// ---------------------------------------------------------------------------------------
+
+// A frame exercising every accumulation branch: 20 exact points (2 flagged low outliers via
+// the threshold path), one interval record, one uncertain record, and one threshold record
+// (window 1900-1950, duration 51, NumberAbove = 2 -> NumberBelow = 49 after
+// process_threshold_series, since no explicit data falls inside the window).
+DataFrame create_mixed_data_frame() {
+    DataFrame df;
+    df.exact_series().add(ExactData(1970, 5.0));
+    df.exact_series().add(ExactData(1971, 8.0));
+    for (int i = 2; i < 20; ++i)
+        df.exact_series().add(ExactData(1970 + i, 100.0 + 10.0 * i));
+    df.interval_series().add(IntervalData(1955, 60.0, 80.0, 100.0));
+    df.uncertain_series().add(UncertainData(1960, std::make_unique<Normal>(150.0, 20.0)));
+    ThresholdData threshold(1900, 1950, 200.0);
+    threshold.set_number_above(2);
+    df.threshold_series().add(std::move(threshold));
+    df.set_low_outlier_threshold(10.0);
+    df.set_low_outliers_from_threshold();
+    df.calculate_plotting_positions();
+    return df;
+}
+
+void test_censoring_asymmetry_score_bounded_mixed_frame() {
+    Bulletin17CDistribution model(create_mixed_data_frame(), UnivariateDistributionType::Normal);
+    CHECK_EQ(model.number_of_parameters(), 2);
+    CHECK_EQ(model.data_frame().number_of_low_outliers(), 2);
+
+    std::vector<double> theta;
+    for (const auto& mp : model.parameters()) theta.push_back(mp.value());
+
+    std::vector<double> score = model.censoring_asymmetry_score(theta);
+    CHECK_EQ(static_cast<int>(score.size()), 2);
+    for (double s : score) {
+        CHECK_TRUE(std::isfinite(s));
+        CHECK_TRUE(s >= -1.0 && s <= 1.0);
+    }
+}
+
+// The CON-23 invariant must also hold when every data type (low outliers, exact, uncertain,
+// interval, threshold left+right blocks) contributes weighted rows.
+void test_pointwise_column_means_match_g_mixed_frame() {
+    Bulletin17CDistribution model(create_mixed_data_frame(), UnivariateDistributionType::Normal);
+    std::vector<double> p;
+    for (const auto& mp : model.parameters()) p.push_back(mp.value());
+
+    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    auto pointwise = model.pointwise_moment_conditions()(p);
+
+    // Row count: 20 exact + 1 interval + 1 uncertain + 49 below + 2 above = 73.
+    int n = static_cast<int>(pointwise.size());
+    CHECK_EQ(n, model.data_frame().total_record_length());
+    CHECK_EQ(n, 73);
+
+    int q = static_cast<int>(pointwise[0].size());
+    for (int j = 0; j < q; ++j) {
+        double col_mean = 0.0;
+        for (int i = 0; i < n; ++i)
+            col_mean += pointwise[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        col_mean /= n;
+        CHECK_NEAR(mc.G[j], col_mean, 1e-9);
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// B10 SUPPLEMENT: QuantileVariance vs an independent finite-difference delta method
+// ---------------------------------------------------------------------------------------
+
+// Independently form g_fd' Sigma g_fd with a central-difference quantile gradient computed
+// straight from the base distribution's inverse CDF (never calling QuantileGradient), then
+// compare against quantile_variance. Tolerance sits in the rel 1e-5..1e-8
+// optimizer/covariance band (finite-difference truncation is the limiting term).
+void test_quantile_variance_matches_finite_difference() {
+    auto fd_quadratic_form = [](const std::function<double(const std::vector<double>&)>& quantile,
+                                const std::vector<double>& theta,
+                                const std::vector<std::vector<double>>& sigma) {
+        std::size_t p = theta.size();
+        std::vector<double> grad(p);
+        for (std::size_t i = 0; i < p; ++i) {
+            double h = 1e-6 * std::max(1.0, std::fabs(theta[i]));
+            std::vector<double> up = theta, down = theta;
+            up[i] += h;
+            down[i] -= h;
+            grad[i] = (quantile(up) - quantile(down)) / (2.0 * h);
+        }
+        double result = 0.0;
+        for (std::size_t i = 0; i < p; ++i)
+            for (std::size_t j = 0; j < p; ++j) result += grad[i] * grad[j] * sigma[i][j];
+        return result;
+    };
+
+    // Normal-backed B17C (the IStandardError QuantileGradient branch).
+    {
+        Bulletin17CDistribution model(create_flood_data_frame(),
+                                      UnivariateDistributionType::Normal);
+        std::vector<double> theta = {100.0, 15.0};
+        std::vector<std::vector<double>> sigma = {{2.0, 0.3}, {0.3, 0.5}};
+        double expected = fd_quadratic_form(
+            [](const std::vector<double>& t) { return Normal(t[0], t[1]).inverse_cdf(0.99); },
+            theta, sigma);
+        double actual = model.quantile_variance(0.99, theta, sigma);
+        CHECK_TRUE(std::fabs(actual - expected) <= 1e-6 * std::fabs(expected));
+    }
+
+    // LP3-backed B17C (the PearsonTypeIII QuantileGradientForMoments branch; the gradient
+    // is computed on the PT3 base in log space, so the finite difference runs on PT3 too).
+    {
+        Bulletin17CDistribution model(create_flood_data_frame(),
+                                      UnivariateDistributionType::LogPearsonTypeIII);
+        std::vector<double> theta = {3.0, 0.25, 0.1};
+        std::vector<std::vector<double>> sigma = {
+            {2e-3, 1e-4, 5e-5}, {1e-4, 8e-4, 2e-5}, {5e-5, 2e-5, 6e-4}};
+        double expected = fd_quadratic_form(
+            [](const std::vector<double>& t) {
+                return PearsonTypeIII(t[0], t[1], t[2]).inverse_cdf(0.99);
+            },
+            theta, sigma);
+        double actual = model.quantile_variance(0.99, theta, sigma);
+        CHECK_TRUE(std::fabs(actual - expected) <= 1e-5 * std::fabs(expected));
+    }
+
+    // Guards: probability must be in (0, 1); parameter/covariance arity must match.
+    {
+        Bulletin17CDistribution model(create_flood_data_frame(),
+                                      UnivariateDistributionType::Normal);
+        CHECK_THROWS(model.quantile_gradient(0.0, {100.0, 15.0}));
+        CHECK_THROWS(model.quantile_gradient(1.0, {100.0, 15.0}));
+        CHECK_THROWS(model.quantile_gradient(0.5, {100.0}));
+        CHECK_THROWS(model.quantile_variance(0.5, {100.0, 15.0}, {{1.0}}));
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// B10 SUPPLEMENT: GeneralizedMethodOfMoments end-to-end smoke (finiteness only; the exact
+// fit oracles land at B12)
+// ---------------------------------------------------------------------------------------
+
+void test_gmm_estimate_end_to_end_smoke() {
+    Bulletin17CDistribution model(create_flood_data_frame(),
+                                  UnivariateDistributionType::LogPearsonTypeIII);
+    GeneralizedMethodOfMoments gmm(model);
+
+    CHECK_TRUE(gmm.estimate());
+
+    const std::vector<double>& values = gmm.best_parameter_set().values;
+    CHECK_EQ(static_cast<int>(values.size()), 3);
+    for (double v : values) CHECK_TRUE(std::isfinite(v));
+
+    auto covariance = gmm.get_covariance_matrix();
+    CHECK_EQ(covariance.number_of_rows(), 3);
+    for (int i = 0; i < 3; ++i) {
+        CHECK_TRUE(std::isfinite(covariance(i, i)));
+        CHECK_TRUE(covariance(i, i) >= 0.0);
+        for (int j = 0; j < 3; ++j) CHECK_TRUE(std::isfinite(covariance(i, j)));
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -614,6 +958,16 @@ int main() {
     test_nonparametric_moments_ros_fallback_no_outliers();
     test_nonparametric_moments_symmetric_sample();
     test_nonparametric_moments_ros_imputes_from_regression();
+
+    test_pointwise_column_means_match_g_lp3();
+    test_pointwise_column_means_match_g_normal();
+    test_weds_natural_parameters_ignores_current_link_controller();
+    test_weds_from_linked_inverse_links_before_scoring();
+    test_moment_conditions_exact_data_hand_computed();
+    test_censoring_asymmetry_score_bounded_mixed_frame();
+    test_pointwise_column_means_match_g_mixed_frame();
+    test_quantile_variance_matches_finite_difference();
+    test_gmm_estimate_end_to_end_smoke();
 
     return bftest::summary("bulletin17c");
 }

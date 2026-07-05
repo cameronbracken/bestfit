@@ -37,7 +37,9 @@
 // ctors (RunningCovarianceMatrix.Push uses the existing `(rows, cols, flat)` ctor
 // instead, passing a length-N vector as an Nx1 flattened matrix -- an equivalent
 // construction), `Row`/`Column`, `UpperTriangle`/`LowerTriangle`/`Trace`, `ColumnMeans`,
-// `Apply`/`Sqr`/`Log`/`Exp`, `Sum`, `Outer`, and scalar `Divide` (+ its operator). Also
+// `Apply`/`Sqr`/`Log`/`Exp`, and `Sum`. B10 adds `outer` (C# Matrix.Outer, line 561) and
+// scalar `divide`/`operator/` (C# Matrix.Divide, line 638 / operator/, line 742):
+// Bulletin17CDistribution::MomentConditions forms S = E[gg']/n - Outer(mean, mean). Also
 // omitted: `operator!` (inverse alias) and `operator~` (transpose alias) -- both are just
 // operator spellings for the already-ported `inverse()`/`transpose()` methods, left out
 // because C++ `operator!`/`operator~` on a non-boolean/non-bitmask type would be
@@ -200,6 +202,20 @@ class Matrix {
         return I;
     }
 
+    // Returns the outer product A = x y^T, size x.Length x y.Length (C# Matrix.Outer,
+    // line 561; B10). The C# null-argument guards are unrepresentable for references.
+    static Matrix outer(const Vector& x, const Vector& y) {
+        int m = x.length();
+        int n = y.length();
+        Matrix A(m, n);
+
+        for (int i = 0; i < m; i++) {
+            double xi = x[i];
+            for (int j = 0; j < n; j++) A(i, j) = xi * y[j];
+        }
+        return A;
+    }
+
     // Computes the square root of the matrix elementwise, in place (mirrors the C#
     // `void Sqrt()`, which mutates via `Apply(Math.Sqrt)`).
     void sqrt() {
@@ -243,6 +259,14 @@ class Matrix {
         Matrix result(number_of_rows(), number_of_columns());
         for (int i = 0; i < number_of_rows(); ++i)
             for (int j = 0; j < number_of_columns(); ++j) result(i, j) = data_[i][j] * scalar;
+        return result;
+    }
+
+    // Divide by a scalar (C# Matrix.Divide, line 638; B10).
+    Matrix divide(double scalar) const {
+        Matrix result(number_of_rows(), number_of_columns());
+        for (int i = 0; i < number_of_rows(); ++i)
+            for (int j = 0; j < number_of_columns(); ++j) result(i, j) = data_[i][j] / scalar;
         return result;
     }
 
@@ -291,5 +315,9 @@ inline Matrix operator+(const Matrix& a, const Matrix& b) { return a.add(b); }
 
 // Subtracts matrix A and B and returns the result as a matrix.
 inline Matrix operator-(const Matrix& a, const Matrix& b) { return a.subtract(b); }
+
+// Divides a matrix A with a scalar and returns the result as a matrix (C# operator/,
+// line 742; B10).
+inline Matrix operator/(const Matrix& a, double scalar) { return a.divide(scalar); }
 
 }  // namespace bestfit::numerics::math::linalg
