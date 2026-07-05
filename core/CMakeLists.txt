@@ -50,6 +50,8 @@ set(BF_TESTS
   test_linear_regression
   test_bulletin17c
   test_p1_iunivariate_model
+  test_box_cox
+  test_time_series
 )
 
 # Sobol test takes the direction-number file as its sole argument.
