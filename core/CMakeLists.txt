@@ -39,6 +39,7 @@ set(BF_TESTS
   test_threshold_diagnostics
   test_trend_functions
   test_general_linear_function
+  test_link_functions
 )
 
 # Sobol test takes the direction-number file as its sole argument.
