@@ -878,6 +878,75 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## BUG — GammaDistribution.PartialKp's near-zero-skew branch returns the frequency factor, not its derivative
+
+- **Where:** `Numerics/Distributions/Univariate/GammaDistribution.cs`, `PartialKp(skewness,
+  probability)` @ a2c4dbf (~line 698).
+- **What:** `PartialKp` is documented as "the partial derivative of the frequency factor Kp with
+  respect to skew," and every other branch returns exactly that (the `|skew| <= 2` branch returns
+  the term-by-term derivative of the Cornish-Fisher polynomial; the `|skew| > 2` branch takes a
+  finite-difference `NumericalDerivative.Derivative` of `FrequencyFactorKp`). The near-zero guard
+  `if (absC < 0.0001d) return Normal.StandardZ(probability);` instead returns the frequency factor
+  Kp's OWN value at zero skew (the standard normal quantile), not its derivative. This looks copied
+  verbatim from `FrequencyFactorKp`'s legitimate near-zero branch (where returning `StandardZ` IS
+  correct, because Kp at zero skew is the normal quantile) without adjusting for the fact that
+  `PartialKp` must return a derivative. The correct small-skew limit is the first non-vanishing
+  derivative term, `(U^2 - 1) / 6` with `U = StandardZ(probability)` -- so there is a discontinuity
+  as `|skew|` crosses `1e-4` (jumping from `~(U^2-1)/6` to `StandardZ(p)`).
+- **Evidence:** static inspection of the method during the B4 moment-machinery port; the two closest
+  fixture/ctest cases keep `|skew|` well above `1e-4`, so no oracle exercises the branch (the B4
+  `partial_kp` vs finite-difference-of-`FrequencyFactorKp` check runs at skew 0.2, on the CF branch).
+- **Port handling:** mirrored faithfully -- `partial_kp` in `gamma_distribution.hpp` returns
+  `Normal::standard_z(probability)` in the `abs_c < 1e-4` branch, identical to C#; documented at the
+  call site. Consumers computing a quantile gradient for a near-normal LP3/PT3 fit inherit the
+  discontinuity.
+- **Suggested C# fix:** return `(U*U - 1d) / 6d` (with `U = Normal.StandardZ(probability)`) in the
+  near-zero branch to give the correct derivative limit and remove the discontinuity; add a
+  regression test asserting `PartialKp` is continuous across `skew = 1e-4`.
+
+## COSMETIC — BrentSearch.Bracket declares an expansion factor `k` it never applies
+
+- **Where:** `Numerics/Mathematics/Optimization/Local/BrentSearch.cs`, `Bracket(double s = 1E-2,
+  double k = 2d)` @ a2c4dbf (~line 162).
+- **What:** the second parameter `k` (default `2.0`) is never referenced in the method body. The
+  bracketing loop advances by a CONSTANT step (`c = b + s;` with `s` fixed), so the interval grows
+  linearly, not geometrically. A reader (or caller) supplying `k` expecting a golden-section-style
+  geometric expansion (the usual `s *= k` growth in a downhill bracketing search) gets no effect --
+  the parameter is dead.
+- **Evidence:** direct source reading during the B6 Powell/MLSL optimizer port (Powell's line
+  minimization is the only caller, and it always uses the defaults).
+- **Port handling:** mirrored faithfully -- `brent_search.hpp`'s `bracket(double s = 1e-2, double k
+  = 2.0)` casts `(void)k;` with a comment noting the parameter is declared-but-unused upstream and
+  the step expands linearly.
+- **Suggested C# fix:** either apply `k` (e.g. `s *= k;` inside the loop for geometric expansion) or
+  drop the parameter from the signature if the linear step is intentional.
+
+## CONSISTENCY — GMM's iterative loop overshoots GMMIterations by one on exhaustion, and ConvergedWithinTolerance is off-by-one at the boundary
+
+- **Where:** `RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs`, `EstimateIterative` @ fc28c0c
+  (~line 2253, `for (GMMIterations = 2; GMMIterations <= MaxGMMIterations; GMMIterations++)`) and the
+  `ConvergedWithinTolerance` property (~line 502).
+- **What:** two related off-by-ones at the loop boundary.
+  1. On natural exhaustion (never converging), the `for` loop's final post-increment leaves
+     `GMMIterations == MaxGMMIterations + 1` (e.g. `101` for the default 100-iteration cap), so the
+     publicly reported iteration count overshoots the actual number of iterations run by one.
+  2. `ConvergedWithinTolerance => IsEstimated && GMMIterations < MaxGMMIterations` uses a strict `<`.
+     A fit that converges on exactly the last permitted iteration (`GMMIterations ==
+     MaxGMMIterations`) therefore reports `ConvergedWithinTolerance == false` even though it did
+     converge within the budget.
+- **Evidence:** static inspection during the B8 GMM port; not reachable through the ported B17C
+  fixtures (a just-identified B17C GMM converges in one or two iterations, far below the cap), so no
+  oracle exercises the exhaustion boundary.
+- **Port handling:** mirrored faithfully -- `generalized_method_of_moments.hpp`'s
+  `estimate_iterative` preserves the `gmm_iterations_ == max_gmm_iterations_ + 1` exhaustion value
+  and the same strict-`<` `converged_within_tolerance()` boundary, documented at the call site.
+- **Suggested C# fix:** report the true count on exhaustion (e.g. clamp `GMMIterations` to
+  `MaxGMMIterations`, or count iterations actually executed) and relax `ConvergedWithinTolerance` to
+  `GMMIterations <= MaxGMMIterations` so a last-iteration convergence is reported honestly; add a
+  regression test that exhausts the iteration budget and asserts both the reported count and the flag.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

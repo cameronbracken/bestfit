@@ -82,6 +82,26 @@ PriorComponent, ModelBase, QuantilePrior and its interfaces) plus `subscript_for
 spec builder all three runners and the oracle emitter drive. The MultipleGrubbsBeckTest
 low-outlier test lives at `numerics/data/multiple_grubbs_beck_test.hpp`.
 
+Phase 6 added the Bulletin17C GMM track. `core/include/bestfit/numerics/functions/` holds the
+Numerics link-function layer: `i_link_function.hpp` (the `ILinkFunction` interface),
+`link_controller.hpp` (the null-means-identity controller), `link_function_factory.hpp` +
+`link_function_type.hpp` (the enum factory), and the seven standard links -- `identity_link.hpp`,
+`log_link.hpp`, `logit_link.hpp`, `probit_link.hpp`, `complementary_log_log_link.hpp`,
+`fisher_z_link.hpp`, and `yeo_johnson_link.hpp` (whose transform lives at
+`numerics/data/yeo_johnson.hpp`). The optimizer additions sit under
+`core/include/bestfit/numerics/math/optimization/` as real `Optimizer` subclasses beside
+`differential_evolution.hpp`/`nelder_mead.hpp`/`brent_search.hpp`: `bfgs.hpp`, `powell.hpp`, and
+`mlsl.hpp`, with `support/local_method.hpp` (the LocalMethod enum). These un-gate the three Phase
+4 MLE/MAP throws. `core/include/bestfit/models/link_functions/` holds the six BestFit links --
+`asinh_link.hpp`, `ses_link.hpp`, `log_ses_link.hpp`, `log_asinh_link.hpp`, `centered_link.hpp`,
+`yeo_johnson_link.hpp` -- plus `best_fit_link_function_factory.hpp`. The two penalties live at
+`models/support/parameter_penalty.hpp` and `models/support/quantile_penalty.hpp`. The GMM
+estimator is `core/include/bestfit/estimation/generalized_method_of_moments.hpp` with its delegate
+aliases in `estimation/gmm_delegates.hpp` and the `IGMMModel` interface at
+`models/support/i_gmm_model.hpp`. Bulletin17C is
+`models/univariate_distribution/bulletin17c_distribution.hpp` plus its moment heart
+`models/univariate_distribution/bulletin17c_moment_machinery.hpp`.
+
 ## Build & test commands
 
 ```bash
@@ -148,8 +168,8 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 are **complete**; Phases 1-4 are merged
-(latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
+Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, and Phase 6 are **complete**; Phases 1-4
+are merged (latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
 Numerics math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for
 that merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
@@ -185,5 +205,22 @@ all XML/INPC. Everything ported through Phase 5 is fixture-validated in C++/R/Py
 reproduced against the real Numerics/RMC.BestFit libraries by the dotnet oracle gate (3837
 reproduced, 0 failed, 11 documented GEV std-err skips); seeded MCMC chains, bootstrap replicate
 streams, a DEMCzs posterior chain digest, and the Phase 5 model simulation digests are all proven
-bit-identical across R and Python via `short_exact`-style digest fixtures. Pending: CI run and PR
-for the Phase 5 branch. See `PLAN.md`.
+bit-identical across R and Python via `short_exact`-style digest fixtures. Phase 6 delivered
+BestFit's Bulletin17C GMM track, the second slice of the Models phase -- the Numerics
+link-function layer (ILinkFunction/LinkController/LinkFunctionFactory + the seven standard links
+identity/log/logit/probit/complementary-log-log/Fisher-z/Yeo-Johnson, the last over a ported
+YeoJohnson transform); the six BestFit links (asinh, SES, log-SES, log-asinh, centered,
+Yeo-Johnson) on BestFitLinkFunctionFactory; ParameterPenalty/QuantilePenalty; the distribution
+moment machinery (ConditionalMoments/ParametersFromMoments/QuantileGradientForMoments) added
+additively to the Phase 1 distributions; the BFGS/Powell/MLSL optimizers (with LocalMethod)
+un-gating the three Phase 4 MLE/MAP throws; and GeneralizedMethodOfMoments, IGMMModel, and
+Bulletin17CDistribution with its moment heart. Everything ported through Phase 6 is
+fixture-validated in C++/R/Python and reproduced against the real Numerics/RMC.BestFit libraries
+by the dotnet oracle gate (3871 reproduced, 0 failed, 11 documented GEV std-err skips); seeded GMM
+covariance/standard errors reproduce to ~1e-12 and the MLSL seeded stream is bit-identical across
+R and Python. Severed to follow-ups (documented in headers): the GMM Influence/Leverage
+Diagnostics region (RMC.BestFit.Diagnostics unported, ships as throwing stubs), the DataFrame
+JackKnife/Resample/BootstrapDataFrame/ShiftDistribution surface (Bulletin17CAnalysis-only, Phase
+7), and the Numerics Functions/ non-link classes. B17C GMM is always just-identified, so its
+J-statistic p-value is structurally NaN and no over-identified oracle is reachable (see
+`docs/upstream-csharp-issues.md`). Pending: CI run and PR for the Phase 6 branch. See `PLAN.md`.

@@ -1,7 +1,7 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
-> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, and
-> Phase 5 are **complete**.
+> **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4,
+> Phase 5, and Phase 6 are **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -84,6 +84,28 @@
 > and the GeneralizedNormal distribution (on the C# model whitelist but never ported in Phase 1,
 > so constructing a model by that type throws). The new NelderMead fit-tolerance tiers on the
 > M14 fixtures are untested on Linux/Windows until the CI run. Pending CI run and PR.
+>
+> Phase 6 delivered BestFit's Bulletin17C GMM track (the second slice of phasing item 6 -- see
+> the phasing list below). The Numerics link-function layer: `ILinkFunction`/`LinkController`/
+> `LinkFunctionFactory` and the seven standard links (identity/log/logit/probit/
+> complementary-log-log/Fisher-z/Yeo-Johnson, the last over a ported `YeoJohnson` transform). The
+> six BestFit links (asinh, SES, log-SES, log-asinh, centered, Yeo-Johnson) on
+> `BestFitLinkFunctionFactory`. The `ParameterPenalty`/`QuantilePenalty` support types. The
+> distribution moment machinery (`ConditionalMoments`, `ParametersFromMoments`,
+> `QuantileGradientForMoments`) added additively to the Phase 1 distributions. The `BFGS`/`Powell`/
+> `MLSL` optimizers (with `LocalMethod`) beside DifferentialEvolution, un-gating the three Phase 4
+> MLE/MAP throws. `GeneralizedMethodOfMoments`, `IGMMModel`, and `Bulletin17CDistribution` with its
+> moment heart. Fixture-validated in C++/R/Python and reproduced against the real Numerics/
+> RMC.BestFit libraries by the dotnet oracle gate (`verify_oracles.py`: 3871 reproduced, 0 failed,
+> 11 documented GEV std-err skips); seeded GMM covariance/standard errors reproduce to ~1e-12 and
+> the MLSL seeded stream is bit-identical across R and Python. SEVERED/DEFERRED (documented in
+> headers): the GMM Influence/Leverage Diagnostics region (C# `GeneralizedMethodOfMoments.cs` lines
+> 1382-2061) ships as documented throwing stubs pending the unported `RMC.BestFit.Diagnostics`
+> layer; the DataFrame JackKnife/Resample/BootstrapDataFrame/ShiftDistribution surface
+> (`Bulletin17CAnalysis`-only) moves to Phase 7; the Numerics `Functions/` non-link classes stay
+> unported. B17C GMM is always just-identified (`NumberOfMomentConditions == NumberOfParameters`),
+> so its J-statistic p-value is structurally `NaN` and no over-identified oracle is reachable (see
+> `docs/upstream-csharp-issues.md`). Pending CI run and PR.
 >
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
 > Linux/macOS/Windows as of the Phase 4 merge (PR #6); the Phase 5 branch (`phase5-models`) has
@@ -314,10 +336,19 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    including GeneralLinearFunction; and the four models (nonstationary + censored
    UnivariateDistributionModel extended in place, MixtureModel, CompetingRisksModel, non-seasonal
    PointProcessModel) ported, fixture-validated in C++/R/Python, and reproduced against C# by the
-   dotnet oracle gate. Confirmed split for the remainder: Phase 6 = the Bulletin17C track
-   (Bulletin17CDistribution + GMM + IGMMModel + BFGS/Powell/MLSL + LinkFunctions +
-   ParameterPenalty/QuantilePenalty); Phase 7 = TimeSeries/SpatialExtremes/Bivariate/RatingCurve.
-   Pending CI run and PR.
+   dotnet oracle gate.
+   [DONE — second slice, the Bulletin17C GMM track] The Numerics link-function layer
+   (ILinkFunction/LinkController/LinkFunctionFactory + the seven standard links incl. Yeo-Johnson)
+   and the six BestFit links; ParameterPenalty/QuantilePenalty; the distribution moment machinery
+   (ConditionalMoments/ParametersFromMoments/QuantileGradientForMoments); the BFGS/Powell/MLSL
+   optimizers un-gating the Phase 4 MLE/MAP throws; GeneralizedMethodOfMoments, IGMMModel, and
+   Bulletin17CDistribution ported, fixture-validated in C++/R/Python, and reproduced against C# by
+   the dotnet oracle gate (3871 reproduced, 0 failed, 11 GEV std-err skips). Severed to Phase 7:
+   the GMM Influence/Leverage Diagnostics region (throwing stubs pending RMC.BestFit.Diagnostics),
+   the DataFrame JackKnife/Resample/BootstrapDataFrame/ShiftDistribution surface, and the Numerics
+   Functions/ non-link classes. Pending CI run and PR. Phase 7 is now the clear remainder:
+   TimeSeries/SpatialExtremes/Bivariate/RatingCurve plus the Analyses layer (including
+   Bulletin17CAnalysis and the DataFrame bootstrap surface).
 7. BestFit `Analyses` + `Diagnostics` — the user-facing API (`univariate_analysis()` etc.).
 
 Each phase merges only when its fixtures pass in all three harnesses and all CI jobs are green.
