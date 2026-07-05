@@ -3,7 +3,8 @@
 // P3.3 adds is_finite (Tools.IsFinite) and is_power_of_two (Tools.IsPowerOfTwo), needed by
 // Fourier::fft (power-of-two length guard) and NumericalDerivative::gradient/hessian
 // (non-finite-evaluation backtracking guard). Tools.NextPowerOfTwo is not ported -- no
-// caller in this port's scope needs it.
+// caller in this port's scope needs it. B3 adds sqr (Tools.Sqr, Tools.cs:146), needed by the
+// ParameterPenalty/QuantilePenalty penalty functions.
 #pragma once
 #include <cmath>
 
@@ -33,5 +34,8 @@ inline bool is_finite(double x) { return !(std::isnan(x) || std::isinf(x)); }
 
 // Returns true iff n is a positive power of two (mirrors Tools.IsPowerOfTwo).
 inline bool is_power_of_two(int n) { return n > 0 && (n & (n - 1)) == 0; }
+
+// Returns the squared value of a (mirrors Tools.Sqr; added with B3 for the penalty classes).
+inline double sqr(double a) { return a * a; }
 
 }  // namespace bestfit::numerics
