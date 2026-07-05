@@ -20,23 +20,21 @@
 // `upperBounds` (null meaning "unbounded") are represented here as possibly-empty
 // `std::vector<double>` -- an empty vector means "no bound", matching C#'s null.
 //
-// DEFERRED (severable, tracked for the GeneralizedMethodOfMoments follow-up):
-// ComputeGradient (C# ~282-377) and ComputeJacobian (C# ~378-505) are used only by the
-// severed GMM estimator; no in-scope estimator calls them, so neither is ported here.
-// Note on a brief/source discrepancy: the task brief lists AvailableLeft and
-// AvailableRight among the helpers "those two [in-scope methods] need", but the C#
-// source shows neither is actually called by ComputeHessian or
-// ComputePointwiseGradients -- both are used exclusively inside the deferred
-// ComputeGradient/ComputeJacobian (their bounds-aware "how much room is left"
-// checks). Per this task's own rule ("C# governs when brief and source conflict") and
-// YAGNI, AvailableLeft/AvailableRight are deferred alongside ComputeGradient/
-// ComputeJacobian rather than ported speculatively; port them together when the GMM
-// follow-up lands.
+// Phase 6 (Task B8, the GeneralizedMethodOfMoments follow-up the Phase 4 sever note
+// pointed at) completes the file: ComputeGradient (C# 282-362, GMM's GetPenaltyGradient
+// and its BFGS analytic-gradient path) and ComputeJacobian (C# 378-496, GMM's
+// GetJacobian numerical fallback), including their bounds-aware step logic, plus the
+// AvailableLeft/AvailableRight/IsBad helpers only those two use (deliberately deferred
+// with them in Phase 4). Every member of the C# class is now ported.
+// `compute_jacobian` returns the row-major `Matrix2D`, mirroring the C# `double[,]`
+// return (GMM's GetJacobian wraps it in a Matrix at the call site, exactly as the C#
+// does with `new Matrix(...)`).
 #pragma once
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -197,6 +195,217 @@ class NumericalDiff {
         return hessian;
     }
 
+    // Computes the gradient of a scalar function via central differences with flat-spot
+    // detection, step escalation, and optional boundary handling (C# ComputeGradient,
+    // 282-362; ported with B8). function is f: R^p -> R (same mutable-point signature as
+    // compute_hessian above). lower_bounds/upper_bounds are optional (empty = unbounded).
+    // Returns the gradient vector where result[j] = df/dtheta_j.
+    static std::vector<double> compute_gradient(
+        const std::function<double(std::vector<double>&)>& function,
+        const std::vector<double>& parameters, const std::vector<double>& lower_bounds = {},
+        const std::vector<double>& upper_bounds = {}) {
+        int p = static_cast<int>(parameters.size());
+        std::vector<double> grad(static_cast<std::size_t>(p), 0.0);
+        std::vector<double> perturbed = parameters;
+        double f0 = function(perturbed);
+
+        for (int j = 0; j < p; ++j) {
+            std::size_t sj = static_cast<std::size_t>(j);
+            double h = initial_step(parameters[sj]);
+
+            while (h <= kMaxStep) {
+                double room_left = available_left(parameters, j, lower_bounds);
+                double room_right = available_right(parameters, j, upper_bounds);
+
+                double derivative;
+                bool success;
+                bool is_flat;
+
+                if (room_left >= h && room_right >= h) {
+                    double fp = eval_perturbed(function, perturbed, parameters[sj] + h, j,
+                                               lower_bounds, upper_bounds);
+                    double fm = eval_perturbed(function, perturbed, parameters[sj] - h, j,
+                                               lower_bounds, upper_bounds);
+                    perturbed[sj] = parameters[sj];
+                    success = is_finite(fp) && is_finite(fm);
+                    if (success) {
+                        derivative = (fp - fm) / (2.0 * h);
+                        double diff = std::fabs(fp - fm);
+                        double scale = std::max(std::fabs(fp), std::max(std::fabs(fm), 1.0));
+                        is_flat = diff < kFlatSpotRelTol * scale;
+                    } else {
+                        derivative = 0;
+                        is_flat = false;
+                    }
+                } else if (room_right >= h) {
+                    double fp = eval_perturbed(function, perturbed, parameters[sj] + h, j,
+                                               lower_bounds, upper_bounds);
+                    perturbed[sj] = parameters[sj];
+                    success = is_finite(fp);
+                    if (success) {
+                        derivative = (fp - f0) / h;
+                        double diff = std::fabs(fp - f0);
+                        double scale = std::max(std::fabs(fp), std::max(std::fabs(f0), 1.0));
+                        is_flat = diff < kFlatSpotRelTol * scale;
+                    } else {
+                        derivative = 0;
+                        is_flat = false;
+                    }
+                } else if (room_left >= h) {
+                    double fm = eval_perturbed(function, perturbed, parameters[sj] - h, j,
+                                               lower_bounds, upper_bounds);
+                    perturbed[sj] = parameters[sj];
+                    success = is_finite(fm);
+                    if (success) {
+                        derivative = (f0 - fm) / h;
+                        double diff = std::fabs(f0 - fm);
+                        double scale = std::max(std::fabs(fm), std::max(std::fabs(f0), 1.0));
+                        is_flat = diff < kFlatSpotRelTol * scale;
+                    } else {
+                        derivative = 0;
+                        is_flat = false;
+                    }
+                } else {
+                    h *= 0.5;
+                    continue;
+                }
+
+                if (!success) {
+                    h *= 0.5;
+                    continue;
+                }
+                if (!is_flat) {
+                    grad[sj] = derivative;
+                    break;
+                }
+                h *= kStepGrowthFactor;
+            }
+        }
+
+        return grad;
+    }
+
+    // Computes the Jacobian matrix of a vector-valued function via central differences
+    // with flat-spot detection, step escalation, and optional boundary handling (C#
+    // ComputeJacobian, 378-496; ported with B8). function is g: R^p -> R^m; m is the
+    // number of output components (rows of the Jacobian). Returns an m x p row-major
+    // Matrix2D where J[i][j] = dg_i/dtheta_j (the C# `double[,]` return).
+    static bestfit::numerics::math::linalg::Matrix2D compute_jacobian(
+        const std::function<std::vector<double>(std::vector<double>&)>& function,
+        const std::vector<double>& parameters, int m,
+        const std::vector<double>& lower_bounds = {},
+        const std::vector<double>& upper_bounds = {}) {
+        int p = static_cast<int>(parameters.size());
+        bestfit::numerics::math::linalg::Matrix2D J(
+            static_cast<std::size_t>(m), std::vector<double>(static_cast<std::size_t>(p), 0.0));
+        std::vector<double> perturbed = parameters;
+        std::vector<double> g0 = function(perturbed);
+
+        for (int j = 0; j < p; ++j) {
+            std::size_t sj = static_cast<std::size_t>(j);
+            double h = initial_step(parameters[sj]);
+            std::vector<double> col;
+            bool have_col = false;  // stands in for the C# nullable `double[]? col`
+
+            while (h <= kMaxStep) {
+                double room_left = available_left(parameters, j, lower_bounds);
+                double room_right = available_right(parameters, j, upper_bounds);
+
+                bool success;
+                bool is_flat;
+
+                if (room_left >= h && room_right >= h) {
+                    perturbed[sj] = clamp(parameters[sj] + h, j, lower_bounds, upper_bounds);
+                    std::vector<double> g_plus = function(perturbed);
+                    perturbed[sj] = clamp(parameters[sj] - h, j, lower_bounds, upper_bounds);
+                    std::vector<double> g_minus = function(perturbed);
+                    perturbed[sj] = parameters[sj];
+
+                    if (is_bad(g_plus, m) || is_bad(g_minus, m)) {
+                        success = false;
+                        is_flat = false;
+                    } else {
+                        success = true;
+                        double total_diff = 0, total_scale = 0;
+                        col.assign(static_cast<std::size_t>(m), 0.0);
+                        have_col = true;
+                        double two_h = 2.0 * h;
+                        for (int i = 0; i < m; ++i) {
+                            std::size_t si = static_cast<std::size_t>(i);
+                            col[si] = (g_plus[si] - g_minus[si]) / two_h;
+                            total_diff += std::fabs(g_plus[si] - g_minus[si]);
+                            total_scale += std::max(std::fabs(g_plus[si]), std::fabs(g_minus[si]));
+                        }
+                        is_flat = total_diff < kFlatSpotRelTol * std::max(total_scale, 1.0);
+                    }
+                } else if (room_right >= h) {
+                    perturbed[sj] = clamp(parameters[sj] + h, j, lower_bounds, upper_bounds);
+                    std::vector<double> g_plus = function(perturbed);
+                    perturbed[sj] = parameters[sj];
+
+                    if (is_bad(g_plus, m)) {
+                        success = false;
+                        is_flat = false;
+                    } else {
+                        success = true;
+                        double total_diff = 0, total_scale = 0;
+                        col.assign(static_cast<std::size_t>(m), 0.0);
+                        have_col = true;
+                        for (int i = 0; i < m; ++i) {
+                            std::size_t si = static_cast<std::size_t>(i);
+                            col[si] = (g_plus[si] - g0[si]) / h;
+                            total_diff += std::fabs(g_plus[si] - g0[si]);
+                            total_scale += std::max(std::fabs(g_plus[si]), std::fabs(g0[si]));
+                        }
+                        is_flat = total_diff < kFlatSpotRelTol * std::max(total_scale, 1.0);
+                    }
+                } else if (room_left >= h) {
+                    perturbed[sj] = clamp(parameters[sj] - h, j, lower_bounds, upper_bounds);
+                    std::vector<double> g_minus = function(perturbed);
+                    perturbed[sj] = parameters[sj];
+
+                    if (is_bad(g_minus, m)) {
+                        success = false;
+                        is_flat = false;
+                    } else {
+                        success = true;
+                        double total_diff = 0, total_scale = 0;
+                        col.assign(static_cast<std::size_t>(m), 0.0);
+                        have_col = true;
+                        for (int i = 0; i < m; ++i) {
+                            std::size_t si = static_cast<std::size_t>(i);
+                            col[si] = (g0[si] - g_minus[si]) / h;
+                            total_diff += std::fabs(g0[si] - g_minus[si]);
+                            total_scale += std::max(std::fabs(g_minus[si]), std::fabs(g0[si]));
+                        }
+                        is_flat = total_diff < kFlatSpotRelTol * std::max(total_scale, 1.0);
+                    }
+                } else {
+                    h *= 0.5;
+                    continue;
+                }
+
+                if (!success) {
+                    h *= 0.5;
+                    continue;
+                }
+                if (!is_flat) break;
+                h *= kStepGrowthFactor;
+            }
+
+            if (!have_col) {
+                // No step size produced a usable Jacobian column. C# flags this via
+                // Debug.WriteLine ("column left as zeros"); no C++ logger is wired into
+                // this core, so the trace is dropped and the column stays zero.
+                col.assign(static_cast<std::size_t>(m), 0.0);
+            }
+            for (int i = 0; i < m; ++i)
+                J[static_cast<std::size_t>(i)][sj] = col[static_cast<std::size_t>(i)];
+        }
+
+        return J;
+    }
+
    private:
     // Determines whether the pointwise central difference values indicate a flat spot.
     static bool is_pointwise_flat(const std::vector<double>& forward, const std::vector<double>& backward,
@@ -261,6 +470,36 @@ class NumericalDiff {
         if (!lower_bounds.empty() && value < lower_bounds[sj]) value = lower_bounds[sj];
         if (!upper_bounds.empty() && value > upper_bounds[sj]) value = upper_bounds[sj];
         return value;
+    }
+
+    // Calculates available space below the current parameter value (C# AvailableLeft;
+    // ported with B8 -- used only by compute_gradient/compute_jacobian). An empty bounds
+    // vector means "no bound" (C#'s null), giving infinite room.
+    static double available_left(const std::vector<double>& parameters, int j,
+                                 const std::vector<double>& lower_bounds) {
+        return lower_bounds.empty()
+                   ? std::numeric_limits<double>::infinity()
+                   : parameters[static_cast<std::size_t>(j)] - lower_bounds[static_cast<std::size_t>(j)];
+    }
+
+    // Calculates available space above the current parameter value (C# AvailableRight;
+    // ported with B8).
+    static double available_right(const std::vector<double>& parameters, int j,
+                                  const std::vector<double>& upper_bounds) {
+        return upper_bounds.empty()
+                   ? std::numeric_limits<double>::infinity()
+                   : upper_bounds[static_cast<std::size_t>(j)] - parameters[static_cast<std::size_t>(j)];
+    }
+
+    // Checks if a vector is missing, mis-sized, or contains any non-finite values (C#
+    // IsBad; ported with B8). The C# null check has no analogue for a by-value vector;
+    // a wrong length covers the defective-result cases reachable here.
+    static bool is_bad(const std::vector<double>& v, int expected_length) {
+        if (static_cast<int>(v.size()) != expected_length) return true;
+        for (int i = 0; i < expected_length; ++i) {
+            if (!is_finite(v[static_cast<std::size_t>(i)])) return true;
+        }
+        return false;
     }
 
     // Checks if a value is finite (not NaN and not infinity).

@@ -6,7 +6,9 @@
 // caller in this port's scope needs it. B3 adds sqr (Tools.Sqr, Tools.cs:146), needed by the
 // ParameterPenalty/QuantilePenalty penalty functions. B5 adds sum_product (Tools.SumProduct,
 // Tools.cs:425), needed by BFGS's strong-Wolfe line search, and normalized_distance
-// (Tools.NormalizedDistance, Tools.cs:267), whose caller is MLSL (arrives in B6).
+// (Tools.NormalizedDistance, Tools.cs:267), whose caller is MLSL (arrives in B6). B8 adds
+// distance (Tools.Distance IList overload, Tools.cs:246), needed by the GMM iterative
+// convergence check.
 #pragma once
 #include <cmath>
 #include <cstddef>
@@ -72,6 +74,18 @@ inline double normalized_distance(const std::vector<double>& x, const std::vecto
         double xi = (x[i] - lower[i]) / range;
         double yi = (y[i] - lower[i]) / range;
         double dx = xi - yi;
+        d += dx * dx;
+    }
+    return std::sqrt(d);
+}
+
+// Returns the Euclidean distance between two points (mirrors Tools.Distance's
+// IList<double> overload, Tools.cs:246; added with B8 -- GeneralizedMethodOfMoments'
+// iterative-strategy parameter-convergence check is the caller).
+inline double distance(const std::vector<double>& x, const std::vector<double>& y) {
+    double d = 0;
+    for (std::size_t i = 0; i < x.size(); i++) {
+        double dx = x[i] - y[i];
         d += dx * dx;
     }
     return std::sqrt(d);
