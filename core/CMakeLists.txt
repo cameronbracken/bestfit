@@ -44,6 +44,7 @@ set(BF_TESTS
   test_penalties
   test_moment_machinery
   test_optimizers_local
+  test_optimizers_global
 )
 
 # Sobol test takes the direction-number file as its sole argument.

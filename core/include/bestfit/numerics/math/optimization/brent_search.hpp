@@ -10,9 +10,12 @@
 // Copula MPL/IFM fit oracles (a later task) replay this exact golden-section/parabolic
 // search path, so transcription fidelity of the loop below is the point of this file.
 //
-// Bracket() (the step-and-expand bracketing helper) is omitted: no caller ported so far
-// needs it (copula fits supply their own [lower, upper] bounds directly); add it if a
-// later task needs it.
+// Bracket() (the step-and-expand bracketing helper) was omitted in Phase 0 (no caller
+// needed it -- copula fits supply their own [lower, upper] bounds directly); Task B6 adds
+// it (plus the best_fitness() accessor) ADDITIVELY for Powell's LineMinimization, which
+// calls `Bracket(0.1)` then `Minimize()` then reads `BestParameterSet.Values[0]` /
+// `.Fitness` on the C# BrentSearch. No pre-existing line of this oracle-locked file was
+// altered other than this comment.
 #pragma once
 #include <cmath>
 #include <functional>
@@ -49,6 +52,53 @@ class BrentSearch {
     // The parameter that produced the best (min/max, per the last maximize()/minimize()
     // call) fitness seen across all evaluations.
     double best_parameter() const { return best_value_; }
+
+    // The fitness at best_parameter(), in the internal sign convention (function_scale *
+    // objective, i.e. the raw objective value for minimize()) -- the C# BrentSearch's
+    // `BestParameterSet.Fitness`. Added in B6 for Powell's LineMinimization.
+    double best_fitness() const { return best_fitness_; }
+
+    // Bracket the objective function minimum (ported from BrentSearch.cs Bracket(),
+    // added in B6 for Powell's LineMinimization). Steps from the lower bound and expands
+    // downhill until the function turns back up, then replaces [lower_bound_,
+    // upper_bound_] with the bracketing interval. Calls the RAW objective directly --
+    // no function-scale flip, no best-tracking -- exactly as the C# calls
+    // `ObjectiveFunction(...)` rather than `Evaluate(...)`.
+    //   s: starting step size (default 1E-2).
+    //   k: expansion factor (default 2). Declared-and-unused in the C# too: the C# body
+    //      never applies `k`, so the step expands linearly. Transcribed as-is.
+    void bracket(double s = 1E-2, double k = 2.0) {
+        (void)k;  // unused upstream as well (see above)
+        double a = lower_bound_, b = a + s;
+        double fa = objective_(a);
+        double fb = objective_(b);
+        double c, fc, temp;
+        if (fb > fa) {
+            temp = a;
+            a = b;
+            b = temp;
+            temp = fa;
+            fa = fb;
+            fb = temp;
+            s *= -1;
+        }
+        while (true) {
+            c = b + s;
+            fc = objective_(c);
+            if (fc > fb) break;
+            a = b;
+            b = c;
+            fa = fb;
+            fb = fc;
+        }
+        if (a < c) {
+            lower_bound_ = a;
+            upper_bound_ = c;
+        } else {
+            lower_bound_ = c;
+            upper_bound_ = a;
+        }
+    }
 
    private:
     Objective objective_;
