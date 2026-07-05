@@ -45,6 +45,12 @@ inline bool is_power_of_two(int n) { return n > 0 && (n & (n - 1)) == 0; }
 // Returns the squared value of a (mirrors Tools.Sqr; added with B3 for the penalty classes).
 inline double sqr(double a) { return a * a; }
 
+// Returns the value of a with the sign of b (mirrors Tools.Sign, Tools.cs:125; added with B9
+// for the SingularValueDecomposition port).
+inline double sign(double a, double b) {
+    return b >= 0 ? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
+}
+
 // Returns the sum product of two lists of values (mirrors Tools.SumProduct, Tools.cs:425;
 // added with B5 for BFGS's strong-Wolfe line search). Empty or length-mismatched inputs
 // return NaN, exactly as the C#.

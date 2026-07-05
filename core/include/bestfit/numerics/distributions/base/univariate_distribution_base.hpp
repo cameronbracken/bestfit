@@ -5,10 +5,12 @@
 // promotes the shared concrete helpers (Variance, LogPDF, LogLikelihood).
 //
 // The desktop-app boilerplate of the C# base (XElement serialization, PDF/CDF graph
-// builders, equality operators, numerical-integration CentralMoments, ConditionalMean/
-// ConditionalExpectedValue) is intentionally not ported -- those are WPF/analysis
-// concerns, not the math core. B4 adds the ConditionalMoments virtual (line 374): the
-// Bulletin 17C GMM track consumes it.
+// builders, equality operators, the AdaptiveGaussKronrod CentralMoments(tolerance)
+// overload, ConditionalMean/ConditionalExpectedValue) is intentionally not ported --
+// those are WPF/analysis concerns, not the math core. B4 adds the ConditionalMoments
+// virtual (line 374): the Bulletin 17C GMM track consumes it. B9 adds the trapezoidal
+// CentralMoments(int steps = 300) virtual (line 321): DataFrame's nonparametric-moments
+// methods call it with 1000 steps through an EmpiricalDistribution.
 //
 // P3.10 adds `generate_random_values` (C# `GenerateRandomValues(int sampleSize, int seed =
 // -1)`): inverse-CDF sampling off a fresh MersenneTwister, `seed`-constructed when positive
@@ -108,6 +110,60 @@ class UnivariateDistributionBase {
     double log_likelihood_intervals(double lower_limit, double upper_limit) const {
         double interval = cdf(upper_limit) - cdf(lower_limit);
         return std::log(interval);
+    }
+
+    // Returns the central moments {Mean, Standard Deviation, Skew, Kurtosis} of the
+    // distribution using numerical integration with the trapezoidal rule (C#
+    // `CentralMoments(int steps = 300)`, line 321; B9 -- DataFrame's nonparametric-moments
+    // methods call it with 1000 steps). First bin's representative is its upper bound,
+    // interior bins use midpoints, and the last bin uses its lower bound with
+    // dF = 1 - CDF, transcribing the C# scheme term for term. Returns
+    // {a, NaN, NaN, NaN} when the 1e-8 support window is degenerate (a >= b).
+    virtual std::vector<double> central_moments(int steps = 300) const {
+        double a = inverse_cdf(1E-8);
+        double b = inverse_cdf(1 - 1E-8);
+        if (a >= b) return {a, kNaN, kNaN, kNaN};
+
+        auto bins = sampling::Stratify::XValues(sampling::StratificationOptions(a, b, steps));
+        std::vector<double> d_fx(static_cast<std::size_t>(steps));
+        double u1, u2, u3, u4;
+        double sum_u1 = 0;
+        double sum_u2 = 0;
+        double sum_u3 = 0;
+        double sum_u4 = 0;
+
+        // First compute the mean and standard deviation
+        d_fx[0] = cdf(bins[0].upper_bound());
+        sum_u1 += bins[0].upper_bound() * d_fx[0];
+        sum_u2 += std::pow(bins[0].upper_bound(), 2.0) * d_fx[0];
+        for (int i = 1; i < steps - 1; i++) {
+            const auto& bin = bins[static_cast<std::size_t>(i)];
+            d_fx[static_cast<std::size_t>(i)] = cdf(bin.upper_bound()) - cdf(bin.lower_bound());
+            sum_u1 += bin.midpoint() * d_fx[static_cast<std::size_t>(i)];
+            sum_u2 += std::pow(bin.midpoint(), 2.0) * d_fx[static_cast<std::size_t>(i)];
+        }
+        const auto& last = bins.back();
+        d_fx[static_cast<std::size_t>(steps - 1)] = 1 - cdf(last.lower_bound());
+        sum_u1 += last.lower_bound() * d_fx[static_cast<std::size_t>(steps - 1)];
+        sum_u2 += std::pow(last.lower_bound(), 2.0) * d_fx[static_cast<std::size_t>(steps - 1)];
+        u1 = sum_u1;
+        u2 = std::sqrt(sum_u2 - std::pow(u1, 2.0));
+
+        // Then compute skewness and kurtosis
+        sum_u3 += std::pow((bins[0].upper_bound() - u1) / u2, 3.0) * d_fx[0];
+        sum_u4 += std::pow((bins[0].upper_bound() - u1) / u2, 4.0) * d_fx[0];
+        for (int i = 1; i < steps - 1; i++) {
+            const auto& bin = bins[static_cast<std::size_t>(i)];
+            sum_u3 += std::pow((bin.midpoint() - u1) / u2, 3.0) * d_fx[static_cast<std::size_t>(i)];
+            sum_u4 += std::pow((bin.midpoint() - u1) / u2, 4.0) * d_fx[static_cast<std::size_t>(i)];
+        }
+        sum_u3 += std::pow((last.lower_bound() - u1) / u2, 3.0) *
+                  d_fx[static_cast<std::size_t>(steps - 1)];
+        sum_u4 += std::pow((last.lower_bound() - u1) / u2, 4.0) *
+                  d_fx[static_cast<std::size_t>(steps - 1)];
+        u3 = sum_u3;
+        u4 = sum_u4;
+        return {u1, u2, u3, u4};
     }
 
     // Returns conditional central moments (up to 4th order) between [a, b] (C#

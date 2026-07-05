@@ -38,9 +38,11 @@
 //     UnequalVarianceTtest/Ftest/LinearTrend/Unimodality/WaldWolfowitz/MannWhitney/
 //     MannKendall/SummaryHypothesisTest -- Numerics HypothesisTests is unported)
 //   - the summary-statistics / Q-Q surface (SummaryStatisticsExactDataOnly,
-//     SummaryStatisticsAllData, GetNonparametricMoments, GetNonparametricMomentsROS,
-//     SetStandardizedValues -- they need EmpiricalDistribution/LinearRegression facades
-//     and the M5 plotting positions)
+//     SummaryStatisticsAllData, SetStandardizedValues -- they need further
+//     EmpiricalDistribution facades). GetNonparametricMoments and
+//     GetNonparametricMomentsROS were ported ADDITIVELY in B9 (Bulletin17CDistribution's
+//     SetInitialParameters/SetDefaultParameters call them); the C# `double[]?` null
+//     return maps to std::optional<std::vector<double>> (empty optional == C# null).
 //   - CreateBlockSeries / CreatePeaksOverThresholdSeries (need the unported TimeSeries
 //     container), CreateFromUSGS + USGSRawText (network import)
 //   - the bootstrap/resampling surface (JackKnife, Resample, BootstrapDataFrame,
@@ -60,6 +62,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -78,6 +81,11 @@
 #include "bestfit/models/data_frame/data_types/uncertain_data.hpp"
 #include "bestfit/models/support/validation_result.hpp"
 #include "bestfit/numerics/data/multiple_grubbs_beck_test.hpp"
+#include "bestfit/numerics/data/regression/linear_regression.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
+#include "bestfit/numerics/distributions/normal.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/math/linalg/vector.hpp"
 
 namespace bestfit::models {
 
@@ -391,6 +399,142 @@ class DataFrame {
         }
     }
 
+    // Computes nonparametric central moments [mean, stdDev, skewness, kurtosis] of the
+    // data, optionally log10-transformed (C# GetNonparametricMoments, line 1659; ported
+    // additively in B9). Combines exact, uncertain, and interval data with their
+    // Hirsch-Stedinger plotting position complements into an EmpiricalDistribution, then
+    // computes central moments via numerical integration with 1000 points. Returns an
+    // empty optional (the C# null) when there are fewer than 4 data points. Reference:
+    // Hirsch, R.M. and Stedinger, J.R. (1987). Plotting positions for historical floods
+    // and their precision. Water Resources Research, 23(4), 715-727.
+    std::optional<std::vector<double>> get_nonparametric_moments(
+        bool use_log10_values = false) const {
+        if (exact_series_.count() < 4) return std::nullopt;
+
+        int total_count = static_cast<int>(exact_series_.count() + uncertain_series_.count() +
+                                           interval_series_.count());
+        if (total_count < 4) return std::nullopt;
+
+        // Build sorted values
+        std::vector<double> values;
+        values.reserve(static_cast<std::size_t>(total_count));
+        if (use_log10_values) {
+            for (std::size_t i = 0; i < exact_series_.count(); i++)
+                values.push_back(exact_series_[i].log10_value());
+            for (std::size_t i = 0; i < uncertain_series_.count(); i++)
+                values.push_back(uncertain_series_[i].log10_value());
+            for (std::size_t i = 0; i < interval_series_.count(); i++)
+                values.push_back(interval_series_[i].log10_value());
+        } else {
+            for (std::size_t i = 0; i < exact_series_.count(); i++)
+                values.push_back(exact_series_[i].value());
+            for (std::size_t i = 0; i < uncertain_series_.count(); i++)
+                values.push_back(uncertain_series_[i].value());
+            for (std::size_t i = 0; i < interval_series_.count(); i++)
+                values.push_back(interval_series_[i].value());
+        }
+        std::sort(values.begin(), values.end());
+
+        // Build sorted plotting position complements
+        std::vector<double> probs = plotting_position_complements();
+
+        numerics::distributions::EmpiricalDistribution dist(std::move(values),
+                                                            std::move(probs));
+        return dist.central_moments(1000);
+    }
+
+    // Computes nonparametric central moments using Regression on Order Statistics (ROS)
+    // to impute values for low outliers below the censoring threshold (C#
+    // GetNonparametricMomentsROS, line 1734; ported additively in B9). Algorithm: fit a
+    // simple linear regression of value vs. standard normal quantile z = Phi^-1(pp)
+    // through the uncensored exact points only, then replace each low outlier's value
+    // with the regression prediction at its z before computing the empirical moments.
+    // Falls back to get_nonparametric_moments() when there are no low outliers or fewer
+    // than 2 uncensored exact points; returns an empty optional (the C# null) when there
+    // are fewer than 4 data points. References: Helsel, D.R. and Cohn, T.A. (1988).
+    // Estimation of descriptive statistics for multiply censored water quality data.
+    // Water Resources Research, 24(12), 1997-2004; Helsel, D.R. (2005). Nondetects and
+    // Data Analysis. Wiley, New York.
+    std::optional<std::vector<double>> get_nonparametric_moments_ros(
+        bool use_log10_values = false) const {
+        // Fall back to standard method when there are no low outliers to impute
+        if (number_of_low_outliers_ == 0) return get_nonparametric_moments(use_log10_values);
+
+        if (exact_series_.count() < 4) return std::nullopt;
+
+        int total_count = static_cast<int>(exact_series_.count() + uncertain_series_.count() +
+                                           interval_series_.count());
+        if (total_count < 4) return std::nullopt;
+
+        // Separate exact data into uncensored and censored (low outlier) sets
+        std::vector<double> uncensored_values;
+        std::vector<double> uncensored_quantiles;
+        numerics::distributions::Normal std_normal(0, 1);
+
+        // Build paired (value, quantile) lists for exact series
+        for (std::size_t i = 0; i < exact_series_.count(); i++) {
+            double value = use_log10_values ? exact_series_[i].log10_value()
+                                            : exact_series_[i].value();
+            double z = std_normal.inverse_cdf(exact_series_[i].plotting_position_complement());
+
+            if (!exact_series_[i].is_low_outlier()) {
+                uncensored_values.push_back(value);
+                uncensored_quantiles.push_back(z);
+            }
+        }
+
+        // Need at least 2 uncensored points to fit a regression line
+        if (uncensored_values.size() < 2) return get_nonparametric_moments(use_log10_values);
+
+        // Fit linear regression: value = a + b * z using uncensored points only
+        // (the C# single-column Matrix(double[]) ctor is not on the ported Matrix; the
+        // same layout is built through the (rows, cols) ctor).
+        numerics::math::linalg::Matrix x_matrix(
+            static_cast<int>(uncensored_quantiles.size()), 1);
+        for (std::size_t i = 0; i < uncensored_quantiles.size(); i++)
+            x_matrix(static_cast<int>(i), 0) = uncensored_quantiles[i];
+        numerics::math::linalg::Vector y_vector(uncensored_values);
+        numerics::data::regression::LinearRegression regression(x_matrix, y_vector, true);
+        double intercept = regression.parameters()[0];
+        double slope = regression.parameters()[1];
+
+        // Build combined values list with ROS-imputed values for low outliers
+        std::vector<double> values;
+        values.reserve(static_cast<std::size_t>(total_count));
+        for (std::size_t i = 0; i < exact_series_.count(); i++) {
+            if (exact_series_[i].is_low_outlier()) {
+                // Impute from regression line at this point's normal quantile
+                double z =
+                    std_normal.inverse_cdf(exact_series_[i].plotting_position_complement());
+                values.push_back(intercept + slope * z);
+            } else {
+                values.push_back(use_log10_values ? exact_series_[i].log10_value()
+                                                  : exact_series_[i].value());
+            }
+        }
+
+        // Add uncertain and interval series values (not subject to low-outlier imputation)
+        if (use_log10_values) {
+            for (std::size_t i = 0; i < uncertain_series_.count(); i++)
+                values.push_back(uncertain_series_[i].log10_value());
+            for (std::size_t i = 0; i < interval_series_.count(); i++)
+                values.push_back(interval_series_[i].log10_value());
+        } else {
+            for (std::size_t i = 0; i < uncertain_series_.count(); i++)
+                values.push_back(uncertain_series_[i].value());
+            for (std::size_t i = 0; i < interval_series_.count(); i++)
+                values.push_back(interval_series_[i].value());
+        }
+        std::sort(values.begin(), values.end());
+
+        // Build sorted plotting position complements
+        std::vector<double> probs = plotting_position_complements();
+
+        numerics::distributions::EmpiricalDistribution dist(std::move(values),
+                                                            std::move(probs));
+        return dist.central_moments(1000);
+    }
+
     // Create a deep copy of the data frame (C# Clone, line 1907, which round-trips
     // through XElement; the direct deep clone here preserves the same state: the four
     // series, NumberOfLowOutliers, LowOutlierThreshold, PlottingParameter, and Lambda).
@@ -410,6 +554,22 @@ class DataFrame {
     }
 
    private:
+    // The sorted plotting-position complements of the exact + uncertain + interval series
+    // (the shared tail of both C# GetNonparametricMoments methods; B9).
+    std::vector<double> plotting_position_complements() const {
+        std::vector<double> probs;
+        probs.reserve(exact_series_.count() + uncertain_series_.count() +
+                      interval_series_.count());
+        for (std::size_t i = 0; i < exact_series_.count(); i++)
+            probs.push_back(exact_series_[i].plotting_position_complement());
+        for (std::size_t i = 0; i < uncertain_series_.count(); i++)
+            probs.push_back(uncertain_series_[i].plotting_position_complement());
+        for (std::size_t i = 0; i < interval_series_.count(); i++)
+            probs.push_back(interval_series_[i].plotting_position_complement());
+        std::sort(probs.begin(), probs.end());
+        return probs;
+    }
+
     static void append(ValidationResult& result, const ValidationResult& partial) {
         if (partial.is_valid) return;
         result.validation_messages.insert(result.validation_messages.end(),

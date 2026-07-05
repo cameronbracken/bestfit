@@ -12,15 +12,16 @@
 // separate header estimation/gmm_delegates.hpp so B9's IGMMModel can include the aliases
 // without this full class (compile-order contract; see that header).
 //
-// B9 CTOR SLOT (documented decision): the C# class has TWO constructors -- the
+// B9 CTOR SLOT -- FILLED (Task B9): the C# class has TWO constructors -- the
 // delegate-based one (C# 143, ported below) and an IGMMModel-based one (C# 106) mirroring
-// MaximumLikelihood's IModel pattern. The IGMMModel overload (and the `Model` property it
-// populates, C# 241) is added ENTIRELY in Task B9 when the IGMMModel type lands, rather
-// than forward-declared here: its body reads model members (Parameters, bounds, the
-// delegate properties), so a declaration now could not be defined until B9 anyway, and an
-// added overload keeps this file's existing lines untouched (additive-only). Until B9,
-// the C# members that require a model (`Model`, and the model-dependent branches inside
-// the deferred Influence Diagnostics region) have no surface here.
+// MaximumLikelihood's IModel pattern. The IGMMModel overload and the `model()` accessor
+// (C# `Model` property, 241) were added additively in B9 when the IGMMModel type landed
+// (B8's existing lines untouched, exactly as the slot note reserved). Like
+// MaximumLikelihood's ModelBase& ctor, the model parameter is a NON-OWNING reference (the
+// C# ArgumentNullException for a null model is structurally unrepresentable) and the model
+// must outlive the estimator; `model()` returns a nullable pointer, null for
+// delegate-based construction, mirroring the C# `IGMMModel? Model`. The model-dependent
+// branches inside the deferred Influence Diagnostics region remain deferred.
 //
 // ADAPTER NOTE: like MaximumLikelihood/MaximumAPosteriori (see maximum_likelihood.hpp's
 // header), the Brent and NelderMead optimizer branches use the shared Phase 4 adapters in
@@ -81,6 +82,7 @@
 #include "bestfit/estimation/optimization_method.hpp"
 #include "bestfit/estimation/support/optimizer_adapters.hpp"
 #include "bestfit/models/support/data_component.hpp"
+#include "bestfit/models/support/i_gmm_model.hpp"
 #include "bestfit/numerics/distributions/chi_squared.hpp"
 #include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -131,8 +133,42 @@ class GeneralizedMethodOfMoments {
     };
 
     // ------------------------------------------------------------------------------------
-    // Construction (the IGMMModel ctor slot is B9's -- see this file's header)
+    // Construction (the IGMMModel ctor slot was filled in B9 -- see this file's header)
     // ------------------------------------------------------------------------------------
+
+    // Constructs a new GMM estimation class from an IGMMModel (C# 106). All configuration
+    // is read from the model: parameter values become initial values, parameter bounds
+    // become optimizer bounds, and the moment condition function and optional delegates
+    // are read directly. The model is held as a non-owning pointer and must outlive this
+    // estimator (see the file header); an empty MomentConditionFunction throws
+    // std::invalid_argument (C# ArgumentException).
+    explicit GeneralizedMethodOfMoments(bestfit::models::IGMMModel& model,
+                                        OptimizationMethod method = OptimizationMethod::BFGS) {
+        model_ = &model;
+
+        moment_condition_function_ = model.moment_condition_function();
+        if (!moment_condition_function_)
+            throw std::invalid_argument("The model's MomentConditionFunction cannot be null.");
+        number_of_parameters_ = model.number_of_parameters();
+        number_of_moment_conditions_ = model.number_of_moment_conditions();
+        sample_size_ = model.sample_size();
+
+        initial_values_.clear();
+        lower_bounds_.clear();
+        upper_bounds_.clear();
+        for (const auto& p : model.parameters()) {
+            initial_values_.push_back(p.value());
+            lower_bounds_.push_back(p.lower_bound());
+            upper_bounds_.push_back(p.upper_bound());
+        }
+
+        jacobian_function_ = model.jacobian_function();
+        penalty_function_ = model.penalty_function();
+        pointwise_moment_conditions_ = model.pointwise_moment_conditions();
+
+        compute_identification_status();
+        optimizer_method_ = method;
+    }
 
     // Constructs a new GMM estimation class from raw delegate functions (C# 143), with the
     // C# validation checks in the C# order.
@@ -180,6 +216,10 @@ class GeneralizedMethodOfMoments {
     // ------------------------------------------------------------------------------------
     // Members (C# INPC properties are plain accessors here -- see the header SKIPPED note)
     // ------------------------------------------------------------------------------------
+
+    // The IGMMModel used for estimation, if constructed with one; null for delegate-based
+    // construction (C# `IGMMModel? Model`, 241; non-owning -- B9).
+    bestfit::models::IGMMModel* model() const { return model_; }
 
     // The moment condition function.
     const MomentConditionFunction& moment_condition_function() const {
@@ -1345,6 +1385,7 @@ class GeneralizedMethodOfMoments {
 
     // --- Fields (C# Members region backing fields + auto-properties) --------------------------
 
+    bestfit::models::IGMMModel* model_ = nullptr;  // C# `IGMMModel? Model` (241; non-owning, B9)
     MomentConditionFunction moment_condition_function_;
     JacobianFunction jacobian_function_;
     PenaltyFunction penalty_function_;
