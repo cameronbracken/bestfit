@@ -30,6 +30,7 @@
 #include <memory>
 #include <vector>
 
+#include "bestfit/analyses/support/bootstrap_diagnostics.hpp"
 #include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
 #include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/data_frame/data_collections/exact_series.hpp"
@@ -38,7 +39,21 @@
 #include "bestfit/numerics/distributions/log_normal.hpp"
 #include "check.hpp"
 
+// Friend accessor for the private A8 acceleration_constants() method (C# private; not called on
+// the shipped Bootstrap path -- see the header). Declared a friend in the analysis header so the
+// C++-only determinism ctest can reach it without widening the public API.
+namespace bestfit::analyses {
+struct Bulletin17CAnalysisTestAccess {
+    static std::vector<double> acceleration_constants(Bulletin17CAnalysis& a,
+                                                      const std::vector<double>& theta_hats) {
+        return a.acceleration_constants(theta_hats);
+    }
+};
+}  // namespace bestfit::analyses
+
+using bestfit::analyses::BootstrapDiagnostics;
 using bestfit::analyses::Bulletin17CAnalysis;
+using bestfit::analyses::Bulletin17CAnalysisTestAccess;
 using bestfit::analyses::UncertaintyMethod;
 using bestfit::models::Bulletin17CDistribution;
 using bestfit::models::DataFrame;
@@ -171,7 +186,7 @@ void test_run_multivariate_normal_structural() {
     CHECK_TRUE(analysis->get_point_estimate_distribution() != nullptr);
 }
 
-// ---- The deferred / A8 dispatch arms throw a clear error (documented scope) ----
+// ---- The deferred dispatch arms throw a clear error (documented scope) ----
 void test_deferred_uncertainty_methods_throw() {
     {
         auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
@@ -183,10 +198,136 @@ void test_deferred_uncertainty_methods_throw() {
         a->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
         CHECK_THROWS(a->run());  // deferred to Phase 9
     }
-    {
-        auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
-        a->set_uncertainty_method(UncertaintyMethod::Bootstrap);
-        CHECK_THROWS(a->run());  // ships in A8
+}
+
+// ============================ A8: parametric bootstrap + jackknife ============================
+
+// ---- BootstrapDiagnostics counters (transcribed from BootstrapDiagnosticsTests.cs, non-XML) ----
+void test_bootstrap_diagnostics_defaults_all_zero() {
+    BootstrapDiagnostics d;
+    CHECK_EQ(d.total_replicates(), 0);
+    CHECK_EQ(d.failed_replicates(), 0);
+    CHECK_EQ(d.valid_replicates(), 0);
+    CHECK_EQ(d.total_retries(), 0);
+    CHECK_EQ(d.total_function_evaluations(), 0);
+    CHECK_EQ(d.pivot_rejections(), 0);
+    CHECK_EQ(d.mahalanobis_rejections(), 0);
+}
+
+void test_bootstrap_diagnostics_rates_zero_when_no_replicates() {
+    BootstrapDiagnostics d;
+    CHECK_EQ(d.failure_rate(), 0.0);
+    CHECK_EQ(d.average_retries(), 0.0);
+    CHECK_EQ(d.average_function_evaluations(), 0.0);
+    CHECK_EQ(d.pivot_rejection_rate(), 0.0);
+    CHECK_EQ(d.mahalanobis_rejection_rate(), 0.0);
+}
+
+void test_bootstrap_diagnostics_valid_equals_total_minus_failed() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(100);
+    for (int i = 0; i < 7; i++) d.increment_failed();
+    CHECK_EQ(d.valid_replicates(), 93);
+}
+
+void test_bootstrap_diagnostics_failure_rate() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(200);
+    for (int i = 0; i < 50; i++) d.increment_failed();
+    CHECK_NEAR(d.failure_rate(), 0.25, 1e-12);
+}
+
+void test_bootstrap_diagnostics_add_retries_accumulates() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(10);
+    d.add_retries(3);
+    d.add_retries(7);
+    CHECK_EQ(d.total_retries(), 10);
+    CHECK_NEAR(d.average_retries(), 1.0, 1e-12);
+}
+
+void test_bootstrap_diagnostics_add_function_evaluations_accumulates() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(4);
+    d.add_function_evaluations(20);
+    d.add_function_evaluations(20);
+    CHECK_EQ(d.total_function_evaluations(), 40);
+    CHECK_NEAR(d.average_function_evaluations(), 10.0, 1e-12);
+}
+
+void test_bootstrap_diagnostics_pivot_rejection() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(100);
+    d.increment_pivot_rejection();
+    d.increment_pivot_rejection();
+    CHECK_EQ(d.pivot_rejections(), 2);
+    CHECK_NEAR(d.pivot_rejection_rate(), 0.02, 1e-12);
+}
+
+void test_bootstrap_diagnostics_mahalanobis_rejection() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(50);
+    d.increment_mahalanobis_rejection();
+    CHECK_EQ(d.mahalanobis_rejections(), 1);
+    CHECK_NEAR(d.mahalanobis_rejection_rate(), 0.02, 1e-12);
+}
+
+// ---- AccelerationConstants determinism (C++-only): deterministic given a fixed frame, finite,
+//      length p (no PRNG in the jackknife). ----
+void test_acceleration_constants_deterministic() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->run();  // MVN default fits the GMM point estimate
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    std::vector<double> theta = analysis->gmm()->best_parameter_set().values;
+    int p = analysis->bulletin17c_distribution().number_of_parameters();
+
+    std::vector<double> a1 = Bulletin17CAnalysisTestAccess::acceleration_constants(*analysis, theta);
+    std::vector<double> a2 = Bulletin17CAnalysisTestAccess::acceleration_constants(*analysis, theta);
+
+    CHECK_EQ(static_cast<int>(a1.size()), p);
+    CHECK_EQ(static_cast<int>(a2.size()), p);
+    for (int i = 0; i < p; ++i) {
+        CHECK_TRUE(std::isfinite(a1[static_cast<std::size_t>(i)]));
+        CHECK_EQ(a1[static_cast<std::size_t>(i)], a2[static_cast<std::size_t>(i)]);  // deterministic
+    }
+}
+
+// ---- A real run() through the Bootstrap UQ path: structural / finite / monotone + diagnostics. ----
+void test_run_bootstrap_structural() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
+    const int b = 30;  // small replicate count keeps the re-fit loop fast
+    analysis->bayesian_analysis().set_output_length(b);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    // Diagnostics populated with the replicate accounting identity.
+    const auto* diag = analysis->bootstrap_results();
+    CHECK_TRUE(diag != nullptr);
+    if (diag != nullptr) {
+        CHECK_EQ(diag->total_replicates(), b);
+        CHECK_EQ(diag->valid_replicates() + diag->failed_replicates(), b);
+    }
+
+    const auto* results = analysis->analysis_results();
+    CHECK_TRUE(results != nullptr);
+    if (results != nullptr) {
+        std::size_t n = analysis->probability_ordinates().count();
+        CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->confidence_intervals.size(), n);
+        for (std::size_t i = 0; i < n; ++i) CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+        // Mode curve DESCENDS on ascending exceedance ordinates (same as the MVN test).
+        for (std::size_t i = 1; i < n; ++i)
+            CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
+        // Each CI brackets the mode curve.
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(results->confidence_intervals[i][0] <= results->mode_curve[i]);
+            CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
+        }
     }
 }
 
@@ -204,6 +345,18 @@ int main() {
     test_getters_null_when_unestimated();
     test_run_multivariate_normal_structural();
     test_deferred_uncertainty_methods_throw();
+
+    // A8: parametric bootstrap + jackknife acceleration
+    test_bootstrap_diagnostics_defaults_all_zero();
+    test_bootstrap_diagnostics_rates_zero_when_no_replicates();
+    test_bootstrap_diagnostics_valid_equals_total_minus_failed();
+    test_bootstrap_diagnostics_failure_rate();
+    test_bootstrap_diagnostics_add_retries_accumulates();
+    test_bootstrap_diagnostics_add_function_evaluations_accumulates();
+    test_bootstrap_diagnostics_pivot_rejection();
+    test_bootstrap_diagnostics_mahalanobis_rejection();
+    test_acceleration_constants_deterministic();
+    test_run_bootstrap_structural();
 
     return bftest::summary("bulletin17c_analysis");
 }
