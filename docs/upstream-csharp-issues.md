@@ -741,6 +741,55 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested C# fix:** fully-qualify one of the two `new YeoJohnsonLink(...)` calls (e.g. `new
   Numerics.Functions.YeoJohnsonLink(...)` or `new RMC.BestFit.Models.LinkFunctions.
   YeoJohnsonLink(...)`), or remove one of the two conflicting `using` directives from the file.
+- **A11 update (Analyses unlock):** the emitter now DOES compile the minimal Analyses closure
+  (`Analyses/{Univariate,Support,DistributionFitting}/**`) so the real C# UnivariateAnalysis /
+  FittingAnalysis / Bulletin17CAnalysis drive the tightened `fixtures/analyses/*.json` oracles. To
+  clear this CS0104 without touching `upstream/`, the emitter compiles a LOCAL patched copy,
+  `tools/oracle_emitter/patched/Bulletin17CAnalysis.cs` -- byte-for-byte identical to the upstream
+  file except the two ACTIVE `new YeoJohnsonLink(` sites (upstream lines 2132, 2144) are qualified
+  to `new RMC.BestFit.Models.LinkFunctions.YeoJohnsonLink(`; the commented-out scale-link site at
+  ~2137 is left as-is. The surrounding B17C link-builder context (`LogLink` scale, an
+  `ILinkFunction[]` over the model's `LinkFunctions` namespace) confirms the C# author intended the
+  `RMC.BestFit` type. The csproj `<Compile Remove>`s the upstream original for that one file so it
+  is not compiled twice, and also `<Compile Remove>`s `Analyses/Support/BatchAnalysisRunner.cs`
+  (references `CoincidentFrequencyAnalysis`, a Bivariate orchestrator outside the minimal closure --
+  CS0246; not on any dumped-oracle path). In the C++ port there is no ambiguity because the
+  LinkedMVN / pivot-bootstrap path that constructs `YeoJohnsonLink` is not ported (deferred to a
+  later phase), so the port never sees the two conflicting namespaces at one call site.
+
+## BUG — thinned DEMCzs population-sampler stream diverges C#-vs-C++ (surfaced tightening the UnivariateAnalysis analysis oracle)
+
+- **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs` `Sample()` / `SampleChain()` interaction
+  with `ThinningInterval > 1` for population samplers (DEMCz/DEMCzs), driven through
+  `RMC.BestFit`'s `UnivariateAnalysis` at its `SetDefaultSimulationOptions` default
+  (`ThinningInterval = max(1, min(100, 10*d)) = 20` for a 2-parameter Normal).
+- **What:** at `thinning_interval = 1` the seeded DEMCzs chain reproduces bit-identically between
+  the real C# `BayesianAnalysis` and the C++ port (proven by `fixtures/estimation/bayes_normal.json`
+  `chain_value` at `rel 1e-11`, and re-proven here: at `thinning_interval = 1` all eight
+  UnivariateAnalysis oracles reproduce C#-vs-C++ at `rel 1e-9`). At the default
+  `thinning_interval = 20` (identical config on both sides -- `chains = 4`, `initial_iterations =
+  200`, `iterations = 100`, `warmup = 50`, `output_length = 400`, `seed = 12345`) the two streams
+  DIVERGE materially: `parameter[0]` is `16775.69` (C#, thin=1) vs the divergent `16528.6` (C++,
+  thin=20) vs `16509.1` (C#, thin=20). Because the SampleChain thinning loop
+  (`for j in 1..ThinningInterval: state = ChainIteration(...)`) is byte-identical in both ports, the
+  divergence is NOT in the thinning loop itself; it is in how the extra inner `ChainIteration`
+  draws interact with the shared population archive (`PopulationMatrix`) update cadence over a
+  thinned run. This is a genuine port-fidelity defect confined to `thinning_interval > 1` on the
+  population samplers; single-step and every already-shipped Bayesian fixture (all thinning=1) are
+  unaffected.
+- **Evidence:** Task A11 oracle work. `dotnet` emitter dump of the real C# UnivariateAnalysis vs the
+  C++ `test_fixtures` runner over the same construct; the two agree to `rel 1e-9` at thin=1 and
+  disagree at `rel ~1e-3` at thin=20.
+- **Port handling (A11):** the `UnivariateAnalysis` smoke fixture is PINNED to
+  `thinning_interval = 1` (the proven bit-identical path) so its tightened oracle is exact and
+  reproduces across C++/R/Python AND the C# dotnet gate. All four analysis runners (C++ test,
+  R/Python glue, emitter) honor an explicit `thinning_interval` override. The default-thinning
+  (thin=20) UnivariateAnalysis path is left as a tracked follow-up, NOT loosened.
+- **Suggested action (follow-up task):** bisect the thinned population-sampler `ChainIteration`/
+  archive-update ordering between `MCMCSampler.cs` and `mcmc_sampler.hpp` to find where the extra
+  inner iterations consume the shared archive differently, and fix the C++ port (or, if the C# is at
+  fault, document the intentional divergence). Until then, seeded DEMCz/DEMCzs runs with
+  `thinning_interval > 1` are not oracle-guaranteed C#-vs-C++.
 
 ## ROBUSTNESS — DIC / WAIC / PSIS-LOO parallel-reduction non-reproducibility (extends the BCa `Tools.ParallelAdd` finding)
 

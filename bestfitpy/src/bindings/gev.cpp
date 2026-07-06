@@ -80,4 +80,7 @@ PYBIND11_MODULE(_core, m) {
 
     // Phase-4 estimation (MaximumLikelihood/MaximumAPosteriori; BayesianAnalysis deferred).
     register_estimation(m);
+
+    // Phase-8 user-facing analyses (UnivariateAnalysis/FittingAnalysis/Bulletin17CAnalysis).
+    register_analysis(m);
 }

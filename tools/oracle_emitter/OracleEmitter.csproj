@@ -45,6 +45,28 @@
          Analyses layer), so EnableDefaultCompileItems is off and the compile list is explicit. -->
     <Compile Include="$(BF)/Estimation/**/*.cs" />
     <Compile Include="$(BF)/Models/**/*.cs" />
+
+    <!-- Task A11: unlock the minimal Analyses closure so the real C# UnivariateAnalysis,
+         FittingAnalysis, and Bulletin17CAnalysis can be driven for the tightened
+         fixtures/analyses/*.json oracles. Only the three subdirs the shipped analyses need are
+         globbed; TimeSeries/SpatialExtremes/Bivariate/RatingCurve stay OUT. -->
+    <Compile Include="$(BF)/Analyses/Univariate/**/*.cs" />
+    <Compile Include="$(BF)/Analyses/Support/**/*.cs" />
+    <Compile Include="$(BF)/Analyses/DistributionFitting/**/*.cs" />
+
+    <!-- CS0104 patch: the upstream Bulletin17CAnalysis.cs has an ambiguous `new YeoJohnsonLink(`
+         (both Numerics.Functions and RMC.BestFit.Models.LinkFunctions export the type). Compile a
+         local patched copy (two sites fully qualified; upstream untouched) and remove the original
+         from the Univariate glob so it is not compiled twice. See patched/Bulletin17CAnalysis.cs
+         and docs/upstream-csharp-issues.md. -->
+    <Compile Remove="$(BF)/Analyses/Univariate/Bulletin17CAnalysis.cs" />
+    <Compile Include="patched/Bulletin17CAnalysis.cs" />
+
+    <!-- BatchAnalysisRunner.cs (a Support sibling pulled in by the glob) references
+         CoincidentFrequencyAnalysis, a Bivariate orchestrator outside this minimal closure
+         (CS0246). It is not on any dumped-oracle path, so remove exactly that one file rather
+         than widening the surface to the Bivariate analyses. -->
+    <Compile Remove="$(BF)/Analyses/Support/BatchAnalysisRunner.cs" />
   </ItemGroup>
 
 </Project>

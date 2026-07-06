@@ -9,8 +9,19 @@ from __future__ import annotations
 import numpy as np
 
 from ._core import GeneralizedExtremeValue, gev_fit as _gev_fit
+from .analysis import bulletin17c_analysis, fit_distributions, univariate_analysis
 
-__all__ = ["GeneralizedExtremeValue", "dgev", "pgev", "qgev", "gev_moments", "gev_fit"]
+__all__ = [
+    "GeneralizedExtremeValue",
+    "dgev",
+    "pgev",
+    "qgev",
+    "gev_moments",
+    "gev_fit",
+    "univariate_analysis",
+    "fit_distributions",
+    "bulletin17c_analysis",
+]
 
 
 def dgev(x, location=0.0, scale=1.0, shape=0.0):

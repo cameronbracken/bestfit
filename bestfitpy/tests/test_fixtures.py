@@ -574,6 +574,90 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
         _check(actual, a)
 
 
+# --- analysis path (Phase 8: user-facing Analyses layer) ------------------------------------
+# Stateful like model_estimation: one _core.analysis_* call per case builds + runs the analysis
+# and returns the full result surface; every assertion reads that single cached dict. The
+# construct fields map 1:1 onto the glue args, so R/Python/C++ build byte-identical analyses.
+
+
+def _dispatch_analysis(result: dict, method: str, args: list):
+    if method == "candidate_count":
+        return len(result["aic"])
+    if method == "candidate_aic":
+        return result["aic"][int(args[0])]
+    if method == "candidate_bic":
+        return result["bic"][int(args[0])]
+    if method == "candidate_rmse":
+        return result["rmse"][int(args[0])]
+    if method == "candidate_converged":
+        return 1.0 if result["converged"][int(args[0])] else 0.0
+    if method == "parameter":
+        return result["parameters"][int(args[0])]
+    if method == "mode_curve":
+        return result["mode_curve"][int(args[0])]
+    if method == "mean_curve":
+        return result["mean_curve"][int(args[0])]
+    if method == "lower_ci":
+        return result["lower_ci"][int(args[0])]
+    if method == "upper_ci":
+        return result["upper_ci"][int(args[0])]
+    if method == "exceedance_probability":
+        return result["exceedance_probabilities"][int(args[0])]
+    if method == "point_estimate":
+        return result["point_estimates"][int(args[0])]
+    if method == "beta1":
+        return result["beta1"][int(args[0])]
+    if method == "nu":
+        return result["nu"][int(args[0])]
+    if method == "quantile_variance":
+        return result["quantile_variance"][int(args[0])]
+    if method in ("aic", "bic", "dic", "rmse", "confidence_level"):
+        return result[method]
+    raise KeyError(f"unknown analysis fixture method: {method}")
+
+
+def _run_analysis_case(target: str, construct: dict, assertions: list, datasets: dict):
+    ep = [float(v) for v in construct.get("exceedance_probabilities", [])]
+    if target == "FittingAnalysis":
+        data = [float(v) for v in datasets[construct["dataset"]]]
+        result = _core.analysis_fit_distributions(data)
+    elif target == "UnivariateAnalysis":
+        model = construct["model"]
+        model_json = json.dumps(model)
+        data = [float(v) for v in datasets[model["dataset"]]]
+        result = _core.analysis_univariate_run(
+            model_json,
+            data,
+            construct.get("sampler", "DEMCzs"),
+            int(construct.get("iterations", 3000)),
+            int(construct.get("output_length", 10000)),
+            float(construct.get("credible_level", 0.90)),
+            int(construct.get("seed", 12345)),
+            ep,
+            int(construct.get("thinning_interval", -1)),
+        )
+    elif target == "Bulletin17CAnalysis":
+        model = construct["model"]
+        model_json = json.dumps(model)
+        data = [float(v) for v in datasets[model["dataset"]]]
+        result = _core.analysis_b17c_run(
+            model_json,
+            data,
+            construct.get("uncertainty_method", "MultivariateNormal"),
+            int(construct.get("output_length", 10000)),
+            int(construct.get("seed", 12345)),
+            float(construct.get("confidence_level", 0.90)),
+            ep,
+        )
+    else:
+        raise KeyError(f"unknown analysis target: {target}")
+
+    for a in assertions:
+        args = a.get("args", [])
+        actual = _dispatch_analysis(result, a["method"], args)
+        _check(actual, a)
+
+
 # --- Shared assertion checking ---------------------------------------------------------
 
 
@@ -681,6 +765,7 @@ def _load_cases():
             "mcmc_sampler",
             "bootstrap",
             "model_estimation",
+            "analysis",
         ):
             continue
         for case in spec["cases"]:
@@ -697,6 +782,10 @@ CASES = _load_cases()
 def test_fixture_case(kind, target, datasets, case):
     if kind == "model_estimation":
         _run_estimation_case(target, case["construct"], case["assertions"], datasets)
+        return
+
+    if kind == "analysis":
+        _run_analysis_case(target, case["construct"], case["assertions"], datasets)
         return
 
     if kind == "bootstrap":

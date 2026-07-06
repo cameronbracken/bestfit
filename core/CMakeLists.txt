@@ -35,6 +35,7 @@ set(BF_TESTS
   test_bayesian_analysis
   test_data_types
   test_data_frame
+  test_data_frame_bootstrap
   test_plotting_positions_df
   test_threshold_diagnostics
   test_trend_functions
@@ -61,6 +62,12 @@ set(BF_TESTS
   test_arimax
   test_rating_curve
   test_bivariate_distribution
+  test_probability_ordinates
+  test_uncertainty_analysis_results
+  test_analysis_base
+  test_univariate_analysis
+  test_fitting_analysis
+  test_bulletin17c_analysis
 )
 
 # Sobol test takes the direction-number file as its sole argument.

@@ -2,11 +2,12 @@
 //
 // C# extends `System.Random`/arrays/`Vector`/`Matrix` with instance-style extension
 // methods; C++ has no such mechanism, so each ported member becomes a free function
-// taking the receiver as its first parameter. This header ports only the three random-
-// sampling helpers the MCMC/Bootstrap prerequisites need: `next_doubles(rng, n)`,
-// `next_doubles(rng, n, dim)`, and `next_integers(rng, n)` (the `Random`-region
-// overloads; `GetRow` is not ported -- neither of the two `NextDoubles` overloads calls
-// it, unlike the brief's initial guess).
+// taking the receiver as its first parameter. This header ports the random-sampling
+// helpers the MCMC/Bootstrap prerequisites need: `next_doubles(rng, n)`,
+// `next_doubles(rng, n, dim)`, `next_integers(rng, n)`, and (A3) the two ranged
+// `next_integers(rng, minValue, maxValue, length[, replace])` overloads the DataFrame
+// resampling surface consumes (`GetRow` is not ported -- neither of the two `NextDoubles`
+// overloads calls it, unlike the brief's initial guess).
 //
 // `next_doubles(rng, n, dim)` transcribes a specific quirk exactly (source ~lines
 // 130-157): rather than drawing n*dim values off ONE stream, it constructs `dim`
@@ -21,6 +22,7 @@
 // `ExtensionMethods.cs` member outside the three ported below.
 #pragma once
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
@@ -57,6 +59,50 @@ inline std::vector<std::vector<double>> next_doubles(sampling::MersenneTwister& 
 inline std::vector<int> next_integers(sampling::MersenneTwister& random, int length) {
     std::vector<int> values(static_cast<std::size_t>(length));
     for (int i = 0; i < length; ++i) values[static_cast<std::size_t>(i)] = random.next();
+    return values;
+}
+
+// Returns an array of `length` random integers on [minValue, maxValue) (matches C#
+// `NextIntegers(this Random, int minValue, int maxValue, int length)`, which draws each
+// element via `random.Next(minValue, maxValue)`).
+inline std::vector<int> next_integers(sampling::MersenneTwister& random, int min_value,
+                                      int max_value, int length) {
+    std::vector<int> values(static_cast<std::size_t>(length));
+    for (int i = 0; i < length; ++i)
+        values[static_cast<std::size_t>(i)] = random.next(min_value, max_value);
+    return values;
+}
+
+// Returns an array of `length` random integers on [minValue, maxValue), with or without
+// replacement (matches C# `NextIntegers(this Random, int minValue, int maxValue, int
+// length, bool replace = true)`). The `replace == true` branch is identical to the 4-arg
+// overload. The `replace == false` branch fills a bin list [minValue, maxValue) and draws
+// without replacement via `random.Next(0, bins.Count)` + RemoveAt, throwing when `length`
+// exceeds the range (all mirroring the C# source).
+inline std::vector<int> next_integers(sampling::MersenneTwister& random, int min_value,
+                                      int max_value, int length, bool replace) {
+    if (replace) {
+        std::vector<int> values(static_cast<std::size_t>(length));
+        for (int i = 0; i < length; ++i)
+            values[static_cast<std::size_t>(i)] = random.next(min_value, max_value);
+        return values;
+    }
+    if (length > max_value - min_value)
+        throw std::invalid_argument(
+            "When sampling without replacement, the length must be less than or equal to "
+            "the range of values.");
+
+    std::vector<int> bins;
+    bins.reserve(static_cast<std::size_t>(max_value - min_value));
+    for (int i = min_value; i < max_value; ++i) bins.push_back(i);
+
+    // Sample random bin without replacement.
+    std::vector<int> values(static_cast<std::size_t>(length));
+    for (int i = 0; i < length; ++i) {
+        int r = random.next(0, static_cast<int>(bins.size()));
+        values[static_cast<std::size_t>(i)] = bins[static_cast<std::size_t>(r)];
+        bins.erase(bins.begin() + r);
+    }
     return values;
 }
 

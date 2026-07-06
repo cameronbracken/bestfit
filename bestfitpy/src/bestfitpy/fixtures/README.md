@@ -1218,6 +1218,79 @@ the streams have desynced somewhere -- diagnose the draw path (`--dump` intermed
 against a standalone throwaway harness against the real C# library) and fix the transcription slip;
 do not paper over it with a looser tolerance.
 
+### `analysis`
+
+The Phase 8 user-facing Analyses layer (A10): `UnivariateAnalysis` (Bayesian frequency curve),
+`FittingAnalysis` (multi-distribution GoF ranking), and `Bulletin17CAnalysis` (B17C flood-frequency
++ Cohn-style CIs). Stateful like `model_estimation`: one build+run per case caches a flat result
+surface, then every assertion dispatches against it. The `construct` fields map 1:1 onto the R/Python
+glue arguments (`bf_analysis_*_` / `_core.analysis_*`), so all three harnesses build byte-identical
+analyses from the same spec.
+
+```jsonc
+{
+  "target":  "UnivariateAnalysis",           // "UnivariateAnalysis" | "FittingAnalysis" |
+                                             // "Bulletin17CAnalysis"
+  "kind":    "analysis",
+  "source":  "RMC-BestFit/.../UnivariateAnalysis.cs @ fc28c0c",
+  "datasets": { "peaks": [ ... ] },
+  "cases": [
+    {
+      "name": "normal_demczs_short",
+      "construct": {
+        // FittingAnalysis: only `dataset` (a datasets key -> exact-only frame).
+        "dataset": "peaks",
+        // UnivariateAnalysis / Bulletin17CAnalysis: a `model` spec built by the SHARED spec
+        // builder (bestfit/models/model_spec.hpp) -- the same schema model_estimation uses.
+        "model": { "family": "Normal", "dataset": "peaks" },        // univariate_distribution
+        // "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
+        // -- UnivariateAnalysis MCMC knobs (all optional; forwarded to the held BayesianAnalysis):
+        "sampler": "DEMCzs",                 // DEMCz | DEMCzs | ARWMH | NUTS
+        "iterations": 100,                   // post-warmup iterations (warmup = max(50, it/2))
+        "output_length": 400,                // posterior samples used for the credible band
+        "credible_level": 0.90,              // credible-interval width
+        "seed": 12345,                       // sampler PRNG seed
+        "thinning_interval": 1,              // (A11) explicit thinning; absent -> sampler default
+                                             //   (20 for a 2-param DEMCzs). The default thin=20
+                                             //   path diverges C#-vs-C++ (docs/upstream-csharp-
+                                             //   issues.md); pin 1 for an exact reproducible oracle.
+        // "number_of_chains", "initial_iterations": also honored (integers; absent -> default)
+        // -- Bulletin17CAnalysis knobs (all optional):
+        "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) | Bootstrap
+                                             //   (LinkedMultivariateNormal / BiasCorrectedBootstrap
+                                             //   are deferred to Phase 9 and rejected)
+        "confidence_level": 0.90,            // Cohn-CI confidence level (== credible width)
+        // -- shared, optional:
+        "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]  // strictly-increasing grid;
+                                             //   absent -> the 25 standard default ordinates
+      },
+      "assertions": [
+        // UnivariateAnalysis: parameter [i], mode_curve [i], mean_curve [i], lower_ci [i],
+        //   upper_ci [i] (indexed by the exceedance grid), and scalars aic / bic / dic / rmse.
+        { "method": "parameter", "args": [0], "expected": 16775.69498994981, "mode": "rel", "tol": 1e-9 },
+        // FittingAnalysis: candidate_count (exact 14), candidate_aic / candidate_bic /
+        //   candidate_rmse / candidate_converged [candidate_index].
+        // Bulletin17CAnalysis: exceedance_probability [i], point_estimate [i] (log10 space),
+        //   lower_ci [i], upper_ci [i] (discharge space), beta1 [i], nu [i],
+        //   quantile_variance [i], confidence_level, parameter [i] (fitted GMM params).
+      ]
+    }
+  ]
+}
+```
+
+**Oracle strategy (A11 EXACT).** A11 unlocked the dotnet emitter's Analyses closure (a local
+patched `Bulletin17CAnalysis.cs` clears the CS0104 `YeoJohnsonLink` ambiguity; see
+`docs/upstream-csharp-issues.md`) and tightened all three smoke files to EXACT oracles verified
+against the real C# analyses. Deterministic point values (GMM point estimate + parameters, mode
+curve = InverseCDF, candidate aic/bic) use `rel 1e-9`; GoF/quadrature-derived quantities (candidate
+rmse, Cohn CI bounds, the credible band) use `rel 1e-8`; DIC keeps `rel 1e-6` (parallel-reduction
+noise). `candidate_count == 14`, `confidence_level`, and the exceedance-probability round-trip stay
+exact structural invariants (`abs 1e-12..1e-15`, `equal`). The UnivariateAnalysis case PINS
+`thinning_interval = 1`: the sampler-default thin=20 exposes a real C#-vs-C++ divergence in the
+thinned population-sampler stream (documented in `docs/upstream-csharp-issues.md` as a tracked
+follow-up); thin=1 is the `bayes_normal`-proven bit-identical path.
+
 ### `special_function`
 
 For internal C++ math utilities (not exposed to R/Python). The R and Python fixture runners

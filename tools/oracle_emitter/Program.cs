@@ -28,6 +28,9 @@ using Numerics.Sampling.MCMC;
 using RMC.BestFit;
 using RMC.BestFit.Estimation;
 using BestFitModels = RMC.BestFit.Models;
+// Task A11: the real RMC.BestFit user-facing Analyses layer (subset-compiled -- see
+// OracleEmitter.csproj). Aliased to avoid clashing with RMC.BestFit.Estimation.BayesianAnalysis.
+using BestFitAnalyses = RMC.BestFit.Analyses;
 
 static double ParseNum(JsonElement v)
 {
@@ -2228,6 +2231,205 @@ static double DispatchEstimation(
     }
 }
 
+// --- analysis (Task A11: user-facing Analyses layer) --------------------------------------
+//
+// Drives the REAL RMC.BestFit UnivariateAnalysis / FittingAnalysis / Bulletin17CAnalysis
+// (subset-compiled -- see OracleEmitter.csproj) so the tightened fixtures/analyses/*.json values
+// are the exact C# oracles. Mirrors core/tests/test_fixtures.cpp's build_and_run_analysis +
+// dispatch_analysis field-for-field: build the same analysis from the same `construct` spec, run
+// it seeded, cache the flat result surface, then dispatch each assertion against that cache. One
+// build+run per case; the same fixture file drives all four harnesses.
+//
+// The C# `async Task RunAsync` is driven synchronously via `.GetAwaiter().GetResult()`. The
+// UnivariateAnalysis Bayesian run uses the seeded DEMCzs sampler, which draws from the shared
+// history archive (NOT the current chain states), so C#'s default `ParallelizeChains = true` is
+// order-invariant and reproduces the C++ serial `estimate()` bit-for-bit (proven by the tightened
+// short_exact frequency-curve digest). The B17C GMM point estimate + Cohn CI are RNG-free
+// (BFGS + nested Gaussian quadrature over the sandwich covariance), and FittingAnalysis fits each
+// candidate by the seeded DifferentialEvolution -- all deterministic.
+static BestFitAnalyses.UncertaintyMethod ParseUncertaintyMethod(string s) => s switch
+{
+    "MultivariateNormal" => BestFitAnalyses.UncertaintyMethod.MultivariateNormal,
+    "Bootstrap" => BestFitAnalyses.UncertaintyMethod.Bootstrap,
+    _ => throw new Exception($"unsupported/ deferred uncertainty method: {s}")
+};
+
+static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
+                                        Dictionary<string, double[]> datasets)
+{
+    var r = new AnalysisData();
+
+    // Optional exceedance-probability override (mirrors the C++ apply_ordinates: replace the
+    // default grid only when the case supplies one).
+    void ApplyOrdinates(ProbabilityOrdinates po)
+    {
+        if (!construct.TryGetProperty("exceedance_probabilities", out var epEl)) return;
+        po.Clear();
+        foreach (var v in epEl.EnumerateArray()) po.Add(ParseNum(v));
+    }
+
+    if (target == "FittingAnalysis")
+    {
+        var data = datasets[construct.GetProperty("dataset").GetString()!];
+        var df = new BestFitModels.DataFrame { ExactSeries = new ExactSeries(data) };
+        df.CalculatePlottingPositions();
+        var analysis = new BestFitAnalyses.FittingAnalysis(df);
+        // The C++ port omits GeneralizedNormal (its distribution factory has no case for it), so
+        // it fits 14 candidates in the C# order minus that one -- index 11 == Normal. Remove it
+        // here so the emitter drives the SAME 14-candidate set the fixture (and the C++/R/Python
+        // harnesses) assert; each candidate is fit independently, so removing it does not perturb
+        // any remaining fit. See the A10 report's "14-vs-15 candidate-count reality".
+        analysis.DistributionList.RemoveAll(d => d is GeneralizedNormal);
+        analysis.RunAsync().GetAwaiter().GetResult();
+        var fitted = analysis.FittedDistributions;
+        r.CandidateCount = fitted.Count;
+        foreach (var fd in fitted)
+        {
+            r.CandAic.Add(fd.AIC);
+            r.CandBic.Add(fd.BIC);
+            r.CandRmse.Add(fd.RMSE);
+            r.CandConverged.Add(fd.FitSucceeded ? 1.0 : 0.0);
+        }
+        return r;
+    }
+
+    var modelSpec = construct.GetProperty("model");
+
+    if (target == "UnivariateAnalysis")
+    {
+        var baseModel = BuildSpecModel(modelSpec, datasets);
+        if (baseModel is not BestFitModels.UnivariateDistribution ud)
+            throw new Exception("UnivariateAnalysis requires a univariate_distribution model");
+        var analysis = new BestFitAnalyses.UnivariateAnalysis(ud);
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        // The BayesianAnalysis was built (with its simulation defaults) by the analysis ctor;
+        // override only the fixture-named knobs, exactly as the C++ runner does. NumberOfChains /
+        // ThinningInterval / InitialIterations keep the C#/C++ defaults so the two match.
+        var ba = analysis.BayesianAnalysis;
+        ba.Type = ParseSamplerType(construct.TryGetProperty("sampler", out var s)
+            ? s.GetString()! : "DEMCzs");
+        if (construct.TryGetProperty("credible_level", out var clEl))
+            ba.CredibleIntervalWidth = clEl.GetDouble();
+        if (construct.TryGetProperty("seed", out var seEl)) ba.PRNGSeed = seEl.GetInt32();
+        if (construct.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+        if (construct.TryGetProperty("iterations", out var itEl))
+        {
+            int it = itEl.GetInt32();
+            ba.Iterations = it;
+            ba.WarmupIterations = Math.Max(50, it / 2);
+        }
+        // Optional explicit MCMC knobs (A11). The default thinning_interval=20 that
+        // SetDefaultSimulationOptions picks for a 2-parameter DEMCzs run exposes a C#-vs-C++
+        // divergence in the THINNED population-sampler stream (a real port bug -- see
+        // docs/upstream-csharp-issues.md, A11 finding). Setting thinning_interval=1 lands on the
+        // bayes_normal-proven bit-identical path, so the fixture pins it explicitly and all four
+        // runners honor it.
+        if (construct.TryGetProperty("thinning_interval", out var thEl)) ba.ThinningInterval = thEl.GetInt32();
+        if (construct.TryGetProperty("number_of_chains", out var ncEl)) ba.NumberOfChains = ncEl.GetInt32();
+        if (construct.TryGetProperty("initial_iterations", out var iiEl)) ba.InitialIterations = iiEl.GetInt32();
+        // Drive the analysis SERIALLY, mirroring the C++ UnivariateAnalysis::run() (which has no
+        // ParallelizeChains -- scope decision 1 of the port). The C# UnivariateAnalysis.RunAsync
+        // leaves BayesianAnalysis.RunAsync's `parallel` at its default `true`; DEMCzs draws from
+        // the shared history archive (not the current chain states), so serial and parallel agree,
+        // but passing parallel:false keeps this on the same serial path the C++/R/Python harnesses
+        // and the model_estimation emitter path use.
+        ud.DataFrame.ProcessThresholdSeries();
+        if (ud.IsNonstationary) ud.DataFrame.CreateFullTimeSeries();
+        ud.ProcessQuantilePriors();
+        ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (ba.IsEstimated)
+        {
+            analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+            analysis.CreateChronologyResultsAsync().GetAwaiter().GetResult();
+        }
+        var results = analysis.AnalysisResults;
+        if (results != null)
+        {
+            var pe = analysis.GetPointEstimateDistribution();
+            if (pe is not null) r.Parameters.AddRange(pe.GetParameters);
+            if (results.ModeCurve != null) r.ModeCurve.AddRange(results.ModeCurve);
+            if (results.MeanCurve != null) r.MeanCurve.AddRange(results.MeanCurve);
+            if (results.ConfidenceIntervals != null)
+            {
+                int n = results.ConfidenceIntervals.GetLength(0);
+                for (int i = 0; i < n; i++)
+                {
+                    r.LowerCI.Add(results.ConfidenceIntervals[i, 0]);
+                    r.UpperCI.Add(results.ConfidenceIntervals[i, 1]);
+                }
+            }
+            r.Aic = results.AIC;
+            r.Bic = results.BIC;
+            r.Dic = results.DIC;
+            r.Rmse = results.RMSE;
+        }
+        return r;
+    }
+
+    if (target == "Bulletin17CAnalysis")
+    {
+        var model = BuildBulletin17CModel(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.Bulletin17CAnalysis(model);
+        analysis.UncertaintyMethod = ParseUncertaintyMethod(
+            construct.TryGetProperty("uncertainty_method", out var um)
+                ? um.GetString()! : "MultivariateNormal");
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        var ba = analysis.BayesianAnalysis;
+        if (construct.TryGetProperty("confidence_level", out var clEl))
+            ba.CredibleIntervalWidth = clEl.GetDouble();
+        if (construct.TryGetProperty("seed", out var seEl)) ba.PRNGSeed = seEl.GetInt32();
+        if (construct.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+        analysis.RunAsync().GetAwaiter().GetResult();
+        var ci = analysis.ComputeCohnStyleConfidenceIntervals();
+        if (ci != null)
+        {
+            r.Exceedance.AddRange(ci.ExceedanceProbabilities);
+            r.PointEstimates.AddRange(ci.PointEstimates);
+            r.LowerCI.AddRange(ci.LowerCI);
+            r.UpperCI.AddRange(ci.UpperCI);
+            r.Beta1.AddRange(ci.Beta1);
+            r.Nu.AddRange(ci.Nu);
+            r.QuantileVariance.AddRange(ci.QuantileVariance);
+            r.ConfidenceLevel = ci.ConfidenceLevel;
+        }
+        if (analysis.GMM != null && analysis.GMM.IsEstimated)
+            r.Parameters.AddRange(analysis.GMM.BestParameterSet.Values);
+        return r;
+    }
+
+    throw new Exception($"unknown analysis target: {target}");
+}
+
+// Flat analysis-result dispatch, matching test_fixtures.cpp's dispatch_analysis method names.
+static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
+{
+    int I(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "candidate_count": return r.CandidateCount;
+        case "candidate_aic": return r.CandAic[I(0)];
+        case "candidate_bic": return r.CandBic[I(0)];
+        case "candidate_rmse": return r.CandRmse[I(0)];
+        case "candidate_converged": return r.CandConverged[I(0)];
+        case "parameter": return r.Parameters[I(0)];
+        case "mode_curve": return r.ModeCurve[I(0)];
+        case "mean_curve": return r.MeanCurve[I(0)];
+        case "lower_ci": return r.LowerCI[I(0)];
+        case "upper_ci": return r.UpperCI[I(0)];
+        case "exceedance_probability": return r.Exceedance[I(0)];
+        case "point_estimate": return r.PointEstimates[I(0)];
+        case "beta1": return r.Beta1[I(0)];
+        case "nu": return r.Nu[I(0)];
+        case "quantile_variance": return r.QuantileVariance[I(0)];
+        case "aic": return r.Aic;
+        case "bic": return r.Bic;
+        case "dic": return r.Dic;
+        case "rmse": return r.Rmse;
+        case "confidence_level": return r.ConfidenceLevel;
+        default: throw new Exception($"unknown analysis fixture method: {m}");
+    }
+}
+
 // --dump: the sanctioned curation path (see fixtures/README.md and the Task 5 brief).
 // Author a fixture case with placeholder "expected" values, run
 // `verify_oracles.py --dump` (threads this flag through to `dotnet run -- --dump`), paste
@@ -2591,6 +2793,55 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
         continue;
     }
 
+    // --- analysis branch (Task A11: user-facing Analyses layer) ------------------------------
+    // One analysis build+run per case; dispatch every assertion against the cached flat result.
+    // Same "build once, dispatch many, --dump supported" shape as model_estimation.
+    if (kindStr == "analysis")
+    {
+        string anTarget = root.GetProperty("target").GetString()!;
+        var anDatasets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var anDs))
+            foreach (var kv in anDs.EnumerateObject())
+                anDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            AnalysisData anData;
+            try { anData = BuildAndRunAnalysis(anTarget, c.GetProperty("construct"), anDatasets); }
+            catch (Exception ex)
+            {
+                failures.Add($"{anTarget}/{caseName}: build/run failed: {ex.Message}");
+                fail++;
+                continue;
+            }
+
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string method = asrt.GetProperty("method").GetString()!;
+                var argList = asrt.TryGetProperty("args", out var av)
+                    ? av.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                string where = $"{anTarget}/{caseName}/{method}";
+
+                if (dump)
+                {
+                    DumpLine(anTarget, caseName, method, argList,
+                             () => (object)DispatchAnalysis(anData, method, argList));
+                    continue;
+                }
+
+                try
+                {
+                    double actual = DispatchAnalysis(anData, method, argList);
+                    if (Compare(actual, asrt)) pass++;
+                    else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                }
+                catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+            }
+        }
+        continue;
+    }
+
     // --- model_estimation branch (Task T12) --------------------------------------------------
     // One estimator build+run per case; dispatch every assertion against that cached estimator.
     // Same "build once, dispatch many, --dump supported" shape as mcmc_sampler/bootstrap.
@@ -2781,3 +3032,19 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
 Console.WriteLine($"oracle verification: {pass} reproduced, {fail} failed, {skip} skipped (GEV std-err)");
 foreach (var f in failures) Console.Error.WriteLine("  FAIL " + f);
 return fail == 0 ? 0 : 1;
+
+// Flat analysis-result surface (Task A11), mirroring test_fixtures.cpp's AnalysisResult. Only the
+// fields a given target populates are filled; curve/CI vectors are indexed by the exceedance grid,
+// the candidate_* vectors carry one entry per fitted candidate. Declared after the top-level
+// statements (C# requires it), referenced by BuildAndRunAnalysis / DispatchAnalysis above.
+class AnalysisData
+{
+    public List<double> Parameters = new(), ModeCurve = new(), MeanCurve = new(),
+                        LowerCI = new(), UpperCI = new();
+    public List<double> Exceedance = new(), PointEstimates = new(), Beta1 = new(), Nu = new(),
+                        QuantileVariance = new();
+    public List<double> CandAic = new(), CandBic = new(), CandRmse = new(), CandConverged = new();
+    public double Aic = double.NaN, Bic = double.NaN, Dic = double.NaN, Rmse = double.NaN,
+                 ConfidenceLevel = double.NaN;
+    public int CandidateCount = 0;
+}
