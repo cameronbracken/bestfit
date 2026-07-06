@@ -89,7 +89,9 @@
 #include <utility>
 #include <vector>
 
+#include "bestfit/diagnostics/influence_diagnostics.hpp"
 #include "bestfit/diagnostics/leverage_diagnostics.hpp"
+#include "bestfit/diagnostics/prior_influence_diagnostics.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/numerics/data/running_covariance_matrix.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
@@ -568,6 +570,7 @@ class BayesianAnalysis {
         loo_pd_ = kNaN;
         looic_se_ = kNaN;
         pareto_k_.clear();
+        elpd_loo_.clear();
         is_estimated_ = false;
         set_up_sampler();
     }
@@ -693,6 +696,7 @@ class BayesianAnalysis {
             loo_pd_ = kNaN;
             looic_se_ = kNaN;
             pareto_k_.clear();
+            elpd_loo_.clear();
             return;
         }
 
@@ -705,6 +709,7 @@ class BayesianAnalysis {
             loo_pd_ = kNaN;
             looic_se_ = kNaN;
             pareto_k_.clear();
+            elpd_loo_.clear();
             return;
         }
 
@@ -764,6 +769,12 @@ class BayesianAnalysis {
             lppd[i] = max_ll + std::log(sum_exp) - std::log(static_cast<double>(s_count));
         }
 
+        // Retain the pointwise elpd_loo the same way pareto_k_ is retained (D4 additive member),
+        // so compute_influence_diagnostics can consume it without a second PSIS pass. The C#
+        // ComputeInfluenceDiagnostics recomputes this via ComputePointwiseElpdLoo (identical
+        // formula); retaining it here is a DRY equivalent. See the D4 report.
+        elpd_loo_ = elpd_loo;
+
         double total_elpd_loo = std::accumulate(elpd_loo.begin(), elpd_loo.end(), 0.0);
         double total_lppd = std::accumulate(lppd.begin(), lppd.end(), 0.0);
 
@@ -809,19 +820,43 @@ class BayesianAnalysis {
         return rcm.sample_correlation();
     }
 
-    // --- Gated (Diagnostics layer deferred past Phase 4; see scope decision 5) -------------
+    // --- Influence diagnostics (D4 un-stub -- the Diagnostics layer is now ported) ----------
 
-    [[noreturn]] void compute_influence_diagnostics() const {
-        throw std::logic_error(
-            "BayesianAnalysis::compute_influence_diagnostics: Diagnostics layer is deferred past "
-            "Phase 4 (see .claude/PLAN.md); not yet ported.");
+    // Computes PSIS-LOO influence diagnostics (C# BayesianAnalysis 1870). Consumes the
+    // already-populated `pareto_k_` and the retained `elpd_loo_` (both set by the last
+    // `compute_psis_loo()` inside `estimate()`; the C# recomputes elpd_loo via
+    // ComputePointwiseElpdLoo -- an identical formula -- but this port retains it, see the D4
+    // report). Forwards the model's per-observation DataComponents for labels when available
+    // (silent no-throw guard, mirroring the C# `catch` fallback to no metadata). Empty pareto_k_
+    // yields an empty InfluenceDiagnostics, matching the C#. The C# InvalidOperationException
+    // maps to std::invalid_argument (this file's convention).
+    bestfit::diagnostics::InfluenceDiagnostics compute_influence_diagnostics() const {
+        if (!is_estimated_ || !results_)
+            throw std::invalid_argument(
+                "Estimation must be completed before computing influence diagnostics.");
+
+        if (pareto_k_.empty()) return bestfit::diagnostics::InfluenceDiagnostics();
+
+        std::optional<std::vector<bestfit::models::DataComponent>> data_components;
+        try {
+            data_components =
+                model_.pointwise_data_log_likelihood_components(results_->output[0].values);
+        } catch (const std::exception&) {
+            // C# Debug.WriteLine then falls back to no metadata; silent guard here.
+        }
+        return bestfit::diagnostics::InfluenceDiagnostics(pareto_k_, elpd_loo_,
+                                                          std::move(data_components));
     }
 
-    [[noreturn]] void compute_prior_influence_diagnostics(int thin_every = 10) const {
-        (void)thin_every;
-        throw std::logic_error(
-            "BayesianAnalysis::compute_prior_influence_diagnostics: Diagnostics layer is deferred "
-            "past Phase 4 (see .claude/PLAN.md); not yet ported.");
+    // Computes prior influence diagnostics (C# BayesianAnalysis 1927): delegates to the
+    // PriorInfluenceDiagnostics(IModel, MCMCResults, thinEvery) constructor at the estimator's
+    // MCMC results. The C# InvalidOperationException maps to std::invalid_argument.
+    bestfit::diagnostics::PriorInfluenceDiagnostics compute_prior_influence_diagnostics(
+        int thin_every = 10) const {
+        if (!is_estimated_ || !results_)
+            throw std::invalid_argument(
+                "Estimation must be completed before computing prior influence diagnostics.");
+        return bestfit::diagnostics::PriorInfluenceDiagnostics(model_, *results_, thin_every);
     }
 
     // Computes leverage diagnostics at the MAP estimate using the Hessian of the full
@@ -971,6 +1006,8 @@ class BayesianAnalysis {
     double loo_pd_ = kNaN;
     double looic_se_ = kNaN;
     std::vector<double> pareto_k_;
+    // Pointwise elpd_loo retained alongside pareto_k_ (D4 additive member; see compute_psis_loo).
+    std::vector<double> elpd_loo_;
 };
 
 }  // namespace bestfit::estimation

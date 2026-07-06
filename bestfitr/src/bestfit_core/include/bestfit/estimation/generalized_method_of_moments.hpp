@@ -77,6 +77,7 @@
 #include <utility>
 #include <vector>
 
+#include "bestfit/diagnostics/influence_diagnostics.hpp"
 #include "bestfit/diagnostics/leverage_diagnostics.hpp"
 #include "bestfit/estimation/gmm_delegates.hpp"
 #include "bestfit/estimation/numerical_diff.hpp"
@@ -733,34 +734,161 @@ class GeneralizedMethodOfMoments {
     }
 
     // ------------------------------------------------------------------------------------
-    // Influence Diagnostics -- DEFERRED throwing stubs (see this file's header)
+    // Influence Diagnostics (D4 un-stub -- the Diagnostics layer is now ported)
     // ------------------------------------------------------------------------------------
+    //
+    // These four methods are NON-const (the C# instance methods use `Sigma ?? GetCovariance(...)`,
+    // and `get_covariance` recomputes + stores S/W as a side effect -- see its NOTE). This
+    // mirrors the C# fidelity: bread uses the current W, then sigma is taken from the cached
+    // `sigma_` or recomputed. The C# InvalidOperationException maps to std::invalid_argument.
 
-    // Pointwise influence of each observation on parameter estimates (C# 1402). STUB: the
-    // Diagnostics layer is unported.
-    [[noreturn]] Matrix get_observation_influence() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Pointwise influence of each observation on parameter estimates (DFBETAS-like; C# 1402).
+    // IF_ij = (Sigma . D'W g_i)_j / SE_j.
+    Matrix get_observation_influence() {
+        namespace linalg = bestfit::numerics::math::linalg;
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        if (!pointwise_moment_conditions_)
+            throw std::invalid_argument(
+                "Observation influence requires pointwise moment conditions. Provide a "
+                "PointwiseMomentConditionFunction.");
+
+        int p = number_of_parameters_;
+        int q = number_of_moment_conditions_;
+        linalg::Matrix2D gi = pointwise_moment_conditions_(best_parameter_set_.values);
+        int n = static_cast<int>(gi.size());
+
+        // Penalized bread B = D'WD + H; breadInv with regularization fallback.
+        Matrix d_mat = get_jacobian(best_parameter_set_.values);
+        Matrix dt_w = d_mat.transpose() * w_.value();
+        Matrix bread = dt_w * d_mat + get_penalty_hessian(best_parameter_set_.values);
+        Matrix bread_inv(p, p);
+        try {
+            bread_inv = bread.inverse();
+        } catch (const std::exception&) {
+            bread = linalg::MatrixRegularization::make_symmetric_positive_definite(bread);
+            bread_inv = bread.inverse();
+        }
+
+        // Sigma and standard errors.
+        Matrix sigma = sigma_.has_value() ? *sigma_
+                                          : get_covariance(best_parameter_set_.values, true);
+        std::vector<double> se(static_cast<std::size_t>(p));
+        for (int j = 0; j < p; ++j)
+            se[static_cast<std::size_t>(j)] = std::sqrt(std::max(0.0, sigma(j, j)));
+
+        Matrix influence(n, p);
+        for (int i = 0; i < n; ++i) {
+            // DtWg_i = D'W g_i [p]; psi_i = B^{-1} D'W g_i [p].
+            std::vector<double> dtwg(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < q; ++k)
+                    dtwg[static_cast<std::size_t>(j)] +=
+                        dt_w(j, k) * gi[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+            std::vector<double> psi(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < p; ++k)
+                    psi[static_cast<std::size_t>(j)] +=
+                        bread_inv(j, k) * dtwg[static_cast<std::size_t>(k)];
+
+            for (int j = 0; j < p; ++j) {
+                double infl_j = 0;
+                for (int k = 0; k < p; ++k)
+                    infl_j += sigma(j, k) * psi[static_cast<std::size_t>(k)];
+                influence(i, j) = se[static_cast<std::size_t>(j)] > 0
+                                      ? infl_j / se[static_cast<std::size_t>(j)]
+                                      : 0.0;
+            }
+        }
+        return influence;
     }
 
-    // Cook's distance-like measure for each observation (C# 1486). STUB.
-    [[noreturn]] std::vector<double> get_cooks_distance() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Cook's distance-like measure for each observation (C# 1486): D_i = psi_i' Sigma psi_i / p,
+    // psi_i = B^{-1} D'W g_i.
+    std::vector<double> get_cooks_distance() {
+        namespace linalg = bestfit::numerics::math::linalg;
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        if (!pointwise_moment_conditions_)
+            throw std::invalid_argument(
+                "Cook's distance requires pointwise moment conditions. Provide a "
+                "PointwiseMomentConditionFunction.");
+
+        int p = number_of_parameters_;
+        int q = number_of_moment_conditions_;
+        linalg::Matrix2D gi = pointwise_moment_conditions_(best_parameter_set_.values);
+        int n = static_cast<int>(gi.size());
+
+        Matrix d_mat = get_jacobian(best_parameter_set_.values);
+        Matrix dt_w = d_mat.transpose() * w_.value();
+        Matrix bread = dt_w * d_mat + get_penalty_hessian(best_parameter_set_.values);
+        Matrix bread_inv(p, p);
+        try {
+            bread_inv = bread.inverse();
+        } catch (const std::exception&) {
+            bread = linalg::MatrixRegularization::make_symmetric_positive_definite(bread);
+            bread_inv = bread.inverse();
+        }
+
+        Matrix sigma = sigma_.has_value() ? *sigma_
+                                          : get_covariance(best_parameter_set_.values, true);
+
+        std::vector<double> cooks_d(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            std::vector<double> dtwg(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < q; ++k)
+                    dtwg[static_cast<std::size_t>(j)] +=
+                        dt_w(j, k) * gi[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+            std::vector<double> psi(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < p; ++k)
+                    psi[static_cast<std::size_t>(j)] +=
+                        bread_inv(j, k) * dtwg[static_cast<std::size_t>(k)];
+
+            double quad_form = 0;
+            for (int j = 0; j < p; ++j) {
+                double tmp = 0;
+                for (int k = 0; k < p; ++k) tmp += sigma(j, k) * psi[static_cast<std::size_t>(k)];
+                quad_form += psi[static_cast<std::size_t>(j)] * tmp;
+            }
+            cooks_d[static_cast<std::size_t>(i)] = quad_form / p;
+        }
+        return cooks_d;
     }
 
-    // Influence diagnostics with Cook's distance mapped to ParetoK (C# 1562). STUB: the C#
-    // returns an InfluenceDiagnostics object; the type is unported, so no return type here.
-    [[noreturn]] void get_influence_diagnostics() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Influence diagnostics using Cook's distance as the influence metric, mapped to ParetoK
+    // (C# 1562).
+    //
+    // BULLETIN17C-COUPLED BRANCH OMITTED (deliberate, C#-faithful for every non-B17C model): the
+    // C# body has a `Model is Bulletin17CDistribution` branch (aggregated DataComponent metadata +
+    // BuildRowToComponentMapping). The Bulletin17CDistribution coupling is severed from this port
+    // (see the DEFERRED header note / D3 leverage precedent), so `dataComponents`/`rowMap` stay
+    // null exactly as for any non-B17C IGMMModel and the method falls to the raw per-row path.
+    bestfit::diagnostics::InfluenceDiagnostics get_influence_diagnostics() {
+        std::vector<double> cooks_d = get_cooks_distance();
+        std::vector<bestfit::diagnostics::InfluenceDiagnostics::ObservationInfluence> observations;
+        observations.reserve(cooks_d.size());
+        for (std::size_t i = 0; i < cooks_d.size(); ++i)
+            observations.emplace_back(static_cast<int>(i), cooks_d[i],
+                                      std::numeric_limits<double>::quiet_NaN());
+        return bestfit::diagnostics::InfluenceDiagnostics(std::move(observations));
     }
 
-    // Influence diagnostics with data component metadata for labeling (C# 1770). STUB.
-    [[noreturn]] void get_influence_diagnostics(
-        const std::vector<bestfit::models::DataComponent>& /*data_components*/) const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Influence diagnostics (Cook's distance in ParetoK) with data component metadata for labeling
+    // (C# 1770).
+    bestfit::diagnostics::InfluenceDiagnostics get_influence_diagnostics(
+        const std::vector<bestfit::models::DataComponent>& data_components) {
+        std::vector<double> cooks_d = get_cooks_distance();
+        int n = std::min(static_cast<int>(cooks_d.size()),
+                         static_cast<int>(data_components.size()));
+        std::vector<bestfit::diagnostics::InfluenceDiagnostics::ObservationInfluence> observations;
+        observations.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const bestfit::models::DataComponent& dc = data_components[static_cast<std::size_t>(i)];
+            observations.emplace_back(i, cooks_d[static_cast<std::size_t>(i)],
+                                      std::numeric_limits<double>::quiet_NaN(), dc.value(),
+                                      dc.type(), dc.count(), dc.name());
+        }
+        return bestfit::diagnostics::InfluenceDiagnostics(std::move(observations));
     }
 
     // Leverage diagnostics for the GMM estimator (C# 1822; D3 un-stub -- the Diagnostics layer

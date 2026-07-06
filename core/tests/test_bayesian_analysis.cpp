@@ -190,9 +190,18 @@ void test_gated_diagnostics_throw() {
     apply_fast_knobs(analysis, 7);
     CHECK_TRUE(analysis.estimate());
 
-    // Influence diagnostics are still gated (D4).
-    CHECK_THROWS(analysis.compute_influence_diagnostics());
-    CHECK_THROWS(analysis.compute_prior_influence_diagnostics());
+    // Influence + prior-influence diagnostics are now ported (D4 un-stub): real objects built
+    // from the estimator's PSIS-LOO Pareto-k / retained elpd_loo and the posterior sample.
+    auto influence = analysis.compute_influence_diagnostics();
+    CHECK_EQ(influence.count(), static_cast<int>(sample_data().size()));
+    CHECK_EQ(influence.count(), static_cast<int>(analysis.pareto_k().size()));
+
+    auto prior_influence = analysis.compute_prior_influence_diagnostics();
+    // One component per prior name (>= one per model parameter; a Jeffreys scale prior may add
+    // one more). Ratio is a magnitude fraction in [0, 1].
+    CHECK_TRUE(prior_influence.count() >= model.number_of_parameters());
+    CHECK_TRUE(prior_influence.prior_to_data_ratio() >= 0.0 &&
+               prior_influence.prior_to_data_ratio() <= 1.0);
 
     // Leverage diagnostics are now ported (D3 un-stub): a real object at the MAP point.
     auto diag = analysis.compute_leverage_diagnostics();
