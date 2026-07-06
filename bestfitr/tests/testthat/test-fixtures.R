@@ -581,7 +581,11 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     ctx <- list(qvar_fn = function(aep) ns$bf_estimation_gmm_qvar_(model_json, data, strategy, optimizer, max_gmm_iterations, aep))
   } else {
     optimizer <- if (!is.null(construct$optimizer)) construct$optimizer else "DifferentialEvolution"
-    result <- ns$bf_estimation_run_(target, model_json, data, optimizer)
+    # P3: an optional seeded-draw digest off the FITTED model (sample_size + seed) lets one MLE
+    # smoke file cover parameter + max_log_likelihood + a seeded simulated_value.
+    sample_size <- if (!is.null(construct$sample_size)) as.integer(construct$sample_size) else 0L
+    seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
+    result <- ns$bf_estimation_run_(target, model_json, data, optimizer, sample_size, seed)
     ctx <- list(bic_fn = function(n) ns$bf_estimation_bic_(target, model_json, data, optimizer, n))
   }
   ctx$df_fn <- df_fn

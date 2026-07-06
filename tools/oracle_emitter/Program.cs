@@ -1737,6 +1737,398 @@ static (BestFitModels.UnivariateDistributionModelBase model, object? estimator, 
     throw new Exception($"unknown model_estimation target: {target}");
 }
 
+// --- Phase 7a model families (Task P4) -----------------------------------------------------
+//
+// The four remaining ModelBase families -- TimeSeries (AR/MA/ARIMA/ARIMAX), SpatialGEV,
+// RatingCurve, BivariateDistribution -- derive from ModelBase/IModel, NOT
+// UnivariateDistributionModelBase, so they take a SEPARATE build + estimation path from the
+// Phase 4-6 univariate path above (BuildSpecModel / BuildEstimation stay byte-for-byte
+// unchanged). This mirrors core/include/bestfit/models/model_spec.hpp field-for-field: the
+// `construct.model.type` string selects the family and the schema is fixtures/README.md's
+// model_estimation section. The three runners already build these families through their shared
+// model_spec.hpp path; this emitter path is the fourth (oracle) leg.
+//
+// TimeSeries note: the C# TimeSeries index is a DateTime, but every model consumer touches the
+// index only as a sequence position / inner-join key (never calendar arithmetic -- see the C++
+// adapter header time_series.hpp). All series in a case are built from ONE fixed base date with
+// the same interval, so their relative alignment (rating_curve stage<->discharge, ARIMAX
+// covariate lags) is preserved exactly as the C++ integer-index adapter preserves it; the
+// absolute `start_index` is therefore not modeled here (documented deviation, fit-invariant).
+static DateTime EmitterSeriesEpoch() => new DateTime(2000, 1, 1);
+
+static BestFitModels.Transform ParseTransform(string s) => s switch
+{
+    "None" => BestFitModels.Transform.None,
+    "Logarithmic" => BestFitModels.Transform.Logarithmic,
+    "BoxCox" => BestFitModels.Transform.BoxCox,
+    "YeoJohnson" => BestFitModels.Transform.YeoJohnson,
+    _ => throw new Exception($"unknown time_series transform: {s}")
+};
+
+static TimeInterval ParseTimeInterval(string s) => s switch
+{
+    "OneMinute" => TimeInterval.OneMinute,
+    "FiveMinute" => TimeInterval.FiveMinute,
+    "FifteenMinute" => TimeInterval.FifteenMinute,
+    "ThirtyMinute" => TimeInterval.ThirtyMinute,
+    "OneHour" => TimeInterval.OneHour,
+    "SixHour" => TimeInterval.SixHour,
+    "TwelveHour" => TimeInterval.TwelveHour,
+    "OneDay" => TimeInterval.OneDay,
+    "SevenDay" => TimeInterval.SevenDay,
+    "OneMonth" => TimeInterval.OneMonth,
+    "OneQuarter" => TimeInterval.OneQuarter,
+    "OneYear" => TimeInterval.OneYear,
+    "Irregular" => TimeInterval.Irregular,
+    _ => throw new Exception($"unknown time_series time_interval: {s}")
+};
+
+// Wraps a flat value vector into a real Numerics.Data.TimeSeries (interval + start date + values).
+// `time_interval` defaults OneDay (the C# field default); the start date is the fixed epoch (see
+// the region note -- absolute start_index is fit-invariant given all series share it).
+static TimeSeries BuildEmitterTimeSeries(JsonElement modelSpec, double[] values)
+{
+    TimeInterval interval = modelSpec.TryGetProperty("time_interval", out var ti)
+        ? ParseTimeInterval(ti.GetString()!) : TimeInterval.OneDay;
+    return new TimeSeries(interval, EmitterSeriesEpoch(), values);
+}
+
+// Resolves a time-series data source: inline `data` array, else the file-level dataset.
+static double[] EmitterTimeSeriesValues(JsonElement spec, Dictionary<string, double[]> datasets)
+{
+    if (spec.TryGetProperty("data", out var d)) return d.EnumerateArray().Select(ParseNum).ToArray();
+    if (spec.TryGetProperty("dataset", out var ds)) return datasets[ds.GetString()!];
+    throw new Exception("time_series model requires either 'dataset' or 'data'");
+}
+
+// Optional model-level `parameter_values` -> ONE sync-safe SetParameterValues call (the setter
+// every model mandates; poking Parameters directly desyncs trend / covariate copies).
+static void ApplyGeneralParameterValues(BestFitModels.IModel m, JsonElement spec)
+{
+    if (spec.TryGetProperty("parameter_values", out var pv))
+        m.SetParameterValues(pv.EnumerateArray().Select(ParseNum).ToList());
+}
+
+static int OrderOf(JsonElement model, string key, int dflt) =>
+    model.TryGetProperty("orders", out var o) && o.TryGetProperty(key, out var v) ? v.GetInt32() : dflt;
+
+// `type: "time_series"` -- subtype selects AutoRegressive / MovingAverage / ARIMA / ARIMAX.
+// Mirrors model_spec.hpp's build_time_series_model: ctor + transform, then (ARIMAX) the
+// include-intercept / trend / seasonality / order / covariate setters, then parameter_values.
+static BestFitModels.IModel BuildTimeSeriesModelGeneral(
+    JsonElement model, Dictionary<string, double[]> datasets)
+{
+    string subtype = model.GetProperty("subtype").GetString()!;
+    var ts = BuildEmitterTimeSeries(model, EmitterTimeSeriesValues(model, datasets));
+    bool includeIntercept = !model.TryGetProperty("include_intercept", out var ii) || ii.GetBoolean();
+
+    BestFitModels.IModel result;
+    if (subtype == "ar")
+    {
+        var m = new BestFitModels.AutoRegressive(ts, OrderOf(model, "p", 1), includeIntercept);
+        if (model.TryGetProperty("transform", out var tr)) m.TransformType = ParseTransform(tr.GetString()!);
+        result = m;
+    }
+    else if (subtype == "ma")
+    {
+        var m = new BestFitModels.MovingAverage(ts, OrderOf(model, "q", 1), includeIntercept);
+        if (model.TryGetProperty("transform", out var tr)) m.TransformType = ParseTransform(tr.GetString()!);
+        result = m;
+    }
+    else if (subtype == "arima")
+    {
+        var m = new BestFitModels.ARIMA(ts, OrderOf(model, "p", 1), OrderOf(model, "d", 0),
+                                        OrderOf(model, "q", 0), includeIntercept);
+        if (model.TryGetProperty("transform", out var tr)) m.TransformType = ParseTransform(tr.GetString()!);
+        result = m;
+    }
+    else if (subtype == "arimax")
+    {
+        var m = new BestFitModels.ARIMAX(ts);
+        if (model.TryGetProperty("transform", out var tr)) m.TransformType = ParseTransform(tr.GetString()!);
+        m.IncludeIntercept = includeIntercept;
+        if (model.TryGetProperty("trend", out var trend))
+            m.TrendType = trend.GetString()! switch
+            {
+                "Linear" => BestFitModels.ARIMAX.Trend.Linear,
+                "Quadratic" => BestFitModels.ARIMAX.Trend.Quadratic,
+                "Cubic" => BestFitModels.ARIMAX.Trend.Cubic,
+                _ => BestFitModels.ARIMAX.Trend.None,
+            };
+        if (model.TryGetProperty("include_seasonality", out var seas)) m.IncludeSeasonality = seas.GetBoolean();
+        m.AROrderP = OrderOf(model, "p", 1);
+        m.DiffOrderD = OrderOf(model, "d", 0);
+        m.MAOrderQ = OrderOf(model, "q", 0);
+        m.XOrderB = OrderOf(model, "b", 0);
+        if (model.TryGetProperty("covariates", out var covs))
+        {
+            var list = new List<TimeSeries>();
+            foreach (var c in covs.EnumerateArray())
+                list.Add(BuildEmitterTimeSeries(model, c.EnumerateArray().Select(ParseNum).ToArray()));
+            m.SetCovariates(list);
+        }
+        result = m;
+    }
+    else
+    {
+        throw new Exception($"unknown time_series subtype: {subtype}");
+    }
+    ApplyGeneralParameterValues(result, model);
+    return result;
+}
+
+// `type: "spatial_gev"` -- SpatialGEV(atSiteData [obs,sites], coordinates [sites,2], three
+// intercept-only GeneralLinearFunction level-2 trends). Optional gating flags applied after
+// construction (their ctor defaults: link=true, errors/copula=false). Mirrors
+// model_spec.hpp's build_spatial_gev_model.
+static BestFitModels.IModel BuildSpatialGevModelGeneral(
+    JsonElement model, Dictionary<string, double[]> datasets)
+{
+    var rows = model.GetProperty("at_site_data").EnumerateArray()
+        .Select(r => r.EnumerateArray().Select(ParseNum).ToArray()).ToArray();
+    int obs = rows.Length, sites = rows[0].Length;
+    var atSite = new double[obs, sites];
+    for (int i = 0; i < obs; i++)
+        for (int j = 0; j < sites; j++) atSite[i, j] = rows[i][j];
+
+    var coordRows = model.GetProperty("coordinates").EnumerateArray()
+        .Select(r => r.EnumerateArray().Select(ParseNum).ToArray()).ToArray();
+    var coords = new double[sites, 2];
+    for (int i = 0; i < sites; i++)
+        for (int j = 0; j < 2; j++) coords[i, j] = coordRows[i][j];
+
+    var location = new BestFitModels.TrendFunctions.GeneralLinearFunction("Location");
+    var scale = new BestFitModels.TrendFunctions.GeneralLinearFunction("Scale");
+    var shape = new BestFitModels.TrendFunctions.GeneralLinearFunction("Shape");
+    var m = new BestFitModels.SpatialExtremes.SpatialGEV(atSite, coords, location, scale, shape);
+    if (model.TryGetProperty("use_copula_dependence", out var ucd)) m.UseCopulaDependence = ucd.GetBoolean();
+    if (model.TryGetProperty("use_location_errors", out var ule)) m.UseLocationErrors = ule.GetBoolean();
+    if (model.TryGetProperty("use_scale_errors", out var use)) m.UseScaleErrors = use.GetBoolean();
+    if (model.TryGetProperty("use_shape_errors", out var ushp)) m.UseShapeErrors = ushp.GetBoolean();
+    if (model.TryGetProperty("use_log_link_for_location", out var ull)) m.UseLogLinkForLocation = ull.GetBoolean();
+    if (model.TryGetProperty("use_log_link_for_scale", out var ulls)) m.UseLogLinkForScale = ulls.GetBoolean();
+    ApplyGeneralParameterValues(m, model);
+    return m;
+}
+
+// `type: "rating_curve"` -- RatingCurve(stage, discharge, segments). Both series share the epoch
+// + interval so the date inner-join aligns them 1:1 (>= MinimumAlignedObservations = 10).
+static BestFitModels.IModel BuildRatingCurveModelGeneral(
+    JsonElement model, Dictionary<string, double[]> datasets)
+{
+    var stage = BuildEmitterTimeSeries(model, model.GetProperty("stage").EnumerateArray().Select(ParseNum).ToArray());
+    var discharge = BuildEmitterTimeSeries(model, model.GetProperty("discharge").EnumerateArray().Select(ParseNum).ToArray());
+    int segments = model.TryGetProperty("segments", out var s) ? s.GetInt32() : 1;
+    var m = new BestFitModels.RatingCurve(stage, discharge, segments);
+    ApplyGeneralParameterValues(m, model);
+    return m;
+}
+
+// A bivariate marginal spec -> a pre-fit UnivariateDistribution (an IUnivariateModel). Carries
+// its own inline `data` (exact series) and pinned distribution `parameter_values` (marginals
+// stay FIXED during the copula fit -- B1). Mirrors model_spec.hpp's build_bivariate_marginal.
+static BestFitModels.IUnivariateModel BuildBivariateMarginalGeneral(JsonElement spec)
+{
+    var distType = Enum.Parse<UnivariateDistributionType>(spec.GetProperty("family").GetString()!);
+    var df = new BestFitModels.DataFrame
+    {
+        ExactSeries = new ExactSeries(spec.GetProperty("data").EnumerateArray().Select(ParseNum).ToArray())
+    };
+    var m = new BestFitModels.UnivariateDistribution(df, distType);
+    if (spec.TryGetProperty("parameter_values", out var pv))
+        m.SetParameterValues(pv.EnumerateArray().Select(ParseNum).ToList());
+    return m;
+}
+
+// `type: "bivariate"` -- a copula-coupled BivariateDistribution: two pre-fit IUnivariateModel
+// marginals (held FIXED), a CopulaType, and a CopulaEstimationMethod (default
+// InferenceFromMargins). Mirrors model_spec.hpp's build_bivariate_model.
+static BestFitModels.IModel BuildBivariateModelGeneral(
+    JsonElement model, Dictionary<string, double[]> datasets)
+{
+    var mx = BuildBivariateMarginalGeneral(model.GetProperty("marginal_x"));
+    var my = BuildBivariateMarginalGeneral(model.GetProperty("marginal_y"));
+    var copulaType = Enum.Parse<CopulaType>(
+        model.TryGetProperty("copula", out var cp) ? cp.GetString()! : "Normal");
+    var m = new BestFitModels.BivariateDistribution(mx, my, copulaType);
+    if (model.TryGetProperty("estimation_method", out var em))
+        m.CopulaEstimationMethod = Enum.Parse<CopulaEstimationMethod>(em.GetString()!);
+    ApplyGeneralParameterValues(m, model);
+    return m;
+}
+
+static BestFitModels.IModel BuildSpecModelGeneral(
+    JsonElement modelSpec, Dictionary<string, double[]> datasets)
+{
+    string type = modelSpec.GetProperty("type").GetString()!;
+    return type switch
+    {
+        "time_series" => BuildTimeSeriesModelGeneral(modelSpec, datasets),
+        "spatial_gev" => BuildSpatialGevModelGeneral(modelSpec, datasets),
+        "rating_curve" => BuildRatingCurveModelGeneral(modelSpec, datasets),
+        "bivariate" => BuildBivariateModelGeneral(modelSpec, datasets),
+        _ => throw new Exception($"unknown general model_estimation model type: {type}")
+    };
+}
+
+// Seeded ISimulatable draw flattened to a 1-D vector so the `simulated_value [i]` digest works
+// uniformly. Five families are ISimulatable<double[]>; BivariateDistribution is
+// ISimulatable<double[,]> (n-row x 2-col) -- flattened ROW-MAJOR (i = row*cols + col), matching
+// the C++/R/Python simulate_flat and the README schema.
+static double[] SimulateFlatGeneral(BestFitModels.IModel model, int sampleSize, int seed)
+{
+    if (model is BestFitModels.ISimulatable<double[]> s1)
+        return s1.GenerateRandomValues(sampleSize, seed);
+    if (model is BestFitModels.ISimulatable<double[,]> s2)
+    {
+        var mat = s2.GenerateRandomValues(sampleSize, seed);
+        int r = mat.GetLength(0), c = mat.GetLength(1);
+        var flat = new double[r * c];
+        for (int i = 0; i < r; i++)
+            for (int j = 0; j < c; j++) flat[i * c + j] = mat[i, j];
+        return flat;
+    }
+    throw new Exception("model is neither ISimulatable<double[]> nor ISimulatable<double[,]>");
+}
+
+// Builds a Phase 7a family model and runs the estimator selected by `target`. Mirrors
+// BuildEstimation but over IModel (the four families are not UnivariateDistributionModelBase).
+static (BestFitModels.IModel model, object? estimator, double[]? simulated)
+    BuildEstimationGeneral(string target, JsonElement construct, Dictionary<string, double[]> datasets)
+{
+    var model = BuildSpecModelGeneral(construct.GetProperty("model"), datasets);
+
+    if (target == "Simulation")
+    {
+        var draws = SimulateFlatGeneral(model, construct.GetProperty("sample_size").GetInt32(),
+            construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
+        return (model, null, draws);
+    }
+    if (target == "MaximumLikelihood" || target == "MaximumAPosteriori")
+    {
+        var method = construct.TryGetProperty("optimizer", out var o)
+            ? ParseOptimizationMethod(o.GetString()!) : OptimizationMethod.DifferentialEvolution;
+        object est;
+        ParameterSet best;
+        if (target == "MaximumLikelihood")
+        {
+            var mle = new MaximumLikelihood(model, method);
+            if (!mle.Estimate()) throw new Exception("MaximumLikelihood.Estimate() returned false");
+            est = mle; best = mle.BestParameterSet;
+        }
+        else
+        {
+            var map = new MaximumAPosteriori(model, method);
+            if (!map.Estimate()) throw new Exception("MaximumAPosteriori.Estimate() returned false");
+            est = map; best = map.BestParameterSet;
+        }
+        double[]? draws = null;
+        if (construct.TryGetProperty("sample_size", out var ss))
+        {
+            // Pin the fitted best parameters back into the model, then take one seeded draw --
+            // the same shared `simulated_value` arm the Simulation target uses (P3 pattern).
+            model.SetParameterValues(best.Values);
+            draws = SimulateFlatGeneral(model, ss.GetInt32(),
+                construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
+        }
+        return (model, est, draws);
+    }
+    if (target == "BayesianAnalysis")
+    {
+        var samplerType = construct.TryGetProperty("sampler", out var s)
+            ? ParseSamplerType(s.GetString()!) : BayesianAnalysis.SamplerType.DEMCzs;
+        var ba = new BayesianAnalysis(model, samplerType)
+        {
+            UseSimulationDefaults = false,
+            UseAdvancedSimulationDefaults = false,
+        };
+        if (construct.TryGetProperty("settings", out var settings))
+        {
+            if (settings.TryGetProperty("seed", out var seedEl)) ba.PRNGSeed = seedEl.GetInt32();
+            if (settings.TryGetProperty("iterations", out var itEl)) ba.Iterations = itEl.GetInt32();
+            if (settings.TryGetProperty("warmup_iterations", out var wiEl)) ba.WarmupIterations = wiEl.GetInt32();
+            if (settings.TryGetProperty("number_of_chains", out var ncEl)) ba.NumberOfChains = ncEl.GetInt32();
+            if (settings.TryGetProperty("thinning_interval", out var tiEl)) ba.ThinningInterval = tiEl.GetInt32();
+            if (settings.TryGetProperty("initial_iterations", out var iiEl)) ba.InitialIterations = iiEl.GetInt32();
+            if (settings.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+        }
+        ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+        return (model, ba, null);
+    }
+    throw new Exception($"unknown model_estimation target: {target}");
+}
+
+// ML/MAP dispatch with LAZY accessors (covariance/SE/correlation are computed only when the
+// method asks -- GetCovarianceMatrix throws for a 1-parameter model, e.g. the Normal copula).
+static double DispatchMlMapGeneral(string m, JsonElement[] a,
+    Func<int, double> param, Func<double> maxLL, Func<double> aic, Func<int, double> bic,
+    Func<int, int, double> cov, Func<int, double> se, Func<int, int, double> corr)
+{
+    int I(int i) => a[i].GetInt32();
+    switch (m)
+    {
+        case "parameter": return param(I(0));
+        case "max_log_likelihood": return maxLL();
+        case "aic": return aic();
+        case "bic": return bic(I(0));
+        case "covariance": return cov(I(0), I(1));
+        case "standard_error": return se(I(0));
+        case "correlation": return corr(I(0), I(1));
+        default: throw new Exception($"unknown model_estimation method for ML/MAP: {m}");
+    }
+}
+
+static double DispatchEstimationGeneral(
+    (BestFitModels.IModel model, object? estimator, double[]? simulated) ec,
+    string m, JsonElement[] a)
+{
+    if (m == "simulated_value")
+        return (ec.simulated ?? throw new Exception("simulated_value outside a seeded case"))[a[0].GetInt32()];
+    // Fixed-parameter model surface (reads the model at its CURRENT parameter values -- pinned by
+    // the spec's parameter_values under a Simulation target). data_log_likelihood is generic on
+    // IModel; residual[i] casts to the concrete family's Residuals(double[]) surface
+    // (AR/MA/ARIMA/ARIMAX/RatingCurve). Deterministic (no fit) -> tight-tolerance oracles for the
+    // C++-only "// P4 pending" ctest blocks (route b; not asserted through a committed fixture).
+    if (m == "data_log_likelihood")
+    {
+        var pars = ec.model.Parameters.Select(p => p.Value).ToArray();
+        return ec.model.DataLogLikelihood(pars);
+    }
+    if (m == "residual")
+    {
+        var pars = ec.model.Parameters.Select(p => p.Value).ToArray();
+        double[] res = ec.model switch
+        {
+            BestFitModels.AutoRegressive ar => ar.Residuals(pars),
+            BestFitModels.MovingAverage ma => ma.Residuals(pars),
+            BestFitModels.ARIMA arima => arima.Residuals(pars),
+            BestFitModels.ARIMAX arimax => arimax.Residuals(pars),
+            BestFitModels.RatingCurve rc => rc.Residuals(pars),
+            _ => throw new Exception($"residual not supported for {ec.model.GetType().Name}")
+        };
+        return res[a[0].GetInt32()];
+    }
+    switch (ec.estimator)
+    {
+        case MaximumLikelihood mle:
+            return DispatchMlMapGeneral(m, a, i => mle.BestParameterSet.Values[i],
+                () => mle.MaximumLogLikelihood, () => mle.GetAIC(), n => mle.GetBIC(n),
+                (i, j) => mle.GetCovarianceMatrix()[i, j], i => mle.GetStandardErrors()[i],
+                (i, j) => mle.GetCorrelationMatrix()[i, j]);
+        case MaximumAPosteriori map:
+            return DispatchMlMapGeneral(m, a, i => map.BestParameterSet.Values[i],
+                () => map.MaximumLogLikelihood, () => map.GetAIC(), n => map.GetBIC(n),
+                (i, j) => map.GetCovarianceMatrix()[i, j], i => map.GetStandardErrors()[i],
+                (i, j) => map.GetCorrelationMatrix()[i, j]);
+        case BayesianAnalysis ba:
+            return DispatchBayesian(ba, m, a);
+        case null:
+            throw new Exception($"unknown Simulation fixture method: {m}");
+        default:
+            throw new Exception($"unknown estimator type: {ec.estimator.GetType().Name}");
+    }
+}
+
 // Shared MaximumLikelihood/MaximumAPosteriori dispatch surface (identical member names on both
 // C# classes). Passed the fit's already-computed pieces so each assertion is a cheap lookup.
 static double DispatchMlMap(string m, JsonElement[] a, ParameterSet best, double maxLL,
@@ -2248,6 +2640,48 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                         else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
                     }
                     catch (Exception ex) { fail++; failures.Add($"{where}: {ex.Message}"); }
+                }
+                continue;
+            }
+
+            // Phase 7a families (P4): TimeSeries / SpatialGEV / RatingCurve / Bivariate derive
+            // from ModelBase/IModel (not UnivariateDistributionModelBase), so they take the
+            // separate general build + dispatch path. The `type` string selects the family.
+            var modelSpecEl = c.GetProperty("construct").GetProperty("model");
+            string modelType = modelSpecEl.TryGetProperty("type", out var mtEl)
+                ? mtEl.GetString()! : "univariate_distribution";
+            if (modelType is "time_series" or "spatial_gev" or "rating_curve" or "bivariate")
+            {
+                (BestFitModels.IModel model, object? estimator, double[]? simulated) gc;
+                try { gc = BuildEstimationGeneral(estTarget, c.GetProperty("construct"), estDatasets); }
+                catch (Exception ex)
+                {
+                    failures.Add($"{estTarget}/{caseName}: build/run failed: {ex.Message}");
+                    fail++;
+                    continue;
+                }
+
+                foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+                {
+                    string method = asrt.GetProperty("method").GetString()!;
+                    var argList = asrt.TryGetProperty("args", out var av2)
+                        ? av2.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                    string where2 = $"{estTarget}/{caseName}/{method}";
+
+                    if (dump)
+                    {
+                        DumpLine(estTarget, caseName, method, argList,
+                                 () => (object)DispatchEstimationGeneral(gc, method, argList));
+                        continue;
+                    }
+
+                    try
+                    {
+                        double actual = DispatchEstimationGeneral(gc, method, argList);
+                        if (Compare(actual, asrt)) pass++;
+                        else { fail++; failures.Add($"{where2}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+                    }
+                    catch (Exception ex) { fail++; failures.Add($"{where2}: {ex.Message}"); }
                 }
                 continue;
             }

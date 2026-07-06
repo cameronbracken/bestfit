@@ -926,10 +926,66 @@ like every other fixture kind) and passed alongside the spec as a flat vector.
   //   mgbt_low_outliers all supported). Unlike the other types it is NOT a ModelBase (it is an
   //   IGMMModel + ISimulatable + IUnivariateModel), so the shared builder exposes it through a
   //   dedicated build_bulletin17c_from_json entry point returning the concrete type.
+  // -- Phase 7a families (P3): --------------------------------------------------------------
+  // time_series (AR/MA/ARIMA/ARIMAX): the series data comes from `dataset` (or an inline `data`
+  //   array), wrapped into the P2 TimeSeries adapter (`time_interval` default OneDay,
+  //   `start_index` default 0 -- the index is a sequence position / join key, never calendar
+  //   arithmetic).
+  "type": "time_series", "subtype": "arima",  // "ar" | "ma" | "arima" | "arimax"
+  "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },  // subtype-dependent (ar->p; ma->q; arima->p,d,q;
+                                      //   arimax->p,d,q,b)
+  "include_intercept": true,          // optional (default true)
+  "transform": "None",                // optional TransformType: None | Logarithmic | BoxCox |
+                                      //   YeoJohnson (transform_type.hpp)
+  "trend": "Linear",                  // arimax only: None | Linear | Quadratic | Cubic
+  "include_seasonality": false,       // arimax only, optional
+  "covariates": [[1,2,3]],            // arimax only, optional: a list of covariate value arrays
+  // spatial_gev: SpatialGEV(at_site_data [obs][sites], coordinates [sites][2], and three
+  //   intercept-only level-2 GeneralLinearFunction trends). The gating flags are optional.
+  "type": "spatial_gev",
+  "coordinates": [[0.0, 0.0], [1.0, 0.5]],       // [sites][2]
+  "at_site_data": [[20, 22], [25, 26]],          // [observations][sites]
+  "use_copula_dependence": false,     // optional gating flags (all default false / log-links true):
+  "use_location_errors": false, "use_scale_errors": false, "use_shape_errors": false,
+  "use_log_link_for_location": true, "use_log_link_for_scale": true,
+  // rating_curve: RatingCurve(stage TimeSeries, discharge TimeSeries, segments). Both arrays are
+  //   wrapped with a shared start index so the date-inner-join aligns them 1:1 (the model
+  //   enforces MinimumAlignedObservations = 10).
+  "type": "rating_curve", "segments": 1,         // 1..3
+  "stage": [1.0, 1.2, 1.5], "discharge": [5.0, 7.1, 11.0],
+  // bivariate: a copula-coupled BivariateDistribution. The marginals are pre-fit IUnivariateModel
+  //   models (each an inline `family` + `data` array + pinned `parameter_values`), held FIXED
+  //   during the copula fit; only the copula dependency parameter is estimated.
+  "type": "bivariate",
+  "copula": "Normal",                 // a CopulaType name: AliMikhailHaq | Clayton | Frank |
+                                      //   Gumbel | Joe | Normal | StudentT
+  "estimation_method": "InferenceFromMargins",   // optional: InferenceFromMargins (default) |
+                                      //   PseudoLikelihood | FullLikelihood
+  "marginal_x": { "family": "Normal", "data": [ ... ], "parameter_values": [ ... ] },
+  "marginal_y": { "family": "Normal", "data": [ ... ], "parameter_values": [ ... ] },
   "parameter_values": [16000.0, 5000.0]  // optional, ALL types: applied last via ONE
                                       // set_parameter_values call (the sync-safe setter)
 }
 ```
+
+**Phase 7a families (P3).** The four new `model.type` values above wire the remaining `ModelBase`
+model families into the shared spec builder on the SAME polymorphic dispatch the Phase 4-6 models
+use -- no bespoke per-model glue. Five of them (`ar`/`ma`/`arima`/`arimax`, `spatial_gev`,
+`rating_curve`) are `ISimulatable<std::vector<double>>`, so their seeded draws ride the existing
+`simulated_value` arm unchanged. `bivariate` is `ISimulatable<Matrix2D>` (an n-row x 2-col matrix,
+col 0 = X, col 1 = Y), so its seeded draw is **flattened ROW-MAJOR** (`simulated_value [i]` reads
+element `i = row*2 + col`: `[0]` = row 0 X, `[1]` = row 0 Y, `[2]` = row 1 X, ...). This flatten is
+mirrored identically in all three harnesses (C++ `simulate_flat`, R `simulate_flat`, Python
+`simulate_flat`).
+
+`MaximumLikelihood`/`MaximumAPosteriori` cases MAY carry an optional `sample_size` (+ `seed`): after
+the fit, the estimator's best parameters are pinned back into the model and one seeded
+`generate_random_values` draw is cached, so a single MLE case can assert `parameter` +
+`max_log_likelihood` + a seeded `simulated_value` together (the same seeded-draw arm the
+`GeneralizedMethodOfMoments` target already uses off a fitted model). Without `sample_size` the
+arm is inert (every pre-P3 fixture is unaffected). The single-parameter bivariate copula fit skips
+the `covariance`/`standard_error`/`correlation` surface (the covariance stack needs >= 2
+parameters); no fixture asserts those for a 1-param model.
 
 Notes on the trend spec: attaching any trend first sets `is_nonstationary(true)`;
 `set_trend_model` then supplies the C#-mirrored data-driven defaults per trend; the optional

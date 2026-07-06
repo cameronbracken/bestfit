@@ -49,6 +49,18 @@ set(BF_TESTS
   test_singular_value_decomposition
   test_linear_regression
   test_bulletin17c
+  test_p1_iunivariate_model
+  test_box_cox
+  test_time_series
+  test_spatial_correlation
+  test_cached_mvn_gaussian_copula
+  test_spatial_regression_errors
+  test_spatial_gev
+  test_time_series_arma
+  test_arima
+  test_arimax
+  test_rating_curve
+  test_bivariate_distribution
 )
 
 # Sobol test takes the direction-number file as its sole argument.

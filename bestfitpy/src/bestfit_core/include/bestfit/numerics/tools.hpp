@@ -85,6 +85,16 @@ inline double normalized_distance(const std::vector<double>& x, const std::vecto
     return std::sqrt(d);
 }
 
+// Returns the Euclidean distance between two 2-D points (mirrors Tools.Distance's
+// 4-argument overload, Tools.cs:233, sqrt(dx^2+dy^2); added with S2 -- GaussianCopula's
+// ComputeDistanceMatrix is the caller). ADDITIVE-ONLY: a new overload, no existing line
+// altered.
+inline double distance(double x1, double y1, double x2, double y2) {
+    double dx = x2 - x1;
+    double dy = y2 - y1;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
 // Returns the Euclidean distance between two points (mirrors Tools.Distance's
 // IList<double> overload, Tools.cs:246; added with B8 -- GeneralizedMethodOfMoments'
 // iterative-strategy parameter-convergence check is the caller).

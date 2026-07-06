@@ -144,8 +144,8 @@ bf_cr_valid_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependen
   .Call(`_bestfitr_bf_cr_valid_`, comp_targets, comp_params_list, minimum_of_rv, dependency, correlation)
 }
 
-bf_estimation_run_ <- function(target, model_json, dataset, optimizer) {
-  .Call(`_bestfitr_bf_estimation_run_`, target, model_json, dataset, optimizer)
+bf_estimation_run_ <- function(target, model_json, dataset, optimizer, sample_size, seed) {
+  .Call(`_bestfitr_bf_estimation_run_`, target, model_json, dataset, optimizer, sample_size, seed)
 }
 
 bf_estimation_bic_ <- function(target, model_json, dataset, optimizer, n) {

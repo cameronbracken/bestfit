@@ -224,6 +224,17 @@ class Normal : public UnivariateDistributionBase,
         return r8_normal_01_cdf_inverse(probability);
     }
 
+    // Standard normal log-PDF log φ(z). Mirrors Normal.StandardLogPDF(Z) (Numerics
+    // Normal.cs:591) -> `-0.5 * Z * Z - Tools.LogSqrt2PI` term-for-term. ADDITIVE-ONLY: a
+    // new static helper the GaussianCopula (S2) LogPDF needs; no existing line altered.
+    // (The C# uses the Tools.LogSqrt2PI constant, already ported as
+    // bestfit::numerics::kLogSqrt2PI in tools.hpp -- deviating from the S2 brief, which
+    // suggested computing std::log(kSqrt2PI); the C# source governs and kLogSqrt2PI mirrors
+    // Tools.LogSqrt2PI exactly.)
+    static double standard_log_pdf(double z) {
+        return -0.5 * z * z - kLogSqrt2PI;
+    }
+
    private:
     static bool validate(double location, double scale) {
         if (std::isnan(location) || std::isinf(location)) return false;

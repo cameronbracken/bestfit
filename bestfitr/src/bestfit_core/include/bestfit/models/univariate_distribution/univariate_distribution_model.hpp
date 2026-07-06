@@ -114,9 +114,17 @@
 //     restoring the C# end state (seeded simulation from the clone bit-matches the
 //     original).
 //
+// IUnivariateModel (P1): this class now implements the marginal interface (the B1
+// BivariateDistribution unblock). The collision the Phase 4 note flagged -- the interface's
+// NULLABLE `const UnivariateDistributionBase* distribution() const` vs this class's Phase 4
+// `const DistributionBase& distribution() const` reference accessor (two functions differing
+// only in return type is ill-formed) -- is resolved by keeping the MUTABLE `distribution()`
+// as the reference workhorse and making only the CONST accessor the covariant pointer
+// override (they differ in const-qualification, a valid overload set). data_frame() is
+// re-exposed as an override (the base's is non-virtual), and is_nonstationary()/validate()
+// gained `override`. Zero behavior change to any existing method body.
+//
 // Still deliberately NOT ported:
-//   - IUnivariateModel (its `distribution()` pointer accessor collides with this class's
-//     Phase 4 reference accessor; resolved when the bivariate consumers arrive).
 //   - XML (XElement ctor, ToXElement), INotifyPropertyChanged, [attributes], and the
 //     parameter/owner display-name wiring from Distribution.ParameterNames (WPF display
 //     concerns; ModelParameter owner_name()/name() and the trends' OwnerName stay empty,
@@ -143,6 +151,7 @@
 
 #include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/support/data_component.hpp"
+#include "bestfit/models/support/i_univariate_model.hpp"
 #include "bestfit/models/support/model_parameter.hpp"
 #include "bestfit/models/support/simulatable.hpp"
 #include "bestfit/models/support/validation_result.hpp"
@@ -172,7 +181,8 @@
 namespace bestfit::models {
 
 class UnivariateDistributionModel : public UnivariateDistributionModelBase,
-                                    public ISimulatable<std::vector<double>> {
+                                    public ISimulatable<std::vector<double>>,
+                                    public IUnivariateModel {
    public:
     using DistributionBase = numerics::distributions::UnivariateDistributionBase;
     using DistributionType = numerics::distributions::UnivariateDistributionType;
@@ -250,8 +260,24 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     }
 
     // --- Distribution property (C# line 328) ---------------------------------------------
+    // The mutable accessor is the type-specific workhorse (a reference, non-owning; the
+    // internal compute paths and the ctest callers deref it directly). It always points at a
+    // live distribution on every construction path, so a reference is faithful there. The
+    // const accessor is the covariant IUnivariateModel override (P1): the C# property is
+    // `UnivariateDistributionBase? Distribution`, so the interface member is a NULLABLE raw
+    // non-owning pointer -- it returns distribution_.get() (nullptr when unset, never
+    // deref'd). The two overloads differ in const-qualification (a valid overload set); a
+    // const model therefore yields the pointer contract, a mutable one the reference.
     DistributionBase& distribution() { return *distribution_; }
-    const DistributionBase& distribution() const { return *distribution_; }
+    const DistributionBase* distribution() const override { return distribution_.get(); }
+
+    // IUnivariateModel's DataFrame accessors (P1): the base's same-named accessors are
+    // non-virtual and live in an unrelated base, so the interface's pure virtuals are
+    // satisfied by re-exposing them here (the point_process_model precedent). They forward to
+    // the base state -- the unguarded-deref contract is unchanged; check has_data_frame()
+    // where the frame may be absent.
+    DataFrame& data_frame() override { return *data_frame_; }
+    const DataFrame& data_frame() const override { return *data_frame_; }
 
     // C# setter: null check, assign, reset the trend models to one ConstantTrend per
     // distribution parameter (C# 338-353; the OwnerName wiring from ParameterNames is a
@@ -290,7 +316,7 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     // parameter and SetDefaultParameters (unconditional). Set-true: build the full time
     // series, re-center ParameterTimeIndex off the exact series, re-anchor every trend's
     // StartIndex, then SetDefaultParameters when UseDefaultFlatPriors.
-    bool is_nonstationary() const { return is_nonstationary_; }
+    bool is_nonstationary() const override { return is_nonstationary_; }
     void set_is_nonstationary(bool value) {
         if (is_nonstationary_ == value) return;
         is_nonstationary_ = value;

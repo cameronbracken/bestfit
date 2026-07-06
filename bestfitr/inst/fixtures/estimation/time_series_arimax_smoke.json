@@ -1,0 +1,35 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task P4): fitted parameters, log-likelihood, AIC and the seeded ISimulatable draw dumped from the REAL RMC.BestFit ARIMAX(1,0,0)+linear-trend MLE (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. Optimizer-dependent fit quantities carry rel 1e-8 (the C++/R/Python port reproduces the C# values to ~1e-13).",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "arimax_linear_trend_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "series",
+          "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },
+          "include_intercept": true,
+          "transform": "None",
+          "trend": "Linear"
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 10.881592859708105, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [3], "expected": 1.0041116993395995, "mode": "rel", "tol": 1e-8 },
+        { "method": "max_log_likelihood", "args": [], "expected": -27.03809979980259, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "args": [], "expected": 62.07619959960518, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [0], "expected": 10.5604253302402, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [2], "expected": 13.040493365179952, "mode": "rel", "tol": 1e-8 }
+      ]
+    }
+  ]
+}

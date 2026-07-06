@@ -1,0 +1,36 @@
+{
+  "target": "Simulation",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task P4): a FIXED-parameter (no fit) seeded ISimulatable<Matrix2D> draw off the RMC.BestFit BivariateDistribution (Normal copula, two fixed Normal marginals), dumped via tools/oracle_emitter and reproduced by tools/verify_oracles.py. The copula dependency parameter is pinned, isolating the seeded MersenneTwister stream through the copula GenerateRandomValues path; the n-row x 2-col matrix is flattened ROW-MAJOR (i = row*2 + col). The C++/R/Python port reproduces the C# draw bit-identically, so it carries rel 1e-9 (the fit-independent RNG bit-identity proof for the bivariate matrix draw path).",
+  "cases": [
+    {
+      "name": "normal_copula_fixed_params_seeded_draw",
+      "construct": {
+        "model": {
+          "type": "bivariate",
+          "copula": "Normal",
+          "estimation_method": "InferenceFromMargins",
+          "parameter_values": [0.6],
+          "marginal_x": {
+            "family": "Normal",
+            "data": [10, 12, 9, 14, 11, 13, 8, 15, 10.5, 12.5, 11.2, 13.3, 9.4, 14.1, 12.2],
+            "parameter_values": [11.66, 2.0]
+          },
+          "marginal_y": {
+            "family": "Normal",
+            "data": [21, 20, 22, 25, 19, 27, 18, 24, 23, 21, 26, 22, 20, 28, 25],
+            "parameter_values": [22.7, 3.0]
+          }
+        },
+        "sample_size": 5,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "simulated_value", "args": [0], "expected": 10.195269109750441, "mode": "rel", "tol": 1e-9 },
+        { "method": "simulated_value", "args": [1], "expected": 15.156239168933748, "mode": "rel", "tol": 1e-9 },
+        { "method": "simulated_value", "args": [4], "expected": 13.978685989137043, "mode": "rel", "tol": 1e-9 },
+        { "method": "simulated_value", "args": [7], "expected": 25.513928925430776, "mode": "rel", "tol": 1e-9 }
+      ]
+    }
+  ]
+}

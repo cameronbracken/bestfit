@@ -1232,7 +1232,7 @@ UnivariateDistributionModel create_normal_linear_mu() {
 double call_nonstationary_data_log_likelihood(const UnivariateDistributionModel& dist,
                                               const std::vector<double>& parameters) {
     std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase> working =
-        dist.distribution().clone();
+        dist.distribution()->clone();  // P1: const IUnivariateModel& yields the nullable pointer accessor
     return dist.nonstationary_data_log_likelihood(*working, parameters);
 }
 

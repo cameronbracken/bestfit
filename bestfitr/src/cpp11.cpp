@@ -258,10 +258,10 @@ extern "C" SEXP _bestfitr_bf_cr_valid_(SEXP comp_targets, SEXP comp_params_list,
   END_CPP11
 }
 // estimation.cpp
-list bf_estimation_run_(std::string target, std::string model_json, doubles dataset, std::string optimizer);
-extern "C" SEXP _bestfitr_bf_estimation_run_(SEXP target, SEXP model_json, SEXP dataset, SEXP optimizer) {
+list bf_estimation_run_(std::string target, std::string model_json, doubles dataset, std::string optimizer, int sample_size, int seed);
+extern "C" SEXP _bestfitr_bf_estimation_run_(SEXP target, SEXP model_json, SEXP dataset, SEXP optimizer, SEXP sample_size, SEXP seed) {
   BEGIN_CPP11
-    return cpp11::as_sexp(bf_estimation_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer)));
+    return cpp11::as_sexp(bf_estimation_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(optimizer), cpp11::as_cpp<cpp11::decay_t<int>>(sample_size), cpp11::as_cpp<cpp11::decay_t<int>>(seed)));
   END_CPP11
 }
 // estimation.cpp
@@ -483,7 +483,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_estimation_bic_",           (DL_FUNC) &_bestfitr_bf_estimation_bic_,            5},
     {"_bestfitr_bf_estimation_gmm_qvar_",      (DL_FUNC) &_bestfitr_bf_estimation_gmm_qvar_,       6},
     {"_bestfitr_bf_estimation_gmm_run_",       (DL_FUNC) &_bestfitr_bf_estimation_gmm_run_,        7},
-    {"_bestfitr_bf_estimation_run_",           (DL_FUNC) &_bestfitr_bf_estimation_run_,            4},
+    {"_bestfitr_bf_estimation_run_",           (DL_FUNC) &_bestfitr_bf_estimation_run_,            6},
     {"_bestfitr_bf_gev_cdf_",                  (DL_FUNC) &_bestfitr_bf_gev_cdf_,                   4},
     {"_bestfitr_bf_gev_fit_",                  (DL_FUNC) &_bestfitr_bf_gev_fit_,                   2},
     {"_bestfitr_bf_gev_linear_moments_",       (DL_FUNC) &_bestfitr_bf_gev_linear_moments_,        3},

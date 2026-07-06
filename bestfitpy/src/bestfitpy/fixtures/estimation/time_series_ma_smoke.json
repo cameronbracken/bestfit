@@ -1,0 +1,34 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task P4): fitted parameters, log-likelihood, AIC and the seeded ISimulatable draw dumped from the REAL RMC.BestFit MovingAverage MLE (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. P3 authored no MA fixture; P4 adds it so all four TimeSeries subtypes carry exact MLE oracles. Optimizer-dependent fit quantities carry rel 1e-8.",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "ma1_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ma",
+          "dataset": "series",
+          "orders": { "q": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 12.821551008030795, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [2], "expected": 1.379447830079351, "mode": "rel", "tol": 1e-8 },
+        { "method": "max_log_likelihood", "args": [], "expected": -34.81306092899782, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "args": [], "expected": 75.62612185799564, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [0], "expected": 12.380331319117868, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [3], "expected": 12.828872371405799, "mode": "rel", "tol": 1e-8 }
+      ]
+    }
+  ]
+}

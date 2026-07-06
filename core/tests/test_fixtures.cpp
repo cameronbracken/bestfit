@@ -1628,6 +1628,28 @@ struct EstimationCase {
     std::unique_ptr<bestfit::models::Bulletin17CDistribution> b17c;
 };
 
+// Seeded ISimulatable draw, flattened to a 1-D vector so the `simulated_value [i]` digest works
+// uniformly across model types. Most Phase 4-7 models are ISimulatable<std::vector<double>> and
+// pass through unchanged; BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), so its
+// draw is flattened ROW-MAJOR (i = row*2 + col) -- the same order the R/Python glue and the README
+// schema use. Throws if the model is neither.
+static std::vector<double> simulate_flat(bestfit::models::ModelBase* model, int sample_size,
+                                         int seed) {
+    if (auto* s = dynamic_cast<bestfit::models::ISimulatable<std::vector<double>>*>(model))
+        return s->generate_random_values(sample_size, seed);
+    if (auto* s = dynamic_cast<
+            bestfit::models::ISimulatable<std::vector<std::vector<double>>>*>(model)) {
+        std::vector<std::vector<double>> mat = s->generate_random_values(sample_size, seed);
+        std::vector<double> flat;
+        for (const auto& row : mat)
+            for (double v : row) flat.push_back(v);
+        return flat;
+    }
+    throw std::runtime_error(
+        "model_estimation Simulation target: model is not ISimulatable<vector> or "
+        "ISimulatable<Matrix2D>");
+}
+
 static EstimationCase build_and_run_estimation(const std::string& target, const json& construct,
                                                  const json& datasets) {
     const auto& model_spec = construct["model"];
@@ -1670,28 +1692,39 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     auto model = bestfit::models::spec::build_model_from_json(model_spec.dump(), data);
 
     if (target == "Simulation") {
-        auto* simulatable =
-            dynamic_cast<bestfit::models::ISimulatable<std::vector<double>>*>(model.get());
-        if (simulatable == nullptr)
-            throw std::runtime_error("model_estimation Simulation target: model is not ISimulatable");
-        std::vector<double> draws = simulatable->generate_random_values(
-            construct["sample_size"].get<int>(), construct.value("seed", -1));
+        std::vector<double> draws = simulate_flat(model.get(), construct["sample_size"].get<int>(),
+                                                  construct.value("seed", -1));
         return EstimationCase{std::move(model), std::monostate{}, std::move(draws)};
     }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori") {
         auto method = construct.contains("optimizer")
                           ? parse_optimization_method(construct["optimizer"].get<std::string>())
                           : estimation::OptimizationMethod::DifferentialEvolution;
+        // Optional seeded-draw digest off the FITTED model (P3): when `sample_size` is present,
+        // pin the estimator's best parameters back into the model and cache one seeded draw --
+        // the same shared `simulated_value` arm the Simulation/GMM targets use, letting one MLE
+        // smoke file cover parameter + max_log_likelihood + a seeded draw for the new families.
+        auto cache_draw = [&](bestfit::models::ModelBase& fitted, const std::vector<double>& best) {
+            std::vector<double> draws;
+            if (construct.contains("sample_size")) {
+                fitted.set_parameter_values(best);
+                draws = simulate_flat(&fitted, construct["sample_size"].get<int>(),
+                                      construct.value("seed", -1));
+            }
+            return draws;
+        };
         if (target == "MaximumLikelihood") {
             auto est = std::make_unique<estimation::MaximumLikelihood>(*model, method);
             if (!est->estimate())
                 throw std::runtime_error("MaximumLikelihood::estimate() failed for a fixture case");
-            return EstimationCase{std::move(model), std::move(est)};
+            auto draws = cache_draw(*model, est->best_parameter_set().values);
+            return EstimationCase{std::move(model), std::move(est), std::move(draws)};
         }
         auto est = std::make_unique<estimation::MaximumAPosteriori>(*model, method);
         if (!est->estimate())
             throw std::runtime_error("MaximumAPosteriori::estimate() failed for a fixture case");
-        return EstimationCase{std::move(model), std::move(est)};
+        auto draws = cache_draw(*model, est->best_parameter_set().values);
+        return EstimationCase{std::move(model), std::move(est), std::move(draws)};
     }
     if (target == "BayesianAnalysis") {
         // Mirrors the oracle emitter's BuildEstimation: construct with the fixture's sampler type

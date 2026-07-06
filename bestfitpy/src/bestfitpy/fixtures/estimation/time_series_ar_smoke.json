@@ -1,0 +1,35 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task P4): the fitted parameters, log-likelihood, AIC and the seeded ISimulatable draw are dumped from the REAL RMC.BestFit AutoRegressive MLE (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. Optimizer-dependent fit quantities carry rel 1e-8 (the C++/R/Python port reproduces the C# values to ~1e-13). The seeded draw is taken off the FITTED + pinned model (P3 arm); the fit-independent bit-identity of the MersenneTwister stream is proven separately in time_series_ar_sim.json at rel 1e-9.",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "ar1_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ar",
+          "dataset": "series",
+          "orders": { "p": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 13.490939683928751, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [2], "expected": 1.2206679594612502, "mode": "rel", "tol": 1e-8 },
+        { "method": "max_log_likelihood", "args": [], "expected": -30.74885080460084, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "args": [], "expected": 67.49770160920167, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [0], "expected": 13.100506116529186, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [1], "expected": 14.264583605155542, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [4], "expected": 14.503390895514606, "mode": "rel", "tol": 1e-8 }
+      ]
+    }
+  ]
+}

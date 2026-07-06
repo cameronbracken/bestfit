@@ -1,7 +1,7 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
 > **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4,
-> Phase 5, and Phase 6 are **complete**.
+> Phase 5, Phase 6, and Phase 7a are **complete**.
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -106,6 +106,28 @@
 > unported. B17C GMM is always just-identified (`NumberOfMomentConditions == NumberOfParameters`),
 > so its J-statistic p-value is structurally `NaN` and no over-identified oracle is reachable (see
 > `docs/upstream-csharp-issues.md`). Pending CI run and PR.
+>
+> Phase 7a delivered the four remaining ModelBase model families, fit by the already-ported
+> MLE/MAP/Bayesian estimators. TimeSeries -- `AutoRegressive`/`MovingAverage`/`ARIMA`/`ARIMAX`
+> (all `ModelBase + ISimulatable`, preserving the AR/MA warm-up and the conditional-vs-all-t
+> likelihood divergence). SpatialExtremes -- `SpatialGEV` (the hierarchical Renard GEV) over the
+> three correlation models (BasicExponential/PoweredExponential/Spherical) plus
+> `CachedMultivariateNormal`, `GaussianCopula`, and `SpatialRegressionErrors`, keeping the
+> non-canonical spatial-error log-density decomposition. RatingCurve -- the BaRatin addition-mode
+> stage-discharge model (1-3 segments, log10-space Normal residual likelihood, optional Jeffreys
+> 1/sigma). And BivariateDistribution -- two `IUnivariateModel` marginals plus a ported Numerics
+> copula via `CreateCopula` (CopulaEstimationMethod InferenceFromMargins default / PseudoLikelihood).
+> These sit atop the P1/P2 prerequisites: the authorized `IUnivariateModel` resolution on
+> `univariate_distribution_model.hpp`, `statistics::maximum`, the ported Numerics `BoxCox` transform
+> (`numerics/data/box_cox.hpp`), and the thin `numerics/data/time_series/time_series.hpp` adapter.
+> Everything is fixture-validated in C++/R/Python and reproduced against the real Numerics/
+> RMC.BestFit libraries by the dotnet oracle gate (`verify_oracles.py`: 3930 reproduced, 0 failed,
+> 11 documented GEV std-err skips; ctest 49/49, `test_fixtures` 3941 checks; testthat 3539/0;
+> pytest 563). The seeded `GenerateRandomValues`/`GenerateRandomSeries` draws reproduce the C#
+> MersenneTwister stream bit-for-bit and are bit-identical across R and Python via the two `*_sim`
+> digest fixtures. Documented severances carried in the ported headers: the ARIMAX covariate
+> forecast-tail extension (CovariateExtensionMethod BlockBootstrap/KNN) and the heavy 2,334-line
+> Numerics TimeSeries container (interpolation / file-I/O / hypothesis tests). Pending CI run and PR.
 >
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
 > Linux/macOS/Windows as of the Phase 4 merge (PR #6); the Phase 5 branch (`phase5-models`) has
@@ -346,10 +368,30 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    the dotnet oracle gate (3871 reproduced, 0 failed, 11 GEV std-err skips). Severed to Phase 7:
    the GMM Influence/Leverage Diagnostics region (throwing stubs pending RMC.BestFit.Diagnostics),
    the DataFrame JackKnife/Resample/BootstrapDataFrame/ShiftDistribution surface, and the Numerics
-   Functions/ non-link classes. Pending CI run and PR. Phase 7 is now the clear remainder:
-   TimeSeries/SpatialExtremes/Bivariate/RatingCurve plus the Analyses layer (including
-   Bulletin17CAnalysis and the DataFrame bootstrap surface).
+   Functions/ non-link classes.
+   [DONE — models slice (Phase 7a)] The four remaining ModelBase model families, fit by the
+   already-ported MLE/MAP/Bayesian estimators: TimeSeries (AutoRegressive/MovingAverage/ARIMA/
+   ARIMAX), SpatialExtremes (SpatialGEV hierarchical Renard model + the three correlation models +
+   CachedMultivariateNormal + GaussianCopula + SpatialRegressionErrors), RatingCurve (BaRatin
+   addition-mode stage-discharge), and BivariateDistribution (two IUnivariateModel marginals + a
+   ported copula, IFM/Pseudo) -- atop the P1/P2 prerequisites (the authorized IUnivariateModel
+   resolution on univariate_distribution_model.hpp, statistics::maximum, numerics/data/box_cox.hpp,
+   the thin numerics/data/time_series/time_series.hpp adapter). Fixture-validated in C++/R/Python
+   and reproduced against C# by the dotnet oracle gate (3930 reproduced, 0 failed, 11 GEV std-err
+   skips; ctest 49/49, test_fixtures 3941 checks; testthat 3539/0; pytest 563); seeded draws are
+   bit-identical across R and Python via the two *_sim digest fixtures. Documented severances
+   carried in the ported headers: the deferred ARIMAX covariate forecast-tail extension
+   (CovariateExtensionMethod BlockBootstrap/KNN) and the heavy 2,334-line Numerics TimeSeries
+   container. Pending CI run and PR. The Models phase is now complete; the clear remainder is
+   Phase 8 (numbered item 7 below).
 7. BestFit `Analyses` + `Diagnostics` — the user-facing API (`univariate_analysis()` etc.).
+   The remaining Phase 8 is the user-facing Analyses/Diagnostics layer: `UnivariateAnalysis`/
+   `FittingAnalysis`/`Bulletin17CAnalysis`, `UncertaintyAnalysisResults` + `ProbabilityOrdinates`,
+   the DataFrame bootstrap surface (JackKnife/Resample/BootstrapDataFrame/ShiftDistribution +
+   `Random.NextIntegers`, consumed ONLY by Bulletin17CAnalysis per the scout-confirmed scope
+   correction in PHASE7_PLAN.md), and the CS0104 YeoJohnsonLink emitter patch (needed only to
+   oracle the Analyses layer). Diagnostics stays deferred: RMC.BestFit.Diagnostics is unported and
+   the GMM Influence/Leverage region still ships as throwing stubs.
 
 Each phase merges only when its fixtures pass in all three harnesses and all CI jobs are green.
 
