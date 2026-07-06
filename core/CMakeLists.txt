@@ -35,6 +35,7 @@ set(BF_TESTS
   test_bayesian_analysis
   test_data_types
   test_data_frame
+  test_data_frame_bootstrap
   test_plotting_positions_df
   test_threshold_diagnostics
   test_trend_functions

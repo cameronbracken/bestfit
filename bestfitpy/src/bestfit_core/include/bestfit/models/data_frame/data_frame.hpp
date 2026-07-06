@@ -29,9 +29,17 @@
 // SetLowOutliersFromThreshold), the plain PlottingParameter property, Validate(), a
 // direct deep Clone() (the C# clones via an XElement round trip; the direct clone has the
 // same observable result, including the empty lazily-rebuilt full series noted in the C#
-// remarks), and (M5) CalculatePlottingPositions / ApplyLangbeinConversion -- the
+// remarks), (M5) CalculatePlottingPositions / ApplyLangbeinConversion -- the
 // Hirsch-Stedinger censored plotting positions, defined out-of-line in
-// data_frame_plotting.hpp (included at the bottom of this file).
+// data_frame_plotting.hpp (included at the bottom of this file) -- and (A3) the
+// bootstrap/resampling surface: JackKnife, Resample, BootstrapDataFrame, and
+// ShiftDistribution (the `#region Bootstrap Methods`, DataFrame.cs 2059-2543).
+// Invalidation contract: BootstrapDataFrame and Resample call process_threshold_series()
+// as the last (or only-when-create_full_time_series) step matching the C#; the C#
+// SuppressCollectionChanged event-suppression lines have no C++ equivalent (no events) and
+// are dropped. ShiftDistribution is C# `private static`; the C++ port exposes it
+// `public static` (access modifier only, per the ThresholdData::set_number_below
+// internal->public precedent) so the arm-by-arm shift is directly testable.
 //
 // Deliberately NOT ported:
 //   - the hypothesis-test facade (JarqueBera/LjungBox/EqualVarianceTtest/
@@ -45,8 +53,6 @@
 //     return maps to std::optional<std::vector<double>> (empty optional == C# null).
 //   - CreateBlockSeries / CreatePeaksOverThresholdSeries (need the unported TimeSeries
 //     container), CreateFromUSGS + USGSRawText (network import)
-//   - the bootstrap/resampling surface (JackKnife, Resample, BootstrapDataFrame,
-//     ShiftDistribution -- follow-up alongside the estimation consumers)
 //   - XML (ToXElement / XElement constructor), INotifyPropertyChanged, and the
 //     concurrency machinery (_syncRoot, Volatile, SnapshotNonNull)
 //
@@ -60,6 +66,7 @@
 // tie-sensitive oracle proving which order the C# produces here.
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -82,10 +89,25 @@
 #include "bestfit/models/support/validation_result.hpp"
 #include "bestfit/numerics/data/multiple_grubbs_beck_test.hpp"
 #include "bestfit/numerics/data/regression/linear_regression.hpp"
+#include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/binomial.hpp"
 #include "bestfit/numerics/distributions/empirical_distribution.hpp"
+#include "bestfit/numerics/distributions/gamma_distribution.hpp"
+#include "bestfit/numerics/distributions/generalized_beta.hpp"
+#include "bestfit/numerics/distributions/ln_normal.hpp"
+#include "bestfit/numerics/distributions/log_normal.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
+#include "bestfit/numerics/distributions/pert.hpp"
+#include "bestfit/numerics/distributions/student_t.hpp"
+#include "bestfit/numerics/distributions/triangular.hpp"
+#include "bestfit/numerics/distributions/truncated_normal.hpp"
+#include "bestfit/numerics/distributions/uniform.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/vector.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "bestfit/numerics/tools.hpp"
+#include "bestfit/numerics/utilities/extension_methods.hpp"
 
 namespace bestfit::models {
 
@@ -553,7 +575,383 @@ class DataFrame {
         return copy;
     }
 
+    // ===================== Bootstrap Methods (A3) =====================
+    // Ported from the C# `#region Bootstrap Methods` (DataFrame.cs 2059-2543). The C#
+    // suppresses collection-changed events for speed inside these methods
+    // (SuppressCollectionChanged = true / false); the C++ port has no events, so those
+    // lines drop (the invalidation strategy is documented at the top of this file --
+    // recompute explicitly via process_threshold_series() / lazily via full_time_series()).
+
+    // Generate a jackknife data frame by leaving out one observation (C# JackKnife,
+    // line 2066). Returns a new reduced frame: clone() the frame, then remove the single
+    // observation at the global `index`. The C# searches the series in order Exact ->
+    // Uncertain -> Interval to remove the ordinate; for a Threshold hit it decrements the
+    // covering threshold's NumberAbove/NumberBelow by the sub-range (above region
+    // [StartIndex, StartIndex + NumberAbove); below region [StartIndex + NumberAbove,
+    // EndIndex]) rather than erasing a stored point. Consumed by A8 AccelerationConstants.
+    DataFrame JackKnife(int index) {
+        DataFrame dataframe = clone();
+
+        // Exact data
+        for (std::size_t i = 0; i < dataframe.exact_series_.count(); i++) {
+            if (dataframe.exact_series_[i].index() == index) {
+                dataframe.exact_series_.remove_at(i);
+                return dataframe;
+            }
+        }
+        // Uncertain data
+        for (std::size_t i = 0; i < dataframe.uncertain_series_.count(); i++) {
+            if (dataframe.uncertain_series_[i].index() == index) {
+                dataframe.uncertain_series_.remove_at(i);
+                return dataframe;
+            }
+        }
+        // Interval data
+        for (std::size_t i = 0; i < dataframe.interval_series_.count(); i++) {
+            if (dataframe.interval_series_[i].index() == index) {
+                dataframe.interval_series_.remove_at(i);
+                return dataframe;
+            }
+        }
+        // Threshold data
+        for (std::size_t t = 0; t < dataframe.threshold_series_.count(); t++) {
+            ThresholdData& data = dataframe.threshold_series_[t];
+            // Number above: [StartIndex, StartIndex + NumberAbove)
+            for (int i = data.start_index(); i < data.start_index() + data.number_above();
+                 i++) {
+                if (index == i) {
+                    data.set_number_above(data.number_above() - 1);
+                    return dataframe;
+                }
+            }
+            // Number below: [StartIndex + NumberAbove, EndIndex]
+            for (int i = data.start_index() + data.number_above(); i <= data.end_index();
+                 i++) {
+                if (index == i) {
+                    data.set_number_below(data.number_below() - 1);
+                    return dataframe;
+                }
+            }
+        }
+
+        return dataframe;
+    }
+
+    // Generate a resampled data frame using nonparametric bootstrap resampling with
+    // replacement (C# Resample, line 2164). Draws indices via the ranged
+    // next_integers(prng, startIndex, endIndex + 1, FullTimeSeries.Count, replace = true),
+    // sorts them, then rebuilds the frame by index lookup across all four series (including
+    // the threshold bins above/below). The above/below split uses the C# Resample
+    // convention: above region [StartIndex, StartIndex + NumberAbove); below region
+    // [StartIndex + NumberAbove, EndIndex].
+    DataFrame Resample(numerics::sampling::MersenneTwister& prng,
+                       bool create_full_time_series = false) {
+        // FullTimeSeries getter rebuilds lazily when empty (C# CreateFullTimeSeries guard).
+        const std::vector<std::unique_ptr<Data>>& full = full_time_series();
+        DataFrame dataframe;
+        if (full.empty()) return dataframe;
+
+        int start_index = full.front()->index();
+        int end_index = full.back()->index();
+        std::vector<int> indexes = numerics::utilities::next_integers(
+            prng, start_index, end_index + 1, static_cast<int>(full.size()), true);
+        std::sort(indexes.begin(), indexes.end());
+
+        for (std::size_t k = 0; k < indexes.size(); k++) {
+            int idx = indexes[k];
+            bool found = false;
+
+            // Exact data
+            for (std::size_t i = 0; i < exact_series_.count(); i++) {
+                if (exact_series_[i].index() == idx) {
+                    dataframe.exact_series_.add(exact_series_[i].clone());
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+
+            // Uncertain data
+            for (std::size_t i = 0; i < uncertain_series_.count(); i++) {
+                if (uncertain_series_[i].index() == idx) {
+                    dataframe.uncertain_series_.add(uncertain_series_[i].clone());
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+
+            // Interval data
+            for (std::size_t i = 0; i < interval_series_.count(); i++) {
+                if (interval_series_[i].index() == idx) {
+                    dataframe.interval_series_.add(interval_series_[i].clone());
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+
+            // Threshold data - check each threshold period
+            for (std::size_t i = 0; i < threshold_series_.count(); i++) {
+                const ThresholdData& threshold = threshold_series_[i];
+                // Above-threshold region
+                if (idx >= threshold.start_index() &&
+                    idx < threshold.start_index() + threshold.number_above()) {
+                    ThresholdData* existing = find_threshold_bin(
+                        dataframe.threshold_series_, threshold.start_index(),
+                        threshold.end_index());
+                    if (existing != nullptr) {
+                        existing->set_number_above(existing->number_above() + 1);
+                    } else {
+                        ThresholdData new_threshold = threshold.clone();
+                        new_threshold.set_number_above(1);
+                        new_threshold.set_number_below(0);
+                        dataframe.threshold_series_.add(std::move(new_threshold));
+                    }
+                    found = true;
+                    break;
+                }
+                // Below-threshold region
+                if (idx >= threshold.start_index() + threshold.number_above() &&
+                    idx <= threshold.end_index()) {
+                    ThresholdData* existing = find_threshold_bin(
+                        dataframe.threshold_series_, threshold.start_index(),
+                        threshold.end_index());
+                    if (existing != nullptr) {
+                        existing->set_number_below(existing->number_below() + 1);
+                    } else {
+                        ThresholdData new_threshold = threshold.clone();
+                        new_threshold.set_number_above(0);
+                        new_threshold.set_number_below(1);
+                        dataframe.threshold_series_.add(std::move(new_threshold));
+                    }
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (create_full_time_series) dataframe.create_full_time_series();
+
+        return dataframe;
+    }
+
+    // Generates a parametric bootstrap data frame by simulating the physical observation
+    // process (C# BootstrapDataFrame, line 2336). Per-series behaviour mirrors the C#:
+    // exact -> unconditional inverse_cdf(U); uncertain -> shift the measurement-error
+    // distribution to center on a simulated value; interval -> reclassify against the
+    // original bounds; threshold -> clone systematic (NumberBelow == 0) bins, else resample
+    // the exceedance count from Binomial(n, 1 - F(threshold)). Finally re-flags low
+    // outliers and calls process_threshold_series() (the C# ordering). Consumed by A8's
+    // parametric bootstrap. Reference: Davison, A.C. and Hinkley, D.V. (1997). Bootstrap
+    // Methods and Their Application, Sections 3.5 and 7.3.
+    DataFrame BootstrapDataFrame(
+        const numerics::distributions::UnivariateDistributionBase& distribution,
+        numerics::sampling::MersenneTwister& prng, bool create_full_time_series = false) {
+        DataFrame dataframe;
+        bool filter_low_outliers = number_of_low_outliers_ > 0;
+
+        // Exact data: unconditional draw from the fitted distribution.
+        for (std::size_t i = 0; i < exact_series_.count(); i++) {
+            double simulated_value = distribution.inverse_cdf(prng.next_double());
+            dataframe.exact_series_.add(ExactData(exact_series_[i].index(), simulated_value));
+        }
+
+        // Uncertain data: draw a "true" magnitude, then shift the error distribution.
+        for (std::size_t i = 0; i < uncertain_series_.count(); i++) {
+            double simulated_value = distribution.inverse_cdf(prng.next_double());
+            auto shifted_dist =
+                shift_distribution(uncertain_series_[i].distribution(), simulated_value);
+            dataframe.uncertain_series_.add(
+                UncertainData(uncertain_series_[i].index(), std::move(shifted_dist)));
+        }
+
+        // Interval data: unconditional draw, then re-classify against original bounds.
+        for (std::size_t i = 0; i < interval_series_.count(); i++) {
+            const IntervalData& data = interval_series_[i];
+            double simulated_value = distribution.inverse_cdf(prng.next_double());
+            if (simulated_value < data.lower_value()) {
+                double upper = data.lower_value();
+                double lower =
+                    std::min(upper - 1E-8,
+                             distribution.inverse_cdf(numerics::kDoubleMachineEpsilon));
+                double mid = 0.5 * (lower + upper);
+                dataframe.interval_series_.add(
+                    IntervalData(data.index(), lower, mid, upper));
+            } else if (simulated_value > data.upper_value()) {
+                double lower = data.upper_value();
+                double upper = std::max(
+                    lower + 1E-8,
+                    distribution.inverse_cdf(1.0 - numerics::kDoubleMachineEpsilon));
+                double mid = 0.5 * (lower + upper);
+                dataframe.interval_series_.add(
+                    IntervalData(data.index(), lower, mid, upper));
+            } else {
+                dataframe.interval_series_.add(IntervalData(
+                    data.index(), data.lower_value(),
+                    0.5 * (data.lower_value() + data.upper_value()), data.upper_value()));
+            }
+        }
+
+        // Threshold data: systematic clone vs. historical Binomial resample.
+        for (std::size_t i = 0; i < threshold_series_.count(); i++) {
+            const ThresholdData& data = threshold_series_[i];
+            if (data.number_below() == 0) {
+                // Systematic threshold: clone with original counts to avoid spurious
+                // NumberAbove double-counting the exact observations.
+                dataframe.threshold_series_.add(data.clone());
+            } else {
+                // Historical threshold: resample the exceedance count from Binomial(n, p),
+                // p = P(X > threshold) under the fitted distribution.
+                double p = 1.0 - distribution.cdf(data.value());
+                int n = data.duration() - data.number_above();
+                int n_above;
+                if (n <= 0 || p <= 0.0) {
+                    n_above = 0;
+                } else if (p >= 1.0) {
+                    n_above = n;
+                } else {
+                    numerics::distributions::Binomial binomial_dist(p, n);
+                    n_above = std::max(
+                        0, static_cast<int>(std::floor(
+                               binomial_dist.inverse_cdf(prng.next_double()))));
+                    n_above = std::min(n_above, n);
+                }
+                int n_below = data.duration() - n_above;
+                ThresholdData new_threshold(data.start_index(), data.end_index(),
+                                            data.value());
+                new_threshold.set_number_above(n_above);
+                new_threshold.set_number_below(n_below);
+                dataframe.threshold_series_.add(std::move(new_threshold));
+            }
+        }
+
+        // Low outliers: re-flag resampled exact values below the threshold. Inline marking
+        // (not set_low_outliers_from_threshold) to avoid the >50%-censored validation guard.
+        if (filter_low_outliers) {
+            dataframe.low_outlier_threshold_ = low_outlier_threshold_;
+            dataframe.number_of_low_outliers_ = 0;
+            for (std::size_t i = 0; i < dataframe.exact_series_.count(); i++) {
+                if (dataframe.exact_series_[i].value() < low_outlier_threshold_) {
+                    dataframe.exact_series_[i].set_is_low_outlier(true);
+                    dataframe.number_of_low_outliers_++;
+                }
+            }
+        }
+
+        // Post-processing (mirror the C# ordering of the final steps).
+        dataframe.process_threshold_series();
+        if (create_full_time_series) dataframe.create_full_time_series();
+
+        return dataframe;
+    }
+
+    // Creates a new distribution of the same type, shifted so that its center is at
+    // new_center while preserving the original measurement error spread (C# ShiftDistribution,
+    // line 2485). For additive-error families the distribution is shifted by
+    // `new_center - original.Mean`; for multiplicative-error families (LogNormal, Gamma) a
+    // ratio-based shift preserves the CV. Unrecognized types fall back to a clone.
+    //
+    // The C# declares this `private static`; the C++ port exposes it `public static`
+    // following the ThresholdData::set_number_below precedent (a C# `internal`/`private`
+    // widened for DataFrame and for the C++-only test harness, not for end users) so the
+    // arm-by-arm shift behaviour is directly testable. Access modifier only -- no numerical
+    // deviation.
+    static std::unique_ptr<numerics::distributions::UnivariateDistributionBase>
+    shift_distribution(
+        const numerics::distributions::UnivariateDistributionBase& original,
+        double new_center) {
+        namespace nd = numerics::distributions;
+        double original_mean = original.mean();
+        double shift = new_center - original_mean;
+
+        // Guard against degenerate cases (C#: double.IsNaN || double.IsInfinity).
+        if (std::isnan(shift) || std::isinf(shift)) return original.clone();
+
+        switch (original.type()) {
+            case nd::UnivariateDistributionType::Normal: {
+                const auto& n = static_cast<const nd::Normal&>(original);
+                return std::make_unique<nd::Normal>(n.mu() + shift, n.sigma());
+            }
+            case nd::UnivariateDistributionType::TruncatedNormal: {
+                const auto& tn = static_cast<const nd::TruncatedNormal&>(original);
+                return std::make_unique<nd::TruncatedNormal>(
+                    tn.mu() + shift, tn.sigma(), tn.min_param() + shift,
+                    tn.max_param() + shift);
+            }
+            case nd::UnivariateDistributionType::StudentT: {
+                const auto& st = static_cast<const nd::StudentT&>(original);
+                return std::make_unique<nd::StudentT>(st.mu() + shift, st.sigma(),
+                                                      st.degrees_of_freedom());
+            }
+            case nd::UnivariateDistributionType::LogNormal: {
+                const auto& ln = static_cast<const nd::LogNormal&>(original);
+                // Multiplicative shift in log-space preserves the CV.
+                double ratio = (original_mean > 0 && new_center > 0)
+                                   ? new_center / original_mean
+                                   : 1.0;
+                double new_mu = ln.mu() + std::log(std::max(ratio, 1e-12));
+                return std::make_unique<nd::LogNormal>(new_mu, ln.sigma());
+            }
+            case nd::UnivariateDistributionType::LnNormal: {
+                const auto& lnn = static_cast<const nd::LnNormal&>(original);
+                // C# uses the real-space (Mean, StandardDeviation) constructor.
+                return std::make_unique<nd::LnNormal>(lnn.mean() + shift,
+                                                      lnn.standard_deviation());
+            }
+            case nd::UnivariateDistributionType::GammaDistribution: {
+                const auto& g = static_cast<const nd::GammaDistribution&>(original);
+                // Scale shift preserves shape (and CV).
+                double ratio = (original_mean > 0 && new_center > 0)
+                                   ? new_center / original_mean
+                                   : 1.0;
+                double new_scale = g.theta() * ratio;
+                return std::make_unique<nd::GammaDistribution>(std::max(new_scale, 1e-12),
+                                                               g.kappa());
+            }
+            case nd::UnivariateDistributionType::Uniform: {
+                const auto& u = static_cast<const nd::Uniform&>(original);
+                return std::make_unique<nd::Uniform>(u.min() + shift, u.max() + shift);
+            }
+            case nd::UnivariateDistributionType::Triangular: {
+                const auto& t = static_cast<const nd::Triangular&>(original);
+                return std::make_unique<nd::Triangular>(
+                    t.min_val() + shift, t.most_likely() + shift, t.max_val() + shift);
+            }
+            case nd::UnivariateDistributionType::Pert: {
+                const auto& p = static_cast<const nd::Pert&>(original);
+                return std::make_unique<nd::Pert>(p.min_val() + shift,
+                                                  p.most_likely() + shift,
+                                                  p.max_val() + shift);
+            }
+            case nd::UnivariateDistributionType::GeneralizedBeta: {
+                const auto& gb = static_cast<const nd::GeneralizedBeta&>(original);
+                return std::make_unique<nd::GeneralizedBeta>(
+                    gb.alpha(), gb.beta(), gb.min_val() + shift, gb.max_val() + shift);
+            }
+            default:
+                // Unrecognized distribution type -- clone as-is. The C# logs a
+                // Debug.WriteLine here; ported as a silent no-throw path per the global
+                // constraint.
+                return original.clone();
+        }
+    }
+
    private:
+    // Finds the threshold bin in `series` matching (start_index, end_index) -- the C#
+    // FirstOrDefault(t => t.StartIndex == ... && t.EndIndex == ...) used by Resample.
+    // Returns nullptr when no bin matches.
+    static ThresholdData* find_threshold_bin(ThresholdSeries& series, int start_index,
+                                             int end_index) {
+        for (std::size_t i = 0; i < series.count(); i++) {
+            if (series[i].start_index() == start_index &&
+                series[i].end_index() == end_index) {
+                return &series[i];
+            }
+        }
+        return nullptr;
+    }
+
     // The sorted plotting-position complements of the exact + uncertain + interval series
     // (the shared tail of both C# GetNonparametricMoments methods; B9).
     std::vector<double> plotting_position_complements() const {
