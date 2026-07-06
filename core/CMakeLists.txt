@@ -61,6 +61,7 @@ set(BF_TESTS
   test_arimax
   test_rating_curve
   test_bivariate_distribution
+  test_probability_ordinates
 )
 
 # Sobol test takes the direction-number file as its sole argument.
