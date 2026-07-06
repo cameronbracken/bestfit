@@ -31,6 +31,7 @@
 //   - BasicExponential_ToXElement_ContainsTypeAttribute (SpatialCorrelationTests): XML/
 //     serialization only -- ToXElement is a project-wide skip.
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <vector>
 

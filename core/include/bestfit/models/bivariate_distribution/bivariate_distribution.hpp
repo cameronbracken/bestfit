@@ -292,6 +292,9 @@ class BivariateDistribution : public ModelBase,
         if (n == 0) return {};
 
         std::vector<double> result(n);
+        // NOTE (parity): C# (BivariateDistribution.cs:509) does NOT null-check Copula here; the
+        // added `copula_ == nullptr ||` guard is defensive and unreachable, since set_copula()
+        // throws on null so copula_ is never null post-construction.
         if (copula_ == nullptr ||
             parameters.size() !=
                 static_cast<std::size_t>(copula_->number_of_copula_parameters())) {
@@ -325,6 +328,9 @@ class BivariateDistribution : public ModelBase,
         if (n == 0) return result;
         result.reserve(n);
 
+        // NOTE (parity): C# (BivariateDistribution.cs:555) does NOT null-check Copula here; the
+        // added `copula_ == nullptr ||` guard is defensive and unreachable, since set_copula()
+        // throws on null so copula_ is never null post-construction.
         if (copula_ == nullptr ||
             parameters.size() !=
                 static_cast<std::size_t>(copula_->number_of_copula_parameters())) {

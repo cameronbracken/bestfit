@@ -947,6 +947,90 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## CONSISTENCY — BivariateDistribution model-level PseudoLikelihood MLE returns `Estimate()==false` because plotting positions are never calculated on the shared build path
+
+- **Where:** `RMC.BestFit/Models/BivariateDistribution.cs`, `SetSampleData` /
+  `DataLogLikelihood` (the PseudoLikelihood branch) @ fc28c0c, reached via
+  `RMC.BestFit/Estimation/MaximumLikelihood.cs`, `Estimate()`.
+- **What:** under `CopulaEstimationMethod.PseudoLikelihood`, the copula log-density is evaluated at
+  the marginal **plotting positions** the copula's own bounds require to sit strictly inside
+  `(0, 1)`. Those positions come from each marginal `ExactData.PlottingPosition` /
+  `PlottingPositionComplement`, which stay at their construction default (position `0` -> complement
+  `1.0`, i.e. NOT strictly interior to `(0, 1)`) until `DataFrame.CalculatePlottingPositions()` is
+  run. The model-level MLE path built by the shared spec-builder (and by the oracle emitter) never
+  triggers `CalculatePlottingPositions()`, so the copula parameter bounds are degenerate and
+  `MaximumLikelihood.Estimate()` returns `false` (the fit is rejected) rather than a valid theta.
+  The Normal/IFM and StudentT/IFM cases do NOT depend on plotting positions and fit cleanly.
+- **Evidence:** reproduced against the real C# via the P4 oracle emitter -- a PseudoLikelihood
+  bivariate construction returns `Estimate()==false`, so no valid oracle can be dumped for it (the
+  PseudoLikelihood case was scoped out of P4 for exactly this reason). The Normal/IFM and
+  StudentT/IFM cases dump valid fits and ARE oracle-verified (`fixtures/estimation/
+  bivariate_smoke.json`).
+- **Port handling:** the C++ `bivariate_distribution.hpp` PseudoLikelihood estimate path returns a
+  degenerate ~0.5 theta WITHOUT gating on the same strict-interior validation (its `validate()`
+  guard exists but the estimate path does not reject on it the way the C# lifecycle does), so the
+  two languages diverge on this one method+config. No fixture exercises it; the divergence is
+  documented at the call site and in the P4 report.
+- **Suggested C# fix:** either have the model's `SetSampleData` (or the shared build path) call
+  `CalculatePlottingPositions()` before a PseudoLikelihood fit, or make the copula bounds fall back
+  to a valid interior default when plotting positions have not been computed, so a PseudoLikelihood
+  model-level MLE can succeed. Reconcile the C++ estimate path to honor the same validation once the
+  C# lifecycle is settled.
+
+## CONSISTENCY — StudentT bivariate copula degrees-of-freedom clamps to the upper bound 30 (the Gaussian limit) under a strong dependence
+
+- **Where:** `Numerics/Distributions/Bivariate Copulas/StudentTCopula.cs` (the `df` parameter
+  bounds, upper = 30) reached via a `BivariateDistribution` StudentT-copula IFM fit @ fc28c0c.
+- **What:** for a strongly dependent bivariate sample, the StudentT copula's degrees-of-freedom
+  estimate saturates at its upper bound `30` (where the StudentT copula is numerically
+  indistinguishable from the Gaussian/Normal copula). This is not a wrong result -- it is a valid
+  deterministic boundary optimum: both C# and C++ converge to exactly `30.0`.
+- **Evidence:** the `bivariate_smoke.json` StudentT/IFM case asserts `df == 30.0` at rel `1e-8`;
+  both the real C# (via the emitter) and the C++ port land on exactly the boundary, so it is a
+  stable oracle rather than an optimizer artifact.
+- **Port handling:** mirrored faithfully; the boundary value is asserted directly as the oracle.
+- **Suggested action:** none (design note, not a bug) -- flagged so a future reader does not treat
+  the pinned `df == 30` boundary oracle as a fit that failed to converge into the interior.
+
+## CONSISTENCY — TimeSeries DateTime index vs. the port's integer index is fit-invariant (models never do calendar arithmetic)
+
+- **Where:** `Numerics/Data/TimeSeries/TimeSeries.cs` (the `DateTime`-keyed index) vs. the thin
+  C++ adapter `core/include/bestfit/numerics/data/time_series/time_series.hpp` (a `long` day-count
+  index) @ a2c4dbf.
+- **What:** the C# `TimeSeries` is keyed by `DateTime`; the ported adapter uses an integer index.
+  Every TimeSeries/RatingCurve model consumer touches the index only as a sequence position or an
+  inner-join key -- never as calendar arithmetic -- so the two representations are fit-invariant.
+- **Evidence:** the P4 oracle emitter builds every series in a case from one fixed epoch
+  (`2000-01-01`) with the same interval, and every AR/MA/ARIMA/ARIMAX/RatingCurve fixture
+  reproduces 0-failed; relative alignment (rating-curve stage<->discharge, ARIMAX covariate lags)
+  is preserved exactly by the integer adapter.
+- **Port handling:** the adapter deliberately drops calendar semantics; documented in
+  `time_series.hpp` and the P4 report.
+- **Suggested action:** none -- a one-line note that absolute `start_index` is not modeled and no
+  reachable model path depends on it.
+
+## COSMETIC (port bookkeeping) — the emitter public-path corroboration for three internal-support ctests is a documented deferral
+
+- **Where:** the P4 fix pass, spanning `core/tests/test_box_cox.cpp`,
+  `core/tests/test_spatial_correlation.cpp`, and
+  `core/tests/test_cached_mvn_gaussian_copula.cpp`.
+- **What:** the P4 brief's section-1 named an optional "public-path corroboration" deliverable --
+  dump BoxCox transform / correlation-model `Evaluate` / CachedMVN `LogPDF` spot values through the
+  real C# via the oracle emitter to back the transcribed `1e-10`/`1e-12` leaf oracles in those
+  three internal-support ctests. It was deferred, not implemented.
+- **Evidence:** the three ctest headers each carry a "Deferred to P5" note alongside their existing
+  "Skipped C# test methods" list; the whole corpus still reproduces 0-failed without it.
+- **Port handling:** deferred with justification (redundant defense-in-depth -- the leaf oracles are
+  transcribed values-unaltered from the upstream C# test literals and recomputed inline from the
+  identical closed-form expressions, so they already ARE the C# public-path values; and driving them
+  through the emitter conflicts with the standing constraint that public-API oracles live only in
+  `fixtures/` while internal-support values stay C++-only ctests).
+- **Suggested action:** wire the optional emitter public-path corroboration for these three
+  internal-support families IF the fixture/harness model is later extended to non-distribution
+  support classes.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

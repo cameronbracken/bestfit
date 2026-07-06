@@ -102,6 +102,36 @@ aliases in `estimation/gmm_delegates.hpp` and the `IGMMModel` interface at
 `models/univariate_distribution/bulletin17c_distribution.hpp` plus its moment heart
 `models/univariate_distribution/bulletin17c_moment_machinery.hpp`.
 
+Phase 7a added the four remaining ModelBase model families under `core/include/bestfit/models/`.
+`models/time_series/` holds `auto_regressive.hpp`, `moving_average.hpp`, `arima.hpp`, and
+`arimax.hpp`, plus `transform_type.hpp` (the None/Logarithmic/BoxCox/YeoJohnson `Transform` enum).
+All four models are `ModelBase + ISimulatable`; the AR/MA warm-up and the conditional-vs-all-t
+likelihood divergence are preserved rather than reconciled, and the ARIMAX covariate forecast-tail
+extension (CovariateExtensionMethod BlockBootstrap/KNN) is a documented severance.
+`models/spatial_extremes/` holds `spatial_gev.hpp` (the hierarchical Renard GEV) over
+`spatial_correlation/` (`correlation_function_type.hpp`, `i_correlation_model.hpp`,
+`basic_exponential.hpp`, `powered_exponential.hpp`, `spherical.hpp`) and `copula_models/`
+(`cached_multivariate_normal.hpp`, `gaussian_copula.hpp`, `spatial_regression_errors.hpp`);
+SpatialGEV preserves a non-canonical spatial-error log-density decomposition (the spatial-error
+densities are counted in DataLogLikelihood and also emitted as SpatialError prior components, with
+WAIC/LOO excluding them). `models/rating_curve/` holds `rating_curve.hpp` (the BaRatin
+matrix-of-controls addition-mode stage-discharge model -- 1-3 segments, log10-space Normal residual
+likelihood, optional Jeffreys 1/sigma). `models/bivariate_distribution/` holds
+`bivariate_distribution.hpp` (two IUnivariateModel marginals plus a ported Numerics BivariateCopula
+via CreateCopula; CopulaEstimationMethod InferenceFromMargins default / PseudoLikelihood).
+
+The Phase 7a prerequisites: `numerics/data/box_cox.hpp` is the ported Numerics BoxCox transform
+(Transform/InverseTransform/FitLambda via BrentSearch), mirroring `numerics/data/yeo_johnson.hpp`.
+`numerics/data/time_series/time_series.hpp` is the **thin** TimeSeries adapter over
+`std::vector<double>` + TimeInterval + StartDate (Count/indexer/Add/Clone/ValuesToArray/
+ValuesToList/MeanValue/StandardDeviation/MinValue/Difference), with `support/time_interval.hpp` and
+`support/time_block_window.hpp` beside it; the heavy 2,334-line Numerics container
+(interpolation / file-I/O / hypothesis tests) is a documented severance. `statistics::maximum` was
+added additively to `numerics/data/statistics.hpp`, and `univariate_distribution_model.hpp` carries
+the one authorized structural change (the P1 IUnivariateModel accessor resolution -- the covariant
+const-pointer `distribution()`, the re-exposed `data_frame()` overrides, `is_nonstationary`/
+`validate`).
+
 ## Build & test commands
 
 ```bash
@@ -224,3 +254,29 @@ JackKnife/Resample/BootstrapDataFrame/ShiftDistribution surface (Bulletin17CAnal
 7), and the Numerics Functions/ non-link classes. B17C GMM is always just-identified, so its
 J-statistic p-value is structurally NaN and no over-identified oracle is reachable (see
 `docs/upstream-csharp-issues.md`). Pending: CI run and PR for the Phase 6 branch. See `PLAN.md`.
+
+Phase 7a delivered the four remaining ModelBase model families, fit by the already-ported
+MLE/MAP/Bayesian estimators -- TimeSeries (AutoRegressive/MovingAverage/ARIMA/ARIMAX, preserving
+the AR/MA warm-up and the conditional-vs-all-t likelihood divergence), SpatialExtremes (the
+SpatialGEV hierarchical Renard model over the three correlation models plus
+CachedMultivariateNormal, GaussianCopula, and SpatialRegressionErrors, keeping the non-canonical
+spatial-error log-density decomposition), RatingCurve (BaRatin addition-mode stage-discharge,
+log10-space Normal residual likelihood, optional Jeffreys 1/sigma), and BivariateDistribution (two
+IUnivariateModel marginals plus a ported Numerics copula via CreateCopula, IFM default /
+PseudoLikelihood). These sit atop the P1/P2 prerequisites: the one authorized structural change
+(the IUnivariateModel accessor resolution on `univariate_distribution_model.hpp`),
+`statistics::maximum` added additively to `numerics/data/statistics.hpp`, the ported Numerics
+BoxCox transform (`numerics/data/box_cox.hpp`), and the thin
+`numerics/data/time_series/time_series.hpp` adapter. Everything is fixture-validated in C++/R/Python
+and reproduced against the real Numerics/RMC.BestFit libraries by the dotnet oracle gate (3930
+reproduced, 0 failed, 11 documented GEV std-err skips; ctest 49/49, test_fixtures 3941 checks;
+testthat 3539/0; pytest 563); seeded GenerateRandomValues/Series draws reproduce the C# Mersenne
+Twister stream bit-for-bit and are bit-identical across R and Python via the two `*_sim` digest
+fixtures. Phase 8 is the user-facing Analyses/Diagnostics layer -- UnivariateAnalysis/
+FittingAnalysis/Bulletin17CAnalysis, UncertaintyAnalysisResults + ProbabilityOrdinates, the
+DataFrame bootstrap surface (JackKnife/Resample/BootstrapDataFrame/ShiftDistribution, consumed only
+by Bulletin17CAnalysis), and the CS0104 YeoJohnsonLink emitter patch. Diagnostics stays deferred
+(RMC.BestFit.Diagnostics unported; the GMM Influence/Leverage region still ships as throwing
+stubs). Documented severances carried in the ported headers: the ARIMAX covariate forecast-tail
+extension (CovariateExtensionMethod BlockBootstrap/KNN) and the heavy 2,334-line Numerics
+TimeSeries container. Pending: CI run and PR for the Phase 7a branch. See `PLAN.md`.

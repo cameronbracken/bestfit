@@ -37,6 +37,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -380,6 +381,9 @@ class AutoRegressive : public ModelBase, public ISimulatable<std::vector<double>
         if (!time_series_) throw std::runtime_error("TimeSeries must be set.");
 
         int total_steps = training_time_steps_ + forecast_steps;
+        // Deliberate deviation from C#: a negative total (an invalid negative forecast_steps)
+        // returns empty component vectors here, where C#'s `new double[totalSteps]` would throw
+        // on the negative allocation. Unreachable on normal paths (total_steps >= 0).
         if (total_steps < 0) total_steps = 0;
 
         std::vector<double> y(static_cast<std::size_t>(total_steps), 0.0);
