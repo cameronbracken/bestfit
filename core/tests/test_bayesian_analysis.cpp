@@ -19,8 +19,9 @@
 //     documented error message) for a bad knob (number_of_chains < 4).
 //   - set_default_simulation_options(): the DEMCzs vs. NUTS per-sampler-type defaults match
 //     the C# formulas.
-//   - Gated methods (compute_influence_diagnostics/compute_prior_influence_diagnostics/
-//     compute_leverage_diagnostics) throw (Diagnostics layer deferred).
+//   - Gated methods (compute_influence_diagnostics/compute_prior_influence_diagnostics) still
+//     throw (Diagnostics influence layer is D4); compute_leverage_diagnostics returns a real
+//     LeverageDiagnostics after estimation (D3 un-stub; structural invariants only).
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
@@ -189,9 +190,17 @@ void test_gated_diagnostics_throw() {
     apply_fast_knobs(analysis, 7);
     CHECK_TRUE(analysis.estimate());
 
+    // Influence diagnostics are still gated (D4).
     CHECK_THROWS(analysis.compute_influence_diagnostics());
     CHECK_THROWS(analysis.compute_prior_influence_diagnostics());
-    CHECK_THROWS(analysis.compute_leverage_diagnostics());
+
+    // Leverage diagnostics are now ported (D3 un-stub): a real object at the MAP point.
+    auto diag = analysis.compute_leverage_diagnostics();
+    CHECK_EQ(static_cast<int>(diag.observations().size()),
+             static_cast<int>(sample_data().size()));
+    CHECK_EQ(diag.number_of_parameters(), model.number_of_parameters());
+    CHECK_NEAR(diag.total_leverage(),
+               diag.total_observation_leverage() + diag.total_prior_leverage(), 1e-9);
 }
 
 // --- Task T10: information criteria + point estimates + posterior summaries ------------

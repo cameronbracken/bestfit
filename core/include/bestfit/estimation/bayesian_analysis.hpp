@@ -89,6 +89,7 @@
 #include <utility>
 #include <vector>
 
+#include "bestfit/diagnostics/leverage_diagnostics.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/numerics/data/running_covariance_matrix.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
@@ -823,10 +824,16 @@ class BayesianAnalysis {
             "past Phase 4 (see .claude/PLAN.md); not yet ported.");
     }
 
-    [[noreturn]] void compute_leverage_diagnostics() const {
-        throw std::logic_error(
-            "BayesianAnalysis::compute_leverage_diagnostics: Diagnostics layer is deferred past "
-            "Phase 4 (see .claude/PLAN.md); not yet ported.");
+    // Computes leverage diagnostics at the MAP estimate using the Hessian of the full
+    // posterior (C# BayesianAnalysis 1955). Delegates to the LeverageDiagnostics(IModel,
+    // double[]) constructor at the MCMC MAP values (Results.MAP.Values); no optimization step
+    // is performed (D3 un-stub; the Diagnostics layer is now ported). The C#
+    // InvalidOperationException maps to std::invalid_argument (this file's convention).
+    bestfit::diagnostics::LeverageDiagnostics compute_leverage_diagnostics() const {
+        if (!is_estimated_ || !results_)
+            throw std::invalid_argument(
+                "Estimation must be completed before computing leverage diagnostics.");
+        return bestfit::diagnostics::LeverageDiagnostics(model_, results_->map.values);
     }
 
    private:

@@ -63,6 +63,7 @@
 #include <utility>
 #include <vector>
 
+#include "bestfit/diagnostics/leverage_diagnostics.hpp"
 #include "bestfit/estimation/numerical_diff.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
 #include "bestfit/estimation/support/optimizer_adapters.hpp"
@@ -427,13 +428,13 @@ class MaximumAPosteriori {
                                                               maximum_log_likelihood());
     }
 
-    // Computes leverage diagnostics from the posterior Hessian (C# 672-691). GATED: the
-    // Diagnostics layer (RMC.BestFit.Diagnostics.LeverageDiagnostics) is deferred past Phase 4
-    // (see this file's header GATING note and .claude/PLAN.md), so this stub always throws
-    // rather than porting LeverageDiagnostics.
-    [[noreturn]] void compute_leverage_diagnostics() const {
+    // Computes leverage diagnostics from the posterior Hessian (C# 672-691). Delegates to the
+    // LeverageDiagnostics(IModel, double[]) constructor, which computes the posterior Hessian
+    // numerically at the MAP values (BestParameterSet.Values) -- consistent with the
+    // BayesianAnalysis path (D3 un-stub; the Diagnostics layer is now ported).
+    bestfit::diagnostics::LeverageDiagnostics compute_leverage_diagnostics() const {
         if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
-        throw std::logic_error("LeverageDiagnostics is deferred to the Diagnostics phase");
+        return bestfit::diagnostics::LeverageDiagnostics(model_, best_parameter_set_.values);
     }
 
    private:
