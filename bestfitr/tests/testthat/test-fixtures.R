@@ -597,6 +597,80 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
   }
 }
 
+# --- analysis path (Phase 8: user-facing Analyses layer) -------------------------------------
+# Stateful like model_estimation: one bf_analysis_* glue call per case builds + runs the analysis
+# and returns the full result surface; every assertion reads that single cached list. The
+# construct fields map 1:1 onto the glue args, so R/Python/C++ build byte-identical analyses.
+
+dispatch_analysis <- function(result, method, args) {
+  i1 <- function(x) as.integer(x) + 1L # 0-based fixture index -> 1-based R index
+  switch(method,
+    candidate_count       = length(result$aic),
+    candidate_aic         = result$aic[[i1(args[[1]])]],
+    candidate_bic         = result$bic[[i1(args[[1]])]],
+    candidate_rmse        = result$rmse[[i1(args[[1]])]],
+    candidate_converged   = as.numeric(result$converged[[i1(args[[1]])]]),
+    parameter             = result$parameters[[i1(args[[1]])]],
+    mode_curve            = result$mode_curve[[i1(args[[1]])]],
+    mean_curve            = result$mean_curve[[i1(args[[1]])]],
+    lower_ci              = result$lower_ci[[i1(args[[1]])]],
+    upper_ci              = result$upper_ci[[i1(args[[1]])]],
+    exceedance_probability = result$exceedance_probabilities[[i1(args[[1]])]],
+    point_estimate        = result$point_estimates[[i1(args[[1]])]],
+    beta1                 = result$beta1[[i1(args[[1]])]],
+    nu                    = result$nu[[i1(args[[1]])]],
+    quantile_variance     = result$quantile_variance[[i1(args[[1]])]],
+    aic                   = result$aic[[1]],
+    bic                   = result$bic[[1]],
+    dic                   = result$dic[[1]],
+    rmse                  = result$rmse[[1]],
+    confidence_level      = result$confidence_level[[1]],
+    stop(sprintf("unknown analysis fixture method: %s", method))
+  )
+}
+
+run_analysis_case <- function(target, construct, assertions, datasets) {
+  ns <- asNamespace("bestfitr")
+  geti <- function(name, default) if (!is.null(construct[[name]])) as.integer(construct[[name]]) else default
+  getd <- function(name, default) if (!is.null(construct[[name]])) as.double(construct[[name]]) else default
+  ep <- if (!is.null(construct$exceedance_probabilities)) {
+    as.double(unlist(construct$exceedance_probabilities))
+  } else {
+    numeric(0)
+  }
+
+  if (target == "FittingAnalysis") {
+    data <- as.double(unlist(datasets[[construct$dataset]]))
+    result <- ns$bf_analysis_fit_distributions_(data)
+  } else if (target == "UnivariateAnalysis") {
+    model <- construct$model
+    model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
+    data <- as.double(unlist(datasets[[model$dataset]]))
+    sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
+    result <- ns$bf_analysis_univariate_run_(
+      model_json, data, sampler, geti("iterations", 3000L), geti("output_length", 10000L),
+      getd("credible_level", 0.90), geti("seed", 12345L), ep
+    )
+  } else if (target == "Bulletin17CAnalysis") {
+    model <- construct$model
+    model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
+    data <- as.double(unlist(datasets[[model$dataset]]))
+    um <- if (!is.null(construct$uncertainty_method)) construct$uncertainty_method else "MultivariateNormal"
+    result <- ns$bf_analysis_b17c_run_(
+      model_json, data, um, geti("output_length", 10000L), geti("seed", 12345L),
+      getd("confidence_level", 0.90), ep
+    )
+  } else {
+    stop(sprintf("unknown analysis target: %s", target))
+  }
+
+  for (a in assertions) {
+    args <- if (is.null(a$args)) list() else a$args
+    actual <- dispatch_analysis(result, a$method, args)
+    check_assertion(actual, a)
+  }
+}
+
 test_that("oracle fixtures validate", {
   skip_if_not_installed("jsonlite")
   fdir <- system.file("fixtures", package = "bestfitr")
@@ -613,6 +687,14 @@ test_that("oracle fixtures validate", {
       datasets <- spec$datasets
       for (case in spec$cases) {
         run_estimation_case(target, case$construct, case$assertions, datasets)
+      }
+      next
+    }
+    if (identical(spec$kind, "analysis")) {
+      target <- spec$target
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        run_analysis_case(target, case$construct, case$assertions, datasets)
       }
       next
     }

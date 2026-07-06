@@ -1,0 +1,21 @@
+{
+  "target": "FittingAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/DistributionFitting/FittingAnalysis.cs @ fc28c0c -- A10 LOOSE smoke oracle. FittingAnalysis fits the 14 ported candidate distributions (GeneralizedNormal is skipped -- factory has no case; 15 -> 14) by MLE over an exact-only frame. The GoF metrics come from the seeded DifferentialEvolution optimizer (fixed default prng_seed), so they are deterministic and reproduce bit-identically across C++/R/Python (identical compiled core). Values here are SELF-COMPUTED from the C++ runner and given LOOSE rel tolerances; A11's emitter may tighten them against the real C# FittingAnalysis. candidate_count is an exact structural invariant (14).",
+  "datasets": {
+    "peaks": [45000, 38000, 52000, 61000, 33000, 49000, 55000, 42000, 67000, 39000, 48000, 51000, 36000, 58000, 44000, 53000, 47000, 62000, 41000, 50000]
+  },
+  "cases": [
+    {
+      "name": "fit_14_candidates",
+      "construct": { "dataset": "peaks" },
+      "assertions": [
+        { "method": "candidate_count", "expected": 14, "mode": "equal" },
+        { "method": "candidate_converged", "args": [11], "expected": 1, "mode": "equal" },
+        { "method": "candidate_aic", "args": [11], "expected": 424.51926984004484, "mode": "rel", "tol": 1e-4 },
+        { "method": "candidate_bic", "args": [11], "expected": 426.51073438715281, "mode": "rel", "tol": 1e-4 },
+        { "method": "candidate_rmse", "args": [11], "expected": 1436.0968615642446, "mode": "rel", "tol": 1e-4 }
+      ]
+    }
+  ]
+}

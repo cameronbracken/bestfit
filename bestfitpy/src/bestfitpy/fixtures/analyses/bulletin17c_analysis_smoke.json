@@ -1,0 +1,29 @@
+{
+  "target": "Bulletin17CAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c -- A10 LOOSE smoke oracle. Bulletin17CAnalysis fits an LP3 model by GMM (default MultivariateNormal UQ) then computes the deterministic Cohn-style delta-method CIs (nested Gaussian quadrature over the GMM fit -- no MCMC/bootstrap seed dependence for the point_estimate/CI given the fitted parameters). The GMM fit uses BFGS + a numerical Jacobian (no RNG), so the parameters/point_estimates/CIs reproduce bit-identically across C++/R/Python. confidence_level and the exceedance-probability round-trip are exact structural invariants; point_estimate/lower_ci/upper_ci are SELF-COMPUTED at LOOSE rel tol; A11's emitter may tighten them against the real C# Bulletin17CAnalysis. The 25 default exceedance ordinates ascend, so the point-estimate curve descends.",
+  "datasets": {
+    "peaks": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600, 19200, 13800, 25600, 10500, 16900, 21300, 14700, 8200, 23800, 15900]
+  },
+  "cases": [
+    {
+      "name": "lp3_multivariate_normal",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
+        "uncertainty_method": "MultivariateNormal",
+        "output_length": 200,
+        "seed": 12345,
+        "confidence_level": 0.90
+      },
+      "assertions": [
+        { "method": "confidence_level", "expected": 0.90, "mode": "abs", "tol": 1e-12 },
+        { "method": "exceedance_probability", "args": [0], "expected": 0.000001, "mode": "abs", "tol": 1e-15 },
+        { "method": "exceedance_probability", "args": [18], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
+        { "method": "point_estimate", "args": [18], "expected": 4.194471907979322, "mode": "rel", "tol": 1e-4 },
+        { "method": "lower_ci", "args": [18], "expected": 13499.176574426387, "mode": "rel", "tol": 1e-4 },
+        { "method": "upper_ci", "args": [18], "expected": 18150.558715288727, "mode": "rel", "tol": 1e-4 },
+        { "method": "parameter", "args": [0], "expected": 4.1909286502166205, "mode": "rel", "tol": 1e-4 }
+      ]
+    }
+  ]
+}

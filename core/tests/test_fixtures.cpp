@@ -21,11 +21,16 @@
 #include <variant>
 #include <vector>
 
+#include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
+#include "bestfit/analyses/univariate/univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
 #include "bestfit/estimation/maximum_a_posteriori.hpp"
 #include "bestfit/estimation/maximum_likelihood.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
+#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
+#include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/model_spec.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/support/simulatable.hpp"
@@ -1863,6 +1868,189 @@ static void run_model_estimation(const json& spec) {
     }
 }
 
+// --- analysis (Phase 8: user-facing Analyses layer) -------------------------------------
+//
+// A10: the three finished analyses (UnivariateAnalysis / FittingAnalysis / Bulletin17CAnalysis)
+// become fixture-checkable through this stateful kind, mirroring model_estimation: one
+// build+run per case caches a flat result surface, then every assertion dispatches against it.
+// The construct fields map 1:1 onto the R/Python glue arguments (bf_analysis_*_ /
+// analysis_*), so all three harnesses build byte-identical analyses from the same spec.
+// A10 authors LOOSE, self-computed smoke oracles here; A11's emitter may tighten them.
+namespace an = bestfit::analyses;
+
+static an::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
+    if (s == "MultivariateNormal") return an::UncertaintyMethod::MultivariateNormal;
+    if (s == "Bootstrap") return an::UncertaintyMethod::Bootstrap;
+    throw std::runtime_error("unsupported/ deferred uncertainty method: " + s);
+}
+
+// Flat result surface every analysis assertion reads (only the fields the target populates are
+// filled). Curve/CI vectors are indexed by the exceedance grid; the FittingAnalysis fields carry
+// one entry per candidate.
+struct AnalysisResult {
+    std::vector<double> parameters, mode_curve, mean_curve, lower_ci, upper_ci;
+    std::vector<double> exceedance, point_estimates, beta1, nu, quantile_variance;
+    std::vector<double> cand_aic, cand_bic, cand_rmse, cand_converged;
+    double aic = std::numeric_limits<double>::quiet_NaN();
+    double bic = std::numeric_limits<double>::quiet_NaN();
+    double dic = std::numeric_limits<double>::quiet_NaN();
+    double rmse = std::numeric_limits<double>::quiet_NaN();
+    double confidence_level = std::numeric_limits<double>::quiet_NaN();
+    int candidate_count = 0;
+};
+
+static AnalysisResult build_and_run_analysis(const std::string& target, const json& construct,
+                                             const json& datasets) {
+    auto resolve_dataset = [&](const std::string& key) {
+        std::vector<double> data;
+        for (const auto& v : datasets[key]) data.push_back(parse_num(v));
+        return data;
+    };
+    auto ordinates = [&]() {
+        std::vector<double> ep;
+        if (construct.contains("exceedance_probabilities"))
+            for (const auto& v : construct["exceedance_probabilities"]) ep.push_back(parse_num(v));
+        return ep;
+    };
+    auto apply_ordinates = [](bestfit::numerics::data::ProbabilityOrdinates& po,
+                              const std::vector<double>& ep) {
+        if (ep.empty()) return;
+        po.clear();
+        for (double p : ep) po.push_back(p);
+    };
+
+    AnalysisResult r;
+
+    if (target == "FittingAnalysis") {
+        std::vector<double> data = resolve_dataset(construct["dataset"].get<std::string>());
+        auto df = std::make_unique<bestfit::models::DataFrame>();
+        df->set_exact_series(bestfit::models::ExactSeries(data));
+        df->calculate_plotting_positions();
+        an::FittingAnalysis analysis(std::move(df));
+        analysis.run();
+        const auto& fitted = analysis.fitted_distributions();
+        r.candidate_count = static_cast<int>(fitted.size());
+        for (const auto& fd : fitted) {
+            r.cand_aic.push_back(fd.aic());
+            r.cand_bic.push_back(fd.bic());
+            r.cand_rmse.push_back(fd.rmse());
+            r.cand_converged.push_back(fd.fit_succeeded() ? 1.0 : 0.0);
+        }
+        return r;
+    }
+
+    const json& model_spec = construct["model"];
+    std::vector<double> data = resolve_dataset(model_spec["dataset"].get<std::string>());
+
+    if (target == "UnivariateAnalysis") {
+        auto base = bestfit::models::spec::build_model_from_json(model_spec.dump(), data);
+        auto* raw = dynamic_cast<bestfit::models::UnivariateDistributionModel*>(base.get());
+        if (raw == nullptr) throw std::runtime_error("UnivariateAnalysis requires a univariate_distribution model");
+        base.release();
+        std::unique_ptr<bestfit::models::UnivariateDistributionModel> model(raw);
+        an::UnivariateAnalysis analysis(std::move(model));
+        apply_ordinates(analysis.probability_ordinates(), ordinates());
+        auto& ba = analysis.bayesian_analysis();
+        ba.set_type(parse_sampler_type(construct.value("sampler", std::string("DEMCzs"))));
+        if (construct.contains("credible_level"))
+            ba.set_credible_interval_width(construct["credible_level"].get<double>());
+        if (construct.contains("seed")) ba.set_prng_seed(construct["seed"].get<int>());
+        if (construct.contains("output_length")) ba.set_output_length(construct["output_length"].get<int>());
+        if (construct.contains("iterations")) {
+            int it = construct["iterations"].get<int>();
+            ba.set_iterations(it);
+            ba.set_warmup_iterations(std::max(50, it / 2));
+        }
+        analysis.run();
+        const auto* results = analysis.analysis_results();
+        if (results != nullptr) {
+            auto* pe = analysis.get_point_estimate_distribution();
+            if (pe != nullptr) r.parameters = pe->get_parameters();
+            r.mode_curve = results->mode_curve;
+            r.mean_curve = results->mean_curve;
+            for (const auto& ci : results->confidence_intervals) {
+                r.lower_ci.push_back(ci[0]);
+                r.upper_ci.push_back(ci[1]);
+            }
+            r.aic = results->aic;
+            r.bic = results->bic;
+            r.dic = results->dic;
+            r.rmse = results->rmse;
+        }
+        return r;
+    }
+
+    if (target == "Bulletin17CAnalysis") {
+        auto model = bestfit::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
+        an::Bulletin17CAnalysis analysis(std::move(model));
+        analysis.set_uncertainty_method(
+            parse_uncertainty_method(construct.value("uncertainty_method", std::string("MultivariateNormal"))));
+        apply_ordinates(analysis.probability_ordinates(), ordinates());
+        auto& ba = analysis.bayesian_analysis();
+        if (construct.contains("confidence_level"))
+            ba.set_credible_interval_width(construct["confidence_level"].get<double>());
+        if (construct.contains("seed")) ba.set_prng_seed(construct["seed"].get<int>());
+        if (construct.contains("output_length")) ba.set_output_length(construct["output_length"].get<int>());
+        analysis.run();
+        auto ci = analysis.compute_cohn_style_confidence_intervals();
+        if (ci.has_value()) {
+            r.exceedance = ci->exceedance_probabilities;
+            r.point_estimates = ci->point_estimates;
+            r.lower_ci = ci->lower_ci;
+            r.upper_ci = ci->upper_ci;
+            r.beta1 = ci->beta1;
+            r.nu = ci->nu;
+            r.quantile_variance = ci->quantile_variance;
+            r.confidence_level = ci->confidence_level;
+        }
+        if (analysis.gmm() != nullptr && analysis.gmm()->is_estimated())
+            r.parameters = analysis.gmm()->best_parameter_set().values;
+        return r;
+    }
+
+    throw std::runtime_error("unknown analysis target: " + target);
+}
+
+static double dispatch_analysis(const AnalysisResult& r, const std::string& m, const json& a) {
+    auto idx = [&](int i) { return static_cast<std::size_t>(a[static_cast<std::size_t>(i)].get<int>()); };
+    if (m == "candidate_count") return static_cast<double>(r.candidate_count);
+    if (m == "candidate_aic") return r.cand_aic.at(idx(0));
+    if (m == "candidate_bic") return r.cand_bic.at(idx(0));
+    if (m == "candidate_rmse") return r.cand_rmse.at(idx(0));
+    if (m == "candidate_converged") return r.cand_converged.at(idx(0));
+    if (m == "parameter") return r.parameters.at(idx(0));
+    if (m == "mode_curve") return r.mode_curve.at(idx(0));
+    if (m == "mean_curve") return r.mean_curve.at(idx(0));
+    if (m == "lower_ci") return r.lower_ci.at(idx(0));
+    if (m == "upper_ci") return r.upper_ci.at(idx(0));
+    if (m == "exceedance_probability") return r.exceedance.at(idx(0));
+    if (m == "point_estimate") return r.point_estimates.at(idx(0));
+    if (m == "beta1") return r.beta1.at(idx(0));
+    if (m == "nu") return r.nu.at(idx(0));
+    if (m == "quantile_variance") return r.quantile_variance.at(idx(0));
+    if (m == "aic") return r.aic;
+    if (m == "bic") return r.bic;
+    if (m == "dic") return r.dic;
+    if (m == "rmse") return r.rmse;
+    if (m == "confidence_level") return r.confidence_level;
+    throw std::runtime_error("unknown analysis fixture method: " + m);
+}
+
+static void run_analysis(const json& spec) {
+    std::string target = spec["target"].get<std::string>();
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        AnalysisResult r = build_and_run_analysis(target, c["construct"], datasets);
+        std::string name = c["name"].get<std::string>();
+        for (const auto& as : c["assertions"]) {
+            std::string method = as["method"].get<std::string>();
+            json args = as.contains("args") ? as["args"] : json::array();
+            std::string where = target + "/" + name + "/" + method;
+            check_value(dispatch_analysis(r, method, args), as, where);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]);
@@ -1894,6 +2082,8 @@ int main(int argc, char** argv) {
             run_bootstrap(spec);
         } else if (kind == "model_estimation") {
             run_model_estimation(spec);
+        } else if (kind == "analysis") {
+            run_analysis(spec);
         }
     }
     if (files == 0) {
