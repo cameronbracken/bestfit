@@ -88,7 +88,7 @@ void register_analysis(py::module_& m) {
         "analysis_univariate_run",
         [](const std::string& model_json, const std::vector<double>& dataset,
            const std::string& sampler, int iterations, int output_length, double credible_level,
-           int seed, const std::vector<double>& exceedance_probabilities) {
+           int seed, const std::vector<double>& exceedance_probabilities, int thinning_interval) {
             std::unique_ptr<models::ModelBase> base =
                 models::spec::build_model_from_json(model_json, dataset);
             auto* raw = dynamic_cast<models::UnivariateDistributionModel*>(base.get());
@@ -110,6 +110,10 @@ void register_analysis(py::module_& m) {
                 ba.set_iterations(iterations);
                 ba.set_warmup_iterations(std::max(50, iterations / 2));
             }
+            // Optional explicit thinning (A11): the default thinning=20 for a 2-parameter DEMCzs
+            // run exposes a C#-vs-C++ divergence in the thinned population-sampler stream (see
+            // docs/upstream-csharp-issues.md); passing 1 lands on the proven bit-identical path.
+            if (thinning_interval > 0) ba.set_thinning_interval(thinning_interval);
 
             analysis.run();
 
@@ -147,7 +151,7 @@ void register_analysis(py::module_& m) {
         },
         py::arg("model_json"), py::arg("dataset"), py::arg("sampler"), py::arg("iterations"),
         py::arg("output_length"), py::arg("credible_level"), py::arg("seed"),
-        py::arg("exceedance_probabilities"));
+        py::arg("exceedance_probabilities"), py::arg("thinning_interval") = -1);
 
     // FittingAnalysis (A6): fit the 14 ported candidates by MLE, return the per-candidate GoF table.
     m.def(

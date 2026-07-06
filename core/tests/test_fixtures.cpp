@@ -1961,6 +1961,16 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
             ba.set_iterations(it);
             ba.set_warmup_iterations(std::max(50, it / 2));
         }
+        // Optional explicit MCMC knobs (A11): the default thinning_interval=20 exposes a
+        // C#-vs-C++ divergence in the thinned population-sampler stream (documented in
+        // docs/upstream-csharp-issues.md); the fixture pins thinning_interval=1 (bayes_normal's
+        // proven bit-identical path). All four runners honor the same override.
+        if (construct.contains("thinning_interval"))
+            ba.set_thinning_interval(construct["thinning_interval"].get<int>());
+        if (construct.contains("number_of_chains"))
+            ba.set_number_of_chains(construct["number_of_chains"].get<int>());
+        if (construct.contains("initial_iterations"))
+            ba.set_initial_iterations(construct["initial_iterations"].get<int>());
         analysis.run();
         const auto* results = analysis.analysis_results();
         if (results != nullptr) {

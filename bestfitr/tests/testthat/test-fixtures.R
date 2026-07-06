@@ -649,7 +649,7 @@ run_analysis_case <- function(target, construct, assertions, datasets) {
     sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
     result <- ns$bf_analysis_univariate_run_(
       model_json, data, sampler, geti("iterations", 3000L), geti("output_length", 10000L),
-      getd("credible_level", 0.90), geti("seed", 12345L), ep
+      getd("credible_level", 0.90), geti("seed", 12345L), ep, geti("thinning_interval", -1L)
     )
   } else if (target == "Bulletin17CAnalysis") {
     model <- construct$model

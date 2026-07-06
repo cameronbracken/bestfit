@@ -6,10 +6,10 @@
 #include <R_ext/Visibility.h>
 
 // analysis.cpp
-list bf_analysis_univariate_run_(std::string model_json, doubles dataset, std::string sampler, int iterations, int output_length, double credible_level, int seed, doubles exceedance_probabilities);
-extern "C" SEXP _bestfitr_bf_analysis_univariate_run_(SEXP model_json, SEXP dataset, SEXP sampler, SEXP iterations, SEXP output_length, SEXP credible_level, SEXP seed, SEXP exceedance_probabilities) {
+list bf_analysis_univariate_run_(std::string model_json, doubles dataset, std::string sampler, int iterations, int output_length, double credible_level, int seed, doubles exceedance_probabilities, int thinning_interval);
+extern "C" SEXP _bestfitr_bf_analysis_univariate_run_(SEXP model_json, SEXP dataset, SEXP sampler, SEXP iterations, SEXP output_length, SEXP credible_level, SEXP seed, SEXP exceedance_probabilities, SEXP thinning_interval) {
   BEGIN_CPP11
-    return cpp11::as_sexp(bf_analysis_univariate_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(sampler), cpp11::as_cpp<cpp11::decay_t<int>>(iterations), cpp11::as_cpp<cpp11::decay_t<int>>(output_length), cpp11::as_cpp<cpp11::decay_t<double>>(credible_level), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(exceedance_probabilities)));
+    return cpp11::as_sexp(bf_analysis_univariate_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(sampler), cpp11::as_cpp<cpp11::decay_t<int>>(iterations), cpp11::as_cpp<cpp11::decay_t<int>>(output_length), cpp11::as_cpp<cpp11::decay_t<double>>(credible_level), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<doubles>>(exceedance_probabilities), cpp11::as_cpp<cpp11::decay_t<int>>(thinning_interval)));
   END_CPP11
 }
 // analysis.cpp
@@ -479,7 +479,7 @@ extern "C" {
 static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_analysis_b17c_run_",          (DL_FUNC) &_bestfitr_bf_analysis_b17c_run_,           7},
     {"_bestfitr_bf_analysis_fit_distributions_", (DL_FUNC) &_bestfitr_bf_analysis_fit_distributions_,  1},
-    {"_bestfitr_bf_analysis_univariate_run_",    (DL_FUNC) &_bestfitr_bf_analysis_univariate_run_,     8},
+    {"_bestfitr_bf_analysis_univariate_run_",    (DL_FUNC) &_bestfitr_bf_analysis_univariate_run_,     9},
     {"_bestfitr_bf_bootstrap_run_",              (DL_FUNC) &_bestfitr_bf_bootstrap_run_,              12},
     {"_bestfitr_bf_bve_cdf_",                    (DL_FUNC) &_bestfitr_bf_bve_cdf_,                     7},
     {"_bestfitr_bf_cop_fit_",                    (DL_FUNC) &_bestfitr_bf_cop_fit_,                     6},

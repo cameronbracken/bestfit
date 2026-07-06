@@ -1250,6 +1250,11 @@ analyses from the same spec.
         "output_length": 400,                // posterior samples used for the credible band
         "credible_level": 0.90,              // credible-interval width
         "seed": 12345,                       // sampler PRNG seed
+        "thinning_interval": 1,              // (A11) explicit thinning; absent -> sampler default
+                                             //   (20 for a 2-param DEMCzs). The default thin=20
+                                             //   path diverges C#-vs-C++ (docs/upstream-csharp-
+                                             //   issues.md); pin 1 for an exact reproducible oracle.
+        // "number_of_chains", "initial_iterations": also honored (integers; absent -> default)
         // -- Bulletin17CAnalysis knobs (all optional):
         "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) | Bootstrap
                                              //   (LinkedMultivariateNormal / BiasCorrectedBootstrap
@@ -1262,7 +1267,7 @@ analyses from the same spec.
       "assertions": [
         // UnivariateAnalysis: parameter [i], mode_curve [i], mean_curve [i], lower_ci [i],
         //   upper_ci [i] (indexed by the exceedance grid), and scalars aic / bic / dic / rmse.
-        { "method": "parameter", "args": [0], "expected": 16528.6, "mode": "rel", "tol": 1e-4 },
+        { "method": "parameter", "args": [0], "expected": 16775.69498994981, "mode": "rel", "tol": 1e-9 },
         // FittingAnalysis: candidate_count (exact 14), candidate_aic / candidate_bic /
         //   candidate_rmse / candidate_converged [candidate_index].
         // Bulletin17CAnalysis: exceedance_probability [i], point_estimate [i] (log10 space),
@@ -1274,14 +1279,17 @@ analyses from the same spec.
 }
 ```
 
-**Oracle strategy (A10 LOOSE smoke).** A10 authors self-computed, LOOSE oracles only. The
-deterministic invariants are asserted tightly (`candidate_count == 14`; `confidence_level` and the
-exceedance-probability round-trip to `abs 1e-12..1e-15`). The MCMC/GMM-derived quantities are
-SELF-COMPUTED from the C++ runner and asserted at a wide `rel 1e-4` -- they reproduce bit-identically
-across C++/R/Python (identical compiled core + bit-exact Mersenne Twister; the UnivariateAnalysis
-case uses a short run, iterations=100 / output_length=400, to stay before the population-sampler
-output-phase divergence, mirroring `estimation/bayes_normal.json`). A11's emitter may TIGHTEN these
-smoke values against the real C# analyses; do not treat the A10 numbers as final oracles.
+**Oracle strategy (A11 EXACT).** A11 unlocked the dotnet emitter's Analyses closure (a local
+patched `Bulletin17CAnalysis.cs` clears the CS0104 `YeoJohnsonLink` ambiguity; see
+`docs/upstream-csharp-issues.md`) and tightened all three smoke files to EXACT oracles verified
+against the real C# analyses. Deterministic point values (GMM point estimate + parameters, mode
+curve = InverseCDF, candidate aic/bic) use `rel 1e-9`; GoF/quadrature-derived quantities (candidate
+rmse, Cohn CI bounds, the credible band) use `rel 1e-8`; DIC keeps `rel 1e-6` (parallel-reduction
+noise). `candidate_count == 14`, `confidence_level`, and the exceedance-probability round-trip stay
+exact structural invariants (`abs 1e-12..1e-15`, `equal`). The UnivariateAnalysis case PINS
+`thinning_interval = 1`: the sampler-default thin=20 exposes a real C#-vs-C++ divergence in the
+thinned population-sampler stream (documented in `docs/upstream-csharp-issues.md` as a tracked
+follow-up); thin=1 is the `bayes_normal`-proven bit-identical path.
 
 ### `special_function`
 

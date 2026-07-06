@@ -90,7 +90,7 @@ static void set_ordinates(bestfit::numerics::data::ProbabilityOrdinates& po, con
 [[cpp11::register]]
 list bf_analysis_univariate_run_(std::string model_json, doubles dataset, std::string sampler,
                                  int iterations, int output_length, double credible_level, int seed,
-                                 doubles exceedance_probabilities) {
+                                 doubles exceedance_probabilities, int thinning_interval) {
     std::vector<double> data(dataset.begin(), dataset.end());
     std::unique_ptr<models::ModelBase> base = models::spec::build_model_from_json(model_json, data);
     auto* raw = dynamic_cast<models::UnivariateDistributionModel*>(base.get());
@@ -111,6 +111,10 @@ list bf_analysis_univariate_run_(std::string model_json, doubles dataset, std::s
         ba.set_iterations(iterations);
         ba.set_warmup_iterations(std::max(50, iterations / 2));
     }
+    // Optional explicit thinning (A11): the SetDefaultSimulationOptions default (thinning=20 for a
+    // 2-parameter DEMCzs run) exposes a C#-vs-C++ divergence in the thinned population-sampler
+    // stream (see docs/upstream-csharp-issues.md); passing 1 lands on the proven bit-identical path.
+    if (thinning_interval > 0) ba.set_thinning_interval(thinning_interval);
 
     analysis.run();
 

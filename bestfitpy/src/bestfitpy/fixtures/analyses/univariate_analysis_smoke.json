@@ -1,7 +1,7 @@
 {
   "target": "UnivariateAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/UnivariateAnalysis.cs @ fc28c0c -- A10 LOOSE smoke oracle. UnivariateAnalysis drives a Bayesian DEMCzs MCMC over a Normal model, then assembles the frequency (mode) curve + credible band on the exceedance grid. The seeded chain reproduces bit-identically across C++/R/Python (identical compiled core + bit-exact Mersenne Twister; see fixtures/estimation/bayes_normal.json's short-run reproducibility note). This case deliberately uses a SHORT run (iterations 100, output_length 400) to stay before the population-sampler output-phase divergence. Values are SELF-COMPUTED from the C++ runner at LOOSE rel tol; A11's emitter may tighten them against the real C# UnivariateAnalysis. The exceedance grid ascends, so the mode (quantile) curve descends (asserted structurally via the two mode_curve rows).",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/UnivariateAnalysis.cs @ fc28c0c -- A11 EXACT oracle, verified against the real RMC.BestFit UnivariateAnalysis by the dotnet gate. UnivariateAnalysis drives a Bayesian DEMCzs MCMC over a Normal model, then assembles the frequency (mode) curve + credible band on the exceedance grid. The point estimate + mode/mean/CI reproduce bit-identically across C++/R/Python (identical compiled core + bit-exact Mersenne Twister) AND against C# at thinning_interval=1 (the bayes_normal-proven path). thinning_interval is PINNED to 1: the SetDefaultSimulationOptions default (thinning_interval=20 for a 2-parameter DEMCzs run) exposes a C#-vs-C++ divergence in the THINNED population-sampler stream -- a real port bug documented in docs/upstream-csharp-issues.md (A11 Critical finding); the default-thinning path is a tracked follow-up. Short run (iterations 100, output_length 400). The exceedance grid ascends, so the mode (quantile) curve descends.",
   "datasets": {
     "peaks": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600, 19200, 13800, 25600, 10500, 16900, 21300, 14700, 8200, 23800, 15900]
   },
@@ -15,17 +15,18 @@
         "output_length": 400,
         "credible_level": 0.90,
         "seed": 12345,
+        "thinning_interval": 1,
         "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
       },
       "assertions": [
-        { "method": "parameter", "args": [0], "expected": 16528.606124942104, "mode": "rel", "tol": 1e-4 },
-        { "method": "parameter", "args": [1], "expected": 5883.364051704687, "mode": "rel", "tol": 1e-4 },
-        { "method": "mode_curve", "args": [2], "expected": 16528.606124942104, "mode": "rel", "tol": 1e-4 },
-        { "method": "mean_curve", "args": [2], "expected": 16536.6233092312, "mode": "rel", "tol": 1e-4 },
-        { "method": "lower_ci", "args": [2], "expected": 14341.501042556696, "mode": "rel", "tol": 1e-4 },
-        { "method": "upper_ci", "args": [2], "expected": 18485.350502196805, "mode": "rel", "tol": 1e-4 },
-        { "method": "aic", "expected": 474.77931335923972, "mode": "rel", "tol": 1e-4 },
-        { "method": "dic", "expected": 405.09825905470183, "mode": "rel", "tol": 1e-4 }
+        { "method": "parameter", "args": [0], "expected": 16775.69498994981, "mode": "rel", "tol": 1e-9 },
+        { "method": "parameter", "args": [1], "expected": 6505.750428952268, "mode": "rel", "tol": 1e-9 },
+        { "method": "mode_curve", "args": [2], "expected": 16775.69498994981, "mode": "rel", "tol": 1e-9 },
+        { "method": "mean_curve", "args": [2], "expected": 16718.3264050213, "mode": "rel", "tol": 1e-8 },
+        { "method": "lower_ci", "args": [2], "expected": 13877.724907876222, "mode": "rel", "tol": 1e-8 },
+        { "method": "upper_ci", "args": [2], "expected": 18454.81197498574, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "expected": 474.85958582970846, "mode": "rel", "tol": 1e-9 },
+        { "method": "dic", "expected": 409.3135886365819, "mode": "rel", "tol": 1e-6 }
       ]
     }
   ]

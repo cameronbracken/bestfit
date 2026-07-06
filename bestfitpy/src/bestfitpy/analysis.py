@@ -29,22 +29,24 @@ def univariate_analysis(
     credible_level: float = 0.90,
     seed: int = 12345,
     exceedance_probabilities=None,
+    thinning_interval: int = -1,
 ) -> dict:
     """Bayesian univariate frequency analysis.
 
     Fit ``distribution`` to ``data`` with a Bayesian MCMC analysis and return the frequency
     (quantile) curve, the posterior mean and credible band, and goodness-of-fit scalars.
 
-    ``sampler`` is one of ``"DEMCz"``, ``"DEMCzs"``, ``"ARWMH"``, ``"NUTS"``. Returns a dict with
-    ``parameters``, ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci`` (one value per
-    exceedance ordinate) and the scalars ``aic``, ``bic``, ``dic``, ``rmse``.
+    ``sampler`` is one of ``"DEMCz"``, ``"DEMCzs"``, ``"ARWMH"``, ``"NUTS"``. ``thinning_interval``
+    of ``-1`` (default) keeps the sampler's own default. Returns a dict with ``parameters``,
+    ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci`` (one value per exceedance ordinate)
+    and the scalars ``aic``, ``bic``, ``dic``, ``rmse``.
     """
     model_json = json.dumps({"family": distribution, "dataset": "data"})
     ep = [] if exceedance_probabilities is None else [float(v) for v in exceedance_probabilities]
     values = [float(v) for v in np.asarray(data).ravel()]
     return _univariate_run(
         model_json, values, sampler, int(iterations), int(output_length),
-        float(credible_level), int(seed), ep,
+        float(credible_level), int(seed), ep, int(thinning_interval),
     )
 
 

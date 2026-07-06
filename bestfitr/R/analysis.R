@@ -17,6 +17,7 @@
 #' @param seed PRNG seed for the sampler (fixed for reproducibility).
 #' @param exceedance_probabilities optional numeric vector of exceedance probabilities at which to
 #'   tabulate the curve; when `NULL`, the 25 standard default ordinates are used.
+#' @param thinning_interval MCMC thinning interval; `-1` (default) keeps the sampler's own default.
 #' @return A named list: `parameters` (point-estimate distribution parameters), `mode_curve`,
 #'   `mean_curve`, `lower_ci`, `upper_ci` (one value per exceedance ordinate), and the scalars
 #'   `aic`, `bic`, `dic`, `rmse`.
@@ -28,13 +29,13 @@
 #' fit$parameters
 univariate_analysis <- function(data, distribution, sampler = "DEMCz", iterations = 3000L,
                                 output_length = 10000L, credible_level = 0.90, seed = 12345L,
-                                exceedance_probabilities = NULL) {
+                                exceedance_probabilities = NULL, thinning_interval = -1L) {
   model <- list(family = distribution, dataset = "data")
   model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
   ep <- if (is.null(exceedance_probabilities)) numeric(0) else as.double(exceedance_probabilities)
   bf_analysis_univariate_run_(
     model_json, as.double(data), sampler, as.integer(iterations), as.integer(output_length),
-    as.double(credible_level), as.integer(seed), ep
+    as.double(credible_level), as.integer(seed), ep, as.integer(thinning_interval)
   )
 }
 

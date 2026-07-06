@@ -634,6 +634,7 @@ def _run_analysis_case(target: str, construct: dict, assertions: list, datasets:
             float(construct.get("credible_level", 0.90)),
             int(construct.get("seed", 12345)),
             ep,
+            int(construct.get("thinning_interval", -1)),
         )
     elif target == "Bulletin17CAnalysis":
         model = construct["model"]
