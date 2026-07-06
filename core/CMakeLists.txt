@@ -62,6 +62,7 @@ set(BF_TESTS
   test_rating_curve
   test_bivariate_distribution
   test_probability_ordinates
+  test_uncertainty_analysis_results
 )
 
 # Sobol test takes the direction-number file as its sole argument.
