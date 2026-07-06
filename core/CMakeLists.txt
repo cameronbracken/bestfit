@@ -58,6 +58,7 @@ set(BF_TESTS
   test_spatial_gev
   test_time_series_arma
   test_arima
+  test_arimax
 )
 
 # Sobol test takes the direction-number file as its sole argument.
