@@ -67,6 +67,7 @@ set(BF_TESTS
   test_analysis_base
   test_univariate_analysis
   test_fitting_analysis
+  test_bulletin17c_analysis
 )
 
 # Sobol test takes the direction-number file as its sole argument.
