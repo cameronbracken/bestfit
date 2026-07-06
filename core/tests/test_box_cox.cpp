@@ -8,6 +8,16 @@
 //   trueVals literals are R-rounded (EnvStats::boxcox / sae::bxcx), so their C# tolerances
 //   (1E-4 / 1E-6 / 0.001) are kept; the exact analytic leaf checks (Transform(5,1)==4,
 //   InverseTransform(4,1)==5) are tightened to 1e-12 per the tolerance policy.
+//
+// Deferred to P5 (documented, no regression): the P4 brief's section-1 "public-path
+// corroboration" (dump BoxCox.Transform values through the REAL C# via the oracle emitter to
+// back these transcribed leaf oracles) is NOT wired. It is redundant defense-in-depth -- the
+// oracles above are transcribed VALUES-UNALTERED from the upstream Test_BoxCox.cs literals and
+// recomputed inline from the identical closed-form expression, so they already ARE the C#
+// public-path values. Routing them through the emitter/verify_oracles gate (which reproduces
+// FIXTURES) would require either a fixture -- violating the binding "internal support gets
+// C++-only ctests, public-API oracles live ONLY in fixtures/" constraint -- or new four-way
+// harness wiring for a non-distribution support class. Tracked as a P5 follow-up.
 #include <cmath>
 #include <vector>
 

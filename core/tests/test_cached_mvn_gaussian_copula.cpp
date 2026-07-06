@@ -11,6 +11,17 @@
 // the C# does (std::log / std::exp), not pre-rounded. C# deltas are transcribed as-is (1e-10);
 // exact returns C# asserts without a delta (NegativeInfinity, PDF==0) are asserted exactly.
 //
+// Deferred to P5 (documented, no regression): the P4 brief's section-1 "public-path
+// corroboration" (dump CachedMultivariateNormal LogPDF spot values through the REAL C# via the
+// oracle emitter to back these transcribed leaf oracles) is NOT wired. It is redundant
+// defense-in-depth -- the oracles above are transcribed VALUES-UNALTERED from the upstream
+// CachedMultivariateNormalTests / GaussianCopulaTests literals and recomputed inline from the
+// identical closed-form density, so they already ARE the C# public-path values. Routing them
+// through the emitter/verify_oracles gate (which reproduces FIXTURES) would require either a
+// fixture -- violating the binding "internal support gets C++-only ctests, public-API oracles
+// live ONLY in fixtures/" constraint -- or new four-way harness wiring for a non-distribution
+// support class. Tracked as a P5 follow-up.
+//
 // Skipped C# test methods (documented in task-S2-report.md):
 //   - Constructor_NullMean / Constructor_NullCovariance / SetMean_Null / SetCovariance_Null /
 //     LogPDF_NullInput (CachedMultivariateNormalTests), Constructor_NullCoordinates /

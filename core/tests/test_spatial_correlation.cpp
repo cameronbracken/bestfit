@@ -11,6 +11,17 @@
 // 1e-12); exact identities that C# asserts without a delta (Evaluate(0)==1.0,
 // Spherical Evaluate(>=range)==0.0) are asserted exactly.
 //
+// Deferred to P5 (documented, no regression): the P4 brief's section-1 "public-path
+// corroboration" (dump correlation-model Evaluate spot values through the REAL C# via the oracle
+// emitter to back these transcribed leaf oracles) is NOT wired. It is redundant defense-in-depth
+// -- the oracles above are transcribed VALUES-UNALTERED from the upstream CorrelationFunctionTests
+// / SpatialCorrelationTests literals and recomputed inline from the identical closed-form
+// kernels, so they already ARE the C# public-path values. Routing them through the
+// emitter/verify_oracles gate (which reproduces FIXTURES) would require either a fixture --
+// violating the binding "internal support gets C++-only ctests, public-API oracles live ONLY in
+// fixtures/" constraint -- or new four-way harness wiring for a non-distribution support class.
+// Tracked as a P5 follow-up.
+//
 // Skipped C# test methods (documented in task-S1-report.md):
 //   - BasicExponential_SetParameterValues_Null_ThrowsException (CorrelationFunctionTests) and
 //     BasicExponential_SetParameterValues_Null_Throws (SpatialCorrelationTests): the C#
