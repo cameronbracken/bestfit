@@ -535,6 +535,25 @@ class BayesianAnalysis {
         return true;
     }
 
+    // Injects externally-produced MCMC results (C# `SetCustomMCMCResults(MCMCResults, bool)`,
+    // C# 1819-1829). ADDITIVE A5 hook (the T9/T10 slice deliberately skipped the XML-restore
+    // overloads -- see header comment point 6): stores `results`, optionally recomputes
+    // DIC/WAIC/LOOIC (skipped when the caller already has them, e.g. XML restore), and flips
+    // `is_estimated_` true -- exactly the C# body minus the dropped PropertyChanged raise. This
+    // lets a caller (UnivariateAnalysis's structural tests, mirroring the C# reprocess tests)
+    // flip the analysis into the estimated state without running a chain. The three-arg
+    // `parameterNames` overload (C# 1838) is not ported (`_parameterNames` is not in this
+    // slice -- header point 6).
+    void set_custom_mcmc_results(MCMCResults results, bool skip_information_criteria = false) {
+        results_ = std::move(results);
+        if (!skip_information_criteria) {
+            compute_dic();
+            compute_waic();
+            compute_psis_loo();
+        }
+        is_estimated_ = true;
+    }
+
     // Clears the analysis results and information criteria, then rebuilds the sampler from
     // the current knob values (C# `ClearResults`, C# 1364). `ElapsedTime`/`_parameterNames`
     // are not ported (see header comment points 1/6 -- no ElapsedTime/ParameterNames surface

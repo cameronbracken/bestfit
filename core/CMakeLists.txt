@@ -65,6 +65,7 @@ set(BF_TESTS
   test_probability_ordinates
   test_uncertainty_analysis_results
   test_analysis_base
+  test_univariate_analysis
 )
 
 # Sobol test takes the direction-number file as its sole argument.
