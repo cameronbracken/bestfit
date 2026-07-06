@@ -59,6 +59,23 @@ static std::unique_ptr<models::ModelBase> build_spec_model(const std::string& mo
     return models::spec::build_model_from_json(model_json, data);
 }
 
+// Seeded ISimulatable draw, flattened to a 1-D vector so the `simulated_value [i]` digest works
+// uniformly across model types (P3). Most Phase 4-7 models are ISimulatable<std::vector<double>>;
+// BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), flattened ROW-MAJOR
+// (i = row*2 + col) -- the same order the C++/Python glue and the README schema use.
+static std::vector<double> simulate_flat(models::ModelBase* model, int sample_size, int seed) {
+    if (auto* s = dynamic_cast<models::ISimulatable<std::vector<double>>*>(model))
+        return s->generate_random_values(sample_size, seed);
+    if (auto* s = dynamic_cast<models::ISimulatable<std::vector<std::vector<double>>>*>(model)) {
+        std::vector<std::vector<double>> mat = s->generate_random_values(sample_size, seed);
+        std::vector<double> flat;
+        for (const auto& row : mat)
+            for (double v : row) flat.push_back(v);
+        return flat;
+    }
+    stop("model_estimation Simulation target: model is not ISimulatable<vector> or ISimulatable<Matrix2D>");
+}
+
 // Shared optimizer-method parser for ML/MAP AND the GMM `optimizer` knob. B11 extends it with
 // the B7-un-gated BFGS/Powell/MultilevelSingleLinkage methods (with the "MLSL" alias).
 static est::OptimizationMethod parse_optimization_method(const std::string& s) {
@@ -128,7 +145,8 @@ static est::SamplerType parse_sampler_type(const std::string& s) {
 // correlation. `target == "BayesianAnalysis"` is NOT handled here (see
 // `bf_estimation_bayes_run_` below -- disjoint construct shape).
 [[cpp11::register]]
-list bf_estimation_run_(std::string target, std::string model_json, doubles dataset, std::string optimizer) {
+list bf_estimation_run_(std::string target, std::string model_json, doubles dataset,
+                        std::string optimizer, int sample_size, int seed) {
     std::unique_ptr<models::ModelBase> model_ptr = build_spec_model(model_json, dataset);
     models::ModelBase& model = *model_ptr;
     auto method = parse_optimization_method(optimizer);
@@ -139,20 +157,28 @@ list bf_estimation_run_(std::string target, std::string model_json, doubles data
     writable::doubles_matrix<by_column> covariance(n_params, n_params);
     writable::doubles standard_errors(n_params);
     writable::doubles_matrix<by_column> correlation(n_params, n_params);
+    std::vector<double> best_values;
 
     auto fill_from = [&](const auto& e) {
         const auto& best = e.best_parameter_set().values;
+        best_values.assign(best.begin(), best.end());
         for (int i = 0; i < n_params; ++i) parameters[i] = best[static_cast<std::size_t>(i)];
         max_log_likelihood = e.maximum_log_likelihood();
         aic = e.get_aic();
-        auto cov = e.get_covariance_matrix();
-        for (int i = 0; i < n_params; ++i)
-            for (int j = 0; j < n_params; ++j) covariance(i, j) = cov(i, j);
-        auto se = e.get_standard_errors();
-        for (int i = 0; i < n_params; ++i) standard_errors[i] = se[static_cast<std::size_t>(i)];
-        auto corr = e.get_correlation_matrix();
-        for (int i = 0; i < n_params; ++i)
-            for (int j = 0; j < n_params; ++j) correlation(i, j) = corr(i, j);
+        // The covariance stack needs >= 2 parameters (the C# GetCovarianceMatrix throws below
+        // that); the single-parameter bivariate copula fit skips it -- covariance/SE/correlation
+        // are left at their default zeros (no fixture asserts them for a 1-param model). The C++
+        // runner sidesteps this by computing the covariance lazily, only when asserted.
+        if (n_params >= 2) {
+            auto cov = e.get_covariance_matrix();
+            for (int i = 0; i < n_params; ++i)
+                for (int j = 0; j < n_params; ++j) covariance(i, j) = cov(i, j);
+            auto se = e.get_standard_errors();
+            for (int i = 0; i < n_params; ++i) standard_errors[i] = se[static_cast<std::size_t>(i)];
+            auto corr = e.get_correlation_matrix();
+            for (int i = 0; i < n_params; ++i)
+                for (int j = 0; j < n_params; ++j) correlation(i, j) = corr(i, j);
+        }
     };
 
     if (target == "MaximumLikelihood") {
@@ -168,6 +194,17 @@ list bf_estimation_run_(std::string target, std::string model_json, doubles data
              target.c_str());
     }
 
+    // Optional seeded-draw digest off the FITTED model (P3): pin the best parameters and cache
+    // one seeded draw so one MLE smoke file covers parameter + max_log_likelihood + a seeded
+    // draw, mirroring the C++/GMM arms. `simulate_flat` handles the bivariate Matrix2D flatten.
+    writable::doubles simulated(static_cast<R_xlen_t>(0));
+    if (sample_size > 0) {
+        model.set_parameter_values(best_values);
+        std::vector<double> draws = simulate_flat(&model, sample_size, seed);
+        simulated = writable::doubles(static_cast<R_xlen_t>(draws.size()));
+        for (std::size_t i = 0; i < draws.size(); ++i) simulated[static_cast<R_xlen_t>(i)] = draws[i];
+    }
+
     return writable::list({
         "parameters"_nm = parameters,
         "max_log_likelihood"_nm = writable::doubles({max_log_likelihood}),
@@ -175,6 +212,7 @@ list bf_estimation_run_(std::string target, std::string model_json, doubles data
         "covariance"_nm = covariance,
         "standard_errors"_nm = standard_errors,
         "correlation"_nm = correlation,
+        "simulated"_nm = simulated,
     });
 }
 
@@ -318,10 +356,9 @@ list bf_model_data_frame_(std::string model_json, doubles dataset) {
 [[cpp11::register]]
 doubles bf_model_simulate_(std::string model_json, doubles dataset, int sample_size, int seed) {
     std::unique_ptr<models::ModelBase> model = build_spec_model(model_json, dataset);
-    auto* simulatable = dynamic_cast<models::ISimulatable<std::vector<double>>*>(model.get());
-    if (simulatable == nullptr)
-        stop("model_estimation Simulation target: model is not ISimulatable");
-    std::vector<double> draws = simulatable->generate_random_values(sample_size, seed);
+    // simulate_flat handles both ISimulatable<vector<double>> and the bivariate
+    // ISimulatable<Matrix2D> (flattened row-major) -- see its header note.
+    std::vector<double> draws = simulate_flat(model.get(), sample_size, seed);
     writable::doubles out(static_cast<R_xlen_t>(draws.size()));
     for (std::size_t i = 0; i < draws.size(); ++i) out[static_cast<R_xlen_t>(i)] = draws[i];
     return out;

@@ -1,0 +1,35 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "P3 smoke (Phase 7a wiring): self-computed by the ported core via a throwaway harness (NOT emitter-dumped -- that is P4). LOOSE tolerances proving the ARIMA(1,1,1) fit + seeded ISimulatable draw RUN identically across the C++/R/Python harnesses. P4 replaces these with emitter-dumped exact RMC.BestFit oracles and may TIGHTEN (never loosen). The near-zero differenced intercept (param 0) is deliberately NOT asserted -- a relative tolerance against ~0 is meaningless.",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "arima_1_1_1_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arima",
+          "dataset": "series",
+          "orders": { "p": 1, "d": 1, "q": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [1], "expected": -0.9368602116073409, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [2], "expected": 1.791054290479591, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [3], "expected": 0.97055566650887981, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": -23.4866913087337, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "args": [], "expected": 54.973382617467401, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [1], "expected": 0.54975802115366024, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [2], "expected": 2.5491788317622333, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

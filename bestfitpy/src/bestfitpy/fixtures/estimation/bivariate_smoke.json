@@ -1,0 +1,38 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "P3 smoke (Phase 7a wiring): self-computed by the ported core via a throwaway harness (NOT emitter-dumped -- that is P4). LOOSE tolerances proving the BivariateDistribution (Normal copula, two fixed Normal marginals, Inference-From-Margins) copula-parameter fit + seeded ISimulatable<Matrix2D> draw RUN identically across the C++/R/Python harnesses. BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), so the draw is flattened ROW-MAJOR (i = row*2 + col): simulated_value[0]=row0/X, [1]=row0/Y, [2]=row1/X, ... The marginals are pre-fit and held FIXED; only the copula dependency parameter is estimated. P4 replaces these with emitter-dumped exact RMC.BestFit oracles and may TIGHTEN (never loosen).",
+  "cases": [
+    {
+      "name": "normal_copula_ifm_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "bivariate",
+          "copula": "Normal",
+          "estimation_method": "InferenceFromMargins",
+          "marginal_x": {
+            "family": "Normal",
+            "data": [10, 12, 9, 14, 11, 13, 8, 15, 10.5, 12.5, 11.2, 13.3, 9.4, 14.1, 12.2],
+            "parameter_values": [11.66, 2.0]
+          },
+          "marginal_y": {
+            "family": "Normal",
+            "data": [21, 20, 22, 25, 19, 27, 18, 24, 23, 21, 26, 22, 20, 28, 25],
+            "parameter_values": [22.7, 3.0]
+          }
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 5,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 0.64663085937499987, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": 3.8744392496298881, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "args": [], "expected": -5.7488784992597761, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [0], "expected": 10.195269109750443, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [1], "expected": 15.343248637875629, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [3], "expected": 24.474918845564197, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

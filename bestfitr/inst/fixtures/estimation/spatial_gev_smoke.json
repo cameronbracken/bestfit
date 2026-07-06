@@ -1,0 +1,33 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "P3 smoke (Phase 7a wiring): self-computed by the ported core via a throwaway harness (NOT emitter-dumped -- that is P4). LOOSE tolerances proving the SpatialGEV (Renard hierarchical, 3 sites x 15 obs, intercept-only level-2 trends, no copula/errors) fit + seeded ISimulatable draw RUN identically across the C++/R/Python harnesses. The seeded draw length is sample_size * sites = 6 * 3 = 18. P4 replaces these with emitter-dumped exact RMC.BestFit oracles and may TIGHTEN (never loosen).",
+  "cases": [
+    {
+      "name": "base_three_site_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "spatial_gev",
+          "coordinates": [[0.0, 0.0], [1.0, 0.5], [0.5, 1.0]],
+          "at_site_data": [
+            [20, 22, 18], [25, 26, 24], [18, 19, 17], [30, 31, 28], [22, 23, 21],
+            [28, 29, 27], [35, 34, 33], [24, 25, 23], [26, 27, 25], [40, 38, 37],
+            [21, 22, 20], [27, 28, 26], [33, 32, 31], [23, 24, 22], [29, 30, 28]
+          ]
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 3.1854741919889435, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [1], "expected": 1.5713510507861383, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": -138.82551020504658, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "args": [], "expected": 283.65102041009317, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [0], "expected": 24.265804544184462, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [1], "expected": 30.699535364831657, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [5], "expected": 30.336527083232987, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

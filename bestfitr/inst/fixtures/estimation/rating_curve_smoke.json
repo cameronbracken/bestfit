@@ -1,0 +1,29 @@
+{
+  "target": "MaximumLikelihood",
+  "kind": "model_estimation",
+  "source": "P3 smoke (Phase 7a wiring): self-computed by the ported core via a throwaway harness (NOT emitter-dumped -- that is P4). LOOSE tolerances proving the RatingCurve (single-segment BaRatin) fit + seeded ISimulatable draw RUN identically across the C++/R/Python harnesses. Stage and discharge are 15 date-aligned pairs (>= MinimumAlignedObservations = 10). P4 replaces these with emitter-dumped exact RMC.BestFit oracles and may TIGHTEN (never loosen).",
+  "cases": [
+    {
+      "name": "single_segment_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "rating_curve",
+          "segments": 1,
+          "stage": [1.0, 1.2, 1.5, 1.8, 2.0, 2.3, 2.6, 2.9, 3.1, 3.4, 3.7, 4.0, 4.3, 4.6, 5.0],
+          "discharge": [5.0, 7.1, 11.0, 16.2, 20.5, 28.0, 37.1, 47.9, 55.6, 68.0, 82.3, 98.1, 115.4, 134.8, 160.2]
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 6,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [1], "expected": 0.45366056286053058, "mode": "rel", "tol": 1e-5 },
+        { "method": "parameter", "args": [2], "expected": 2.4440983947154864, "mode": "rel", "tol": 1e-5 },
+        { "method": "max_log_likelihood", "args": [], "expected": 57.380139141409039, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "args": [], "expected": -106.76027828281808, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [0], "expected": 116.68265033167857, "mode": "rel", "tol": 1e-5 },
+        { "method": "simulated_value", "args": [3], "expected": 82.022113632770811, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

@@ -104,6 +104,25 @@ static est::SamplerType parse_sampler_type(const std::string& s) {
     throw py::value_error("unknown model_estimation sampler: " + s);
 }
 
+// Seeded ISimulatable draw, flattened to a 1-D vector so the `simulated_value [i]` digest works
+// uniformly across model types (P3). Most Phase 4-7 models are ISimulatable<std::vector<double>>;
+// BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), flattened ROW-MAJOR
+// (i = row*2 + col) -- the same order the C++/R glue and the README schema use.
+static std::vector<double> simulate_flat(models::ModelBase* model, int sample_size, int seed) {
+    if (auto* s = dynamic_cast<models::ISimulatable<std::vector<double>>*>(model))
+        return s->generate_random_values(sample_size, seed);
+    if (auto* s = dynamic_cast<models::ISimulatable<std::vector<std::vector<double>>>*>(model)) {
+        std::vector<std::vector<double>> mat = s->generate_random_values(sample_size, seed);
+        std::vector<double> flat;
+        for (const auto& row : mat)
+            for (double v : row) flat.push_back(v);
+        return flat;
+    }
+    throw py::value_error(
+        "model_estimation Simulation target: model is not ISimulatable<vector> or "
+        "ISimulatable<Matrix2D>");
+}
+
 void register_estimation(py::module_& m) {
     // Builds the named model (`family` via the distribution factory + `dataset`), constructs
     // `target`'s estimator (`optimizer`, default "DifferentialEvolution"), runs estimate()
@@ -126,7 +145,7 @@ void register_estimation(py::module_& m) {
     m.def(
         "estimation_run",
         [](const std::string& target, const std::string& model_json, const std::vector<double>& dataset,
-           const std::string& optimizer) {
+           const std::string& optimizer, int sample_size, int seed) {
             std::unique_ptr<models::ModelBase> model_ptr =
                 models::spec::build_model_from_json(model_json, dataset);
             models::ModelBase& model = *model_ptr;
@@ -134,29 +153,37 @@ void register_estimation(py::module_& m) {
             int n_params = model.number_of_parameters();
 
             py::dict out;
+            std::vector<double> best_values;
             auto fill_from = [&](const auto& e) {
+                best_values = e.best_parameter_set().values;
                 out["parameters"] = e.best_parameter_set().values;
                 out["max_log_likelihood"] = e.maximum_log_likelihood();
                 out["aic"] = e.get_aic();
 
-                auto cov = e.get_covariance_matrix();
-                std::vector<std::vector<double>> covariance(static_cast<std::size_t>(n_params));
-                for (int i = 0; i < n_params; ++i) {
-                    covariance[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(n_params));
-                    for (int j = 0; j < n_params; ++j)
-                        covariance[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = cov(i, j);
-                }
-                out["covariance"] = covariance;
-                out["standard_errors"] = e.get_standard_errors();
+                // The covariance stack needs >= 2 parameters (the C# GetCovarianceMatrix throws
+                // below that); the single-parameter bivariate copula fit skips it -- no fixture
+                // asserts covariance/SE/correlation for a 1-param model. The C++ runner sidesteps
+                // this by computing the covariance lazily, only when asserted.
+                if (n_params >= 2) {
+                    auto cov = e.get_covariance_matrix();
+                    std::vector<std::vector<double>> covariance(static_cast<std::size_t>(n_params));
+                    for (int i = 0; i < n_params; ++i) {
+                        covariance[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(n_params));
+                        for (int j = 0; j < n_params; ++j)
+                            covariance[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = cov(i, j);
+                    }
+                    out["covariance"] = covariance;
+                    out["standard_errors"] = e.get_standard_errors();
 
-                auto corr = e.get_correlation_matrix();
-                std::vector<std::vector<double>> correlation(static_cast<std::size_t>(n_params));
-                for (int i = 0; i < n_params; ++i) {
-                    correlation[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(n_params));
-                    for (int j = 0; j < n_params; ++j)
-                        correlation[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = corr(i, j);
+                    auto corr = e.get_correlation_matrix();
+                    std::vector<std::vector<double>> correlation(static_cast<std::size_t>(n_params));
+                    for (int i = 0; i < n_params; ++i) {
+                        correlation[static_cast<std::size_t>(i)].resize(static_cast<std::size_t>(n_params));
+                        for (int j = 0; j < n_params; ++j)
+                            correlation[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = corr(i, j);
+                    }
+                    out["correlation"] = correlation;
                 }
-                out["correlation"] = correlation;
             };
 
             if (target == "MaximumLikelihood") {
@@ -176,9 +203,18 @@ void register_estimation(py::module_& m) {
                 throw py::value_error("unknown model_estimation target: " + target);
             }
 
+            // Optional seeded-draw digest off the FITTED model (P3): pin the best parameters and
+            // cache one seeded draw so one MLE smoke file covers parameter + max_log_likelihood +
+            // a seeded draw, mirroring the C++/R/GMM arms. `simulate_flat` handles the bivariate
+            // Matrix2D flatten.
+            if (sample_size > 0) {
+                model.set_parameter_values(best_values);
+                out["simulated"] = simulate_flat(&model, sample_size, seed);
+            }
             return out;
         },
-        py::arg("target"), py::arg("model_json"), py::arg("dataset"), py::arg("optimizer"));
+        py::arg("target"), py::arg("model_json"), py::arg("dataset"), py::arg("optimizer"),
+        py::arg("sample_size"), py::arg("seed"));
 
     // `bic [n]` accessor: rebuilds the same model + named estimator, runs `estimate()` once
     // (see the file header DESIGN NOTE for why this reproduces the exact same fit as
@@ -339,12 +375,9 @@ void register_estimation(py::module_& m) {
            int seed) {
             std::unique_ptr<models::ModelBase> model =
                 models::spec::build_model_from_json(model_json, dataset);
-            auto* simulatable =
-                dynamic_cast<models::ISimulatable<std::vector<double>>*>(model.get());
-            if (simulatable == nullptr)
-                throw py::value_error(
-                    "model_estimation Simulation target: model is not ISimulatable");
-            return simulatable->generate_random_values(sample_size, seed);
+            // simulate_flat handles both ISimulatable<vector<double>> and the bivariate
+            // ISimulatable<Matrix2D> (flattened row-major) -- see its header note.
+            return simulate_flat(model.get(), sample_size, seed);
         },
         py::arg("model_json"), py::arg("dataset"), py::arg("sample_size"), py::arg("seed"));
 

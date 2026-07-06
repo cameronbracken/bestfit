@@ -555,7 +555,16 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
         optimizer = ""
     else:
         optimizer = construct.get("optimizer", "DifferentialEvolution")
-        result = _core.estimation_run(target, model_json, data, optimizer)
+        # P3: an optional seeded-draw digest off the FITTED model (sample_size + seed) lets one
+        # MLE smoke file cover parameter + max_log_likelihood + a seeded simulated_value.
+        result = _core.estimation_run(
+            target,
+            model_json,
+            data,
+            optimizer,
+            int(construct.get("sample_size", 0)),
+            int(construct.get("seed", -1)),
+        )
 
     for a in assertions:
         args = a.get("args", [])
