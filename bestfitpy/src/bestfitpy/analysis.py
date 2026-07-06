@@ -37,9 +37,10 @@ def univariate_analysis(
     (quantile) curve, the posterior mean and credible band, and goodness-of-fit scalars.
 
     ``sampler`` is one of ``"DEMCz"``, ``"DEMCzs"``, ``"ARWMH"``, ``"NUTS"``. ``thinning_interval``
-    of ``-1`` (default) keeps the sampler's own default. Returns a dict with ``parameters``,
-    ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci`` (one value per exceedance ordinate)
-    and the scalars ``aic``, ``bic``, ``dic``, ``rmse``.
+    of ``-1`` (default) keeps the sampler's own default. The MCMC warmup (burn-in) length is set
+    automatically to ``max(50, iterations // 2)`` and is not a user parameter. Returns a dict with
+    ``parameters``, ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci`` (one value per
+    exceedance ordinate) and the scalars ``aic``, ``bic``, ``dic``, ``rmse``.
     """
     model_json = json.dumps({"family": distribution, "dataset": "data"})
     ep = [] if exceedance_probabilities is None else [float(v) for v in exceedance_probabilities]

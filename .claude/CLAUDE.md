@@ -132,6 +132,28 @@ the one authorized structural change (the P1 IUnivariateModel accessor resolutio
 const-pointer `distribution()`, the re-exposed `data_frame()` overrides, `is_nonstationary`/
 `validate`).
 
+Phase 8 added the user-facing Analyses layer under `core/include/bestfit/analyses/`, mirroring the
+C# `RMC.BestFit.Analyses` namespace across three subdirs. `analyses/support/` holds the shared base
+and interfaces: `analysis_base.hpp`, `i_analysis.hpp`, `i_bayesian_analysis.hpp`,
+`i_univariate_analysis.hpp`, `i_probability_ordinates.hpp`, plus `bootstrap_diagnostics.hpp` and
+`cohn_confidence_interval_result.hpp` (the B17C UQ result DTOs). `analyses/univariate/` holds
+`univariate_analysis.hpp` (the Bayesian frequency analysis) and `bulletin17c_analysis.hpp` (the LP3
+GMM flood-frequency analysis with its three UQ paths -- MultivariateNormal default, parametric
+Bootstrap, and the deterministic Cohn-style delta-method CI). `analyses/distribution_fitting/` holds
+`fitting_analysis.hpp` (the 14-candidate MLE ranking). The two Numerics output types are
+`numerics/data/probability_ordinates.hpp` (the `: List<double>` ordinate grid + 25 default
+exceedance probabilities) and
+`numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp` (the
+mode/mean/lower/upper curve container). The DataFrame bootstrap surface
+(JackKnife/Resample/BootstrapDataFrame/ShiftDistribution) is added additively to
+`models/data_frame/data_frame.hpp` -- the Phase-8 un-deferral of the surface Phase 5/6 had severed,
+consumed only by Bulletin17CAnalysis. `models/distribution_fitting/fitted_distribution.hpp` is the
+FittedDistribution DTO (introduced in A6). The user-facing R/Python analysis API lives at
+`bestfitr/R/analysis.R` + `bestfitr/src/analysis.cpp` (cpp11 `bf_analysis_*`) and
+`bestfitpy/src/bestfitpy/analysis.py` + `bestfitpy/src/bindings/analysis.cpp`, with the `analysis`
+fixture kind wired into all three runners -- exposing `univariate_analysis` / `fit_distributions` /
+`bulletin17c_analysis`.
+
 ## Build & test commands
 
 ```bash
@@ -198,8 +220,8 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, and Phase 6 are **complete**; Phases 1-4
-are merged (latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
+Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7a, and Phase 8 are
+**complete**; Phases 1-4 are merged (latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
 Numerics math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for
 that merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
@@ -272,11 +294,31 @@ and reproduced against the real Numerics/RMC.BestFit libraries by the dotnet ora
 reproduced, 0 failed, 11 documented GEV std-err skips; ctest 49/49, test_fixtures 3941 checks;
 testthat 3539/0; pytest 563); seeded GenerateRandomValues/Series draws reproduce the C# Mersenne
 Twister stream bit-for-bit and are bit-identical across R and Python via the two `*_sim` digest
-fixtures. Phase 8 is the user-facing Analyses/Diagnostics layer -- UnivariateAnalysis/
-FittingAnalysis/Bulletin17CAnalysis, UncertaintyAnalysisResults + ProbabilityOrdinates, the
-DataFrame bootstrap surface (JackKnife/Resample/BootstrapDataFrame/ShiftDistribution, consumed only
-by Bulletin17CAnalysis), and the CS0104 YeoJohnsonLink emitter patch. Diagnostics stays deferred
-(RMC.BestFit.Diagnostics unported; the GMM Influence/Leverage region still ships as throwing
-stubs). Documented severances carried in the ported headers: the ARIMAX covariate forecast-tail
+fixtures. Documented severances carried in the ported headers: the ARIMAX covariate forecast-tail
 extension (CovariateExtensionMethod BlockBootstrap/KNN) and the heavy 2,334-line Numerics
-TimeSeries container. Pending: CI run and PR for the Phase 7a branch. See `PLAN.md`.
+TimeSeries container.
+
+Phase 8 delivered the user-facing BestFit `Analyses` layer, the last slice of the port. The three
+exported analyses -- `univariate_analysis` (Bayesian MCMC frequency curve + credible band +
+goodness-of-fit), `fit_distributions` (the 14-candidate MLE ranking surface), and
+`bulletin17c_analysis` (the LP3 flood-frequency GMM fit) -- are bound in both packages over the
+shared C++ UnivariateAnalysis/FittingAnalysis/Bulletin17CAnalysis, with a new `analysis` fixture
+kind across all three runners. The Numerics output types landed: ProbabilityOrdinates (ordinate
+grid + 25 default exceedance probabilities) and UncertaintyAnalysisResults. The DataFrame bootstrap
+surface (JackKnife/Resample/BootstrapDataFrame/ShiftDistribution) was un-deferred from Phase 5/6 and
+added additively to `data_frame.hpp`, consumed only by Bulletin17CAnalysis, which ships three UQ
+paths (MultivariateNormal default + parametric Bootstrap + the deterministic Cohn-style delta-method
+CI). The dotnet emitter now subset-compiles the minimal RMC.BestFit Analyses closure (via a local
+CS0104-patched Bulletin17CAnalysis.cs) and drives the real C# analyses to tighten the smoke fixtures
+to exact oracles. Everything is fixture-validated in C++/R/Python and reproduced against the real
+Numerics/RMC.BestFit libraries by the dotnet oracle gate (3950 reproduced, 0 failed, 11 documented
+GEV std-err skips; ctest 56/56; testthat 3585/0; pytest 574). Deferred to a remaining Phase 9: the
+per-family analysis orchestrators (Composite/Mixture/PointProcess/CompetingRisk/the four
+TimeSeries/SpatialGEV/Bivariate/RatingCurve/CoincidentFrequency, plus Weighted/Batch), the
+LinkedMultivariateNormal path (+ its ~13 link-builder helpers + InfluenceStatistics) and the
+BiasCorrected/pivot Bootstrap, the Numerics `BootstrapAnalysis` frequentist engine (unused by this
+scope), the `Diagnostics/` layer (LeverageDiagnostics/Influence, still throwing stubs), and GMM
+report generation. Carried-forward BUG (A11): seeded DEMCz/DEMCzs runs with `thinning_interval > 1`
+are NOT oracle-guaranteed C#-vs-C++ until bisected -- single-step / thin=1 is bit-identical, so every
+shipped Bayesian fixture (all thin=1) is unaffected. Pending: CI run and PR for the phase8-analyses
+branch. See `PLAN.md`.

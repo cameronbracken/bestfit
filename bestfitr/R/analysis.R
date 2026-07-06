@@ -18,6 +18,8 @@
 #' @param exceedance_probabilities optional numeric vector of exceedance probabilities at which to
 #'   tabulate the curve; when `NULL`, the 25 standard default ordinates are used.
 #' @param thinning_interval MCMC thinning interval; `-1` (default) keeps the sampler's own default.
+#' @details The MCMC warmup (burn-in) length is set automatically to `max(50, iterations / 2)`; it
+#'   is not a user parameter.
 #' @return A named list: `parameters` (point-estimate distribution parameters), `mode_curve`,
 #'   `mean_curve`, `lower_ci`, `upper_ci` (one value per exceedance ordinate), and the scalars
 #'   `aic`, `bic`, `dic`, `rmse`.
