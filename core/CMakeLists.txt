@@ -56,6 +56,7 @@ set(BF_TESTS
   test_cached_mvn_gaussian_copula
   test_spatial_regression_errors
   test_spatial_gev
+  test_time_series_arma
 )
 
 # Sobol test takes the direction-number file as its sole argument.
