@@ -47,28 +47,37 @@
 //     arm), AccelerationConstants (ported but UNCALLED -- the C# only references it from the
 //     deferred BCa/pivot path), the BootstrapResults member, and the BootstrapDiagnostics DTO
 //     (its own support header). See those methods for the per-line C# provenance.
+//   * SHIPPED in A9 (this header): the Cohn-style delta-method CI machinery -- the public
+//     ComputeCohnStyleConfidenceIntervals plus its private helpers (BuildQuadratureGrid,
+//     CohnCholesky, BuildGridFromCholesky, ClampForCovariance, ClampForQuantile,
+//     EvaluateQuantileSafe, WeightedCovariance, CohnAdjustedStudentTCI, EnforceMonotonicity) and the
+//     CohnConfidenceIntervalResult DTO (its own support header). Deterministic (nested Gaussian
+//     quadrature over the GMM fit -- no MCMC/bootstrap seed dependence).
 //   * DEFERRED to Phase 9: GetParameterSetsFromLinkedMultivariateNormal + its link-builder helpers
 //     (CreatePositiveParameterLink / CreatePearson{Location,Scale}Link / CreateLocationLink /
 //     CreateGammaShapeLink / OrientGammaWedsForLink / CleanWeds / SafeStandardError /
 //     ComputeInfluenceStatistics / InfluenceStatistics), GetParameterSetsFromPivotBootstrap
-//     (BiasCorrected), the Cohn CI machinery + CohnConfidenceIntervalResult DTO (A9), and the
-//     ~617-line GMM report generator (incl. ReportAppendBootstrapDiagnostics). AFormulaOverride is
-//     a deferred A9 member (not declared here).
+//     (BiasCorrected), and the ~617-line GMM report generator, C# 3168-3785 -- GenerateGMMReport +
+//     its ReportAppend* / covariance-table StringBuilder helpers (pure plain-text formatting, no
+//     compute content). AFormulaOverride is a deferred A9-adjacent member (not declared here).
 //
 // `EvaluateLogQuantileSafe` (C# 856-880) IS ported below per the A7 brief, though the shipped MVN
 // path does not itself call it (the C# MVN sampler validates via ValidateParameters); it is the
 // safe-quantile guard the LinkedMVN / Cohn paths use and lands here for structural fidelity.
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "bestfit/analyses/support/analysis_base.hpp"
 #include "bestfit/analyses/support/bootstrap_diagnostics.hpp"
+#include "bestfit/analyses/support/cohn_confidence_interval_result.hpp"
 #include "bestfit/analyses/support/i_univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
@@ -80,8 +89,11 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/chi_squared.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/pearson_type_iii.hpp"
+#include "bestfit/numerics/distributions/student_t.hpp"
 #include "bestfit/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
 #include "bestfit/numerics/functions/link_controller.hpp"
+#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/eigenvalue_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
 #include "bestfit/numerics/math/linalg/matrix_regularization.hpp"
@@ -313,7 +325,143 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return result;
     }
 
+    // C# `ComputeCohnStyleConfidenceIntervals` (C# 2513-2643): the flagship Cohn-style delta-method
+    // confidence intervals. A DETERMINISTIC nested Gaussian-quadrature delta method over the GMM
+    // fit (no MCMC/bootstrap seed dependence). Builds the outer 2^p Cholesky quadrature grid at
+    // theta_hat, recomputes the covariance (with the degeneracy sanity check) and an inner grid per
+    // outer node, then per probability level forms the 2x2 Cov(Q_hat, SE(Q_hat)) and applies Cohn's
+    // adjusted Student-t CI. Returns nullopt when the GMM is null / not estimated (C# `return null`).
+    std::optional<CohnConfidenceIntervalResult> compute_cohn_style_confidence_intervals() {
+        using bestfit::numerics::math::linalg::Matrix;
+        using bestfit::numerics::math::linalg::MatrixRegularization;
+
+        // C# `if (_gmm == null || !_gmm.IsEstimated) return null;` (C# 2515-2516).
+        if (!gmm_ || !gmm_->is_estimated()) return std::nullopt;
+
+        int n_prob = static_cast<int>(probability_ordinates_.count());       // C# 2518
+        int p = bulletin17c_distribution_->number_of_parameters();           // C# 2519
+        const std::vector<double> theta_hat = gmm_->best_parameter_set().values;  // C# 2521
+
+        // Outer covariance from the GMM sandwich estimator at theta_hat (C# 2525-2526).
+        Matrix sigma_hat = gmm_->get_covariance(clamp_for_covariance(theta_hat));
+        sigma_hat = MatrixRegularization::make_symmetric_positive_definite(sigma_hat);
+
+        // Outer 2^p Cholesky quadrature grid (C# 2529-2531).
+        const int n_nodes_per_dim = 2;
+        auto [outer_grid, outer_weights] =
+            build_quadrature_grid(theta_hat, sigma_hat, p, n_nodes_per_dim);
+        int n_outer = static_cast<int>(outer_grid.size());
+
+        // Per outer node: recompute the covariance + build the inner grid (C# 2540-2577).
+        std::vector<std::vector<std::vector<double>>> inner_grids(static_cast<std::size_t>(n_outer));
+        std::vector<std::vector<double>> inner_weights(static_cast<std::size_t>(n_outer));
+        for (int i = 0; i < n_outer; ++i) {
+            std::size_t iu = static_cast<std::size_t>(i);
+            Matrix sigma_at_i = sigma_hat;
+            // C# try/catch + Debug.WriteLine -> silent no-throw guard falling back to sigma_hat.
+            try {
+                Matrix candidate = gmm_->get_covariance(clamp_for_covariance(outer_grid[iu]));
+                candidate = MatrixRegularization::make_symmetric_positive_definite(candidate);
+
+                // Degeneracy sanity check (C# 2554-2567): fall back to baseline when any diagonal is
+                // NaN/Inf/<=0 or differs from the baseline diagonal by more than 10x or less than 0.1x.
+                bool degenerate = false;
+                for (int d = 0; d < p; ++d) {
+                    double base_var = sigma_hat(d, d);
+                    double grid_var = candidate(d, d);
+                    if (std::isnan(grid_var) || std::isinf(grid_var) || grid_var <= 0.0 ||
+                        (base_var > 0.0 &&
+                         (grid_var > 10.0 * base_var || grid_var < 0.1 * base_var))) {
+                        degenerate = true;
+                        break;
+                    }
+                }
+                sigma_at_i = degenerate ? sigma_hat : candidate;
+            } catch (...) {
+                sigma_at_i = sigma_hat;
+            }
+            auto [ig, iw] = build_quadrature_grid(outer_grid[iu], sigma_at_i, p, n_nodes_per_dim);
+            inner_grids[iu] = std::move(ig);
+            inner_weights[iu] = std::move(iw);
+        }
+
+        // Result arrays (C# 2580-2585).
+        std::vector<double> point_estimates(static_cast<std::size_t>(n_prob));
+        std::vector<double> lower_ci(static_cast<std::size_t>(n_prob));
+        std::vector<double> upper_ci(static_cast<std::size_t>(n_prob));
+        std::vector<double> beta1_array(static_cast<std::size_t>(n_prob));
+        std::vector<double> nu_array(static_cast<std::size_t>(n_prob));
+        std::vector<double> var_q_array(static_cast<std::size_t>(n_prob));
+
+        // Per probability level: the 2x2 Cov(Q_hat_p, SE(Q_hat_p)) (C# 2588-2627).
+        for (int k = 0; k < n_prob; ++k) {
+            std::size_t ku = static_cast<std::size_t>(k);
+            double non_exceed_prob = 1.0 - probability_ordinates_[ku];  // C# 2590
+
+            point_estimates[ku] = evaluate_quantile_safe(theta_hat, non_exceed_prob);  // C# 2593
+
+            std::vector<double> q_outer(static_cast<std::size_t>(n_outer));
+            std::vector<double> se_outer(static_cast<std::size_t>(n_outer));
+            for (int i = 0; i < n_outer; ++i) {
+                std::size_t iu = static_cast<std::size_t>(i);
+                q_outer[iu] = evaluate_quantile_safe(outer_grid[iu], non_exceed_prob);
+
+                // Inner-level variance of Q_p (C# 2603-2610).
+                int n_inner = static_cast<int>(inner_grids[iu].size());
+                std::vector<double> q_inner(static_cast<std::size_t>(n_inner));
+                for (int j = 0; j < n_inner; ++j)
+                    q_inner[static_cast<std::size_t>(j)] =
+                        evaluate_quantile_safe(inner_grids[iu][static_cast<std::size_t>(j)],
+                                               non_exceed_prob);
+                double var_inner = weighted_covariance(q_inner, q_inner, inner_weights[iu]);
+                se_outer[iu] = std::sqrt(std::max(0.0, var_inner));
+            }
+
+            // 2x2 covariance (C# 2614-2616).
+            double var_q = weighted_covariance(q_outer, q_outer, outer_weights);
+            double cov_q_se = weighted_covariance(q_outer, se_outer, outer_weights);
+            double var_se = weighted_covariance(se_outer, se_outer, outer_weights);
+
+            // Cohn adjusted Student-t CI (C# 2619-2620).
+            auto [low, high, beta1, nu] = cohn_adjusted_student_t_ci(
+                point_estimates[ku], var_q, cov_q_se, var_se,
+                bayesian_analysis_.credible_interval_width());
+
+            lower_ci[ku] = std::pow(10.0, low);    // C# 2622
+            upper_ci[ku] = std::pow(10.0, high);   // C# 2623
+            beta1_array[ku] = beta1;
+            nu_array[ku] = nu;
+            var_q_array[ku] = var_q;
+        }
+
+        // Monotonicity enforcement (C# 2630).
+        enforce_monotonicity(lower_ci, upper_ci, n_prob);
+
+        // Fill the DTO (C# 2632-2642). ExceedanceProbabilities = ProbabilityOrdinates.ToArray()
+        // (the ordinates ARE the exceedance probabilities in this codebase -- mirrored verbatim).
+        CohnConfidenceIntervalResult result;
+        result.exceedance_probabilities =
+            std::vector<double>(probability_ordinates_.begin(), probability_ordinates_.end());
+        result.point_estimates = std::move(point_estimates);
+        result.lower_ci = std::move(lower_ci);
+        result.upper_ci = std::move(upper_ci);
+        result.confidence_level = bayesian_analysis_.credible_interval_width();
+        result.beta1 = std::move(beta1_array);
+        result.nu = std::move(nu_array);
+        result.quantile_variance = std::move(var_q_array);
+        return result;
+    }
+
    private:
+    // Guard-rail constants for the covariance/quantile parameter clamps (C#-governed literals,
+    // named per the coding-style magic-number rule). EMA REGMOMS/VAR_MOM/QP3 provenance:
+    //   kSigmaFloor  -- sigma > 0 floor for covariance/quantile evaluation.
+    //   kSkewClampAbs -- REGMOMS |gamma| <= 1.5 outer clamp (covariance only).
+    //   kSkewFloorAbs -- VAR_MOM |gamma| >= 0.0632 floor (covariance only; alpha = 4/gamma^2).
+    static constexpr double kSigmaFloor = 1e-10;
+    static constexpr double kSkewClampAbs = 1.5;
+    static constexpr double kSkewFloorAbs = 0.063;
+
     // Null-guard helper for the ctor init list (C# `?? throw new ArgumentNullException`).
     static std::unique_ptr<Bulletin17CDistribution> require_non_null(
         std::unique_ptr<Bulletin17CDistribution> model) {
@@ -638,6 +786,246 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
             if (!std::isfinite(ps.fitness)) ps.fitness = 0.0;
             for (double& v : ps.values)
                 if (!std::isfinite(v)) v = 0.0;
+        }
+    }
+
+    // ================= A9: Cohn-style delta-method CI helpers =================
+
+    // C# `BuildQuadratureGrid` (C# 2672-2767): Cohn (2013) GRIDMAKE. Regularizes the covariance,
+    // builds standardized per-dimension nodes/weights (Gamma quadrature for the scale dim sigma;
+    // Gauss-Hermite +/-1 weight 0.5 for the others), factors S via CohnCholesky (falling back to
+    // standard Cholesky, then diagonal sqrt on failure), and tensor-products through the factor.
+    // n_nodes_per_dim is C#-signature-only (the body hard-codes 2 nodes/dim). Non-static to mirror
+    // the C# private instance method (it reads no instance state).
+    std::pair<std::vector<std::vector<double>>, std::vector<double>> build_quadrature_grid(
+        const std::vector<double>& mean, const bestfit::numerics::math::linalg::Matrix& covariance,
+        int dimension, int n_nodes_per_dim) const {
+        using bestfit::numerics::math::linalg::CholeskyDecomposition;
+        using bestfit::numerics::math::linalg::Matrix;
+        using bestfit::numerics::math::linalg::MatrixRegularization;
+        (void)n_nodes_per_dim;  // C# takes it but hard-codes 2 nodes/dim below.
+
+        // Regularize to ensure positive-definiteness (C# 2676).
+        Matrix s = MatrixRegularization::make_symmetric_positive_definite(covariance);
+
+        // Scale (sigma) dimension uses Gamma quadrature; index 1 for B17C dists (C# 2680).
+        int scale_idx = (dimension >= 2) ? 1 : -1;
+
+        std::vector<std::vector<double>> per_dim_nodes(static_cast<std::size_t>(dimension));
+        std::vector<std::vector<double>> per_dim_weights(static_cast<std::size_t>(dimension));
+        for (int d = 0; d < dimension; ++d) {
+            std::size_t du = static_cast<std::size_t>(d);
+            if (d == scale_idx && mean[du] > 0.0) {
+                // 2-point generalized Gauss-Laguerre (Gamma) quadrature for sigma (C# 2708-2732).
+                // Standardized nodes have mean 0, variance 1 exactly. alpha = sigma_hat^2 / Var(sigma_hat).
+                double var_sigma = std::max(s(d, d), 1e-30);
+                double alpha = mean[du] * mean[du] / var_sigma;
+                if (alpha > 50.0) {
+                    // For very large alpha, Gamma ~ Normal (C# 2712-2716).
+                    per_dim_nodes[du] = {-1.0, 1.0};
+                    per_dim_weights[du] = {0.5, 0.5};
+                } else {
+                    double sqrt_alpha = std::sqrt(alpha);
+                    double sqrt_alpha_p1 = std::sqrt(alpha + 1.0);
+                    double z1 = (1.0 - sqrt_alpha_p1) / sqrt_alpha;
+                    double z2 = (1.0 + sqrt_alpha_p1) / sqrt_alpha;
+                    double w1 = (alpha + 1.0 + sqrt_alpha_p1) / (2.0 * (alpha + 1.0));
+                    double w2 = (alpha + 1.0 - sqrt_alpha_p1) / (2.0 * (alpha + 1.0));
+                    per_dim_nodes[du] = {z1, z2};
+                    per_dim_weights[du] = {w1, w2};
+                }
+            } else {
+                // Normal (Gauss-Hermite) quadrature for unconstrained params (C# 2736-2738).
+                per_dim_nodes[du] = {-1.0, 1.0};
+                per_dim_weights[du] = {0.5, 0.5};
+            }
+        }
+
+        // Modified Cholesky (CHOL33) with the standard-Cholesky / diagonal-sqrt fallbacks (C# 2744-2765).
+        Matrix v(dimension, dimension);
+        try {
+            v = cohn_cholesky(s, dimension, scale_idx);
+        } catch (...) {
+            // C# Debug.WriteLine dropped -> silent guard.
+            try {
+                CholeskyDecomposition chol(s);
+                v = chol.l();
+            } catch (...) {
+                v = Matrix(dimension, dimension);
+                for (int i = 0; i < dimension; ++i) v(i, i) = std::sqrt(std::max(0.0, s(i, i)));
+            }
+        }
+
+        return build_grid_from_cholesky(mean, v, dimension, per_dim_nodes, per_dim_weights);
+    }
+
+    // C# `CohnCholesky` (C# 2796-2824): EMA's CHOL33 modified Cholesky. The shipped C# body returns
+    // the STANDARD lower-triangular Cholesky in BOTH branches (it concludes any valid Cholesky
+    // reproduces S = L*L^T; the EMA distinction lives in the Gamma nodes, not the factor ordering).
+    // The branch structure is mirrored verbatim. Static.
+    static bestfit::numerics::math::linalg::Matrix cohn_cholesky(
+        const bestfit::numerics::math::linalg::Matrix& s, int dimension, int pivot_idx) {
+        using bestfit::numerics::math::linalg::CholeskyDecomposition;
+        if (dimension != 3 || pivot_idx != 1) {
+            CholeskyDecomposition chol(s);  // non-3D: standard Cholesky
+            return chol.l();
+        }
+        CholeskyDecomposition chol2(s);  // 3D pivot case: also standard Cholesky (see the note)
+        return chol2.l();
+    }
+
+    // C# `BuildGridFromCholesky` (C# 2836-2882): tensor product of the per-dim standardized nodes
+    // mapped through the lower-triangular factor L (theta = mean + L*z), product weights. Static.
+    static std::pair<std::vector<std::vector<double>>, std::vector<double>> build_grid_from_cholesky(
+        const std::vector<double>& mean, const bestfit::numerics::math::linalg::Matrix& l,
+        int dimension, const std::vector<std::vector<double>>& per_dim_nodes,
+        const std::vector<std::vector<double>>& per_dim_weights) {
+        int total_points = 1;
+        for (int d = 0; d < dimension; ++d)
+            total_points *= static_cast<int>(per_dim_nodes[static_cast<std::size_t>(d)].size());
+
+        std::vector<std::vector<double>> grid(static_cast<std::size_t>(total_points));
+        std::vector<double> weights(static_cast<std::size_t>(total_points));
+
+        std::vector<int> indices(static_cast<std::size_t>(dimension), 0);
+        for (int pt = 0; pt < total_points; ++pt) {
+            std::size_t ptu = static_cast<std::size_t>(pt);
+            std::vector<double> z(static_cast<std::size_t>(dimension));
+            double w = 1.0;
+            for (int d = 0; d < dimension; ++d) {
+                std::size_t du = static_cast<std::size_t>(d);
+                std::size_t idx = static_cast<std::size_t>(indices[du]);
+                z[du] = per_dim_nodes[du][idx];
+                w *= per_dim_weights[du][idx];
+            }
+            // Apply the Cholesky: theta = mean + L*z (L lower-triangular).
+            std::vector<double> theta(static_cast<std::size_t>(dimension));
+            for (int i = 0; i < dimension; ++i) {
+                double sum = 0.0;
+                for (int j = 0; j <= i; ++j) sum += l(i, j) * z[static_cast<std::size_t>(j)];
+                theta[static_cast<std::size_t>(i)] = mean[static_cast<std::size_t>(i)] + sum;
+            }
+            grid[ptu] = std::move(theta);
+            weights[ptu] = w;
+
+            // Increment the multi-index (odometer pattern) (C# 2873-2878).
+            for (int d = 0; d < dimension; ++d) {
+                std::size_t du = static_cast<std::size_t>(d);
+                indices[du]++;
+                if (indices[du] < static_cast<int>(per_dim_nodes[du].size())) break;
+                indices[du] = 0;
+            }
+        }
+
+        return {std::move(grid), std::move(weights)};
+    }
+
+    // C# `ClampForCovariance` (C# 2903-2922): clone; sigma > kSigmaFloor; |gamma| clamped to
+    // kSkewClampAbs and floored (sign-preserving) at kSkewFloorAbs. Static.
+    static std::vector<double> clamp_for_covariance(const std::vector<double>& parameters) {
+        std::vector<double> clamped = parameters;  // clone
+        if (clamped.size() >= 2) clamped[1] = std::max(clamped[1], kSigmaFloor);
+        if (clamped.size() >= 3) {
+            clamped[2] = std::clamp(clamped[2], -kSkewClampAbs, kSkewClampAbs);
+            if (std::abs(clamped[2]) < kSkewFloorAbs)
+                clamped[2] = std::copysign(kSkewFloorAbs, clamped[2]);
+        }
+        return clamped;
+    }
+
+    // C# `ClampForQuantile` (C# 2935-2948): clone; sigma > kSigmaFloor; gamma left UNCLAMPED
+    // (matching EMA's QP3, which has no skew clamp). Static.
+    static std::vector<double> clamp_for_quantile(const std::vector<double>& parameters) {
+        std::vector<double> clamped = parameters;  // clone
+        if (clamped.size() >= 2) clamped[1] = std::max(clamped[1], kSigmaFloor);
+        // gamma intentionally unclamped for quantile evaluation.
+        return clamped;
+    }
+
+    // C# `EvaluateQuantileSafe` (C# 2956-2980): quantile at the given parameters via a PearsonTypeIII
+    // clamped for quantile evaluation; NaN/Inf or any throw falls back to
+    // log10(Distribution.InverseCDF(p)). DISTINCT from evaluate_log_quantile_safe (A7). The C#
+    // `new PearsonTypeIII(); SetParameters(clamped)` validates the length and throws for a non-3
+    // vector; our set_parameters does NOT length-check, so an explicit size guard reproduces the
+    // C# throw+fallback (P3 has exactly 3 parameters).
+    double evaluate_quantile_safe(const std::vector<double>& parameters,
+                                  double non_exceedance_probability) const {
+        try {
+            std::vector<double> clamped = clamp_for_quantile(parameters);
+            if (clamped.size() != 3)
+                throw std::invalid_argument("PearsonTypeIII requires 3 parameters");
+            bestfit::numerics::distributions::PearsonTypeIII dist;
+            dist.set_parameters(clamped);
+            double q = dist.inverse_cdf(non_exceedance_probability);
+            if (std::isnan(q) || std::isinf(q))
+                return std::log10(
+                    bulletin17c_distribution_->distribution()->inverse_cdf(non_exceedance_probability));
+            return q;
+        } catch (...) {
+            // C# Debug.WriteLine dropped -> silent guard; fall back to the point-estimate quantile.
+            return std::log10(
+                bulletin17c_distribution_->distribution()->inverse_cdf(non_exceedance_probability));
+        }
+    }
+
+    // C# `WeightedCovariance` (C# 2990-3017): EMA's COVW -- weighted means then
+    // Cov = sum w_i (x_i - xbar)(y_i - ybar) / sum w_i; wSum <= 0 -> 0. Static.
+    static double weighted_covariance(const std::vector<double>& x, const std::vector<double>& y,
+                                      const std::vector<double>& weights) {
+        std::size_t n = x.size();
+        double w_sum = 0.0;
+        for (std::size_t i = 0; i < n; ++i) w_sum += weights[i];
+        if (w_sum <= 0.0) return 0.0;
+
+        double x_bar = 0.0, y_bar = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            x_bar += weights[i] * x[i];
+            y_bar += weights[i] * y[i];
+        }
+        x_bar /= w_sum;
+        y_bar /= w_sum;
+
+        double cov = 0.0;
+        for (std::size_t i = 0; i < n; ++i) cov += weights[i] * (x[i] - x_bar) * (y[i] - y_bar);
+        return cov / w_sum;
+    }
+
+    // C# `CohnAdjustedStudentTCI` (C# 3051-3089): the CI_EMA_M3B adjusted Student-t CI. Returns
+    // (lower, upper, beta1, nu). nuMin = 5, cMin = 0.5; varQ <= 0 -> (qHat, qHat, 0, nuMin). Static.
+    static std::tuple<double, double, double, double> cohn_adjusted_student_t_ci(
+        double q_hat, double var_q, double cov_q_se, double var_se, double confidence_level) {
+        constexpr double kNuMin = 5.0;
+        constexpr double kCMin = 0.5;
+
+        if (var_q <= 0.0) return {q_hat, q_hat, 0.0, kNuMin};
+
+        double beta1 = cov_q_se / var_q;                        // regression coefficient of SE on Q
+        double var_se_given_q = var_se - cov_q_se * cov_q_se / var_q;  // conditional variance of SE
+        double nu = (var_se_given_q <= 0.0) ? 1000.0 : 0.5 * var_q / var_se_given_q;
+        nu = std::max(nu, kNuMin);
+
+        double p_high = (1.0 + confidence_level) / 2.0;
+        bestfit::numerics::distributions::StudentT t_dist(nu);
+        double t = t_dist.inverse_cdf(p_high);
+        double se_q = std::sqrt(var_q);
+
+        // beta1-corrected CI bounds (C# 3085-3086).
+        double ci_high = q_hat + se_q * t / std::max(kCMin, 1.0 - beta1 * t);
+        double ci_low = q_hat + se_q * (-t) / std::max(kCMin, 1.0 - beta1 * (-t));
+        return {ci_low, ci_high, beta1, nu};
+    }
+
+    // C# `EnforceMonotonicity` (C# 3126-3133): backward sweep i = nProb-2..0 setting each bound to
+    // max(self, next). C#-DOC NOTE: the source carries TWO contradictory xml-doc blocks above this
+    // single body; the BODY governs -- ordinates are AEPs in ASCENDING order, quantiles DECREASE
+    // with index, so both CI bounds must be non-increasing with index. The stale "descending
+    // ordinates" doc block is ignored (see the A9 report). Static.
+    static void enforce_monotonicity(std::vector<double>& lower_ci, std::vector<double>& upper_ci,
+                                     int n_prob) {
+        for (int i = n_prob - 2; i >= 0; --i) {
+            std::size_t iu = static_cast<std::size_t>(i);
+            lower_ci[iu] = std::max(lower_ci[iu], lower_ci[iu + 1]);
+            upper_ci[iu] = std::max(upper_ci[iu], upper_ci[iu + 1]);
         }
     }
 
