@@ -1,0 +1,33 @@
+{
+  "target": "CompetingRiskAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/CompetingRiskAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). CompetingRiskAnalysis drives a Bayesian DEMCzs MCMC over a Gumbel+Weibull CompetingRisksModel and assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python. thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Parameter layout [Gumbel location, Gumbel scale, Weibull scale, Weibull shape]; rmse over the competing-risks inverse-CDF grid can be non-finite and is NOT asserted. Tolerances loose (rel 1e-5).",
+  "datasets": {
+    "cr": [7872, 8624, 5894, 12540, 4322, 17586, 8307, 6009, 13320, 10641, 6301, 8458, 3545, 8838, 13628, 15105, 11742, 15763, 9117, 4116, 12372, 5902, 6038, 8381, 14452]
+  },
+  "cases": [
+    {
+      "name": "gumbel_weibull_competing_risk_demczs_short",
+      "construct": {
+        "model": { "type": "competing_risks", "families": ["Gumbel", "Weibull"], "dataset": "cr" },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 7662.14783532023, "mode": "rel", "tol": 1e-5 },
+        { "method": "mode_curve", "args": [2], "expected": 9380.3875175743, "mode": "rel", "tol": 1e-5 },
+        { "method": "mean_curve", "args": [2], "expected": 9302.00640571611, "mode": "rel", "tol": 1e-5 },
+        { "method": "lower_ci", "args": [2], "expected": 6615.85849008351, "mode": "rel", "tol": 1e-5 },
+        { "method": "upper_ci", "args": [2], "expected": 11145.5971847733, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "expected": 614.556743886612, "mode": "rel", "tol": 1e-5 },
+        { "method": "bic", "expected": 619.432247186085, "mode": "rel", "tol": 1e-5 },
+        { "method": "dic", "expected": 493.11005202124, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

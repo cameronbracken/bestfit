@@ -1,0 +1,33 @@
+{
+  "target": "MixtureAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/MixtureAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified against the real RMC.BestFit; D6 tightens to exact). MixtureAnalysis drives a Bayesian DEMCzs MCMC over a 2-component Normal MixtureModel, then assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python (identical compiled core + bit-exact Mersenne Twister). thinning_interval pinned to 1 (the bayes_normal / univariate_analysis_smoke proven bit-identical path; the default thinning=20 exposes a documented population-sampler divergence). Short run (iterations 100, output_length 400). Parameter layout [w1, w2, mu1, sigma1, mu2, sigma2]; rmse over a mixture inverse-CDF grid can be non-finite and is deliberately NOT asserted. Tolerances are intentionally loose (rel 1e-5).",
+  "datasets": {
+    "bimodal": [520, 580, 610, 650, 700, 730, 760, 800, 850, 880, 910, 950, 990, 1030, 1080, 5000, 5400, 5800, 6300, 6800]
+  },
+  "cases": [
+    {
+      "name": "two_normal_mixture_demczs_short",
+      "construct": {
+        "model": { "type": "mixture", "families": ["Normal", "Normal"], "dataset": "bimodal" },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 0.504630204498561, "mode": "rel", "tol": 1e-5 },
+        { "method": "mode_curve", "args": [2], "expected": 3916.74850843377, "mode": "rel", "tol": 1e-5 },
+        { "method": "mean_curve", "args": [2], "expected": 1833.15469878355, "mode": "rel", "tol": 1e-5 },
+        { "method": "lower_ci", "args": [2], "expected": -5654.25453838596, "mode": "rel", "tol": 1e-5 },
+        { "method": "upper_ci", "args": [2], "expected": 5458.12060890774, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "expected": 521.176002393693, "mode": "rel", "tol": 1e-5 },
+        { "method": "bic", "expected": 527.150396035017, "mode": "rel", "tol": 1e-5 },
+        { "method": "dic", "expected": 345.032563352644, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

@@ -81,3 +81,122 @@ def test_bulletin17c_analysis_rejects_deferred_methods():
         bestfitpy.bulletin17c_analysis(
             SMOKE_PEAKS, uncertainty_method="LinkedMultivariateNormal"
         )
+
+
+# --- D5: per-family analyses + diagnostics ----------------------------------------------
+# Direct user-API smoke calls (the fixture harness covers the numeric oracles); these assert
+# the returned dict shapes and finite/well-shaped contents in Python.
+
+TS_SERIES = [
+    10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1,
+    11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8,
+]
+
+BIMODAL = [
+    520, 580, 610, 650, 700, 730, 760, 800, 850, 880, 910, 950, 990, 1030, 1080,
+    5000, 5400, 5800, 6300, 6800,
+]
+
+CR_SERIES = [
+    7872, 8624, 5894, 12540, 4322, 17586, 8307, 6009, 13320, 10641, 6301, 8458,
+    3545, 8838, 13628, 15105, 11742, 15763, 9117, 4116, 12372, 5902, 6038, 8381, 14452,
+]
+
+POT_PEAKS = [950, 1020, 1130, 980, 1250, 1090, 1430, 1010, 1180, 1620, 970, 1300, 1050, 1550, 1210]
+
+
+def _assert_family_shape(res, n_params):
+    assert len(res["parameters"]) == n_params
+    assert all(math.isfinite(v) for v in res["parameters"])
+    n = len(res["mode_curve"])
+    assert n > 0
+    assert len(res["mean_curve"]) == n
+    assert len(res["lower_ci"]) == n
+    assert len(res["upper_ci"]) == n
+    assert math.isfinite(res["aic"])
+    assert math.isfinite(res["bic"])
+
+
+def test_mixture_analysis_returns_frequency_curve():
+    res = bestfitpy.mixture_analysis(
+        BIMODAL, ["Normal", "Normal"], iterations=100, output_length=400, seed=12345,
+        thinning_interval=1, exceedance_probabilities=[0.01, 0.1, 0.5, 0.9, 0.99],
+    )
+    _assert_family_shape(res, 6)
+    assert len(res["mode_curve"]) == 5
+
+
+def test_competing_risk_analysis_returns_frequency_curve():
+    res = bestfitpy.competing_risk_analysis(
+        CR_SERIES, ["Gumbel", "Weibull"], iterations=100, output_length=400, seed=12345,
+        thinning_interval=1, exceedance_probabilities=[0.01, 0.1, 0.5, 0.9, 0.99],
+    )
+    _assert_family_shape(res, 4)
+
+
+def test_point_process_analysis_returns_frequency_curve():
+    res = bestfitpy.point_process_analysis(
+        POT_PEAKS, threshold=900, total_years=20, iterations=100, output_length=400,
+        seed=12345, thinning_interval=1, exceedance_probabilities=[0.01, 0.1, 0.5, 0.9, 0.99],
+    )
+    _assert_family_shape(res, 3)
+    assert math.isfinite(res["dic"])
+
+
+def test_ar_analysis_returns_forecast_curve():
+    res = bestfitpy.ar_analysis(
+        TS_SERIES, order_p=1, training_time_steps=15, forecasting_time_steps=3,
+        iterations=100, output_length=400, seed=12345, thinning_interval=1,
+    )
+    assert len(res["mode_curve"]) == 23  # 20 observed + 3 forecast
+    assert all(math.isfinite(v) for v in res["parameters"])
+    assert math.isfinite(res["rmse"])
+
+
+def test_ma_analysis_returns_forecast_curve():
+    res = bestfitpy.ma_analysis(
+        TS_SERIES, order_q=1, training_time_steps=15, forecasting_time_steps=3,
+        iterations=100, output_length=400, seed=12345, thinning_interval=1,
+    )
+    assert len(res["mode_curve"]) == 23
+    assert math.isfinite(res["aic"])
+
+
+def test_arima_analysis_returns_forecast_curve():
+    res = bestfitpy.arima_analysis(
+        TS_SERIES, order_p=1, order_d=1, order_q=1, training_time_steps=15,
+        forecasting_time_steps=3, iterations=100, output_length=400, seed=12345,
+        thinning_interval=1,
+    )
+    assert len(res["mode_curve"]) == 23
+    assert math.isfinite(res["aic"])
+
+
+def test_arimax_analysis_returns_forecast_curve():
+    res = bestfitpy.arimax_analysis(
+        TS_SERIES, trend="Linear", training_time_steps=15, forecasting_time_steps=0,
+        iterations=100, output_length=400, seed=12345, thinning_interval=1,
+    )
+    assert len(res["mode_curve"]) == 20  # fit-only
+    assert math.isfinite(res["bic"])
+
+
+def test_estimation_diagnostics_returns_all_three():
+    d = bestfitpy.estimation_diagnostics(
+        SMOKE_PEAKS, "Normal", iterations=100, output_length=400, seed=12345,
+        thinning_interval=1,
+    )
+    # Leverage
+    assert len(d["leverage"]["leverage"]) == len(SMOKE_PEAKS)
+    assert len(d["leverage"]["value"]) == len(SMOKE_PEAKS)
+    assert math.isfinite(d["leverage"]["total_leverage"])
+    assert all(math.isfinite(v) for v in d["leverage"]["leverage"])
+    # Influence (PSIS-LOO)
+    assert d["influence"]["count"] == len(SMOKE_PEAKS)
+    assert len(d["influence"]["pareto_k"]) == len(SMOKE_PEAKS)
+    assert math.isfinite(d["influence"]["mean_pareto_k"])
+    assert isinstance(d["influence"]["is_reliable"], bool)
+    # Prior influence
+    assert d["prior_influence"]["count"] > 0
+    assert math.isfinite(d["prior_influence"]["prior_to_data_ratio"])
+    assert isinstance(d["prior_influence"]["is_prior_influential"], bool)

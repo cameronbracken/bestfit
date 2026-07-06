@@ -625,7 +625,48 @@ dispatch_analysis <- function(result, method, args) {
     dic                   = result$dic[[1]],
     rmse                  = result$rmse[[1]],
     confidence_level      = result$confidence_level[[1]],
+    # D5: time-series curve length + the three diagnostics.
+    curve_length          = length(result$mode_curve),
+    leverage_count        = length(result$leverage$leverage),
+    leverage_prior_count  = length(result$leverage$prior_leverage),
+    total_leverage        = result$leverage$total_leverage,
+    total_fit_influence   = result$leverage$total_fit_influence,
+    total_variance_influence = result$leverage$total_variance_influence,
+    obs_leverage          = result$leverage$leverage[[i1(args[[1]])]],
+    obs_fit_influence     = result$leverage$fit_influence[[i1(args[[1]])]],
+    obs_variance_influence = result$leverage$variance_influence[[i1(args[[1]])]],
+    obs_value             = result$leverage$value[[i1(args[[1]])]],
+    influence_count       = result$influence$count,
+    mean_pareto_k         = result$influence$mean_pareto_k,
+    max_pareto_k          = result$influence$max_pareto_k,
+    count_pareto_k_above_05 = result$influence$count_pareto_k_above_05,
+    count_pareto_k_above_07 = result$influence$count_pareto_k_above_07,
+    count_pareto_k_above_10 = result$influence$count_pareto_k_above_10,
+    proportion_problematic = result$influence$proportion_problematic,
+    is_reliable           = as.numeric(result$influence$is_reliable),
+    pareto_k              = result$influence$pareto_k[[i1(args[[1]])]],
+    elpd_loo              = result$influence$elpd_loo[[i1(args[[1]])]],
+    prior_influence_count = result$prior_influence$count,
+    total_prior_log_likelihood = result$prior_influence$total_prior_log_likelihood,
+    total_data_log_likelihood = result$prior_influence$total_data_log_likelihood,
+    prior_to_data_ratio   = result$prior_influence$prior_to_data_ratio,
+    is_prior_influential  = as.numeric(result$prior_influence$is_prior_influential),
+    mean_prior_precision_share = result$prior_influence$mean_prior_precision_share,
     stop(sprintf("unknown analysis fixture method: %s", method))
+  )
+}
+
+# D5: map an analysis fixture target to the bf_analysis_family_run_ analysis_type discriminator.
+.family_analysis_type <- function(target) {
+  switch(target,
+    MixtureAnalysis = "mixture",
+    CompetingRiskAnalysis = "competing_risk",
+    PointProcessAnalysis = "point_process",
+    ARAnalysis = "ar",
+    MAAnalysis = "ma",
+    ARIMAAnalysis = "arima",
+    ARIMAXAnalysis = "arimax",
+    NULL
   )
 }
 
@@ -659,6 +700,28 @@ run_analysis_case <- function(target, construct, assertions, datasets) {
     result <- ns$bf_analysis_b17c_run_(
       model_json, data, um, geti("output_length", 10000L), geti("seed", 12345L),
       getd("confidence_level", 0.90), ep
+    )
+  } else if (!is.null(.family_analysis_type(target))) {
+    # D5: the seven per-family analyses through the single dispatch binding.
+    model <- construct$model
+    model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
+    data <- as.double(unlist(datasets[[model$dataset]]))
+    sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
+    result <- ns$bf_analysis_family_run_(
+      .family_analysis_type(target), model_json, data, sampler, geti("iterations", 3000L),
+      geti("output_length", 10000L), getd("credible_level", 0.90), geti("seed", 12345L), ep,
+      geti("thinning_interval", -1L), geti("training_time_steps", -1L),
+      geti("forecasting_time_steps", 0L)
+    )
+  } else if (target == "Diagnostics") {
+    # D5: leverage / influence / prior-influence diagnostics off a BayesianAnalysis fit.
+    model <- construct$model
+    model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
+    data <- as.double(unlist(datasets[[model$dataset]]))
+    sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
+    result <- ns$bf_analysis_diagnostics_run_(
+      model_json, data, sampler, geti("iterations", 3000L), geti("output_length", 10000L),
+      geti("seed", 12345L), geti("thinning_interval", -1L), geti("thin_every", 10L)
     )
   } else {
     stop(sprintf("unknown analysis target: %s", target))

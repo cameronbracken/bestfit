@@ -1,0 +1,34 @@
+{
+  "target": "PointProcessAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/PointProcessAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). PointProcessAnalysis drives a Bayesian DEMCzs MCMC over a peaks-over-threshold PointProcessModel (single-GEV mark distribution, explicit threshold/total_years) and assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python. thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5).",
+  "datasets": {
+    "pot": [950, 1020, 1130, 980, 1250, 1090, 1430, 1010, 1180, 1620, 970, 1300, 1050, 1550, 1210]
+  },
+  "cases": [
+    {
+      "name": "gev_point_process_demczs_short",
+      "construct": {
+        "model": { "type": "point_process", "dataset": "pot", "threshold": 900.0, "total_years": 20.0 },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": -1278.89767374645, "mode": "rel", "tol": 1e-5 },
+        { "method": "mode_curve", "args": [2], "expected": -174.616099122668, "mode": "rel", "tol": 1e-5 },
+        { "method": "mean_curve", "args": [2], "expected": -37.616336685274, "mode": "rel", "tol": 1e-5 },
+        { "method": "lower_ci", "args": [2], "expected": -2056.5100223858, "mode": "rel", "tol": 1e-5 },
+        { "method": "upper_ci", "args": [2], "expected": 1015.12492206181, "mode": "rel", "tol": 1e-5 },
+        { "method": "aic", "expected": 303.742540243712, "mode": "rel", "tol": 1e-5 },
+        { "method": "bic", "expected": 305.866690847019, "mode": "rel", "tol": 1e-5 },
+        { "method": "dic", "expected": 232.59088641193, "mode": "rel", "tol": 1e-5 },
+        { "method": "rmse", "expected": 2307.26928455217, "mode": "rel", "tol": 1e-5 }
+      ]
+    }
+  ]
+}

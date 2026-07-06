@@ -13,11 +13,19 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "bestfit/analyses/time_series/ar_analysis.hpp"
+#include "bestfit/analyses/time_series/arima_analysis.hpp"
+#include "bestfit/analyses/time_series/arimax_analysis.hpp"
+#include "bestfit/analyses/time_series/ma_analysis.hpp"
 #include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
+#include "bestfit/analyses/univariate/competing_risk_analysis.hpp"
+#include "bestfit/analyses/univariate/mixture_analysis.hpp"
+#include "bestfit/analyses/univariate/point_process_analysis.hpp"
 #include "bestfit/analyses/univariate/univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/models/data_frame/data_frame.hpp"
@@ -78,6 +86,127 @@ static void set_ordinates(bestfit::numerics::data::ProbabilityOrdinates& po,
     if (ep.empty()) return;
     po.clear();
     for (double p : ep) po.push_back(p);
+}
+
+// --- D5: per-family analyses + diagnostics (twin of bestfitr/src/analysis.cpp) -------------
+//
+// The seven remaining per-family analyses share the UnivariateAnalysis result surface, so ONE
+// dispatch function (analysis_family_run) serves all seven; the Python wrappers stay
+// one-per-analysis. Spec assembly + seed plumbing mirror analysis_univariate_run byte-for-byte.
+
+struct FamilyRunResult {
+    std::vector<double> parameters, mode_curve, mean_curve, lower_ci, upper_ci;
+    double aic = std::numeric_limits<double>::quiet_NaN();
+    double bic = std::numeric_limits<double>::quiet_NaN();
+    double dic = std::numeric_limits<double>::quiet_NaN();
+    double rmse = std::numeric_limits<double>::quiet_NaN();
+};
+
+static void apply_family_bayes_knobs(est::BayesianAnalysis& ba, const std::string& sampler,
+                                     int iterations, int output_length, double credible_level,
+                                     int seed, int thinning_interval) {
+    ba.set_type(parse_analysis_sampler(sampler));
+    if (credible_level > 0.0 && credible_level < 1.0) ba.set_credible_interval_width(credible_level);
+    if (seed >= 0) ba.set_prng_seed(seed);
+    if (output_length > 0) ba.set_output_length(output_length);
+    if (iterations > 0) {
+        ba.set_iterations(iterations);
+        ba.set_warmup_iterations(std::max(50, iterations / 2));
+    }
+    if (thinning_interval > 0) ba.set_thinning_interval(thinning_interval);
+}
+
+template <typename AnalysisT, typename ModelT>
+static FamilyRunResult run_univariate_family(std::unique_ptr<models::ModelBase> base,
+                                             const std::string& sampler, int iterations,
+                                             int output_length, double credible_level, int seed,
+                                             const std::vector<double>& ep, int thinning_interval) {
+    auto* raw = dynamic_cast<ModelT*>(base.get());
+    if (raw == nullptr)
+        throw py::value_error("analysis model spec does not match the requested analysis type");
+    base.release();
+    std::unique_ptr<ModelT> model(raw);
+    AnalysisT analysis(std::move(model));
+    set_ordinates(analysis.probability_ordinates(), ep);
+    apply_family_bayes_knobs(analysis.bayesian_analysis(), sampler, iterations, output_length,
+                             credible_level, seed, thinning_interval);
+    analysis.run();
+
+    FamilyRunResult r;
+    const auto* results = analysis.analysis_results();
+    if (results != nullptr) {
+        auto* pe = analysis.get_point_estimate_distribution();
+        if (pe != nullptr) r.parameters = pe->get_parameters();
+        r.mode_curve = results->mode_curve;
+        r.mean_curve = results->mean_curve;
+        for (const auto& ci : results->confidence_intervals) {
+            r.lower_ci.push_back(ci[0]);
+            r.upper_ci.push_back(ci[1]);
+        }
+        r.aic = results->aic;
+        r.bic = results->bic;
+        r.dic = results->dic;
+        r.rmse = results->rmse;
+    }
+    return r;
+}
+
+template <typename AnalysisT, typename ModelT>
+static FamilyRunResult run_time_series_family(std::unique_ptr<models::ModelBase> base,
+                                              const std::string& sampler, int iterations,
+                                              int output_length, double credible_level, int seed,
+                                              int thinning_interval, int training_time_steps,
+                                              int forecasting_time_steps) {
+    auto* raw = dynamic_cast<ModelT*>(base.get());
+    if (raw == nullptr)
+        throw py::value_error("time_series model spec does not match the requested analysis type");
+    base.release();
+    std::unique_ptr<ModelT> model(raw);
+    if (training_time_steps > 0) {
+        model->set_use_default_training_steps(false);
+        model->set_training_time_steps(training_time_steps);
+    }
+    AnalysisT analysis(std::move(model));
+    if (forecasting_time_steps >= 0) analysis.set_forecasting_time_steps(forecasting_time_steps);
+    apply_family_bayes_knobs(analysis.bayesian_analysis(), sampler, iterations, output_length,
+                             credible_level, seed, thinning_interval);
+    analysis.run();
+
+    FamilyRunResult r;
+    const auto* results = analysis.analysis_results();
+    if (results != nullptr) {
+        const auto& ba = analysis.bayesian_analysis();
+        if (ba.results()) {
+            r.parameters = ba.point_estimator() == est::PointEstimateType::PosteriorMean
+                               ? ba.results()->posterior_mean.values
+                               : ba.results()->map.values;
+        }
+        r.mode_curve = results->mode_curve;
+        r.mean_curve = results->mean_curve;
+        for (const auto& ci : results->confidence_intervals) {
+            r.lower_ci.push_back(ci[0]);
+            r.upper_ci.push_back(ci[1]);
+        }
+        r.aic = results->aic;
+        r.bic = results->bic;
+        r.dic = results->dic;
+        r.rmse = results->rmse;
+    }
+    return r;
+}
+
+static py::dict pack_family_result(const FamilyRunResult& r) {
+    py::dict out;
+    out["parameters"] = r.parameters;
+    out["mode_curve"] = r.mode_curve;
+    out["mean_curve"] = r.mean_curve;
+    out["lower_ci"] = r.lower_ci;
+    out["upper_ci"] = r.upper_ci;
+    out["aic"] = r.aic;
+    out["bic"] = r.bic;
+    out["dic"] = r.dic;
+    out["rmse"] = r.rmse;
+    return out;
 }
 
 void register_analysis(py::module_& m) {
@@ -257,4 +386,136 @@ void register_analysis(py::module_& m) {
         py::arg("model_json"), py::arg("dataset"), py::arg("uncertainty_method"),
         py::arg("output_length"), py::arg("seed"), py::arg("confidence_level"),
         py::arg("exceedance_probabilities"));
+
+    // D5: single dispatch for the seven per-family analyses (mixture / competing_risk /
+    // point_process / ar / ma / arima / arimax). Returns the same dict as analysis_univariate_run.
+    m.def(
+        "analysis_family_run",
+        [](const std::string& analysis_type, const std::string& model_json,
+           const std::vector<double>& dataset, const std::string& sampler, int iterations,
+           int output_length, double credible_level, int seed,
+           const std::vector<double>& exceedance_probabilities, int thinning_interval,
+           int training_time_steps, int forecasting_time_steps) {
+            auto base = models::spec::build_model_from_json(model_json, dataset);
+            if (analysis_type == "mixture")
+                return pack_family_result(
+                    run_univariate_family<analyses::MixtureAnalysis, models::MixtureModel>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        exceedance_probabilities, thinning_interval));
+            if (analysis_type == "competing_risk")
+                return pack_family_result(
+                    run_univariate_family<analyses::CompetingRiskAnalysis,
+                                          models::CompetingRisksModel>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        exceedance_probabilities, thinning_interval));
+            if (analysis_type == "point_process")
+                return pack_family_result(
+                    run_univariate_family<analyses::PointProcessAnalysis,
+                                          models::PointProcessModel>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        exceedance_probabilities, thinning_interval));
+            if (analysis_type == "ar")
+                return pack_family_result(
+                    run_time_series_family<analyses::ARAnalysis, models::AutoRegressive>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        thinning_interval, training_time_steps, forecasting_time_steps));
+            if (analysis_type == "ma")
+                return pack_family_result(
+                    run_time_series_family<analyses::MAAnalysis, models::MovingAverage>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        thinning_interval, training_time_steps, forecasting_time_steps));
+            if (analysis_type == "arima")
+                return pack_family_result(
+                    run_time_series_family<analyses::ARIMAAnalysis, models::ARIMA>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        thinning_interval, training_time_steps, forecasting_time_steps));
+            if (analysis_type == "arimax")
+                return pack_family_result(
+                    run_time_series_family<analyses::ARIMAXAnalysis, models::ARIMAX>(
+                        std::move(base), sampler, iterations, output_length, credible_level, seed,
+                        thinning_interval, training_time_steps, forecasting_time_steps));
+            throw py::value_error("unknown analysis_type '" + analysis_type + "'");
+        },
+        py::arg("analysis_type"), py::arg("model_json"), py::arg("dataset"), py::arg("sampler"),
+        py::arg("iterations"), py::arg("output_length"), py::arg("credible_level"), py::arg("seed"),
+        py::arg("exceedance_probabilities"), py::arg("thinning_interval") = -1,
+        py::arg("training_time_steps") = -1, py::arg("forecasting_time_steps") = 0);
+
+    // D5: estimation diagnostics accessor (leverage / influence / prior influence) off a fitted
+    // BayesianAnalysis (the estimator that owns all three compute_*_diagnostics methods).
+    m.def(
+        "analysis_diagnostics_run",
+        [](const std::string& model_json, const std::vector<double>& dataset,
+           const std::string& sampler, int iterations, int output_length, int seed,
+           int thinning_interval, int thin_every) {
+            auto base = models::spec::build_model_from_json(model_json, dataset);
+            models::ModelBase& model = *base;
+            est::BayesianAnalysis ba(model);
+            ba.set_use_simulation_defaults(false);
+            ba.set_use_advanced_simulation_defaults(false);
+            apply_family_bayes_knobs(ba, sampler, iterations, output_length, 0.0, seed,
+                                     thinning_interval);
+            if (!ba.estimate())
+                throw std::runtime_error("BayesianAnalysis::estimate() failed for the diagnostics fit");
+
+            auto lev = ba.compute_leverage_diagnostics();
+            std::vector<int> lev_index;
+            std::vector<double> lev_leverage, lev_fit, lev_var, lev_value;
+            for (const auto& o : lev.observations()) {
+                lev_index.push_back(o.index());
+                lev_leverage.push_back(o.leverage());
+                lev_fit.push_back(o.fit_influence());
+                lev_var.push_back(o.variance_influence());
+                lev_value.push_back(o.value());
+            }
+            std::vector<double> lev_prior;
+            for (const auto& p : lev.prior_components()) lev_prior.push_back(p.leverage());
+            py::dict leverage;
+            leverage["index"] = lev_index;
+            leverage["leverage"] = lev_leverage;
+            leverage["fit_influence"] = lev_fit;
+            leverage["variance_influence"] = lev_var;
+            leverage["value"] = lev_value;
+            leverage["prior_leverage"] = lev_prior;
+            leverage["total_leverage"] = lev.total_leverage();
+            leverage["total_fit_influence"] = lev.total_fit_influence();
+            leverage["total_variance_influence"] = lev.total_variance_influence();
+
+            auto inf = ba.compute_influence_diagnostics();
+            std::vector<double> inf_k, inf_elpd;
+            for (const auto& o : inf.observations()) {
+                inf_k.push_back(o.pareto_k());
+                inf_elpd.push_back(o.elpd_loo());
+            }
+            py::dict influence;
+            influence["pareto_k"] = inf_k;
+            influence["elpd_loo"] = inf_elpd;
+            influence["count"] = inf.count();
+            influence["mean_pareto_k"] = inf.mean_pareto_k();
+            influence["max_pareto_k"] = inf.max_pareto_k();
+            influence["count_pareto_k_above_05"] = inf.count_pareto_k_above_05();
+            influence["count_pareto_k_above_07"] = inf.count_pareto_k_above_07();
+            influence["count_pareto_k_above_10"] = inf.count_pareto_k_above_10();
+            influence["proportion_problematic"] = inf.proportion_problematic();
+            influence["is_reliable"] = inf.is_reliable();
+
+            auto pri = ba.compute_prior_influence_diagnostics(thin_every > 0 ? thin_every : 10);
+            py::dict prior_influence;
+            prior_influence["count"] = pri.count();
+            prior_influence["prior_precision_share"] = pri.prior_precision_share();
+            prior_influence["total_prior_log_likelihood"] = pri.total_prior_log_likelihood();
+            prior_influence["total_data_log_likelihood"] = pri.total_data_log_likelihood();
+            prior_influence["prior_to_data_ratio"] = pri.prior_to_data_ratio();
+            prior_influence["is_prior_influential"] = pri.is_prior_influential();
+            prior_influence["mean_prior_precision_share"] = pri.mean_prior_precision_share();
+
+            py::dict out;
+            out["leverage"] = leverage;
+            out["influence"] = influence;
+            out["prior_influence"] = prior_influence;
+            return out;
+        },
+        py::arg("model_json"), py::arg("dataset"), py::arg("sampler"), py::arg("iterations"),
+        py::arg("output_length"), py::arg("seed"), py::arg("thinning_interval") = -1,
+        py::arg("thin_every") = 10);
 }

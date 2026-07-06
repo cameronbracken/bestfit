@@ -1,0 +1,49 @@
+{
+  "target": "Diagnostics",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/BayesianAnalysis.cs @ fc28c0c (ComputeLeverageDiagnostics 1955 / ComputeInfluenceDiagnostics 1870 / ComputePriorInfluenceDiagnostics 1927) -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). Drives a Bayesian DEMCzs MCMC over a Normal UnivariateDistributionModel, then computes all three diagnostics off that single fit (leverage via the posterior Hessian at MAP, influence via PSIS-LOO, prior influence via the thinned posterior). Structural invariants (counts == n; obs value == the input datum) are asserted exactly; the numerical scalars use LOOSE tolerances (leverage/prior quantities rel 1e-3 -- they ride a finite-difference Hessian / numerical prior variance whose cross-platform noise floor is well above the deterministic tier, the same M10/competing_risks ledger concern; PSIS Pareto-k rel 1e-4). thinning_interval pinned to 1; short run (iterations 100, output_length 400).",
+  "datasets": {
+    "peaks": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600, 19200, 13800, 25600, 10500, 16900, 21300, 14700, 8200, 23800, 15900]
+  },
+  "cases": [
+    {
+      "name": "normal_bayesian_diagnostics_short",
+      "construct": {
+        "model": { "type": "univariate_distribution", "family": "Normal", "dataset": "peaks" },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "thin_every": 10
+      },
+      "assertions": [
+        { "method": "leverage_count", "expected": 20, "mode": "equal" },
+        { "method": "leverage_prior_count", "expected": 3, "mode": "equal" },
+        { "method": "total_leverage", "expected": 1.99135707784046, "mode": "rel", "tol": 1e-3 },
+        { "method": "total_fit_influence", "expected": 0.970770984618839, "mode": "rel", "tol": 1e-3 },
+        { "method": "total_variance_influence", "expected": 1.02058609322163, "mode": "rel", "tol": 1e-3 },
+        { "method": "obs_leverage", "args": [0], "expected": 0.0485855307030637, "mode": "rel", "tol": 1e-3 },
+        { "method": "obs_fit_influence", "args": [0], "expected": 0.0161088785748491, "mode": "rel", "tol": 1e-3 },
+        { "method": "obs_variance_influence", "args": [0], "expected": 0.0324766521282146, "mode": "rel", "tol": 1e-3 },
+        { "method": "obs_value", "args": [0], "expected": 12500, "mode": "equal" },
+        { "method": "influence_count", "expected": 20, "mode": "equal" },
+        { "method": "mean_pareto_k", "expected": -0.175726049040201, "mode": "abs", "tol": 1e-4 },
+        { "method": "max_pareto_k", "expected": 1.5, "mode": "rel", "tol": 1e-6 },
+        { "method": "count_pareto_k_above_05", "expected": 2, "mode": "equal" },
+        { "method": "count_pareto_k_above_07", "expected": 2, "mode": "equal" },
+        { "method": "count_pareto_k_above_10", "expected": 2, "mode": "equal" },
+        { "method": "proportion_problematic", "expected": 0.1, "mode": "abs", "tol": 1e-9 },
+        { "method": "is_reliable", "expected": 0, "mode": "equal" },
+        { "method": "pareto_k", "args": [0], "expected": -0.325611550622153, "mode": "abs", "tol": 1e-4 },
+        { "method": "elpd_loo", "args": [0], "expected": -9.89570272585655, "mode": "rel", "tol": 1e-4 },
+        { "method": "prior_influence_count", "expected": 2, "mode": "equal" },
+        { "method": "total_prior_log_likelihood", "expected": -21.7357379171011, "mode": "rel", "tol": 1e-3 },
+        { "method": "total_data_log_likelihood", "expected": -203.13876645503, "mode": "rel", "tol": 1e-3 },
+        { "method": "prior_to_data_ratio", "expected": 0.096657190986542, "mode": "rel", "tol": 1e-3 },
+        { "method": "is_prior_influential", "expected": 0, "mode": "equal" },
+        { "method": "mean_prior_precision_share", "expected": 0.00718258837213622, "mode": "rel", "tol": 1e-3 }
+      ]
+    }
+  ]
+}

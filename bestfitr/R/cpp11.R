@@ -12,6 +12,14 @@ bf_analysis_b17c_run_ <- function(model_json, dataset, uncertainty_method, outpu
   .Call(`_bestfitr_bf_analysis_b17c_run_`, model_json, dataset, uncertainty_method, output_length, seed, confidence_level, exceedance_probabilities)
 }
 
+bf_analysis_family_run_ <- function(analysis_type, model_json, dataset, sampler, iterations, output_length, credible_level, seed, exceedance_probabilities, thinning_interval, training_time_steps, forecasting_time_steps) {
+  .Call(`_bestfitr_bf_analysis_family_run_`, analysis_type, model_json, dataset, sampler, iterations, output_length, credible_level, seed, exceedance_probabilities, thinning_interval, training_time_steps, forecasting_time_steps)
+}
+
+bf_analysis_diagnostics_run_ <- function(model_json, dataset, sampler, iterations, output_length, seed, thinning_interval, thin_every) {
+  .Call(`_bestfitr_bf_analysis_diagnostics_run_`, model_json, dataset, sampler, iterations, output_length, seed, thinning_interval, thin_every)
+}
+
 bf_bootstrap_run_ <- function(model, mu, sigma, sample_size, probabilities, dataset, replicates, seed, max_retries, run, ci_method, alpha) {
   .Call(`_bestfitr_bf_bootstrap_run_`, model, mu, sigma, sample_size, probabilities, dataset, replicates, seed, max_retries, run, ci_method, alpha)
 }

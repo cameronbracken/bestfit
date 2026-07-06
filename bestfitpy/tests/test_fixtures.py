@@ -613,7 +613,64 @@ def _dispatch_analysis(result: dict, method: str, args: list):
         return result["quantile_variance"][int(args[0])]
     if method in ("aic", "bic", "dic", "rmse", "confidence_level"):
         return result[method]
+    # D5: time-series curve length + the three diagnostics.
+    if method == "curve_length":
+        return len(result["mode_curve"])
+    if method == "leverage_count":
+        return len(result["leverage"]["leverage"])
+    if method == "leverage_prior_count":
+        return len(result["leverage"]["prior_leverage"])
+    if method in ("total_leverage", "total_fit_influence", "total_variance_influence"):
+        return result["leverage"][method]
+    if method == "obs_leverage":
+        return result["leverage"]["leverage"][int(args[0])]
+    if method == "obs_fit_influence":
+        return result["leverage"]["fit_influence"][int(args[0])]
+    if method == "obs_variance_influence":
+        return result["leverage"]["variance_influence"][int(args[0])]
+    if method == "obs_value":
+        return result["leverage"]["value"][int(args[0])]
+    if method == "influence_count":
+        return result["influence"]["count"]
+    if method in (
+        "mean_pareto_k",
+        "max_pareto_k",
+        "count_pareto_k_above_05",
+        "count_pareto_k_above_07",
+        "count_pareto_k_above_10",
+        "proportion_problematic",
+    ):
+        return result["influence"][method]
+    if method == "is_reliable":
+        return 1.0 if result["influence"]["is_reliable"] else 0.0
+    if method == "pareto_k":
+        return result["influence"]["pareto_k"][int(args[0])]
+    if method == "elpd_loo":
+        return result["influence"]["elpd_loo"][int(args[0])]
+    if method == "prior_influence_count":
+        return result["prior_influence"]["count"]
+    if method in (
+        "total_prior_log_likelihood",
+        "total_data_log_likelihood",
+        "prior_to_data_ratio",
+        "mean_prior_precision_share",
+    ):
+        return result["prior_influence"][method]
+    if method == "is_prior_influential":
+        return 1.0 if result["prior_influence"]["is_prior_influential"] else 0.0
     raise KeyError(f"unknown analysis fixture method: {method}")
+
+
+# D5: map an analysis fixture target to the analysis_family_run analysis_type discriminator.
+_FAMILY_ANALYSIS_TYPE = {
+    "MixtureAnalysis": "mixture",
+    "CompetingRiskAnalysis": "competing_risk",
+    "PointProcessAnalysis": "point_process",
+    "ARAnalysis": "ar",
+    "MAAnalysis": "ma",
+    "ARIMAAnalysis": "arima",
+    "ARIMAXAnalysis": "arimax",
+}
 
 
 def _run_analysis_case(target: str, construct: dict, assertions: list, datasets: dict):
@@ -648,6 +705,40 @@ def _run_analysis_case(target: str, construct: dict, assertions: list, datasets:
             int(construct.get("seed", 12345)),
             float(construct.get("confidence_level", 0.90)),
             ep,
+        )
+    elif target in _FAMILY_ANALYSIS_TYPE:
+        # D5: the seven per-family analyses through the single dispatch binding.
+        model = construct["model"]
+        model_json = json.dumps(model)
+        data = [float(v) for v in datasets[model["dataset"]]]
+        result = _core.analysis_family_run(
+            _FAMILY_ANALYSIS_TYPE[target],
+            model_json,
+            data,
+            construct.get("sampler", "DEMCzs"),
+            int(construct.get("iterations", 3000)),
+            int(construct.get("output_length", 10000)),
+            float(construct.get("credible_level", 0.90)),
+            int(construct.get("seed", 12345)),
+            ep,
+            int(construct.get("thinning_interval", -1)),
+            int(construct.get("training_time_steps", -1)),
+            int(construct.get("forecasting_time_steps", 0)),
+        )
+    elif target == "Diagnostics":
+        # D5: leverage / influence / prior-influence diagnostics off a BayesianAnalysis fit.
+        model = construct["model"]
+        model_json = json.dumps(model)
+        data = [float(v) for v in datasets[model["dataset"]]]
+        result = _core.analysis_diagnostics_run(
+            model_json,
+            data,
+            construct.get("sampler", "DEMCzs"),
+            int(construct.get("iterations", 3000)),
+            int(construct.get("output_length", 10000)),
+            int(construct.get("seed", 12345)),
+            int(construct.get("thinning_interval", -1)),
+            int(construct.get("thin_every", 10)),
         )
     else:
         raise KeyError(f"unknown analysis target: {target}")
