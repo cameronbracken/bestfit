@@ -834,18 +834,32 @@ void get_gev_at_ungauged_at_existing_site_matches_site_gev() {
 }
 
 // =====================================================================================
-// P4 pending: full-fit numeric oracles (NOT part of S4). The P4 dotnet emitter fills in
-// exact expected values for these quantities (transcribed against the real RMC.BestFit
-// SpatialGEV) via the fixture path:
-//   - DataLogLikelihood / LogLikelihood at a fixed hyperparameter vector on a fixed
-//     (cross-language reproducible) at-site dataset.
-//   - MLE / MAP hyperparameter estimates and their log-likelihood at the optimum.
-//   - A seeded DEMCz/DEMCzs posterior-chain digest for SpatialGEV (short_exact), plus a
-//     GenerateRandomValues cross-language stream digest.
-//   - WAIC / LOO-CV computed from PointwiseDataLogLikelihoodComponents (which, by the
-//     documented non-canonical decomposition, EXCLUDE the spatial-error term).
-// S4 asserts only structure/determinism above; no full-fit numeric oracle is claimed here.
+// P4 landed (see test_spatial_gev_p4_fixed_param_oracle below + fixtures/estimation/*):
+//   - DataLogLikelihood at a fixed hyperparameter vector on the shared cross-language at-site
+//     dataset, dumped from the real RMC.BestFit SpatialGEV via the dotnet emitter and asserted
+//     here (route b, C++-only, 1e-9 abs);
+//   - the exact MLE hyperparameter estimates + log-likelihood at the optimum and the seeded
+//     GenerateRandomValues stream (sample_size * sites layout) are oracle-verified cross-language
+//     against the real C# in spatial_gev_smoke.json.
+// Still deferred (severable follow-up, tracked): the seeded DEMCz/DEMCzs posterior-chain digest
+//   and the WAIC / LOO-CV numbers (the latter driven by PointwiseDataLogLikelihoodComponents,
+//   which by the documented non-canonical decomposition EXCLUDE the spatial-error term -- that
+//   structure is locked by the S4 ctests above; only the numeric WAIC/LOO oracle is deferred).
 // =====================================================================================
+
+// P4 oracle (route b): exact fixed-parameter DataLogLikelihood dumped from the REAL RMC.BestFit
+// SpatialGEV via tools/oracle_emitter (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) on the shared
+// 15-obs x 3-site fixture dataset (ctor-default log-link location/scale, no copula/errors).
+void test_spatial_gev_p4_fixed_param_oracle() {
+    Grid at_site{{20, 22, 18}, {25, 26, 24}, {18, 19, 17}, {30, 31, 28}, {22, 23, 21},
+                 {28, 29, 27}, {35, 34, 33}, {24, 25, 23}, {26, 27, 25}, {40, 38, 37},
+                 {21, 22, 20}, {27, 28, 26}, {33, 32, 31}, {23, 24, 22}, {29, 30, 28}};
+    Grid coords{{0.0, 0.0}, {1.0, 0.5}, {0.5, 1.0}};
+    SpatialGEV model(at_site, coords, GeneralLinearFunction("Location"),
+                     GeneralLinearFunction("Scale"), GeneralLinearFunction("Shape"));
+    std::vector<double> p{3.0, 1.5, 0.1};  // [location, scale, shape] intercepts (log-link mu/alpha).
+    CHECK_NEAR(model.data_log_likelihood(p), -152.91714721573086, 1e-9);
+}
 
 }  // namespace
 
@@ -942,5 +956,7 @@ int main() {
     predict_at_ungauged_invalid_coordinates_throws();
     get_gev_at_ungauged_returns_valid_distribution();
     get_gev_at_ungauged_at_existing_site_matches_site_gev();
+    // P4 fixed-parameter DataLogLikelihood oracle
+    test_spatial_gev_p4_fixed_param_oracle();
     return bftest::summary("test_spatial_gev");
 }

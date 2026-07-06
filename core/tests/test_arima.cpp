@@ -27,11 +27,14 @@
 //     simulation entry point is generate_random_values (ISimulatable), tested here for length +
 //     seeded determinism. GenerateRandomSeries itself is deferred (mirrors T1).
 //
-// P4 pending (the numeric quantities this file deliberately does NOT oracle; P4 dotnet emitter):
-//   - exact ARIMA DataLogLikelihood / PriorLogLikelihood / pointwise-component numeric values,
-//   - exact Residuals values under each Transform and each differencing order,
-//   - exact Predict() forecast values (incl. the reverse-differencing integration) and the
-//     seeded cross-language GenerateRandomValues digest.
+// P4 landed (see test_arima_p4_fixed_param_oracles below + fixtures/estimation/*):
+//   - exact ARIMA DataLogLikelihood + Residuals at fixed parameters, dumped from the real
+//     RMC.BestFit via the dotnet emitter and asserted here (route b, C++-only, 1e-9 abs);
+//   - the exact MLE fit (parameters, log-likelihood, AIC) and the seeded cross-language
+//     GenerateRandomValues draw are oracle-verified against the real C# in
+//     time_series_arima_smoke.json.
+// Still deferred (severable follow-up): exact Residuals under the Log/BoxCox/YeoJohnson
+//   transforms and exact Predict() forecast values (the reverse-differencing integration).
 #include <cmath>
 #include <limits>
 #include <string>
@@ -535,6 +538,26 @@ void test_arima_transform_training_jeffreys() {
 
 }  // namespace
 
+// P4 oracles (route b): exact fixed-parameter DataLogLikelihood + Residuals dumped from the REAL
+// RMC.BestFit ARIMA via tools/oracle_emitter (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) on the
+// shared 20-point fixture series. Deterministic (no fit) -> hardcoded C++-only oracles at 1e-9 abs.
+// The exact MLE fit + seeded draw are oracle-verified cross-language in
+// fixtures/estimation/time_series_arima_smoke.json.
+void test_arima_p4_fixed_param_oracles() {
+    // ARIMA(1,1,1)+intercept, params [diff-intercept, phi1, theta1, sigma] = [0.0, -0.5, 0.5, 1.3].
+    TimeSeries series(TimeInterval::OneDay, 0L,
+                      std::vector<double>{10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0,
+                                          13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0,
+                                          16.2, 14.8});
+    ARIMA arima(series, 1, 1, 1, true);
+    arima.set_transform_type(Transform::None);
+    std::vector<double> p{0.0, -0.5, 0.5, 1.3};
+    CHECK_NEAR(arima.data_log_likelihood(p), -31.02818097335498, 1e-9);
+    std::vector<double> res = arima.residuals(p);
+    CHECK_NEAR(res[0], 0.0, 1e-9);
+    CHECK_NEAR(res[8], -0.9050781250000004, 1e-9);
+}
+
 int main() {
     test_arima_constructors();
     test_arima_properties();
@@ -548,6 +571,8 @@ int main() {
     test_arima_engineering_and_edges();
     test_arima_dorder();
     test_arima_transform_training_jeffreys();
+
+    test_arima_p4_fixed_param_oracles();
 
     return bftest::summary("arima");
 }

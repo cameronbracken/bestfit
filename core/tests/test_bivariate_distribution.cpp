@@ -16,11 +16,16 @@
 // .GenerateRandomValues(200, 12345)` / `new Gumbel(50,15).GenerateRandomValues(200, 67890)`;
 // the bit-exact Mersenne Twister reproduces them identically in C++ here.
 //
-// P4 pending (fit oracles produced by the dotnet emitter in P4, NOT fabricated here):
-//   - DataLogLikelihood at fixed copula parameters (exact value) under IFM and Pseudo.
-//   - MLE / MAP recovered copula parameters under IFM and Pseudo.
-//   - Seeded GenerateRandomValues digest (short_exact).
-// Only structural / interface-contract / finiteness / sum-invariant checks are asserted here.
+// P4 landed (see test_bivariate_p4_fixed_param_oracle below + fixtures/estimation/*):
+//   - DataLogLikelihood at fixed copula parameters (exact value) under IFM, dumped from the real
+//     RMC.BestFit via the dotnet emitter and asserted here (route b, C++-only, 1e-9 abs);
+//   - the exact MLE-recovered copula parameter(s) under IFM (Normal 1-param + StudentT 2-param)
+//     and the seeded ISimulatable<Matrix2D> draw are oracle-verified cross-language against the
+//     real C# in bivariate_smoke.json / bivariate_sim.json.
+// PseudoLikelihood DEFERRED (upstream finding, see the P4 report): the real C# model-level MLE
+//   returns Estimate()=false under PseudoLikelihood because the marginal plotting positions are
+//   never calculated on the shared builder path (the C++ port instead returns a degenerate
+//   ~0.5 without validating) -- reconciling that lifecycle divergence is a P5 follow-up.
 //
 // SKIPPED C# test methods (with reason):
 //   - Test_ToXElement_ContainsRequiredAttributes / Test_FromXElement_RestoresModel
@@ -460,6 +465,22 @@ void test_validate_studentt_wrong_parameter_count() {
     CHECK_TRUE(found);
 }
 
+// P4 oracle (route b): exact fixed-parameter DataLogLikelihood under InferenceFromMargins, dumped
+// from the REAL RMC.BestFit BivariateDistribution via tools/oracle_emitter (Numerics @ a2c4dbf,
+// RMC-BestFit @ fc28c0c) on the shared bivariate fixture (Normal copula, two fixed Normal
+// marginals). Deterministic (no fit) -> hardcoded C++-only oracle at 1e-9 abs. The exact IFM +
+// StudentT MLE fits and the seeded ISimulatable<Matrix2D> draw are oracle-verified cross-language
+// in fixtures/estimation/bivariate_smoke.json + bivariate_sim.json.
+void test_bivariate_p4_fixed_param_oracle() {
+    UnivariateDistributionModel mx = build_normal_marginal(
+        11.66, 2.0, {10, 12, 9, 14, 11, 13, 8, 15, 10.5, 12.5, 11.2, 13.3, 9.4, 14.1, 12.2});
+    UnivariateDistributionModel my = build_normal_marginal(
+        22.7, 3.0, {21, 20, 22, 25, 19, 27, 18, 24, 23, 21, 26, 22, 20, 28, 25});
+    BivariateDistribution model(mx, my, CopulaType::Normal);  // default estimation = IFM.
+    std::vector<double> p{0.6};  // fixed copula dependency parameter.
+    CHECK_NEAR(model.data_log_likelihood(p), 3.8175438947131464, 1e-9);
+}
+
 }  // namespace
 
 int main() {
@@ -491,6 +512,8 @@ int main() {
     test_data_log_likelihood_studentt_correct_count();
     test_validate_studentt_well_configured();
     test_validate_studentt_wrong_parameter_count();
+
+    test_bivariate_p4_fixed_param_oracle();
 
     return bftest::summary("bivariate_distribution");
 }

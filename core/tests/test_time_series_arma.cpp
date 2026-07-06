@@ -31,10 +31,15 @@
 //     oracles. AreSame identity checks are adapted to structural (count/value) equality since the
 //     ported TimeSeries is a value type.
 //
-// P4 pending (the numeric quantities this file deliberately does NOT oracle; P4 dotnet emitter):
-//   - exact AR/MA DataLogLikelihood / PriorLogLikelihood / pointwise-component numeric values,
-//   - exact Residuals values under each Transform (None/Log/BoxCox/YeoJohnson),
-//   - exact Predict() forecast values and the seeded cross-language GenerateRandomValues digest.
+// P4 landed (see test_ar_ma_p4_fixed_param_oracles below + fixtures/estimation/*):
+//   - exact AR/MA DataLogLikelihood + Residuals at fixed parameters, dumped from the real
+//     RMC.BestFit via the dotnet emitter and asserted here (route b, C++-only, 1e-9 abs);
+//   - the exact MLE fit (parameters, log-likelihood, AIC) and the seeded cross-language
+//     GenerateRandomValues draw are oracle-verified against the real C# in
+//     time_series_ar_smoke.json / time_series_ma_smoke.json / time_series_ar_sim.json.
+// Still deferred (severable follow-up, lower value): exact Residuals under the Log/BoxCox/
+//   YeoJohnson transforms and exact multi-step Predict() forecast values -- both deterministic
+//   transforms of the now-verified None-transform fit + closed-form model equations.
 #include <cmath>
 #include <limits>
 #include <string>
@@ -764,6 +769,40 @@ void test_ma_transform_training_jeffreys() {
 
 }  // namespace
 
+// P4 oracles (route b): exact fixed-parameter DataLogLikelihood + Residuals dumped from the REAL
+// RMC.BestFit AutoRegressive / MovingAverage via tools/oracle_emitter (Numerics @ a2c4dbf,
+// RMC-BestFit @ fc28c0c) on the shared 20-point fixture series. Deterministic (no fit), so these
+// are hardcoded C++-only oracles at 1e-9 abs (permitted for internal-support ctests). The exact
+// MLE fit + seeded GenerateRandomValues draw are oracle-verified cross-language in
+// fixtures/estimation/time_series_ar_smoke.json + time_series_ma_smoke.json + _ar_sim.json.
+TimeSeries make_p4_fixture_series() {
+    return TimeSeries(TimeInterval::OneDay, 0L,
+                      std::vector<double>{10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0,
+                                          13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0,
+                                          16.2, 14.8});
+}
+
+void test_ar_ma_p4_fixed_param_oracles() {
+    // AutoRegressive(1)+intercept, params [intercept, phi1, sigma] = [12.5, 0.4, 1.1].
+    AutoRegressive ar(make_p4_fixture_series(), 1, true);
+    ar.set_transform_type(Transform::None);
+    std::vector<double> ar_p{12.5, 0.4, 1.1};
+    CHECK_NEAR(ar.data_log_likelihood(ar_p), -33.621469348823844, 1e-9);
+    std::vector<double> ar_res = ar.residuals(ar_p);
+    CHECK_NEAR(ar_res[0], 0.0, 1e-9);
+    CHECK_NEAR(ar_res[5], -0.9599999999999991, 1e-9);
+    CHECK_NEAR(ar_res[18], 2.6999999999999993, 1e-9);
+
+    // MovingAverage(1)+intercept, params [intercept, theta1, sigma] = [12.8, 0.3, 1.4].
+    MovingAverage ma(make_p4_fixture_series(), 1, true);
+    ma.set_transform_type(Transform::None);
+    std::vector<double> ma_p{12.8, 0.3, 1.4};
+    CHECK_NEAR(ma.data_log_likelihood(ma_p), -35.92910180608853, 1e-9);
+    std::vector<double> ma_res = ma.residuals(ma_p);
+    CHECK_NEAR(ma_res[0], -2.6000000000000014, 1e-9);
+    CHECK_NEAR(ma_res[10], -1.0972291048400002, 1e-9);
+}
+
 int main() {
     test_ar_constructors();
     test_ar_properties();
@@ -788,6 +827,8 @@ int main() {
     test_ma_set_parameter_values();
     test_ma_engineering_and_edges();
     test_ma_transform_training_jeffreys();
+
+    test_ar_ma_p4_fixed_param_oracles();
 
     return bftest::summary("time_series_arma");
 }

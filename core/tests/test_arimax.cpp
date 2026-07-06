@@ -29,11 +29,15 @@
 //     (BlockBootstrap/KNN) needs the DEFERRED heavy TimeSeries container (ResampleWithBlockBootstrap
 //     / ResampleWithKNN); deferred with that container per PHASE7_PLAN.md.
 //
-// P4 pending (the numeric quantities this file deliberately does NOT oracle; P4 dotnet emitter):
-//   - exact ARIMAX DataLogLikelihood / PriorLogLikelihood / pointwise-component numeric values,
-//   - exact Residuals values under each trend/seasonality/covariate/Transform/differencing config,
-//   - exact Predict() forecast values (incl. the reverse-differencing integration) and the
-//     seeded cross-language GenerateRandomValues digest.
+// P4 landed (see test_arimax_p4_fixed_param_oracles below + fixtures/estimation/*):
+//   - exact ARIMAX DataLogLikelihood + Residuals at fixed parameters (intercept + linear trend +
+//     AR(1)), dumped from the real RMC.BestFit via the dotnet emitter and asserted here (route b,
+//     C++-only, 1e-9 abs);
+//   - the exact MLE fit (parameters, log-likelihood, AIC) and the seeded cross-language
+//     GenerateRandomValues draw are oracle-verified against the real C# in
+//     time_series_arimax_smoke.json.
+// Still deferred (severable follow-up): exact Residuals under the seasonality / covariate /
+//   Transform / differencing configs and exact Predict() forecast values.
 #include <cmath>
 #include <limits>
 #include <string>
@@ -530,6 +534,33 @@ void test_arimax_covariates() {
     CHECK_TRUE(!(std::isinf(d) && d > 0.0));
 }
 
+// P4 oracles (route b): exact fixed-parameter DataLogLikelihood + Residuals dumped from the REAL
+// RMC.BestFit ARIMAX via tools/oracle_emitter (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) on the
+// shared 20-point fixture series. Deterministic (no fit) -> hardcoded C++-only oracles at 1e-9 abs.
+// The exact MLE fit + seeded draw are oracle-verified cross-language in
+// fixtures/estimation/time_series_arimax_smoke.json.
+void test_arimax_p4_fixed_param_oracles() {
+    // ARIMAX(1,0,0)+intercept+linear trend, params [intercept, trend, phi1, sigma] =
+    // [10.9, 0.05, 0.3, 1.0]; construction mirrors model_spec.hpp's build_time_series_model.
+    TimeSeries series(TimeInterval::OneDay, 0L,
+                      std::vector<double>{10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0,
+                                          13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0,
+                                          16.2, 14.8});
+    ARIMAX arimax(series);
+    arimax.set_transform_type(Transform::None);
+    arimax.set_include_intercept(true);
+    arimax.set_trend_type(ARIMAX::Trend::Linear);
+    arimax.set_ar_order_p(1);
+    arimax.set_diff_order_d(0);
+    arimax.set_ma_order_q(0);
+    arimax.set_x_order_b(0);
+    std::vector<double> p{10.9, 0.05, 0.3, 1.0};
+    CHECK_NEAR(arimax.data_log_likelihood(p), -46.43434463088877, 1e-9);
+    std::vector<double> res = arimax.residuals(p);
+    CHECK_NEAR(res[0], 0.0, 1e-9);
+    CHECK_NEAR(res[7], 1.7300000000000004, 1e-9);
+}
+
 }  // namespace
 
 int main() {
@@ -544,6 +575,8 @@ int main() {
     test_arimax_validate();
     test_arimax_trend_seasonality_diff_transform();
     test_arimax_covariates();
+
+    test_arimax_p4_fixed_param_oracles();
 
     return bftest::summary("arimax");
 }

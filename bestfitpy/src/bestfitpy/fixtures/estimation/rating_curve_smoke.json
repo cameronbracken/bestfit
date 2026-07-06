@@ -1,7 +1,7 @@
 {
   "target": "MaximumLikelihood",
   "kind": "model_estimation",
-  "source": "P3 smoke (Phase 7a wiring): self-computed by the ported core via a throwaway harness (NOT emitter-dumped -- that is P4). LOOSE tolerances proving the RatingCurve (single-segment BaRatin) fit + seeded ISimulatable draw RUN identically across the C++/R/Python harnesses. Stage and discharge are 15 date-aligned pairs (>= MinimumAlignedObservations = 10). P4 replaces these with emitter-dumped exact RMC.BestFit oracles and may TIGHTEN (never loosen).",
+  "source": "Emitter oracle (Task P4): fitted parameters, log-likelihood, AIC and the seeded ISimulatable draw dumped from the REAL RMC.BestFit RatingCurve (single-segment BaRatin) MLE (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. Stage and discharge are 15 date-aligned pairs (>= MinimumAlignedObservations = 10) built from a shared epoch so the C# DateTime inner-join matches the C++ integer-index adapter 1:1. Optimizer-dependent fit quantities carry rel 1e-8.",
   "cases": [
     {
       "name": "single_segment_nelder_mead",
@@ -17,12 +17,12 @@
         "seed": 42
       },
       "assertions": [
-        { "method": "parameter", "args": [1], "expected": 0.45366056286053058, "mode": "rel", "tol": 1e-5 },
-        { "method": "parameter", "args": [2], "expected": 2.4440983947154864, "mode": "rel", "tol": 1e-5 },
-        { "method": "max_log_likelihood", "args": [], "expected": 57.380139141409039, "mode": "rel", "tol": 1e-5 },
-        { "method": "aic", "args": [], "expected": -106.76027828281808, "mode": "rel", "tol": 1e-5 },
-        { "method": "simulated_value", "args": [0], "expected": 116.68265033167857, "mode": "rel", "tol": 1e-5 },
-        { "method": "simulated_value", "args": [3], "expected": 82.022113632770811, "mode": "rel", "tol": 1e-5 }
+        { "method": "parameter", "args": [1], "expected": 0.4536605628605306, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [2], "expected": 2.4440983947154864, "mode": "rel", "tol": 1e-8 },
+        { "method": "max_log_likelihood", "args": [], "expected": 57.38013914140904, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "args": [], "expected": -106.76027828281808, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [0], "expected": 116.68265033167857, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [3], "expected": 82.02211363277081, "mode": "rel", "tol": 1e-8 }
       ]
     }
   ]

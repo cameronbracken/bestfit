@@ -23,11 +23,12 @@
 //     for C#'s System.Random; its exact VALUES are a P4 concern. Only same/different-seed behavior
 //     is exercised here.
 //
-// P4 pending (the numeric quantities this file deliberately does NOT oracle; P4 dotnet emitter):
-//   - exact DataLogLikelihood / PointwiseDataLogLikelihood / component numeric values at fixed
-//     parameters, MLE / MAP fits, and the seeded posterior + GenerateRandomValues cross-language
-//     digests. The C# RatingCurveTests.cs carries NO hardcoded likelihood/residual/fit numbers
-//     (grep-confirmed), so nothing numeric is lost by deferring them to P4.
+// P4 landed (see test_rating_curve_p4_fixed_param_oracles below + fixtures/estimation/*):
+//   - exact DataLogLikelihood + Residuals at fixed parameters, dumped from the real RMC.BestFit
+//     via the dotnet emitter and asserted here (route b, C++-only, 1e-9 abs);
+//   - the exact MLE fit (parameters, log-likelihood, AIC) and the seeded cross-language
+//     GenerateRandomValues draw are oracle-verified against the real C# in rating_curve_smoke.json.
+// Still deferred (severable follow-up): the seeded posterior (Bayesian) cross-language digest.
 #include <cmath>
 #include <limits>
 #include <string>
@@ -515,6 +516,27 @@ void test_generation() {
     }
 }
 
+// P4 oracles (route b): exact fixed-parameter DataLogLikelihood + Residuals dumped from the REAL
+// RMC.BestFit RatingCurve via tools/oracle_emitter (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) on
+// the shared single-segment stage/discharge fixture. Deterministic (no fit) -> hardcoded C++-only
+// oracles at 1e-9 abs. The exact MLE fit + seeded draw are oracle-verified cross-language in
+// fixtures/estimation/rating_curve_smoke.json.
+void test_rating_curve_p4_fixed_param_oracles() {
+    std::vector<double> stage{1.0, 1.2, 1.5, 1.8, 2.0, 2.3, 2.6, 2.9, 3.1, 3.4,
+                              3.7, 4.0, 4.3, 4.6, 5.0};
+    std::vector<double> discharge{5.0,  7.1,  11.0, 16.2, 20.5,  28.0,  37.1, 47.9,
+                                  55.6, 68.0, 82.3, 98.1, 115.4, 134.8, 160.2};
+    RatingCurve m(make_series(0, stage), make_series(0, discharge), 1);
+    // params [h0, log10(a), b, sigma] = [0.0, 0.45, 2.44, 0.02].
+    std::vector<double> p{0.0, 0.45, 2.44, 0.02};
+    m.set_parameter_values(p);
+    CHECK_NEAR(m.data_log_likelihood(p), -255.24744448940857, 1e-9);
+    std::vector<double> res = m.residuals(p);
+    CHECK_NEAR(res[0], 0.24897000433601885, 1e-9);
+    CHECK_NEAR(res[7], 0.1020843985411104, 1e-9);
+    CHECK_NEAR(res[14], 0.04917570116833314, 1e-9);
+}
+
 }  // namespace
 
 int main() {
@@ -527,6 +549,7 @@ int main() {
     test_jeffreys_flag();
     test_alignment();
     test_generation();
+    test_rating_curve_p4_fixed_param_oracles();
 
     return bftest::summary("rating_curve");
 }
