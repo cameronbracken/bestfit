@@ -57,6 +57,7 @@ set(BF_TESTS
   test_spatial_regression_errors
   test_spatial_gev
   test_time_series_arma
+  test_arima
 )
 
 # Sobol test takes the direction-number file as its sole argument.
