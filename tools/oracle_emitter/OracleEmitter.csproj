@@ -17,7 +17,7 @@
          only the Estimation + Models subset the estimators need. Disabling the default
          compile-item glob (which would otherwise pull in every .cs under the project dir)
          means the emitter's own sources must be listed explicitly below too (see the
-         DiagnosticsStubs.cs note). -->
+         Task D6 Diagnostics note below). -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
@@ -51,9 +51,9 @@
          modified under upstream/). Task B12 INCLUDES the GMM estimator, its IGMMModel interface,
          and the Bulletin17C distribution so their exact GMM/B17C fit oracles can be dumped from
          the real library (the upstream GMM tests are structural-only, so no numeric oracle can
-         come from the C# test files). The GMM Influence/Leverage-Diagnostics region references a
-         larger RMC.BestFit.Diagnostics surface that is still stubbed compile-only in
-         DiagnosticsStubs.cs (that region is deferred and on NO dumped-oracle path). Analyses/**
+         come from the C# test files). The GMM Influence/Leverage-Diagnostics region references the
+         RMC.BestFit.Diagnostics surface now supplied by the three real Diagnostics classes compiled
+         above (Task D6, replacing the removed DiagnosticsStubs.cs). Analyses/**
          stays OUT: the full assembly does not build (a CS0104 YeoJohnsonLink ambiguity in the
          Analyses layer), so EnableDefaultCompileItems is off and the compile list is explicit. -->
     <Compile Include="$(BF)/Estimation/**/*.cs" />

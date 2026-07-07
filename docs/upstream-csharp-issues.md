@@ -1120,31 +1120,60 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
-## SCOPE NOTE (D6, pre-existing on the phase9 branch) — seven per-family analysis oracles have no emitter handler yet, so verify_oracles reports them as FAILED
+## SCOPE NOTE (D6, RESOLVED at D6 completion) — the seven per-family analysis oracles are now emitter-wired
 
-- **Where:** `tools/oracle_emitter/Program.cs`, `BuildAndRunAnalysis` (the analysis-branch target
-  dispatch); the seven D5-authored LOOSE smoke fixtures
-  `fixtures/analyses/{point_process,mixture,competing_risk,ar,ma,arima,arimax}_analysis_smoke.json`.
-- **What:** D1/D2 ported the per-family (`PointProcessAnalysis`, `MixtureAnalysis`,
-  `CompetingRiskAnalysis`) and TimeSeries (`ARAnalysis`, `MAAnalysis`, `ARIMAAnalysis`,
-  `ARIMAXAnalysis`) analyses, and D5 authored self-computed structural smoke fixtures for each. The
-  oracle emitter only wires `FittingAnalysis` / `UnivariateAnalysis` / `Bulletin17CAnalysis` /
-  `Diagnostics`; the seven targets above hit the `throw "unknown analysis target"` fall-through, so
-  `tools/verify_oracles.py` counts each as a FAILED case (`build/run failed: unknown analysis
-  target: X`). This is NOT introduced by D6 -- it predates D6 on the phase9 branch (D5's fixtures
-  are self-computed from the ported core and pass the shipped ctest/R/Python harnesses; only the
-  dev-only dotnet gate is red). The D5 report explicitly assigned "pin the exact emitter-verified
-  oracles on a controlled build" for these seven to D6, but the D6 brief scopes D6 to the
-  Diagnostics oracle only (and makes the `Analyses/TimeSeries/**` emitter compile OPTIONAL).
-- **Evidence:** after D6, `python3 tools/verify_oracles.py` ends `3972 reproduced, 7 failed, 14
-  skipped`; all 7 failures are `unknown analysis target` for exactly these families; the Diagnostics
-  case itself is 0-failed.
-- **Suggested action (D7 / follow-up task):** wire the seven analysis targets into the emitter's
-  `BuildAndRunAnalysis` (mirroring the existing `UnivariateAnalysis` serial-drive shape), add
-  `Analyses/TimeSeries/**` to `OracleEmitter.csproj` for the four TimeSeries families (the three
-  Univariate-family analysis classes already compile via the Phase-8 `Analyses/Univariate` glob),
-  then tighten each fixture from LOOSE to emitter-verified exact. Until then these seven remain
-  emitter-unverified.
+- **Status:** RESOLVED. An earlier draft of this note recorded seven D5-authored LOOSE analysis
+  smoke fixtures (`fixtures/analyses/{point_process,mixture,competing_risk,ar,ma,arima,arimax}_
+  analysis_smoke.json`) hitting the emitter's `throw "unknown analysis target"` fall-through, so
+  `tools/verify_oracles.py` reported `3972 reproduced, 7 failed, 14 skipped`. D6 completion wired all
+  seven `BuildAndRunAnalysis` targets (mirroring the `UnivariateAnalysis` serial-drive shape) and
+  added `Analyses/TimeSeries/**` to `OracleEmitter.csproj` for the four TimeSeries families (the
+  three Univariate-family classes already compiled via the Phase-8 `Analyses/Univariate` glob). The
+  corpus is now `4003 reproduced, 0 failed, 14 skipped`. The "7 failed" claim no longer stands; the
+  residual C#-vs-C++ divergence on three of the seven is the FIDELITY finding immediately below (a
+  chaotic short-chain artifact, not an unwired handler).
+
+---
+
+## FIDELITY (D6) — AR/MA/Mixture seeded DEMCzs analysis oracles diverge C#-vs-C++ by chaotic short-chain sensitivity, not a model bug
+
+- **Where:** `RMC.BestFit/Analyses/TimeSeries/{ARAnalysis,MAAnalysis}.cs` and
+  `RMC.BestFit/Analyses/Univariate/MixtureAnalysis.cs` @ fc28c0c, each driving a seeded DEMCzs
+  `BayesianAnalysis` over `AutoRegressive`/`MovingAverage`/`MixtureModel`; surfaced tightening the
+  D5 smoke fixtures `fixtures/analyses/{ar,ma,mixture}_analysis_smoke.json` against the D6 emitter.
+- **What:** the seeded DEMCzs MCMC chain for these three families settles on a materially different
+  point C++ vs the real C# (e.g. the AR MAP objective lands near `~58` in one and `~16` in the
+  other), so the mode/mean frequency-curve scalars do not reproduce to a point tolerance. ROOT CAUSE
+  is **(B) inherent chaotic sensitivity of a short chain on a near-flat surface, NOT a port defect**:
+  an independent read-only diagnostic compared the deterministic `DataLogLikelihood` (and the full
+  posterior log-density) across 238 parameter vectors and found C++ matches C# to `<= 3 ulp`, with
+  the Mixture likelihood **bit-identical** on the whole grid. A short 100-iteration chain on the flat
+  AR/MA intercept ridge (`mu` is only weakly identified as `phi -> 1`) or on the symmetric bimodal
+  Mixture surface amplifies a sub-ulp floating-point reassociation into a single accept/reject flip
+  or a differential-evolution basin flip, which then propagates to a visibly different chain
+  endpoint. This is the same mechanism as the Phase-3 HMC/NUTS cross-platform precedent (a
+  deterministic-density-identical sampler whose discrete accept/reject path is chaotically sensitive
+  to last-ulp reassociation): the densities agree, the trajectory endpoint need not.
+- **Evidence:** the D6 read-only 238-vector `logLik` comparison (C++ vs the real C# library) plus the
+  emitter dump: deterministic densities agree to `<= 3 ulp` (Mixture bit-identical) while the seeded
+  DEMCzs endpoint diverges (AR MAP `~58` vs `~16`). By contrast the CompetingRisk and PointProcess
+  analyses reproduce their full curves to `~1e-10` and their fixtures were TIGHTENED to exact; ARIMA
+  and ARIMAX remain structural (their four-parameter differenced posteriors are chaotic even
+  same-family, per the D5 report).
+- **Port handling:** the three affected fixtures (`ar`/`ma`/`mixture`) assert only build-stable
+  STRUCTURAL invariants -- the frequency-curve length (`curve_length`) and, for AR, the
+  deterministic first mode-curve ordinate (`mode_curve[0]`) -- with honest source notes on each
+  case. There is **NO `oracle_skip` and NO tolerance loosening** for these three: the trajectory
+  scalars are simply not asserted, because a chaotic accept/reject flip is not something any
+  reasonable tolerance can absorb. `verify_oracles.py` reproduces the structural assertions cleanly
+  (part of the `4003 reproduced, 0 failed` corpus). This is distinct from the three
+  PriorInfluenceDiagnostics assertions above, which DO carry `oracle_skip` because their divergence
+  is a deterministic name-keyed dedup, not a chaotic stream.
+- **Suggested action:** none required for correctness -- the densities are proven identical, so the
+  fit is faithful; the short-chain endpoint is inherently non-reproducible across float
+  reassociation. If exact analysis-curve oracles are wanted for these families, pin a longer/seed-
+  robust chain (or a thin=1 single-chain config) whose endpoint is no longer basin-sensitive, the
+  same mitigation used for the thinned-DEMCzs finding above.
 
 ---
 
