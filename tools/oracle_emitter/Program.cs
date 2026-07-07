@@ -2397,6 +2397,76 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         return r;
     }
 
+    if (target == "Diagnostics")
+    {
+        // Mirror test_fixtures.cpp::run_diagnostics_analysis: build the model, run a seeded
+        // deterministic BayesianAnalysis (serial, ParallelizeChains=false), then compute all three
+        // diagnostics off that single fit. The BayesianAnalysis knobs are applied in the same order
+        // as BuildEstimation's BayesianAnalysis target + apply_analysis_bayes_knobs (C++), so the
+        // C# and C++ seeded posteriors are the same stream.
+        var model = BuildSpecModel(modelSpec, datasets);
+        var ba = new BayesianAnalysis(model, ParseSamplerType(
+            construct.TryGetProperty("sampler", out var s) ? s.GetString()! : "DEMCzs"))
+        {
+            UseSimulationDefaults = false,
+            UseAdvancedSimulationDefaults = false,
+        };
+        if (construct.TryGetProperty("credible_level", out var clEl))
+            ba.CredibleIntervalWidth = clEl.GetDouble();
+        if (construct.TryGetProperty("seed", out var seEl)) ba.PRNGSeed = seEl.GetInt32();
+        if (construct.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+        if (construct.TryGetProperty("iterations", out var itEl))
+        {
+            int it = itEl.GetInt32();
+            ba.Iterations = it;
+            ba.WarmupIterations = Math.Max(50, it / 2);
+        }
+        if (construct.TryGetProperty("thinning_interval", out var thEl)) ba.ThinningInterval = thEl.GetInt32();
+        if (construct.TryGetProperty("number_of_chains", out var ncEl)) ba.NumberOfChains = ncEl.GetInt32();
+        if (construct.TryGetProperty("initial_iterations", out var iiEl)) ba.InitialIterations = iiEl.GetInt32();
+        ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (!ba.IsEstimated) return r;
+
+        var lev = ba.ComputeLeverageDiagnostics();
+        r.LevCount = lev.Count;
+        r.LevPriorCount = lev.PriorComponents.Length;
+        r.TotalLeverage = lev.TotalLeverage;
+        r.TotalFitInfluence = lev.TotalFitInfluence;
+        r.TotalVarianceInfluence = lev.TotalVarianceInfluence;
+        foreach (var o in lev.Observations)
+        {
+            r.LevObsLeverage.Add(o.Leverage);
+            r.LevObsFit.Add(o.FitInfluence);
+            r.LevObsVar.Add(o.VarianceInfluence);
+            r.LevObsValue.Add(o.Value);
+        }
+
+        var inf = ba.ComputeInfluenceDiagnostics();
+        r.InfCount = inf.Count;
+        r.MeanParetoK = inf.MeanParetoK;
+        r.MaxParetoK = inf.MaxParetoK;
+        r.CountParetoK05 = inf.CountParetoKAbove05;
+        r.CountParetoK07 = inf.CountParetoKAbove07;
+        r.CountParetoK10 = inf.CountParetoKAbove10;
+        r.ProportionProblematic = inf.ProportionProblematic;
+        r.IsReliable = inf.IsReliable ? 1.0 : 0.0;
+        foreach (var o in inf.Observations)
+        {
+            r.InfParetoK.Add(o.ParetoK);
+            r.InfElpdLoo.Add(o.ElpdLoo);
+        }
+
+        int thinEvery = construct.TryGetProperty("thin_every", out var teEl) ? teEl.GetInt32() : 10;
+        var pri = ba.ComputePriorInfluenceDiagnostics(thinEvery);
+        r.PriCount = pri.Count;
+        r.TotalPriorLogLik = pri.TotalPriorLogLikelihood;
+        r.TotalDataLogLik = pri.TotalDataLogLikelihood;
+        r.PriorToDataRatio = pri.PriorToDataRatio;
+        r.IsPriorInfluential = pri.IsPriorInfluential ? 1.0 : 0.0;
+        r.MeanPriorPrecisionShare = pri.MeanPriorPrecisionShare;
+        return r;
+    }
+
     throw new Exception($"unknown analysis target: {target}");
 }
 
@@ -2426,6 +2496,32 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "dic": return r.Dic;
         case "rmse": return r.Rmse;
         case "confidence_level": return r.ConfidenceLevel;
+        // --- D6 Diagnostics dispatch (names match diagnostics_smoke.json + test_fixtures.cpp). ---
+        case "leverage_count": return r.LevCount;
+        case "leverage_prior_count": return r.LevPriorCount;
+        case "total_leverage": return r.TotalLeverage;
+        case "total_fit_influence": return r.TotalFitInfluence;
+        case "total_variance_influence": return r.TotalVarianceInfluence;
+        case "obs_leverage": return r.LevObsLeverage[I(0)];
+        case "obs_fit_influence": return r.LevObsFit[I(0)];
+        case "obs_variance_influence": return r.LevObsVar[I(0)];
+        case "obs_value": return r.LevObsValue[I(0)];
+        case "influence_count": return r.InfCount;
+        case "mean_pareto_k": return r.MeanParetoK;
+        case "max_pareto_k": return r.MaxParetoK;
+        case "count_pareto_k_above_05": return r.CountParetoK05;
+        case "count_pareto_k_above_07": return r.CountParetoK07;
+        case "count_pareto_k_above_10": return r.CountParetoK10;
+        case "proportion_problematic": return r.ProportionProblematic;
+        case "is_reliable": return r.IsReliable;
+        case "pareto_k": return r.InfParetoK[I(0)];
+        case "elpd_loo": return r.InfElpdLoo[I(0)];
+        case "prior_influence_count": return r.PriCount;
+        case "total_prior_log_likelihood": return r.TotalPriorLogLik;
+        case "total_data_log_likelihood": return r.TotalDataLogLik;
+        case "prior_to_data_ratio": return r.PriorToDataRatio;
+        case "is_prior_influential": return r.IsPriorInfluential;
+        case "mean_prior_precision_share": return r.MeanPriorPrecisionShare;
         default: throw new Exception($"unknown analysis fixture method: {m}");
     }
 }
@@ -2830,6 +2926,21 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                     continue;
                 }
 
+                // Oracle-exempt assertion (same treatment as the GEV std-err skips): a value the
+                // shipped C++/R/Python harnesses check against the ported core, but which the real
+                // C# library cannot reproduce because it rides an oracle-locked, documented port
+                // deviation. D6: the three PriorInfluenceDiagnostics quantities collapse two Normal
+                // parameter priors into one under the name-keyed dedup because the Phase-4 C++ model
+                // deliberately leaves ModelParameter names empty (univariate_distribution_model.hpp
+                // ~130) while C# keeps "Parameter Prior: Mean"/"Std Dev" distinct. Skipped here (not
+                // failed) so the dev-only gate stays honest without papering the divergence into a
+                // wide tolerance. See the fixture `source` + docs/upstream-csharp-issues.md.
+                if (asrt.TryGetProperty("oracle_skip", out var osEl) && osEl.GetBoolean())
+                {
+                    skip++;
+                    continue;
+                }
+
                 try
                 {
                     double actual = DispatchAnalysis(anData, method, argList);
@@ -3029,7 +3140,7 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
     }
 }
 
-Console.WriteLine($"oracle verification: {pass} reproduced, {fail} failed, {skip} skipped (GEV std-err)");
+Console.WriteLine($"oracle verification: {pass} reproduced, {fail} failed, {skip} skipped (GEV std-err + oracle-exempt)");
 foreach (var f in failures) Console.Error.WriteLine("  FAIL " + f);
 return fail == 0 ? 0 : 1;
 
@@ -3047,4 +3158,19 @@ class AnalysisData
     public double Aic = double.NaN, Bic = double.NaN, Dic = double.NaN, Rmse = double.NaN,
                  ConfidenceLevel = double.NaN;
     public int CandidateCount = 0;
+
+    // --- D6 Diagnostics surface (target == "Diagnostics"). Mirrors test_fixtures.cpp's
+    // AnalysisResult diagnostics slice field-for-field so the same fixture drives both. ---
+    public int LevCount = 0, LevPriorCount = 0, InfCount = 0, PriCount = 0;
+    public double TotalLeverage = double.NaN, TotalFitInfluence = double.NaN,
+                 TotalVarianceInfluence = double.NaN;
+    public List<double> LevObsLeverage = new(), LevObsFit = new(), LevObsVar = new(),
+                        LevObsValue = new();
+    public double MeanParetoK = double.NaN, MaxParetoK = double.NaN;
+    public int CountParetoK05 = 0, CountParetoK07 = 0, CountParetoK10 = 0;
+    public double ProportionProblematic = double.NaN, IsReliable = double.NaN;
+    public List<double> InfParetoK = new(), InfElpdLoo = new();
+    public double TotalPriorLogLik = double.NaN, TotalDataLogLik = double.NaN,
+                 PriorToDataRatio = double.NaN, IsPriorInfluential = double.NaN,
+                 MeanPriorPrecisionShare = double.NaN;
 }

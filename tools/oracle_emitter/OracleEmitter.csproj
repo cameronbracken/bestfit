@@ -32,7 +32,20 @@
   <ItemGroup>
     <!-- The emitter's own sources (must be listed because EnableDefaultCompileItems is off). -->
     <Compile Include="Program.cs" />
-    <Compile Include="DiagnosticsStubs.cs" />
+
+    <!-- Task D6: compile the THREE real RMC.BestFit.Diagnostics classes in place so the dumped
+         diagnostic paths (BayesianAnalysis.Compute{Leverage,Influence,PriorInfluence}Diagnostics)
+         use the REAL classes, not the throwing DiagnosticsStubs.cs bodies. The three files fully
+         supersede every type the old stub declared (LeverageDiagnostics + nested ObservationLeverage
+         / PriorComponentLeverage, InfluenceDiagnostics + top-level ObservationInfluence,
+         PriorInfluenceDiagnostics), so DiagnosticsStubs.cs is dropped from the compile entirely.
+         The four DEFERRED predictive-check files (PosteriorPredictiveCheck.cs, PriorPredictiveCheck.cs,
+         PredictiveCheckResults.cs, PredictiveSummary.cs) stay OUT: no compiled estimator/diagnostic
+         references them, and they pull in unbuildable/deferred surface. We include exactly the three
+         files rather than glob-then-remove the four (fewer moving parts, self-documenting). -->
+    <Compile Include="$(BF)/Diagnostics/LeverageDiagnostics.cs" />
+    <Compile Include="$(BF)/Diagnostics/InfluenceDiagnostics.cs" />
+    <Compile Include="$(BF)/Diagnostics/PriorInfluenceDiagnostics.cs" />
 
     <!-- Real RMC.BestFit estimation + models, compiled in place (read-only; never copied or
          modified under upstream/). Task B12 INCLUDES the GMM estimator, its IGMMModel interface,
