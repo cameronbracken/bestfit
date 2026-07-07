@@ -510,7 +510,13 @@ class BayesianAnalysis {
     // `InvalidOperationException` from the same check). Returns `false` (without throwing) if
     // the model has no parameters, mirroring C#'s early return when `SetUpSampler` leaves
     // `Sampler == null`.
-    bool estimate() {
+    // `set_up` mirrors the C# `RunAsync(progress, setUpSampler)` bool (C# line 484 passes
+    // `false` from MixtureAnalysis). When `set_up == true` (default; every existing caller)
+    // the sampler is rebuilt from the current knobs -- byte-identical to before. When `set_up
+    // == false` the ALREADY-built, already-seeded `sampler_` is reused as-is (the mixture
+    // EM-seed caller sets up + seeds via the MCMC hook, then runs with `set_up == false` so the
+    // seed is not clobbered). ADDITIVE ONLY.
+    bool estimate(bool set_up = true) {
         auto [valid, messages] = validate();
         (void)messages;
         if (!valid) {
@@ -519,7 +525,7 @@ class BayesianAnalysis {
                 "analysis.");
         }
 
-        set_up_sampler();
+        if (set_up) set_up_sampler();
         if (!sampler_) return false;
 
         is_estimated_ = false;
