@@ -6,6 +6,7 @@
 // SD, skewness, and kurtosis are undefined (NaN). Implements IEstimation (MoM only).
 // The WPF PDF-graph builder is not ported.
 #pragma once
+#include <string>
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
@@ -67,6 +68,15 @@ class Deterministic : public UnivariateDistributionBase, public IEstimation {
         if (probability < 0.0 || probability > 1.0)
             throw std::out_of_range("probability must be between 0 and 1");
         return value_;
+    }
+
+    // --- Parameter display names (X1; C# Deterministic.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Value"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"Value"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

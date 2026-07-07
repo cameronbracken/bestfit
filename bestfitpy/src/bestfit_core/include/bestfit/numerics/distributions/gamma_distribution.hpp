@@ -7,6 +7,7 @@
 // FrequencyFactorKp/PartialKp statics, QuantileGradient, and the ConditionalMoments
 // override for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -100,6 +101,15 @@ class GammaDistribution : public UnivariateDistributionBase,
         if (probability == 1.0) return maximum();
         if (!parameters_valid_) throw std::invalid_argument("GammaDistribution: invalid parameters");
         return sf::inverse_lower_incomplete(kappa_, probability) * theta_;
+    }
+
+    // --- Parameter display names (X1; C# GammaDistribution.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Scale (\xCE\xB8)", "Shape (\xCE\xBA)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xB8", "\xCE\xBA"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

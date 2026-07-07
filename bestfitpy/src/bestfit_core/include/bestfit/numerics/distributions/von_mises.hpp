@@ -8,6 +8,7 @@
 // (C# class does not implement it). CDF via adaptive Gauss-Kronrod (G10K21),
 // InverseCDF via Brent's method on CDF, both mirroring the C# source exactly.
 #pragma once
+#include <string>
 #include <cmath>
 #include <functional>
 #include <stdexcept>
@@ -110,6 +111,15 @@ class VonMises : public UnivariateDistributionBase,
         if (probability == 1.0) return maximum();
         auto f = [this, probability](double x) { return cdf(x) - probability; };
         return math::rootfinding::solve(f, -kPi, kPi);
+    }
+
+    // --- Parameter display names (X1; C# VonMises.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean Direction (\xCE\xBC)", "Concentration (\xCE\xBA)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBC", "\xCE\xBA"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

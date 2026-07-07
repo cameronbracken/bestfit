@@ -5,6 +5,7 @@
 // (NaN), matching the C# return values exactly. No estimation interfaces are implemented
 // because the C# class implements none. The WPF helpers and IBootstrappable are not ported.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -63,6 +64,15 @@ class Cauchy : public UnivariateDistributionBase {
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return x0_ + gamma_ * std::tan(kPi * (probability - 0.5));
+    }
+
+    // --- Parameter display names (X1; C# Cauchy.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (X0)", "Scale (\xCE\xB3)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"X0", "\xCE\xB3"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

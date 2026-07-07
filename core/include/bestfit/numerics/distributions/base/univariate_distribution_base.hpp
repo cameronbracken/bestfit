@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
@@ -42,6 +43,18 @@ class UnivariateDistributionBase {
     virtual std::vector<double> get_parameters() const = 0;
     virtual void set_parameters(const std::vector<double>& parameters) = 0;
     bool parameters_valid() const { return parameters_valid_; }
+
+    // --- Parameter display names (X1) ---
+    // C# `ParameterNames` (UnivariateDistributionBase.cs:74) derives from the column-0 display
+    // names of `ParametersToString`; `ParameterNamesShortForm` (line 80) is the abstract short
+    // form. Only these two name lists are ported here (the full 2-D ParametersToString value
+    // table is a WPF display concern, not the math core). Each concrete distribution overrides
+    // both with its per-parameter name strings (transcribed byte-for-byte from the C#, so the
+    // UTF-8 glyphs µ/σ/α/... match the oracle and the name-keyed prior dedup). The base returns
+    // an empty list; the composite/dynamic distributions (Mixture, CompetingRisks,
+    // TruncatedDistribution) build their lists dynamically like the C#.
+    virtual std::vector<std::string> parameter_names() const { return {}; }
+    virtual std::vector<std::string> parameter_names_short_form() const { return {}; }
 
     // --- Moments / support ---
     virtual double mean() const = 0;

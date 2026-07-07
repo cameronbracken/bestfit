@@ -5,6 +5,7 @@
 // IBootstrappable, IStandardError, and the Monte Carlo confidence-interval helper are not ported.
 // B4 adds ParametersFromMoments/MomentsFromParameters for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -137,6 +138,15 @@ class LogNormal : public UnivariateDistributionBase,
         double erfc_arg = 2.0 * probability;
         double inv_erfc = wichura_z(-0.5 * erfc_arg + 1.0) * kSqrt2 / 2.0;
         return std::exp((mu_ - sigma_ * kSqrt2 * inv_erfc) / k());
+    }
+
+    // --- Parameter display names (X1; C# LogNormal.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (of log) (\xC2\xB5)", "Std Dev (of log) (\xCF\x83)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

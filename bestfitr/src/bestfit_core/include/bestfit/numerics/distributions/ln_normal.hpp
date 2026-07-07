@@ -8,6 +8,7 @@
 // not ported (desktop / advanced analysis concerns). B4 adds ParametersFromMoments/
 // MomentsFromParameters and the ConditionalMoments override for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -103,6 +104,15 @@ class LnNormal : public UnivariateDistributionBase,
         if (probability == 1.0) return maximum();
         double inv_erfc = wichura_z(-0.5 * 2.0 * probability + 1.0) * kSqrt2 / 2.0;
         return std::exp(mu_ - sigma_ * kSqrt2 * inv_erfc);
+    }
+
+    // --- Parameter display names (X1; C# LnNormal.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (\xC2\xB5)", "Std Dev (\xCF\x83)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

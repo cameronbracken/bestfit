@@ -4,6 +4,7 @@
 // the C# source method-for-method. No estimation interfaces are implemented upstream.
 // CDF = UpperIncomplete(α, β/x); InverseCDF = β / InverseUpperIncomplete(α, p).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -92,6 +93,15 @@ class InverseGamma : public UnivariateDistributionBase {
         if (probability == 1.0) return maximum();
         if (!parameters_valid_) throw std::invalid_argument("InverseGamma: invalid parameters");
         return beta_ / sf_ig::inverse_upper_incomplete(alpha_, probability);
+    }
+
+    // --- Parameter display names (X1; C# InverseGamma.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Scale (\xCE\xB2)", "Shape (\xCE\xB1)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xB2", "\xCE\xB1"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

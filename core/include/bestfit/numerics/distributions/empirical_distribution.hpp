@@ -14,6 +14,7 @@
 // NOTE: set_parameters(vector) throws (mirrors C# NotImplementedException), matching
 // the fact that Empirical is constructed with structured x/p arrays, not a flat vector.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -170,6 +171,15 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
             dFdx = (cdf(x + h) - cdf(x - h)) / (2.0 * h);
         }
         return dFdx < 0.0 ? 0.0 : dFdx;
+    }
+
+    // --- Parameter display names (X1; C# EmpiricalDistribution.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"X Values", "P Values"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"X()", "P()"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

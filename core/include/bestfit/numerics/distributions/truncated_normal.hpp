@@ -5,6 +5,7 @@
 // Logic mirrors the C# source method-for-method. Only IEstimation (MoM) is implemented.
 // ILinearMomentEstimation is not implemented (C# class does not implement it).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -154,6 +155,15 @@ class TruncatedNormal : public UnivariateDistributionBase, public IEstimation {
         double Z = std_cdf(bet) - std_cdf(alph);
         if (Z == 0.0) return mu_ + sigma_ * std_z(probability);
         return mu_ + sigma_ * std_z(std_cdf(alph) + probability * Z);
+    }
+
+    // --- Parameter display names (X1; C# TruncatedNormal.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (\xC2\xB5)", "Std Dev (\xCF\x83)", "Min", "Max"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83", "Min", "Max"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

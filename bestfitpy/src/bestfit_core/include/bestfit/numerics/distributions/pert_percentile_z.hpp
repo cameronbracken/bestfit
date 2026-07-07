@@ -7,6 +7,7 @@
 // also in probability space (Φ of the underlying beta's moments). get_parameters() returns
 // the three stored probability values (flat-param). No estimation interfaces.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -131,6 +132,15 @@ class PertPercentileZ : public UnivariateDistributionBase {
             return Normal::standard_cdf(beta_.min_val());
         if (std::isnan(beta_.mode())) return Normal::standard_cdf(beta_.min_val());
         return Normal::standard_cdf(beta_.inverse_cdf(probability));
+    }
+
+    // --- Parameter display names (X1; C# PertPercentileZ.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"5%", "50%", "95%"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"5%", "50%", "95%"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

@@ -10,6 +10,7 @@
 // No IEstimation or ILinearMomentEstimation – C# implements neither.
 // Logic mirrors the C# source method-for-method.
 #pragma once
+#include <string>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -134,6 +135,15 @@ class NoncentralT : public UnivariateDistributionBase {
         if (probability == 1.0) return maximum();
         if (!parameters_valid_) throw std::invalid_argument("NoncentralT: invalid parameters");
         return nct_inv(probability, nu_, lambda_);
+    }
+
+    // --- Parameter display names (X1; C# NoncentralT.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Degrees of Freedom (\xCE\xBD)", "Noncentrality (\xCE\xBC)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBD", "\xCE\xBC"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

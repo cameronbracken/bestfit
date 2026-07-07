@@ -3,6 +3,7 @@
 // The Bernoulli distribution on two-point support {0, 1}. Single parameter p (probability of 1).
 // Logic mirrors the C# source method-for-method. No estimation interfaces are implemented upstream.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -84,6 +85,15 @@ class Bernoulli : public UnivariateDistributionBase {
         if (probability == 1.0) return maximum();
         if (probability > complement()) return 1.0;
         return 0.0;
+    }
+
+    // --- Parameter display names (X1; C# Bernoulli.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Probability (p)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"p"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

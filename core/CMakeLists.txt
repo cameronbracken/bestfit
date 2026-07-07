@@ -72,6 +72,7 @@ set(BF_TESTS
   test_time_series_analyses
   test_leverage_diagnostics
   test_influence_diagnostics
+  test_parameter_names
 )
 
 # Sobol test takes the direction-number file as its sole argument.

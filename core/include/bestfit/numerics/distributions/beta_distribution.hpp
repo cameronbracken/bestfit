@@ -5,6 +5,7 @@
 // UnivariateDistributionBase and implements no estimation interfaces, so none are ported.
 // The WPF helpers are desktop concerns and are not ported.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -95,6 +96,15 @@ class BetaDistribution : public UnivariateDistributionBase {
         if (probability == 1.0) return maximum();
         if (!parameters_valid_) throw std::invalid_argument("BetaDistribution: invalid parameters");
         return math::special::beta::incomplete_inverse(alpha_, beta_, probability);
+    }
+
+    // --- Parameter display names (X1; C# BetaDistribution.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Shape (\xCE\xB1)", "Shape (\xCE\xB2)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xB1", "\xCE\xB2"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

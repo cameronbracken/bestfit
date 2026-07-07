@@ -3,6 +3,7 @@
 // The Rayleigh distribution with scale σ. Logic mirrors the C# source method-for-method.
 // The C# MLE uses Gamma.LogGamma — std::lgamma from <cmath> is used here (C++17 standard).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -70,6 +71,15 @@ class Rayleigh : public UnivariateDistributionBase, public IEstimation {
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return sigma_ * std::sqrt(-2.0 * std::log(1.0 - probability));
+    }
+
+    // --- Parameter display names (X1; C# Rayleigh.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Scale (\xCF\x83)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCF\x83"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

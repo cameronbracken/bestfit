@@ -4,6 +4,7 @@
 // the C# source method-for-method. B4 adds QuantileGradient and the ConditionalMoments
 // override for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -74,6 +75,15 @@ class Exponential : public UnivariateDistributionBase,
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return xi_ - alpha_ * std::log(1.0 - probability);
+    }
+
+    // --- Parameter display names (X1; C# Exponential.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xCE\xBE)", "Scale (\xCE\xB1)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBE", "\xCE\xB1"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

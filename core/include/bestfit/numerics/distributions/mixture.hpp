@@ -37,6 +37,7 @@
 //     "component" with weight ZeroWeight. Replaces the base-class inverse-CDF stream so
 //     seeded mixture streams are bit-identical to the C#.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -442,6 +443,23 @@ class Mixture : public UnivariateDistributionBase,
         if (method != ParameterEstimationMethod::MaximumLikelihood)
             throw std::runtime_error("Mixture only supports MaximumLikelihood estimation");
         set_parameters(mle(sample));
+    }
+
+    // --- Parameter display names (X1; C# Mixture.cs ParametersToString col0 +
+    // ParameterNamesShortForm). Names are the two column-0 entries; the short form lists the
+    // weights W1..Wn, then "D{i+1} {sub}" over every component (C# 177-195). ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Weights", "Distributions"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        std::vector<std::string> result;
+        for (int i = 1; i <= component_count(); ++i) result.push_back("W" + std::to_string(i));
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names_short_form();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

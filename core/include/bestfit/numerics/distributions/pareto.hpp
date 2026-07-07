@@ -4,6 +4,7 @@
 // method-for-method. The C# class has no estimation interfaces; only
 // UnivariateDistributionBase is implemented.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -77,6 +78,15 @@ class Pareto : public UnivariateDistributionBase {
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return xm_ * std::pow(1.0 - probability, -1.0 / alpha_);
+    }
+
+    // --- Parameter display names (X1; C# Pareto.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Scale (Xm)", "Shape (\xCE\xB1)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"Xm", "\xCE\xB1"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

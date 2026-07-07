@@ -11,6 +11,7 @@
 //   InverseCDF mid path (0.25 < p < 0.75): uses IncompleteInverse(0.5, nu/2, |1-2p|), t=sqrt(nu*z/(1-z)).
 //   InverseCDF tail path (p <= 0.25 or p >= 0.75): uses IncompleteInverse(nu/2, 0.5, 2*p_adj), t=sqrt(nu/z - nu).
 #pragma once
+#include <string>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -161,6 +162,15 @@ class StudentT : public UnivariateDistributionBase {
             }
             return mu_ + sigma_ * static_cast<double>(rflg) * t;
         }
+    }
+
+    // --- Parameter display names (X1; C# StudentT.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xC2\xB5)", "Scale (\xCF\x83)", "Degrees of Freedom (\xCE\xBD)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83", "\xCE\xBD"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

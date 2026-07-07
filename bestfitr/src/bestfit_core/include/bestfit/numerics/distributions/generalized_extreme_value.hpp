@@ -5,6 +5,7 @@
 // L-moment / MLE estimation lands in a later increment (needs Brent, Statistics,
 // NelderMead). Logic mirrors the C# source method-for-method.
 #pragma once
+#include <string>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -51,6 +52,15 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase,
     }
 
     void set_parameters(const std::vector<double>& p) override { set_parameters(p[0], p[1], p[2]); }
+
+    // --- Parameter display names (X1; C# GeneralizedExtremeValue.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xCE\xBE)", "Scale (\xCE\xB1)", "Shape (\xCE\xBA)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBE", "\xCE\xB1", "\xCE\xBA"};
+    }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         return std::make_unique<GeneralizedExtremeValue>(xi_, alpha_, kappa_);

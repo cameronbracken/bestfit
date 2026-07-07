@@ -124,11 +124,17 @@
 // re-exposed as an override (the base's is non-virtual), and is_nonstationary()/validate()
 // gained `override`. Zero behavior change to any existing method body.
 //
+// X1: ParameterNames IS now ported onto the distribution base
+// (UnivariateDistributionBase::parameter_names) and wired through the trend/ModelParameter
+// naming path. set_distribution / set_default_parameters / set_is_nonstationary /
+// set_trend_model set each trend's owner_name from `distribution_->parameter_names()`
+// (mirroring the C# TrendModels[i].OwnerName = parameterNames[i] sites), and the trend's
+// set_owner_name propagates the name to its ModelParameters. So `owner_name()` is populated
+// and PriorInfluenceDiagnostics keeps the distinctly-named prior components (no collapse).
+//
 // Still deliberately NOT ported:
-//   - XML (XElement ctor, ToXElement), INotifyPropertyChanged, [attributes], and the
-//     parameter/owner display-name wiring from Distribution.ParameterNames (WPF display
-//     concerns; ModelParameter owner_name()/name() and the trends' OwnerName stay empty,
-//     Phase 4 decision restated -- ParameterNames is not on the ported distribution base).
+//   - XML (XElement ctor, ToXElement), INotifyPropertyChanged, [attributes] (WPF display
+//     concerns).
 //   - C# `_parameters.AddRange(TrendModels[i].Parameters)` ALIASES the trend parameters
 //     into the model's list; the C++ ModelParameter is a value type, so `parameters_`
 //     holds COPIES and SetParameterValues writes both (which the C# does too -- its trend
@@ -280,18 +286,26 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     const DataFrame& data_frame() const override { return *data_frame_; }
 
     // C# setter: null check, assign, reset the trend models to one ConstantTrend per
-    // distribution parameter (C# 338-353; the OwnerName wiring from ParameterNames is a
-    // display-only non-port), then SetDefaultParameters() and SetDefaultQuantilePriors()
-    // (unconditionally -- not gated on UseDefaultFlatPriors; the XML `_isDeserializing`
-    // suppression is out of scope).
+    // distribution parameter with OwnerName from the distribution's ParameterNames (C#
+    // 338-353), then SetDefaultParameters() and SetDefaultQuantilePriors() (unconditionally --
+    // not gated on UseDefaultFlatPriors; the XML `_isDeserializing` suppression is out of
+    // scope).
     void set_distribution(std::unique_ptr<DistributionBase> distribution) {
         if (distribution == nullptr)
             throw std::invalid_argument("Distribution");  // C# ArgumentNullException
         distribution_ = std::move(distribution);
 
+        // X1: reset the trends off the distribution's parameter names (C# 339-353). Each
+        // ConstantTrend { OwnerName = parameterNames[i] } -- the trend's set_owner_name
+        // propagates the name onto its ModelParameters.
+        std::vector<std::string> parameter_names = distribution_->parameter_names();
         trend_models_.clear();
-        for (int i = 0; i < distribution_->number_of_parameters(); ++i)
-            trend_models_.push_back(std::make_unique<trend_functions::ConstantTrend>());
+        for (int i = 0; i < distribution_->number_of_parameters(); ++i) {
+            auto trend = std::make_unique<trend_functions::ConstantTrend>();
+            if (static_cast<std::size_t>(i) < parameter_names.size())
+                trend->set_owner_name(parameter_names[static_cast<std::size_t>(i)]);
+            trend_models_.push_back(std::move(trend));
+        }
 
         set_default_parameters();
         set_default_quantile_priors();
@@ -322,9 +336,15 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
         is_nonstationary_ = value;
 
         if (!is_nonstationary_ && distribution_ != nullptr) {
+            // X1: reset the trends off the distribution's parameter names (mirrors C# 339-353).
+            std::vector<std::string> parameter_names = distribution_->parameter_names();
             trend_models_.clear();
-            for (int i = 0; i < distribution_->number_of_parameters(); ++i)
-                trend_models_.push_back(std::make_unique<trend_functions::ConstantTrend>());
+            for (int i = 0; i < distribution_->number_of_parameters(); ++i) {
+                auto trend = std::make_unique<trend_functions::ConstantTrend>();
+                if (static_cast<std::size_t>(i) < parameter_names.size())
+                    trend->set_owner_name(parameter_names[static_cast<std::size_t>(i)]);
+                trend_models_.push_back(std::move(trend));
+            }
             set_default_parameters();
         } else {
             if (has_data_frame()) {

@@ -52,12 +52,12 @@
 //      compute_* methods after building `Results`, mirroring `RunAsync`'s post-await block
 //      (C# 1301-1304). See each method's doc comment below for numerics-fidelity notes.
 //
-//   5. GATED (Diagnostics layer deferred past Phase 4, see `.claude/PLAN.md`):
-//      `ComputeInfluenceDiagnostics` (1870), `ComputePriorInfluenceDiagnostics` (1927),
-//      `ComputeLeverageDiagnostics` (1955) are provided as throwing stubs (same convention
-//      as `maximum_a_posteriori.hpp`'s `compute_leverage_diagnostics()`), not omitted
-//      entirely, so callers get a clear compile-time-visible member and a clear runtime
-//      message.
+//   5. PORTED (Diagnostics layer, D4 un-stub): `ComputeInfluenceDiagnostics` (1870),
+//      `ComputePriorInfluenceDiagnostics` (1927), `ComputeLeverageDiagnostics` (1955) are
+//      fully ported (no longer throwing stubs). `compute_influence_diagnostics()`,
+//      `compute_prior_influence_diagnostics()`, and `compute_leverage_diagnostics()` build and
+//      return the populated `InfluenceDiagnostics` / `PriorInfluenceDiagnostics` /
+//      `LeverageDiagnostics` off the completed MCMC `Results`.
 //
 //   6. SKIPPED (WPF/GUI/async/XML, no compute-layer analogue): `INotifyPropertyChanged` /
 //      `PropertyChanged` / `RaisePropertyChange`, the `RunAsync` async/Task/
