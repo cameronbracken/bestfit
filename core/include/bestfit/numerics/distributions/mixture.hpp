@@ -445,11 +445,20 @@ class Mixture : public UnivariateDistributionBase,
         set_parameters(mle(sample));
     }
 
-    // --- Parameter display names (X1; C# Mixture.cs ParametersToString col0 +
-    // ParameterNamesShortForm). Names are the two column-0 entries; the short form lists the
-    // weights W1..Wn, then "D{i+1} {sub}" over every component (C# 177-195). ---
+    // --- Parameter display names (X1; C# Mixture.cs ParameterNames / ParameterNamesShortForm).
+    // BOTH are OVERRIDDEN dynamically in C# (154-195): they are NOT the ParametersToString col-0
+    // "Weights"/"Distributions" entries, but "Weight 1..n" ("W1..Wn" short) then "D{i+1} {sub}"
+    // over every component's own names (long form) / short form (C# 154-195). ---
     std::vector<std::string> parameter_names() const override {
-        return {"Weights", "Distributions"};
+        std::vector<std::string> result;
+        for (int i = 1; i <= component_count(); ++i)
+            result.push_back("Weight " + std::to_string(i));
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
     }
     std::vector<std::string> parameter_names_short_form() const override {
         std::vector<std::string> result;

@@ -335,10 +335,19 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         return sample;
     }
 
-    // --- Parameter display names (X1; C# CompetingRisks.cs ParametersToString col0 +
-    // ParameterNamesShortForm). Names is the single column-0 entry; the short form is built
-    // dynamically as "D{i+1} {sub}" over every component (C# 166-181). ---
-    std::vector<std::string> parameter_names() const override { return {"Distributions"}; }
+    // --- Parameter display names (X1; C# CompetingRisks.cs ParameterNames /
+    // ParameterNamesShortForm). BOTH are OVERRIDDEN dynamically in C# (148-180): they are NOT the
+    // ParametersToString col-0 single "Distributions" entry, but a per-component list built as
+    // "D{i+1} {sub}" over every component's own names (long form) / short form (C# 148-180). ---
+    std::vector<std::string> parameter_names() const override {
+        std::vector<std::string> result;
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
+    }
     std::vector<std::string> parameter_names_short_form() const override {
         std::vector<std::string> result;
         for (int i = 0; i < component_count(); ++i) {
