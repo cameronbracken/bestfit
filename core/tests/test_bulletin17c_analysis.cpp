@@ -23,9 +23,13 @@
 //     UncertaintyMethod_SettingSameValue_DoesNotRaisePropertyChange -- INotifyPropertyChanged;
 //     no notification system in this port. (The state change itself -- setting a new method
 //     clears results -- is a Phase-9 concern since the LinkedMVN default path is deferred.)
-//   * All the *Link* / GammaWeds* / PearsonScaleLink / PositiveParameterLink reflection tests --
-//     they probe the LinkedMultivariateNormal link-builder helpers, which are DEFERRED to Phase 9.
 //   * CohnConfidenceIntervalResult_* -- the Cohn CI DTO lands in A9.
+//
+// X8 (LinkedMultivariateNormal) un-gates the LinkedMVN dispatch arm. The C# *Link* / GammaWeds* /
+// PearsonScaleLink / PositiveParameterLink reflection tests (formerly deferred) are now transcribed
+// as C++-only helper oracles in the X8 section below (the reflection probing becomes direct friend
+// access). The C# Constructor_DefaultUncertaintyMethod_IsLinkedMultivariateNormal stays transcribed
+// as the MVN-default deviation (the shipped C++ default is still MultivariateNormal, see the header).
 #include <cmath>
 #include <memory>
 #include <tuple>
@@ -36,6 +40,8 @@
 #include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
 #include "bestfit/models/data_frame/data_frame.hpp"
 #include "bestfit/models/data_frame/data_collections/exact_series.hpp"
+#include "bestfit/models/link_functions/asinh_link.hpp"
+#include "bestfit/models/link_functions/log_asinh_link.hpp"
 #include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/log_normal.hpp"
@@ -78,6 +84,35 @@ struct Bulletin17CAnalysisTestAccess {
         const bestfit::numerics::math::linalg::Matrix& covariance, int dimension,
         int n_nodes_per_dim) {
         return a.build_quadrature_grid(mean, covariance, dimension, n_nodes_per_dim);
+    }
+
+    // X8 LinkedMVN link-builder helpers (private static; reached here for the C++-only oracle
+    // ctests transcribed from the C# reflection tests).
+    using ASinHLink = bestfit::models::link_functions::ASinHLink;
+    using LogASinHLink = bestfit::models::link_functions::LogASinHLink;
+    static ASinHLink create_location_link(double c, double se, double weds) {
+        return Bulletin17CAnalysis::create_location_link(c, se, weds);
+    }
+    static ASinHLink create_pearson_location_link(double c, double se, double g, double weds) {
+        return Bulletin17CAnalysis::create_pearson_location_link(c, se, g, weds);
+    }
+    static double orient_gamma_weds_for_link(double g, double raw_weds) {
+        return Bulletin17CAnalysis::orient_gamma_weds_for_link(g, raw_weds);
+    }
+    static ASinHLink create_gamma_shape_link(double g, double gse, double dir) {
+        return Bulletin17CAnalysis::create_gamma_shape_link(g, gse, dir);
+    }
+    static LogASinHLink create_positive_parameter_link(double c, double se) {
+        return Bulletin17CAnalysis::create_positive_parameter_link(c, se);
+    }
+    static LogASinHLink create_pearson_scale_link(double c, double se) {
+        return Bulletin17CAnalysis::create_pearson_scale_link(c, se);
+    }
+    static double smooth_step(double e0, double e1, double x) {
+        return Bulletin17CAnalysis::smooth_step(e0, e1, x);
+    }
+    static double standardized_magnitude(double est, double se) {
+        return Bulletin17CAnalysis::standardized_magnitude(est, se);
     }
 };
 }  // namespace bestfit::analyses
@@ -217,17 +252,55 @@ void test_run_multivariate_normal_structural() {
     CHECK_TRUE(analysis->get_point_estimate_distribution() != nullptr);
 }
 
-// ---- The deferred dispatch arms throw a clear error (documented scope) ----
+// ---- The still-deferred dispatch arm throws a clear error (BiasCorrectedBootstrap = X9) ----
 void test_deferred_uncertainty_methods_throw() {
-    {
-        auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
-        a->set_uncertainty_method(UncertaintyMethod::LinkedMultivariateNormal);
-        CHECK_THROWS(a->run());  // deferred to Phase 9
+    auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    a->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
+    CHECK_THROWS(a->run());  // BiasCorrectedBootstrap deferred to X9
+}
+
+// ---- A real run() through the LinkedMultivariateNormal UQ path (X8): structural / finite /
+//      monotone, ensemble size >= 2, and the identity LinkController restored afterward. The
+//      exact seeded draw numbers are the X12 emitter's job -- only structural invariants here. ----
+void test_run_linked_multivariate_normal_structural() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->set_uncertainty_method(UncertaintyMethod::LinkedMultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(200);  // keep the LHS draw count small/fast
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    // The finally-guard restores the identity (empty) LinkController on every exit path.
+    CHECK_EQ(analysis->bulletin17c_distribution().link_controller().count(), 0);
+
+    // The stored posterior ensemble holds >= 2 finite parameter sets.
+    const auto& results_bayes = analysis->bayesian_analysis().results();
+    CHECK_TRUE(results_bayes.has_value());
+    if (results_bayes.has_value()) {
+        CHECK_TRUE(results_bayes->output.size() >= 2);
+        for (const auto& ps : results_bayes->output)
+            for (double v : ps.values) CHECK_TRUE(std::isfinite(v));
     }
-    {
-        auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
-        a->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
-        CHECK_THROWS(a->run());  // deferred to Phase 9
+
+    const auto* results = analysis->analysis_results();
+    CHECK_TRUE(results != nullptr);
+    if (results != nullptr) {
+        std::size_t n = analysis->probability_ordinates().count();
+        CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->confidence_intervals.size(), n);
+        CHECK_TRUE(std::isfinite(results->aic));
+        CHECK_TRUE(std::isfinite(results->bic));
+        CHECK_TRUE(std::isfinite(results->rmse));
+        CHECK_TRUE(std::isfinite(results->erl));
+        // Mode curve DESCENDS on ascending exceedance ordinates.
+        for (std::size_t i = 1; i < n; ++i)
+            CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
+        // Each CI brackets the mode curve.
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(results->confidence_intervals[i][0] <= results->mode_curve[i]);
+            CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
+        }
     }
 }
 
@@ -590,6 +663,143 @@ void test_compute_cohn_style_structural() {
     }
 }
 
+// ============================ X8: LinkedMVN link-builder helpers ============================
+// C++-only oracle ctests transcribing the C# reflection tests in Bulletin17CAnalysisTests.cs
+// (the "Linked Multivariate Normal link helpers" region). Values are unaltered from the C#.
+
+// ---- LocationLink_UsesSignedWedsForCensoringDirection (C# 286) ----
+void test_location_link_uses_signed_weds() {
+    auto left = TA::create_location_link(100.0, 5.0, -0.7);
+    auto right = TA::create_location_link(100.0, 5.0, 0.7);
+    CHECK_NEAR(left.parent_indicator(), -0.7, 1e-12);
+    CHECK_NEAR(right.parent_indicator(), 0.7, 1e-12);
+    CHECK_NEAR(left.epsilon_max(), 0.50, 1e-12);
+    CHECK_NEAR(right.epsilon_max(), 0.50, 1e-12);
+    CHECK_NEAR(left.delta(), 1.0, 1e-12);  // location WEDS changes asymmetry, not tail thickness
+}
+
+// ---- PearsonLocationLink_RetainsGammaBlendAndConservativeCap (C# 311) ----
+void test_pearson_location_link_gamma_blend() {
+    auto link = TA::create_pearson_location_link(100.0, 5.0, 0.4, -0.1);
+    CHECK_NEAR(link.parent_indicator(), 0.10, 1e-12);  // 0.5*gammaHat + WEDS = 0.2 - 0.1
+    CHECK_NEAR(link.epsilon_max(), 0.50, 1e-12);
+    CHECK_NEAR(link.epsilon_slope(), 1.0, 1e-12);
+    CHECK_NEAR(link.delta(), 1.0, 1e-12);
+}
+
+// ---- GammaWeds_PositiveGamma_UsesWedsMagnitudeWithPositiveDirection (C# 337) ----
+void test_gamma_weds_positive_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(0.5, -0.8);
+    auto link = TA::create_gamma_shape_link(0.5, 0.2, oriented);
+    CHECK_TRUE(oriented > 0.65);
+    CHECK_NEAR(link.parent_indicator(), oriented, 1e-12);
+    CHECK_TRUE(link.epsilon_max() > 0.75);
+}
+
+// ---- GammaWeds_NegativeGamma_UsesWedsMagnitudeWithNegativeDirection (C# 364) ----
+void test_gamma_weds_negative_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(-0.5, 0.8);
+    auto link = TA::create_gamma_shape_link(-0.5, 0.2, oriented);
+    CHECK_TRUE(oriented < -0.65);
+    CHECK_NEAR(link.parent_indicator(), oriented, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 0.45, 1e-12);
+}
+
+// ---- GammaWeds_ZeroGamma_UsesSymmetricHeavyTails (C# 390) ----
+void test_gamma_weds_zero_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(0.0, 0.0);
+    auto link = TA::create_gamma_shape_link(0.0, 0.2, oriented);
+    CHECK_NEAR(oriented, 0.0, 1e-12);
+    CHECK_NEAR(link.parent_indicator(), 0.0, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 0.0, 1e-12);
+    CHECK_TRUE(link.delta() < 1.0 && link.delta() > 0.90);
+}
+
+// ---- GammaWeds_SlightPositiveGamma_UsesPositiveDirectionAndHeavyTails (C# 417) ----
+void test_gamma_weds_slight_positive_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(0.03, 1.0);
+    auto link = TA::create_gamma_shape_link(0.03, 0.2, oriented);
+    CHECK_NEAR(oriented, 1.0, 1e-12);
+    CHECK_NEAR(link.parent_indicator(), 1.0, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 1.0, 1e-12);
+    CHECK_TRUE(link.delta() < 1.0 && link.delta() > 0.90);
+}
+
+// ---- GammaWeds_SlightNegativeGamma_DampensLargeWedsMagnitude (C# 446) ----
+void test_gamma_weds_slight_negative_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(-0.03, 1.0);
+    auto link = TA::create_gamma_shape_link(-0.03, 0.2, oriented);
+    CHECK_TRUE(std::abs(oriented) < 0.02);
+    CHECK_NEAR(link.parent_indicator(), 0.0, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 0.0, 1e-12);
+    CHECK_TRUE(link.delta() < 1.0 && link.delta() > 0.90);
+}
+
+// ---- GammaWeds_ModerateNegativeGamma_SmoothlyRestoresNegativeDirection (C# 473) ----
+void test_gamma_weds_moderate_negative_gamma() {
+    double oriented = TA::orient_gamma_weds_for_link(-0.35, 1.0);
+    auto link = TA::create_gamma_shape_link(-0.35, 0.2, oriented);
+    CHECK_NEAR(oriented, -0.784, 1e-12);
+    CHECK_NEAR(link.parent_indicator(), -0.784, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 0.446, 1e-12);
+    CHECK_TRUE(link.delta() > 0.95);
+}
+
+// ---- GammaWeds_PositiveGammaWithBalancedWeds_UsesPositiveFloor (C# 501) ----
+void test_gamma_weds_positive_balanced() {
+    double oriented = TA::orient_gamma_weds_for_link(0.03, 0.0);
+    auto link = TA::create_gamma_shape_link(0.03, 0.2, oriented);
+    CHECK_NEAR(oriented, 0.10, 1e-12);
+    CHECK_NEAR(link.parent_indicator(), 0.10, 1e-12);
+    CHECK_NEAR(link.epsilon_max(), 0.55, 1e-12);
+    CHECK_TRUE(link.delta() < 1.0);
+}
+
+// ---- GammaTailDelta_NearZeroGamma_DecreasesAsGammaUncertaintyIncreases (C# 528) ----
+void test_gamma_tail_delta_near_zero() {
+    auto well = TA::create_gamma_shape_link(0.0, 0.1, 0.0);
+    auto weak = TA::create_gamma_shape_link(0.0, 0.8, 0.0);
+    CHECK_TRUE(weak.delta() < well.delta());
+    CHECK_TRUE(weak.delta() >= 0.80);
+    CHECK_NEAR(weak.epsilon_max(), 0.0, 1e-12);
+}
+
+// ---- PositiveParameterLink_UsesRelativeStandardErrorDrivenLogASinH (C# 551) ----
+void test_positive_parameter_link_relative_se() {
+    auto baseline = TA::create_positive_parameter_link(10.0, 1.0);
+    auto scaled = TA::create_positive_parameter_link(100.0, 10.0);
+    auto weak = TA::create_positive_parameter_link(10.0, 5.0);
+    CHECK_NEAR(baseline.log_scale(), std::sqrt(std::log(1.01)), 1e-12);
+    CHECK_NEAR(baseline.log_scale(), scaled.log_scale(), 1e-12);
+    CHECK_NEAR(baseline.parent_indicator(), scaled.parent_indicator(), 1e-12);
+    CHECK_TRUE(weak.parent_indicator() > baseline.parent_indicator());
+    CHECK_TRUE(weak.delta() < baseline.delta());
+}
+
+// ---- PearsonScaleLink_UsesRelativeStandardErrorDrivenLogASinH (C# 579) ----
+void test_pearson_scale_link_relative_se() {
+    auto link = TA::create_pearson_scale_link(10.0, 1.0);
+    CHECK_NEAR(link.sigma0(), 10.0, 1e-12);
+    CHECK_NEAR(link.log_scale(), std::sqrt(std::log(1.01)), 1e-12);
+    CHECK_NEAR(link.parent_indicator(), 1.0 / 3.5, 1e-12);  // relSE/(relSE+0.25) = 0.1/0.35
+    CHECK_TRUE(link.use_adaptive_epsilon());
+    CHECK_NEAR(link.epsilon_max(), 0.75, 1e-12);
+    CHECK_NEAR(link.epsilon_slope(), 1.25, 1e-12);
+    CHECK_TRUE(link.delta() < 1.0 && link.delta() > 0.90);
+}
+
+// ---- SmoothStep / StandardizedMagnitude closed forms (support-helper coverage) ----
+void test_smooth_step_and_standardized_magnitude() {
+    // smoothstep midpoint: t=0.5 -> 0.25*(3-1)=0.5.
+    CHECK_NEAR(TA::smooth_step(0.0, 1.0, 0.5), 0.5, 1e-12);
+    CHECK_NEAR(TA::smooth_step(0.0, 0.5, 0.35), 0.784, 1e-12);  // reused by orient(-0.35)
+    CHECK_NEAR(TA::smooth_step(0.0, 1.0, -1.0), 0.0, 1e-12);    // below edge0 clamps to 0
+    CHECK_NEAR(TA::smooth_step(0.0, 1.0, 2.0), 1.0, 1e-12);     // above edge1 clamps to 1
+    // standardized magnitude = |estimate| / SE.
+    CHECK_NEAR(TA::standardized_magnitude(2.0, 0.5), 4.0, 1e-12);
+    CHECK_EQ(TA::standardized_magnitude(0.0, 0.5), 0.0);
+}
+
 }  // namespace
 
 int main() {
@@ -604,6 +814,7 @@ int main() {
     test_getters_null_when_unestimated();
     test_run_multivariate_normal_structural();
     test_deferred_uncertainty_methods_throw();
+    test_run_linked_multivariate_normal_structural();
 
     // A8: parametric bootstrap + jackknife acceleration
     test_bootstrap_diagnostics_defaults_all_zero();
@@ -626,6 +837,21 @@ int main() {
     test_build_quadrature_grid_reproduces_moments();
     test_compute_cohn_style_null_when_unestimated();
     test_compute_cohn_style_structural();
+
+    // X8: LinkedMVN link-builder helpers (C++-only oracles transcribed from C# reflection tests)
+    test_location_link_uses_signed_weds();
+    test_pearson_location_link_gamma_blend();
+    test_gamma_weds_positive_gamma();
+    test_gamma_weds_negative_gamma();
+    test_gamma_weds_zero_gamma();
+    test_gamma_weds_slight_positive_gamma();
+    test_gamma_weds_slight_negative_gamma();
+    test_gamma_weds_moderate_negative_gamma();
+    test_gamma_weds_positive_balanced();
+    test_gamma_tail_delta_near_zero();
+    test_positive_parameter_link_relative_se();
+    test_pearson_scale_link_relative_se();
+    test_smooth_step_and_standardized_magnitude();
 
     return bftest::summary("bulletin17c_analysis");
 }

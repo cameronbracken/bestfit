@@ -11,19 +11,24 @@
 //
 // SHIPPED-DEFAULT DEVIATION (C# GOVERNS the enum, this port GOVERNS the shipped default):
 //   The C# ctor (line 118) sets `UncertaintyMethod = LinkedMultivariateNormal`, while the field
-//   initializer (line 228) is `MultivariateNormal`. LinkedMultivariateNormal is DEFERRED to
-//   Phase 9 (its ~13 link-builder helpers + InfluenceStatistics are a large severable slice), so
-//   its dispatch arm THROWS here. The shipped C++ default is therefore `MultivariateNormal`.
-//   This is behavior-preserving for the shipped scope: the C# RunUncertaintyQuantification path
-//   (line 666-671) SILENTLY FALLS BACK to plain MultivariateNormal whenever LinkedMVN returns
-//   null, so a MultivariateNormal default reproduces the C# net behavior for every case the
-//   shipped code can actually compute.
+//   initializer (line 228) is `MultivariateNormal`. LinkedMultivariateNormal now SHIPS (X8: its
+//   ~13 link-builder helpers + InfluenceStatistics + the delta-method MVN sampler), but this port
+//   keeps `MultivariateNormal` as the shipped C++ default. That is behavior-preserving: the C#
+//   RunUncertaintyQuantification path (line 666-671) SILENTLY FALLS BACK to plain MultivariateNormal
+//   whenever LinkedMVN returns null, and the LinkedMVN arm itself falls back to plain MVN inline.
+//
+// X8 PROVENANCE (LinkedMultivariateNormal, carried verbatim): the shipped C# path samples from
+//   **MultivariateNormal** (NOT MultivariateStudentT), and the influence-function center shift
+//   `etaHat[1]/[2] += shift` (C# 1044 / 1053) is **COMMENTED OUT** in the source. So
+//   ComputeInfluenceStatistics is genuinely computed and then **DISCARDED**. This port mirrors that
+//   EXACTLY: ComputeInfluenceStatistics + its two helpers are ported (real, reachable code), but no
+//   MVT is applied and no center shift the C# source does not apply.
 //
 // UNCERTAINTY-METHOD DISPATCH (C# switch, lines 657-664):
 //   * MultivariateNormal       -> SHIPPED here (get_parameter_sets_from_multivariate_normal).
 //   * Bootstrap                -> ships in A8 (dispatch arm throws until then; clearly marked).
-//   * LinkedMultivariateNormal -> DEFERRED to Phase 9 (dispatch arm throws "deferred to Phase 9").
-//   * BiasCorrectedBootstrap   -> DEFERRED to Phase 9 (dispatch arm throws "deferred to Phase 9").
+//   * LinkedMultivariateNormal -> SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal).
+//   * BiasCorrectedBootstrap   -> DEFERRED to X9 (dispatch arm throws "deferred to Phase 9").
 //
 // BAYESIANANALYSIS PLUMBING (C#-vs-port deviation, documented):
 //   The C# ctor builds `new BayesianAnalysis()` whose `Model` is null -- this analysis uses GMM,
@@ -53,13 +58,17 @@
 //     EvaluateQuantileSafe, WeightedCovariance, CohnAdjustedStudentTCI, EnforceMonotonicity) and the
 //     CohnConfidenceIntervalResult DTO (its own support header). Deterministic (nested Gaussian
 //     quadrature over the GMM fit -- no MCMC/bootstrap seed dependence).
-//   * DEFERRED to Phase 9: GetParameterSetsFromLinkedMultivariateNormal + its link-builder helpers
-//     (CreatePositiveParameterLink / CreatePearson{Location,Scale}Link / CreateLocationLink /
-//     CreateGammaShapeLink / OrientGammaWedsForLink / CleanWeds / SafeStandardError /
-//     ComputeInfluenceStatistics / InfluenceStatistics), GetParameterSetsFromPivotBootstrap
-//     (BiasCorrected), and the ~617-line GMM report generator, C# 3168-3785 -- GenerateGMMReport +
-//     its ReportAppend* / covariance-table StringBuilder helpers (pure plain-text formatting, no
-//     compute content). AFormulaOverride is a deferred A9-adjacent member (not declared here).
+//   * SHIPPED in X8 (this header): GetParameterSetsFromLinkedMultivariateNormal + its link-builder
+//     helpers (CreatePositiveParameterLink / CreatePearson{Location,Scale}Link / CreateLocationLink /
+//     CreateGammaShapeLink / OrientGammaWedsForLink / CleanWeds / SmoothStep / CreateGammaTailDelta /
+//     StandardizedMagnitude / SafeStandardError / Relative{StandardError,UncertaintyScore} /
+//     LogScaleFromRelativeStandardError) and ComputeInfluenceStatistics / InfluenceStatistics /
+//     ComputeDegreesOfFreedomFromKurtosis / ComputeSkewnessFromInfluence (COMPUTED then DISCARDED --
+//     see the X8 PROVENANCE note above).
+//   * DEFERRED to X9: GetParameterSetsFromPivotBootstrap (BiasCorrected). And the ~617-line GMM
+//     report generator, C# 3168-3785 -- GenerateGMMReport + its ReportAppend* / covariance-table
+//     StringBuilder helpers (pure plain-text formatting, no compute content). AFormulaOverride is a
+//     deferred A9-adjacent member (not declared here).
 //
 // `EvaluateLogQuantileSafe` (C# 856-880) IS ported below per the A7 brief, though the shipped MVN
 // path does not itself call it (the C# MVN sampler validates via ValidateParameters); it is the
@@ -81,6 +90,8 @@
 #include "bestfit/analyses/support/i_univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
+#include "bestfit/models/link_functions/asinh_link.hpp"
+#include "bestfit/models/link_functions/log_asinh_link.hpp"
 #include "bestfit/models/support/model_base.hpp"
 #include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
@@ -156,6 +167,9 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     using LinkController = bestfit::numerics::functions::LinkController;
     using OptimizationStatus = bestfit::numerics::math::optimization::OptimizationStatus;
     using DistributionType = bestfit::numerics::distributions::UnivariateDistributionType;
+    using ILinkFunction = bestfit::numerics::functions::ILinkFunction;
+    using ASinHLink = bestfit::models::link_functions::ASinHLink;
+    using LogASinHLink = bestfit::models::link_functions::LogASinHLink;
 
     // C# ctor `Bulletin17CAnalysis(Bulletin17CDistribution)` (C# 113): stores the model, builds a
     // plumbing BayesianAnalysis (PointEstimator = PosteriorMode), defaults the UncertaintyMethod
@@ -493,8 +507,12 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                 raw_sets = get_parameter_sets_from_parametric_bootstrap();
                 break;
             case UncertaintyMethod::LinkedMultivariateNormal:
-                throw std::runtime_error(
-                    "Bulletin17CAnalysis: LinkedMultivariateNormal is deferred to Phase 9.");
+                // C# `UncertaintyMethod.LinkedMultivariateNormal => ...` (C# 660). On a null
+                // return (e.g. high rejection rate) the C# silently falls back to plain MVN
+                // (C# 666-671); ported inline here.
+                raw_sets = get_parameter_sets_from_linked_multivariate_normal();
+                if (!raw_sets) raw_sets = get_parameter_sets_from_multivariate_normal();
+                break;
             case UncertaintyMethod::BiasCorrectedBootstrap:
                 throw std::runtime_error(
                     "Bulletin17CAnalysis: BiasCorrectedBootstrap is deferred to Phase 9.");
@@ -701,6 +719,505 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         // Persist the diagnostics on the analysis and return the sets (C# 1959-1961).
         bootstrap_results_ = std::move(diag);
         return results;
+    }
+
+    // ================= X8: LinkedMultivariateNormal uncertainty path =================
+    //
+    // PROVENANCE (carried verbatim from the X8 brief): the shipped C# path samples from
+    // **MultivariateNormal** (NOT MVT), and the influence-function center shift
+    // `etaHat[1]/[2] += shift` (C# 1044 / 1053) is **COMMENTED OUT** in the source. So
+    // ComputeInfluenceStatistics is genuinely computed and then **DISCARDED** -- it is real,
+    // reachable code that is ported for fidelity, but its result never affects the draws. This
+    // port mirrors that EXACTLY: no MVT, no center shift.
+
+    // C# `GetParameterSetsFromLinkedMultivariateNormal` (C# 923-1162): fits per-family sinh-arcsinh
+    // link functions from the GMM point estimate + sandwich covariance, transforms to link space,
+    // delta-methods the covariance, and Latin-Hypercube samples MVN(etaHat, VetaHat) -- mapping
+    // each draw back through the inverse links with a bounded retry. Returns nullopt when the
+    // link-space covariance is not positive-definite, when the rejection rate exceeds 50%, or when
+    // fewer than 2 draws survive (C# `return null`, each of which the caller falls back to plain
+    // MVN for). The C# Parallel.For -> a serial loop; progress/cancellation/Debug.WriteLine dropped.
+    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_linked_multivariate_normal() {
+        using bestfit::numerics::math::linalg::Matrix;
+        using bestfit::numerics::math::linalg::MatrixRegularization;
+
+        int b = bayesian_analysis_.output_length();                      // C# 925
+        std::vector<ParameterSet> results(static_cast<std::size_t>(b));   // C# 926
+
+        // Scope guard restoring the identity (empty) LinkController on EVERY exit path (C# 1157-
+        // 1161 finally). Runs on the normal return, the early nullopt returns, and any throw.
+        struct LinkControllerRestore {
+            Bulletin17CDistribution* dist;
+            ~LinkControllerRestore() { dist->set_link_controller(LinkController()); }
+        } restore_guard{bulletin17c_distribution_.get()};
+
+        // Step 1: thetaHat + sandwich covariance from GMM (C# 929-930). BEFORE any link install.
+        const std::vector<double> theta_hat = gmm_->best_parameter_set().values;
+        Matrix sigma_hat = gmm_->get_covariance(theta_hat);
+
+        // Step 2: WEDS in natural parameter space (C# 939) -- computed before the temporary links.
+        std::vector<double> weds = bulletin17c_distribution_->weighted_error_direction_score(theta_hat);
+
+        // Step 3: per-family link selection (C# 951-1010).
+        int p = bulletin17c_distribution_->number_of_parameters();
+        std::vector<std::unique_ptr<ILinkFunction>> links(static_cast<std::size_t>(p));
+        DistributionType dist_type = bulletin17c_distribution_->distribution_type();
+
+        if (dist_type == DistributionType::GammaDistribution) {
+            // Gamma: [scale > 0, shape > 0] -- both positive-support LogASinH (C# 961-962).
+            links[0] = std::make_unique<LogASinHLink>(
+                create_positive_parameter_link(theta_hat[0], safe_standard_error(sigma_hat, 0)));
+            links[1] = std::make_unique<LogASinHLink>(
+                create_positive_parameter_link(theta_hat[1], safe_standard_error(sigma_hat, 1)));
+        } else if (dist_type == DistributionType::PearsonTypeIII ||
+                   dist_type == DistributionType::LogPearsonTypeIII) {
+            // P3/LP3: [location(real), scale(>0), shape(real)] (C# 968-991).
+            double gamma_hat = theta_hat[2];
+            double mu_se = safe_standard_error(sigma_hat, 0);
+            double scale_se = safe_standard_error(sigma_hat, 1);
+            double gamma_se = safe_standard_error(sigma_hat, 2);
+            links[0] = std::make_unique<ASinHLink>(
+                create_pearson_location_link(theta_hat[0], mu_se, gamma_hat, clean_weds(weds, 0)));
+            links[1] =
+                std::make_unique<LogASinHLink>(create_pearson_scale_link(theta_hat[1], scale_se));
+            double gamma_direction_score = orient_gamma_weds_for_link(gamma_hat, clean_weds(weds, 2));
+            links[2] = std::make_unique<ASinHLink>(
+                create_gamma_shape_link(gamma_hat, gamma_se, gamma_direction_score));
+        } else {
+            // Normal / LogNormal / Exponential: [location(real), scale(>0)] (C# 999-1009).
+            double mu_se = safe_standard_error(sigma_hat, 0);
+            links[0] = std::make_unique<ASinHLink>(
+                create_location_link(theta_hat[0], mu_se, clean_weds(weds, 0)));
+            double scale_se = safe_standard_error(sigma_hat, 1);
+            links[1] = std::make_unique<LogASinHLink>(
+                create_positive_parameter_link(theta_hat[1], scale_se));
+        }
+
+        // Step 4: install the temporary LinkController (C# 1013).
+        bulletin17c_distribution_->set_link_controller(LinkController(std::move(links)));
+
+        // Step 5-7: transform, diagonal link Jacobian G, delta-method V_eta = G Sigma G' (C# 1016-
+        // 1023), then regularize to a symmetric positive-definite matrix.
+        std::vector<double> eta_hat = bulletin17c_distribution_->link_controller().link(theta_hat);
+        Matrix g_hat = bulletin17c_distribution_->link_controller().link_jacobian(theta_hat);
+        Matrix v_eta_hat = g_hat * sigma_hat * g_hat.transpose();
+        v_eta_hat = MatrixRegularization::make_symmetric_positive_definite(v_eta_hat);
+
+        // Step 7b: influence-function statistics are COMPUTED then DISCARDED (C# 1034-1055): the
+        // C# center-shift lines `etaHat[1]/[2] += shift` are COMMENTED OUT, so the MVN center is
+        // NOT shifted. Ported for fidelity (real, reachable code); the shift is not applied.
+        (void)compute_influence_statistics(theta_hat, 0.999);
+
+        // Step 8: MVN(etaHat, V_eta) -- NOT MVT (C# 1058-1067). A non-positive-definite covariance
+        // throws in the ctor -> nullopt (the guard restores the identity links; caller falls back).
+        std::optional<MultivariateNormal> mvn;
+        try {
+            mvn.emplace(eta_hat, v_eta_hat.to_array());
+        } catch (...) {
+            return std::nullopt;  // C# Debug.WriteLine + return null
+        }
+
+        const int seed = bayesian_analysis_.prng_seed();
+        std::vector<std::vector<double>> eta_draws = mvn->latin_hypercube_random_values(b, seed);  // C# 1068
+
+        // A single reusable validator clone (serial loop; C# clones per Parallel.For thread).
+        std::unique_ptr<UnivariateDistributionBase> validator =
+            bulletin17c_distribution_->distribution()->clone();
+        auto accepts = [&validator](const std::vector<double>& theta) -> bool {
+            try {
+                validator->set_parameters(theta);  // C# ValidateParameters(theta, true)
+                return validator->parameters_valid();
+            } catch (...) {
+                return false;  // C# catch -> rejected draw
+            }
+        };
+
+        int rejection_count = 0;
+
+        // Step 9: map each draw back theta = InverseLink(eta) (C# 1082-1130 serial).
+        for (int idx = 0; idx < b; ++idx) {
+            std::optional<std::vector<double>> accepted_theta;
+            std::size_t iu = static_cast<std::size_t>(idx);
+
+            // First try: the LHS draw (best space coverage) (C# 1090-1097).
+            {
+                std::vector<double> theta =
+                    bulletin17c_distribution_->link_controller().inverse_link(eta_draws[iu]);
+                if (accepts(theta)) accepted_theta = std::move(theta);
+            }
+
+            // Retry with fresh eta-space draws seeded per-index (C# 1099-1118).
+            if (!accepted_theta) {
+                int pp = static_cast<int>(eta_hat.size());
+                bestfit::numerics::sampling::MersenneTwister prng(
+                    static_cast<std::uint32_t>(seed + b + idx));
+                for (int retry = 0; retry < 10 && !accepted_theta; ++retry) {
+                    std::vector<double> u =
+                        bestfit::numerics::utilities::next_doubles(prng, 1, pp)[0];
+                    std::vector<double> eta = mvn->inverse_cdf(u);
+                    std::vector<double> theta =
+                        bulletin17c_distribution_->link_controller().inverse_link(eta);
+                    if (accepts(theta)) accepted_theta = std::move(theta);
+                }
+                if (!accepted_theta) ++rejection_count;  // C# Interlocked.Increment(rejectionCount)
+            }
+
+            // Rejected draws stay as the default/empty ParameterSet -- filtered below; NO parent
+            // thetaHat fallback (high rejection triggers the whole-method fallback) (C# 1120-1125).
+            if (accepted_theta)
+                results[iu] =
+                    ParameterSet(std::move(*accepted_theta), std::numeric_limits<double>::quiet_NaN());
+        }
+
+        // Rejection-rate guard: too-aggressive links -> null -> caller falls back (C# 1132-1141).
+        double rejection_rate = static_cast<double>(rejection_count) / static_cast<double>(b);
+        if (rejection_rate > 0.50) return std::nullopt;
+
+        // Filter rejected (empty) draws (C# 1143-1149).
+        std::vector<ParameterSet> valid_results;
+        valid_results.reserve(results.size());
+        for (auto& ps : results)
+            if (!ps.values.empty()) valid_results.push_back(std::move(ps));
+        if (valid_results.size() < 2) return std::nullopt;
+
+        return valid_results;
+    }
+
+    // ---- LinkedMVN link-builder helpers (C# 1175-1573, all pure/static) ----
+
+    // C# `CleanWeds(double[] weds, int index)` (C# 1175-1181): finite WEDS component clamped to
+    // [-1, 1], or 0 when unavailable. The C# null-array check maps to the empty/range check.
+    static double clean_weds(const std::vector<double>& weds, int index) {
+        if (index < 0 || index >= static_cast<int>(weds.size()) ||
+            !std::isfinite(weds[static_cast<std::size_t>(index)]))
+            return 0.0;
+        return std::clamp(weds[static_cast<std::size_t>(index)], -1.0, 1.0);
+    }
+
+    // C# `CreateLocationLink` (C# 1197-1206): unbounded ASinH location link; signed WEDS drives
+    // adaptive asymmetry (censoring direction), tail thickness fixed (Delta = 1).
+    static ASinHLink create_location_link(double center, double standard_error, double weds_score) {
+        ASinHLink link(center, standard_error);
+        link.set_use_adaptive_epsilon(true);
+        link.set_parent_indicator(std::clamp(weds_score, -1.0, 1.0));
+        link.set_epsilon_max(0.50);
+        link.set_epsilon_slope(1.0);
+        return link;
+    }
+
+    // C# `CreatePearsonLocationLink` (C# 1223-1236): LP3/P3 location ASinH link; parent indicator
+    // is the 0.5*gammaHat + WEDS blend, conservative fixed cap.
+    static ASinHLink create_pearson_location_link(double center, double standard_error,
+                                                  double gamma_hat, double weds_score) {
+        ASinHLink link(center, standard_error);
+        link.set_use_adaptive_epsilon(true);
+        link.set_parent_indicator((0.5 * gamma_hat) + weds_score);
+        link.set_epsilon_max(0.5);
+        link.set_epsilon_slope(1.0);
+        return link;
+    }
+
+    // C# `OrientGammaWedsForLink` (C# 1254-1276): WEDS is magnitude, gammaHat supplies direction.
+    static double orient_gamma_weds_for_link(double gamma_hat, double raw_gamma_weds) {
+        constexpr double kGammaAsymmetryFull = 0.50;
+        constexpr double kMinPositiveDirection = 0.10;
+
+        if (!std::isfinite(gamma_hat)) return 0.0;
+
+        double weds_magnitude = std::abs(std::clamp(raw_gamma_weds, -1.0, 1.0));
+
+        if (gamma_hat > 0.0) return std::max(kMinPositiveDirection, weds_magnitude);
+        if (gamma_hat == 0.0) return 0.0;
+
+        // Negative fitted gamma: smooth gate near zero (C# 1274-1275).
+        double asymmetry_gate = smooth_step(0.0, kGammaAsymmetryFull, std::abs(gamma_hat));
+        return -weds_magnitude * asymmetry_gate;
+    }
+
+    // C# `SmoothStep` (C# 1289-1299): cubic smoothstep in [0, 1].
+    static double smooth_step(double edge0, double edge1, double x) {
+        if (!std::isfinite(x)) return 0.0;
+        if (edge1 <= edge0) return x >= edge1 ? 1.0 : 0.0;
+        double t = std::clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+        return t * t * (3.0 - (2.0 * t));
+    }
+
+    // C# `CreateGammaTailDelta` (C# 1315-1332): ASinH tail-shape delta in [0.80, 1.00] for the
+    // LP3/P3 gamma link; smaller delta gives heavier symmetric tails near a weakly identified zero.
+    static double create_gamma_tail_delta(double gamma_hat, double gamma_se) {
+        constexpr double kMinDelta = 0.80;
+        constexpr double kMaxTailReduction = 0.20;
+        constexpr double kGammaSEScale = 0.25;
+        constexpr double kSignalForTailStart = 0.75;
+        constexpr double kSignalForTailFade = 2.0;
+
+        if (!std::isfinite(gamma_hat) || !std::isfinite(gamma_se) || gamma_se <= 0.0) return 1.0;
+
+        double gamma_signal = standardized_magnitude(gamma_hat, gamma_se);
+        double weak_direction_gate =
+            1.0 - smooth_step(kSignalForTailStart, kSignalForTailFade, gamma_signal);
+        double uncertainty_gate = gamma_se / (gamma_se + kGammaSEScale);
+        double delta = 1.0 - (kMaxTailReduction * weak_direction_gate * uncertainty_gate);
+        return std::clamp(delta, kMinDelta, 1.0);
+    }
+
+    // C# `StandardizedMagnitude` (C# 1346-1355): |estimate| / SE signal-to-noise ratio.
+    static double standardized_magnitude(double estimate, double standard_error) {
+        if (!std::isfinite(estimate)) return 0.0;
+        if (!std::isfinite(standard_error) || standard_error <= 1e-12)
+            return std::abs(estimate) > 0.0 ? std::numeric_limits<double>::infinity() : 0.0;
+        return std::abs(estimate) / standard_error;
+    }
+
+    // C# `SafeStandardError` (C# 1368-1378): robust SE from a covariance diagonal; 1e-12 floor on
+    // out-of-range / non-finite / non-positive variance. The C# null-matrix check is dropped (the
+    // ported Matrix is a value type, never null).
+    static double safe_standard_error(const bestfit::numerics::math::linalg::Matrix& covariance,
+                                      int index) {
+        if (index < 0 || index >= covariance.number_of_rows() ||
+            index >= covariance.number_of_columns())
+            return 1e-12;
+        double variance = covariance(index, index);
+        if (!std::isfinite(variance) || variance <= 0.0) return 1e-12;
+        return std::sqrt(variance);
+    }
+
+    // C# `CreatePositiveParameterLink` (C# 1396-1417): positive-support LogASinH driven by the
+    // relative standard error SE/estimate (unit-invariant).
+    static LogASinHLink create_positive_parameter_link(double center, double standard_error) {
+        constexpr double kScaleCVReference = 0.25;
+        constexpr double kEpsilonMax = 0.75;
+        constexpr double kEpsilonSlope = 1.25;
+        constexpr double kMaxTailReduction = 0.18;
+        constexpr double kMinDelta = 0.82;
+
+        double relative_se = relative_standard_error(center, standard_error);
+        double log_scale = log_scale_from_relative_standard_error(relative_se);
+        double uncertainty = relative_uncertainty_score(relative_se, kScaleCVReference);
+        double delta = 1.0 - (kMaxTailReduction * uncertainty);
+
+        LogASinHLink link(center, log_scale);
+        link.set_delta(std::clamp(delta, kMinDelta, 1.0));
+        link.set_use_adaptive_epsilon(true);
+        link.set_parent_indicator(uncertainty);
+        link.set_epsilon_max(kEpsilonMax);
+        link.set_epsilon_slope(kEpsilonSlope);
+        return link;
+    }
+
+    // C# `CreatePearsonScaleLink` (C# 1431-1434): LP3/P3 scale uses the positive-parameter rule.
+    static LogASinHLink create_pearson_scale_link(double center, double standard_error) {
+        return create_positive_parameter_link(center, standard_error);
+    }
+
+    // C# `RelativeStandardError` (C# 1447-1457): dimensionless |SE / estimate| for positive params.
+    static double relative_standard_error(double center, double standard_error) {
+        if (!std::isfinite(center) || center <= 0.0 || !std::isfinite(standard_error) ||
+            standard_error <= 0.0)
+            return 0.0;
+        double relative_se = std::abs(standard_error / center);
+        if (!std::isfinite(relative_se)) return 0.0;
+        return relative_se;
+    }
+
+    // C# `RelativeUncertaintyScore` (C# 1470-1479): saturating map relSE/(relSE + reference).
+    static double relative_uncertainty_score(double relative_se, double reference_relative_se) {
+        if (!std::isfinite(relative_se) || relative_se <= 0.0) return 0.0;
+        if (!std::isfinite(reference_relative_se) || reference_relative_se <= 0.0) return 1.0;
+        return std::clamp(relative_se / (relative_se + reference_relative_se), 0.0, 1.0);
+    }
+
+    // C# `LogScaleFromRelativeStandardError` (C# 1493-1508): sqrt(log(1 + CV^2)) log-scale.
+    static double log_scale_from_relative_standard_error(double relative_se) {
+        constexpr double kMinLogScale = 1e-12;
+        constexpr double kMaxRelativeSE = 10.0;
+
+        if (!std::isfinite(relative_se) || relative_se <= 0.0) return kMinLogScale;
+        double bounded_relative_se = std::min(relative_se, kMaxRelativeSE);
+        double log_scale = std::sqrt(std::log(1.0 + (bounded_relative_se * bounded_relative_se)));
+        if (!std::isfinite(log_scale) || log_scale <= 0.0) return kMinLogScale;
+        return std::max(log_scale, kMinLogScale);
+    }
+
+    // C# `CreateGammaShapeLink` (C# 1525-1566): LP3/P3 gamma ASinH link; oriented WEDS supplies
+    // asymmetry after a deadband + asymmetric positive/negative epsilon caps, tail-shape via delta.
+    static ASinHLink create_gamma_shape_link(double gamma_hat, double gamma_se,
+                                             double gamma_direction_score) {
+        constexpr double kWedsDeadband = 0.10;
+        constexpr double kMaxPositiveEpsilon = 1.0;
+        constexpr double kMaxNegativeEpsilon = 0.5;
+        constexpr double kMinPositiveEpsilon = 0.50;
+        constexpr double kMinNegativeEpsilon = 0.25;
+
+        double bounded_weds = std::clamp(gamma_direction_score, -1.0, 1.0);
+        double abs_weds = std::abs(bounded_weds);
+        double epsilon_max = 0.0;
+        double parent_indicator = 0.0;
+
+        if (abs_weds >= kWedsDeadband) {
+            parent_indicator = bounded_weds;
+            if (bounded_weds < 0.0) {
+                epsilon_max =
+                    kMinNegativeEpsilon + ((kMaxNegativeEpsilon - kMinNegativeEpsilon) * abs_weds);
+                epsilon_max = std::min(epsilon_max, kMaxNegativeEpsilon);
+            } else {
+                epsilon_max =
+                    kMinPositiveEpsilon + ((kMaxPositiveEpsilon - kMinPositiveEpsilon) * abs_weds);
+                if (gamma_hat > 0.75) epsilon_max = std::max(epsilon_max, 0.75);
+            }
+            epsilon_max = std::clamp(epsilon_max, 0.0, kMaxPositiveEpsilon);
+        }
+
+        ASinHLink link(gamma_hat, gamma_se);
+        link.set_delta(create_gamma_tail_delta(gamma_hat, gamma_se));
+        link.set_use_adaptive_epsilon(true);
+        link.set_parent_indicator(parent_indicator);
+        link.set_epsilon_max(epsilon_max);
+        link.set_epsilon_slope(1.5);
+        return link;
+    }
+
+    // C# `InfluenceStatistics` struct (C# 1582-1598): quantile degrees of freedom + per-parameter
+    // skewness of the influence functions. COMPUTED then DISCARDED on the shipped path (see the
+    // section provenance note): the MVT nu and the center-shift skewness are never applied.
+    struct InfluenceStatistics {
+        double nu_quantile = 0.0;
+        std::vector<double> parameter_skewness;
+    };
+
+    // C# `ComputeInfluenceStatistics` (C# 1628-1740): Cohn et al. (2001) influence-function
+    // statistics from the per-observation GMM moment conditions psi_i = Bread^-1 D'W m_i. Ported
+    // for fidelity; the result is DISCARDED (no MVT, no center shift). C# Debug.WriteLine +
+    // default-return guards (PointwiseMomentConditions unavailable / singular bread) preserved.
+    InfluenceStatistics compute_influence_statistics(const std::vector<double>& theta_hat,
+                                                     double target_non_exceedance_probability) {
+        using bestfit::numerics::math::linalg::Matrix;
+        int n_params = static_cast<int>(theta_hat.size());
+        InfluenceStatistics result;
+        result.nu_quantile = 30.0;                                            // C# 1633
+        result.parameter_skewness.assign(static_cast<std::size_t>(n_params), 0.0);
+
+        // 1. Quantile gradient g_p = dX_p/dtheta (C# 1638).
+        std::vector<double> gp =
+            bulletin17c_distribution_->quantile_gradient(target_non_exceedance_probability, theta_hat);
+
+        // 2. Per-observation moment conditions [n x q] (C# 1641-1649).
+        const auto& pointwise_mc = gmm_->pointwise_moment_conditions();
+        if (!pointwise_mc) return result;  // C# 1642-1646
+        bestfit::numerics::math::linalg::Matrix2D mi = pointwise_mc(theta_hat);
+        int n = static_cast<int>(mi.size());
+        int q = (n > 0) ? static_cast<int>(mi[0].size()) : 0;
+
+        // 3. Bread = D'WD + H (C# 1652-1667).
+        Matrix d = gmm_->get_jacobian(theta_hat);
+        Matrix dt = d.transpose();
+        const Matrix& w = gmm_->w().value();  // C# `_gmm.W!`
+        Matrix h = gmm_->get_penalty_hessian(theta_hat);
+        Matrix bread = dt * w * d + h;
+        Matrix bread_inv(n_params);
+        try {
+            bread_inv = bread.inverse();
+        } catch (...) {
+            return result;  // C# 1663-1667 singular-bread guard
+        }
+        Matrix dt_w = dt * w;
+
+        // 4. psi_i vectors and quantile influence scores s_i = g_p' psi_i (C# 1671-1703). NOTE:
+        // s_i is computed exactly as the C# but the shipped path derives nu from per-parameter
+        // kurtosis (5a) rather than from s -- so s is dead, mirrored for structural fidelity.
+        std::vector<std::vector<double>> psi_all(static_cast<std::size_t>(n));
+        std::vector<double> s(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            std::size_t iu = static_cast<std::size_t>(i);
+            std::vector<double> dt_wm(static_cast<std::size_t>(n_params));
+            for (int j = 0; j < n_params; ++j) {
+                double sum = 0.0;
+                for (int k = 0; k < q; ++k)
+                    sum += dt_w(j, k) * mi[iu][static_cast<std::size_t>(k)];
+                dt_wm[static_cast<std::size_t>(j)] = sum;
+            }
+            std::vector<double> psi(static_cast<std::size_t>(n_params));
+            for (int j = 0; j < n_params; ++j) {
+                double sum = 0.0;
+                for (int k = 0; k < n_params; ++k)
+                    sum += bread_inv(j, k) * dt_wm[static_cast<std::size_t>(k)];
+                psi[static_cast<std::size_t>(j)] = sum;
+            }
+            psi_all[iu] = psi;
+            double si = 0.0;
+            for (int j = 0; j < n_params; ++j)
+                si += gp[static_cast<std::size_t>(j)] * psi[static_cast<std::size_t>(j)];
+            s[iu] = si;
+        }
+        (void)s;  // computed per the C#, unused on the shipped path.
+
+        // 5a. Per-parameter nu from kurtosis, geometric mean for the MVT nu (C# 1705-1725).
+        double log_nu_sum = 0.0;
+        int nu_count = 0;
+        for (int j = 0; j < n_params; ++j) {
+            std::vector<double> psi_j(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i) psi_j[static_cast<std::size_t>(i)] = psi_all[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+            double nu_j = compute_degrees_of_freedom_from_kurtosis(psi_j, n);
+            log_nu_sum += std::log(nu_j);
+            ++nu_count;
+        }
+        result.nu_quantile = nu_count > 0 ? std::exp(log_nu_sum / nu_count) : 1000.0;
+
+        // 5b. Per-parameter skewness for the (discarded) center shift (C# 1727-1737).
+        for (int j = 0; j < n_params; ++j) {
+            std::vector<double> psi_j(static_cast<std::size_t>(n));
+            for (int i = 0; i < n; ++i) psi_j[static_cast<std::size_t>(i)] = psi_all[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+            result.parameter_skewness[static_cast<std::size_t>(j)] =
+                compute_skewness_from_influence(psi_j, n);
+        }
+
+        return result;
+    }
+
+    // C# `ComputeDegreesOfFreedomFromKurtosis` (C# 1761-1794): match empirical kurtosis to the
+    // Student-t kurtosis nu = 2(2k-3)/(k-3); sub-Gaussian returns 1000, else clamped to [5, 1000].
+    static double compute_degrees_of_freedom_from_kurtosis(const std::vector<double>& scores, int n) {
+        double mean = 0.0;
+        for (int i = 0; i < n; ++i) mean += scores[static_cast<std::size_t>(i)];
+        mean /= n;
+
+        double m2 = 0.0, m4 = 0.0;
+        for (int i = 0; i < n; ++i) {
+            double dd = scores[static_cast<std::size_t>(i)] - mean;
+            double d2 = dd * dd;
+            m2 += d2;
+            m4 += d2 * d2;
+        }
+        m2 /= n;
+        m4 /= n;
+
+        if (m2 <= 0.0) return 1000.0;
+        double kappa = m4 / (m2 * m2);
+        if (kappa <= 3.0 + 1e-6) return 1000.0;
+        double nu = 2.0 * (2.0 * kappa - 3.0) / (kappa - 3.0);
+        return std::clamp(nu, 5.0, 1000.0);
+    }
+
+    // C# `ComputeSkewnessFromInfluence` (C# 1806-1831): Fisher skewness M3 / M2^{3/2}, or 0 when
+    // the variance is near zero.
+    static double compute_skewness_from_influence(const std::vector<double>& scores, int n) {
+        double mean = 0.0;
+        for (int i = 0; i < n; ++i) mean += scores[static_cast<std::size_t>(i)];
+        mean /= n;
+
+        double m2 = 0.0, m3 = 0.0;
+        for (int i = 0; i < n; ++i) {
+            double dd = scores[static_cast<std::size_t>(i)] - mean;
+            double d2 = dd * dd;
+            m2 += d2;
+            m3 += d2 * dd;
+        }
+        m2 /= n;
+        m3 /= n;
+
+        if (m2 <= 1e-30) return 0.0;
+        double sigma = std::sqrt(m2);
+        return m3 / (sigma * sigma * sigma);
     }
 
     // C# `AccelerationConstants(double[] thetaHats)` (C# 2408-2464): the BCa jackknife acceleration
