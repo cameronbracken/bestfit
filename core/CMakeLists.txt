@@ -78,6 +78,7 @@ set(BF_TESTS
   test_influence_diagnostics
   test_parameter_names
   test_composite_analysis
+  test_coincident_frequency_analysis
 )
 
 # Sobol test takes the direction-number file as its sole argument.
