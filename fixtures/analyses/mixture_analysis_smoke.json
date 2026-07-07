@@ -1,0 +1,26 @@
+{
+  "target": "MixtureAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/MixtureAnalysis.cs @ fc28c0c -- D6 STRUCTURAL oracle (D5 seeded-scalar assertions removed; see below). MixtureAnalysis drives a Bayesian DEMCzs MCMC over a 2-component Normal MixtureModel, then assembles the frequency (mode) curve + credible band on the 5-point exceedance grid. curve_length == 5 is the deterministic invariant, reproduced exactly across C++/R/Python AND the real-RMC.BestFit emitter (tools/oracle_emitter mirroring mixture_analysis::run(): serial seeded fit, CreateFrequencyAnalysisResults). D6 REALITY: the emitter does NOT reproduce the D5 self-computed seeded scalars (mixture weight, frequency curve, credible band, AIC/BIC/DIC). Unlike the sibling CompetingRisk/PointProcess analyses (which DO reproduce and are pinned exact), the standard-init MAP search over this strongly bimodal Normal-mixture likelihood lands on a different mode in the real C# vs the ported C++ core -- the mixture LogSumExp likelihood is float-reassociation sensitive, so a single last-bit difference flips the DE optimizer's basin (parameter[0] weight 0.50 vs 0.61; mode_curve 3917 vs 25909). This matches the D6 brief's design statement that the analyses are STRUCTURAL oracles only -- no numeric MCMC oracle exists upstream. thinning_interval pinned to 1; short run (iterations 100, output_length 400). Parameter layout [w1, w2, mu1, sigma1, mu2, sigma2].",
+  "datasets": {
+    "bimodal": [520, 580, 610, 650, 700, 730, 760, 800, 850, 880, 910, 950, 990, 1030, 1080, 5000, 5400, 5800, 6300, 6800]
+  },
+  "cases": [
+    {
+      "name": "two_normal_mixture_demczs_short",
+      "construct": {
+        "model": { "type": "mixture", "families": ["Normal", "Normal"], "dataset": "bimodal" },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
+      },
+      "assertions": [
+        { "method": "curve_length", "expected": 5, "mode": "equal" }
+      ]
+    }
+  ]
+}

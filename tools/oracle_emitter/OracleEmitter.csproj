@@ -17,7 +17,7 @@
          only the Estimation + Models subset the estimators need. Disabling the default
          compile-item glob (which would otherwise pull in every .cs under the project dir)
          means the emitter's own sources must be listed explicitly below too (see the
-         DiagnosticsStubs.cs note). -->
+         Task D6 Diagnostics note below). -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
@@ -32,15 +32,28 @@
   <ItemGroup>
     <!-- The emitter's own sources (must be listed because EnableDefaultCompileItems is off). -->
     <Compile Include="Program.cs" />
-    <Compile Include="DiagnosticsStubs.cs" />
+
+    <!-- Task D6: compile the THREE real RMC.BestFit.Diagnostics classes in place so the dumped
+         diagnostic paths (BayesianAnalysis.Compute{Leverage,Influence,PriorInfluence}Diagnostics)
+         use the REAL classes, not the throwing DiagnosticsStubs.cs bodies. The three files fully
+         supersede every type the old stub declared (LeverageDiagnostics + nested ObservationLeverage
+         / PriorComponentLeverage, InfluenceDiagnostics + top-level ObservationInfluence,
+         PriorInfluenceDiagnostics), so DiagnosticsStubs.cs is dropped from the compile entirely.
+         The four DEFERRED predictive-check files (PosteriorPredictiveCheck.cs, PriorPredictiveCheck.cs,
+         PredictiveCheckResults.cs, PredictiveSummary.cs) stay OUT: no compiled estimator/diagnostic
+         references them, and they pull in unbuildable/deferred surface. We include exactly the three
+         files rather than glob-then-remove the four (fewer moving parts, self-documenting). -->
+    <Compile Include="$(BF)/Diagnostics/LeverageDiagnostics.cs" />
+    <Compile Include="$(BF)/Diagnostics/InfluenceDiagnostics.cs" />
+    <Compile Include="$(BF)/Diagnostics/PriorInfluenceDiagnostics.cs" />
 
     <!-- Real RMC.BestFit estimation + models, compiled in place (read-only; never copied or
          modified under upstream/). Task B12 INCLUDES the GMM estimator, its IGMMModel interface,
          and the Bulletin17C distribution so their exact GMM/B17C fit oracles can be dumped from
          the real library (the upstream GMM tests are structural-only, so no numeric oracle can
-         come from the C# test files). The GMM Influence/Leverage-Diagnostics region references a
-         larger RMC.BestFit.Diagnostics surface that is still stubbed compile-only in
-         DiagnosticsStubs.cs (that region is deferred and on NO dumped-oracle path). Analyses/**
+         come from the C# test files). The GMM Influence/Leverage-Diagnostics region references the
+         RMC.BestFit.Diagnostics surface now supplied by the three real Diagnostics classes compiled
+         above (Task D6, replacing the removed DiagnosticsStubs.cs). Analyses/**
          stays OUT: the full assembly does not build (a CS0104 YeoJohnsonLink ambiguity in the
          Analyses layer), so EnableDefaultCompileItems is off and the compile list is explicit. -->
     <Compile Include="$(BF)/Estimation/**/*.cs" />
@@ -53,6 +66,11 @@
     <Compile Include="$(BF)/Analyses/Univariate/**/*.cs" />
     <Compile Include="$(BF)/Analyses/Support/**/*.cs" />
     <Compile Include="$(BF)/Analyses/DistributionFitting/**/*.cs" />
+
+    <!-- Task D6: unlock the four TimeSeries analyses (AR/MA/ARIMA/ARIMAX) so the real C#
+         classes drive the fixtures/analyses/{ar,ma,arima,arimax}_analysis_smoke.json oracles.
+         TimeSeries has no Support subdir, so the glob picks up exactly the four analysis files. -->
+    <Compile Include="$(BF)/Analyses/TimeSeries/**/*.cs" />
 
     <!-- CS0104 patch: the upstream Bulletin17CAnalysis.cs has an ambiguous `new YeoJohnsonLink(`
          (both Numerics.Functions and RMC.BestFit.Models.LinkFunctions export the type). Compile a

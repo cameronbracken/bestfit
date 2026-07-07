@@ -19,8 +19,9 @@
 //     documented error message) for a bad knob (number_of_chains < 4).
 //   - set_default_simulation_options(): the DEMCzs vs. NUTS per-sampler-type defaults match
 //     the C# formulas.
-//   - Gated methods (compute_influence_diagnostics/compute_prior_influence_diagnostics/
-//     compute_leverage_diagnostics) throw (Diagnostics layer deferred).
+//   - Gated methods (compute_influence_diagnostics/compute_prior_influence_diagnostics) still
+//     throw (Diagnostics influence layer is D4); compute_leverage_diagnostics returns a real
+//     LeverageDiagnostics after estimation (D3 un-stub; structural invariants only).
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
@@ -189,9 +190,26 @@ void test_gated_diagnostics_throw() {
     apply_fast_knobs(analysis, 7);
     CHECK_TRUE(analysis.estimate());
 
-    CHECK_THROWS(analysis.compute_influence_diagnostics());
-    CHECK_THROWS(analysis.compute_prior_influence_diagnostics());
-    CHECK_THROWS(analysis.compute_leverage_diagnostics());
+    // Influence + prior-influence diagnostics are now ported (D4 un-stub): real objects built
+    // from the estimator's PSIS-LOO Pareto-k / retained elpd_loo and the posterior sample.
+    auto influence = analysis.compute_influence_diagnostics();
+    CHECK_EQ(influence.count(), static_cast<int>(sample_data().size()));
+    CHECK_EQ(influence.count(), static_cast<int>(analysis.pareto_k().size()));
+
+    auto prior_influence = analysis.compute_prior_influence_diagnostics();
+    // One component per prior name (>= one per model parameter; a Jeffreys scale prior may add
+    // one more). Ratio is a magnitude fraction in [0, 1].
+    CHECK_TRUE(prior_influence.count() >= model.number_of_parameters());
+    CHECK_TRUE(prior_influence.prior_to_data_ratio() >= 0.0 &&
+               prior_influence.prior_to_data_ratio() <= 1.0);
+
+    // Leverage diagnostics are now ported (D3 un-stub): a real object at the MAP point.
+    auto diag = analysis.compute_leverage_diagnostics();
+    CHECK_EQ(static_cast<int>(diag.observations().size()),
+             static_cast<int>(sample_data().size()));
+    CHECK_EQ(diag.number_of_parameters(), model.number_of_parameters());
+    CHECK_NEAR(diag.total_leverage(),
+               diag.total_observation_leverage() + diag.total_prior_leverage(), 1e-9);
 }
 
 // --- Task T10: information criteria + point estimates + posterior summaries ------------

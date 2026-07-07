@@ -1,0 +1,31 @@
+{
+  "target": "ARIMAAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/ARIMAAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). ARIMAAnalysis drives a Bayesian DEMCzs MCMC over an ARIMA(1,1,1) model, then builds the posterior forecast ensemble (mode/mean/credible band). training_time_steps pinned to 15; curve_length = 20 + 3 = 23. NOTE (D5): unlike the AR/MA/mixture/competing-risk/point-process smoke fixtures (bit-stable across the C++ ctest and the R/Python package builds), this 4-parameter differenced model's SHORT MCMC trajectory is chaotic enough that a single floating-point reassociation flips an accept/reject and the point estimate / AIC / RMSE diverge across builds -- so this fixture asserts ONLY the build-stable STRUCTURAL invariants (curve length + the deterministic first-step forecast, which equals the first observed value); the exact seeded trajectory scalars are deferred to D6's controlled-build emitter oracle. thinning_interval pinned to 1. Short run (iterations 100, output_length 400).",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "arima111_demczs_short_forecast3",
+      "construct": {
+        "model": { "type": "time_series", "subtype": "arima", "dataset": "series", "orders": { "p": 1, "d": 1, "q": 1 }, "include_intercept": true },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "training_time_steps": 15,
+        "forecasting_time_steps": 3
+      },
+      "assertions": [
+        { "method": "curve_length", "expected": 23, "mode": "equal" },
+        { "method": "mode_curve", "args": [0], "expected": 10.2, "mode": "rel", "tol": 1e-6 },
+        { "method": "mean_curve", "args": [0], "expected": 10.2, "mode": "rel", "tol": 1e-6 },
+        { "method": "lower_ci", "args": [0], "expected": 10.2, "mode": "rel", "tol": 1e-6 },
+        { "method": "upper_ci", "args": [0], "expected": 10.2, "mode": "rel", "tol": 1e-6 }
+      ]
+    }
+  ]
+}

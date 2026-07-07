@@ -1,0 +1,28 @@
+{
+  "target": "ARAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/ARAnalysis.cs @ fc28c0c -- D6 STRUCTURAL oracle (D5 seeded-scalar assertions removed; see below). ARAnalysis drives a Bayesian DEMCzs MCMC over an AR(1) AutoRegressive model, then builds the posterior forecast ensemble (mode/mean/credible band) over the observed range plus forecasting_time_steps. training_time_steps is pinned to 15 (the model default of max(30, floor(0.8*n)) exceeds this 20-point series and would be invalid). curve_length = 20 observed + 3 forecast = 23; mode_curve[0] is the deterministic first observed value. Both reproduce exactly across C++/R/Python AND the real-RMC.BestFit emitter (tools/oracle_emitter, BuildAndRunAnalysis mirroring ar_analysis::run(): sim-defaults guard, serial seeded fit, CreateUncertaintyAnalysisResults). D6 REALITY: the emitter does NOT reproduce the D5 self-computed seeded scalars (point-estimate parameter, AIC/BIC/DIC/RMSE) -- the ported C++ AR analysis and the real C# ARAnalysis land on qualitatively different posterior modes for this short chaotic chain (C++ MAP intercept ~58 / DIC ~-960 vs real C# ~16 / DIC ~46). This matches the D6 brief's design statement that the time-series analyses are STRUCTURAL oracles only -- no numeric MCMC oracle exists upstream. The seeded scalars were therefore removed rather than pinned to an un-cross-reproducible C++-only value; only the deterministic structural invariants are asserted. thinning_interval pinned to 1; short run (iterations 100, output_length 400).",
+  "datasets": {
+    "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
+  },
+  "cases": [
+    {
+      "name": "ar1_demczs_short_forecast3",
+      "construct": {
+        "model": { "type": "time_series", "subtype": "ar", "dataset": "series", "orders": { "p": 1 }, "include_intercept": true },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 400,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "training_time_steps": 15,
+        "forecasting_time_steps": 3
+      },
+      "assertions": [
+        { "method": "curve_length", "expected": 23, "mode": "equal" },
+        { "method": "mode_curve", "args": [0], "expected": 10.2, "mode": "rel", "tol": 1e-9 }
+      ]
+    }
+  ]
+}

@@ -9,7 +9,19 @@ from __future__ import annotations
 import numpy as np
 
 from ._core import GeneralizedExtremeValue, gev_fit as _gev_fit
-from .analysis import bulletin17c_analysis, fit_distributions, univariate_analysis
+from .analysis import (
+    ar_analysis,
+    arima_analysis,
+    arimax_analysis,
+    bulletin17c_analysis,
+    competing_risk_analysis,
+    estimation_diagnostics,
+    fit_distributions,
+    ma_analysis,
+    mixture_analysis,
+    point_process_analysis,
+    univariate_analysis,
+)
 
 __all__ = [
     "GeneralizedExtremeValue",
@@ -21,6 +33,14 @@ __all__ = [
     "univariate_analysis",
     "fit_distributions",
     "bulletin17c_analysis",
+    "mixture_analysis",
+    "competing_risk_analysis",
+    "point_process_analysis",
+    "ar_analysis",
+    "ma_analysis",
+    "arima_analysis",
+    "arimax_analysis",
+    "estimation_diagnostics",
 ]
 
 

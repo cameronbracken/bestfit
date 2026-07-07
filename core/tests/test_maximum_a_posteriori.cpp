@@ -18,7 +18,8 @@
 //     real, estimate() succeeds, the max log-posterior matches the fixture anchor at rel
 //     1e-6, and the point estimates match the anchor at rel 1e-3 plus the analytic posterior
 //     mode at rel 1e-4 (see that test's TOLERANCES note); Brent on a 2-parameter model still
-//     throws; compute_leverage_diagnostics() throws (Diagnostics layer still deferred).
+//     throws; compute_leverage_diagnostics() throws before estimation and returns a real
+//     LeverageDiagnostics after (D3 un-stub; structural invariants only).
 //   - get_observation_influence()/get_cooks_distance(): shape/finiteness/nonnegativity only
 //     (exact oracles are T12's job).
 //   - NO sandwich/robust methods exist on this class (MAP has no analogue -- see the brief).
@@ -212,13 +213,24 @@ void test_brent_on_two_parameter_model_throws() {
     CHECK_THROWS(MaximumAPosteriori(model, OptimizationMethod::Brent));
 }
 
-// compute_leverage_diagnostics(): Diagnostics layer deferred -- must throw (gate, per brief).
-void test_leverage_diagnostics_gated() {
+// compute_leverage_diagnostics(): Diagnostics layer now ported (D3 un-stub). Before estimation
+// it still throws (guard); after estimation it returns a real LeverageDiagnostics at the MAP
+// point. Structural invariants only -- exact leverage values are D6 emitter fixtures.
+void test_leverage_diagnostics_after_estimation() {
     UnivariateDistributionModel model(UnivariateDistributionType::Normal, sample_data());
     MaximumAPosteriori map(model, OptimizationMethod::NelderMead);
-    CHECK_TRUE(map.estimate());
 
+    // Guard: throws before estimation.
     CHECK_THROWS(map.compute_leverage_diagnostics());
+
+    CHECK_TRUE(map.estimate());
+    auto diag = map.compute_leverage_diagnostics();
+
+    CHECK_EQ(static_cast<int>(diag.observations().size()),
+             static_cast<int>(sample_data().size()));
+    CHECK_EQ(diag.number_of_parameters(), model.number_of_parameters());
+    CHECK_NEAR(diag.total_leverage(),
+               diag.total_observation_leverage() + diag.total_prior_leverage(), 1e-9);
 }
 
 void test_profile_likelihood_shape_and_finiteness() {
@@ -318,7 +330,7 @@ int main() {
     test_parameter_confidence_intervals_bracket_the_estimate();
     test_ungated_optimization_methods_estimate_and_match_anchor();
     test_brent_on_two_parameter_model_throws();
-    test_leverage_diagnostics_gated();
+    test_leverage_diagnostics_after_estimation();
     test_profile_likelihood_shape_and_finiteness();
     test_observation_influence_shape_and_finiteness();
     test_cooks_distance_shape_and_nonnegative();

@@ -22,7 +22,14 @@
 #include <vector>
 
 #include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "bestfit/analyses/time_series/ar_analysis.hpp"
+#include "bestfit/analyses/time_series/arima_analysis.hpp"
+#include "bestfit/analyses/time_series/arimax_analysis.hpp"
+#include "bestfit/analyses/time_series/ma_analysis.hpp"
 #include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
+#include "bestfit/analyses/univariate/competing_risk_analysis.hpp"
+#include "bestfit/analyses/univariate/mixture_analysis.hpp"
+#include "bestfit/analyses/univariate/point_process_analysis.hpp"
 #include "bestfit/analyses/univariate/univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
@@ -1897,7 +1904,185 @@ struct AnalysisResult {
     double rmse = std::numeric_limits<double>::quiet_NaN();
     double confidence_level = std::numeric_limits<double>::quiet_NaN();
     int candidate_count = 0;
+
+    // --- Diagnostics slice (D5; target == "Diagnostics"). Additive: only the Diagnostics
+    // target populates these; every other analysis target leaves them at the defaults. ---
+    // Leverage (D3): per-observation arrays + totals + the prior-component count.
+    std::vector<double> lev_obs_leverage, lev_obs_fit, lev_obs_var, lev_obs_value;
+    int lev_count = 0;
+    int lev_prior_count = 0;
+    double total_leverage = std::numeric_limits<double>::quiet_NaN();
+    double total_fit_influence = std::numeric_limits<double>::quiet_NaN();
+    double total_variance_influence = std::numeric_limits<double>::quiet_NaN();
+    // Influence (D4 PSIS-LOO): per-observation arrays + summary scalars.
+    std::vector<double> inf_pareto_k, inf_elpd_loo;
+    int inf_count = 0;
+    double mean_pareto_k = std::numeric_limits<double>::quiet_NaN();
+    double max_pareto_k = std::numeric_limits<double>::quiet_NaN();
+    int count_pareto_k_above_05 = 0, count_pareto_k_above_07 = 0, count_pareto_k_above_10 = 0;
+    double proportion_problematic = std::numeric_limits<double>::quiet_NaN();
+    double is_reliable = std::numeric_limits<double>::quiet_NaN();
+    // Prior influence (D4): summary scalars + count.
+    int pri_count = 0;
+    double total_prior_log_likelihood = std::numeric_limits<double>::quiet_NaN();
+    double total_data_log_likelihood = std::numeric_limits<double>::quiet_NaN();
+    double prior_to_data_ratio = std::numeric_limits<double>::quiet_NaN();
+    double is_prior_influential = std::numeric_limits<double>::quiet_NaN();
+    double mean_prior_precision_share = std::numeric_limits<double>::quiet_NaN();
 };
+
+// Applies the shared Bayesian MCMC knobs from a construct object (D5; mirrors the R/Python
+// analysis glue). Used by the D5 per-family + diagnostics analysis branches.
+static void apply_analysis_bayes_knobs(estimation::BayesianAnalysis& ba, const json& construct) {
+    ba.set_type(parse_sampler_type(construct.value("sampler", std::string("DEMCzs"))));
+    if (construct.contains("credible_level"))
+        ba.set_credible_interval_width(construct["credible_level"].get<double>());
+    if (construct.contains("seed")) ba.set_prng_seed(construct["seed"].get<int>());
+    if (construct.contains("output_length")) ba.set_output_length(construct["output_length"].get<int>());
+    if (construct.contains("iterations")) {
+        int it = construct["iterations"].get<int>();
+        ba.set_iterations(it);
+        ba.set_warmup_iterations(std::max(50, it / 2));
+    }
+    if (construct.contains("thinning_interval"))
+        ba.set_thinning_interval(construct["thinning_interval"].get<int>());
+    if (construct.contains("number_of_chains"))
+        ba.set_number_of_chains(construct["number_of_chains"].get<int>());
+    if (construct.contains("initial_iterations"))
+        ba.set_initial_iterations(construct["initial_iterations"].get<int>());
+}
+
+// Fills the UncertaintyAnalysisResults-shaped surface into `r` from an IUnivariateAnalysis-style
+// analysis (mixture / competing-risk / point-process; D5). Mirrors bf_analysis_univariate_run_.
+template <typename AnalysisT>
+static void collect_univariate_family_results(AnalysisT& analysis, AnalysisResult& r) {
+    const auto* results = analysis.analysis_results();
+    if (results == nullptr) return;
+    auto* pe = analysis.get_point_estimate_distribution();
+    if (pe != nullptr) r.parameters = pe->get_parameters();
+    r.mode_curve = results->mode_curve;
+    r.mean_curve = results->mean_curve;
+    for (const auto& ci : results->confidence_intervals) {
+        r.lower_ci.push_back(ci[0]);
+        r.upper_ci.push_back(ci[1]);
+    }
+    r.aic = results->aic;
+    r.bic = results->bic;
+    r.dic = results->dic;
+    r.rmse = results->rmse;
+}
+
+// Builds + runs one univariate-family analysis (D5). Casts the ModelBase to the concrete model,
+// hands ownership to the analysis, applies ordinates + Bayesian knobs, and collects the surface.
+template <typename AnalysisT, typename ModelT>
+static AnalysisResult run_univariate_family_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+                                                     const json& construct,
+                                                     const std::vector<double>& ep) {
+    auto* raw = dynamic_cast<ModelT*>(base.get());
+    if (raw == nullptr) throw std::runtime_error("analysis requires a matching model spec");
+    base.release();
+    std::unique_ptr<ModelT> model(raw);
+    AnalysisT analysis(std::move(model));
+    if (!ep.empty()) {
+        analysis.probability_ordinates().clear();
+        for (double p : ep) analysis.probability_ordinates().push_back(p);
+    }
+    apply_analysis_bayes_knobs(analysis.bayesian_analysis(), construct);
+    analysis.run();
+    AnalysisResult r;
+    collect_univariate_family_results(analysis, r);
+    return r;
+}
+
+// Builds + runs one time-series analysis (D5). Sets the optional training/forecasting horizons,
+// applies Bayesian knobs, and reads the forecast curves; the point-estimate parameters come from
+// the BayesianAnalysis posterior (the time-series analyses expose no distribution accessor).
+template <typename AnalysisT, typename ModelT>
+static AnalysisResult run_time_series_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+                                               const json& construct) {
+    auto* raw = dynamic_cast<ModelT*>(base.get());
+    if (raw == nullptr) throw std::runtime_error("analysis requires a matching time_series model spec");
+    base.release();
+    std::unique_ptr<ModelT> model(raw);
+    if (construct.contains("training_time_steps")) {
+        model->set_use_default_training_steps(false);
+        model->set_training_time_steps(construct["training_time_steps"].get<int>());
+    }
+    AnalysisT analysis(std::move(model));
+    if (construct.contains("forecasting_time_steps"))
+        analysis.set_forecasting_time_steps(construct["forecasting_time_steps"].get<int>());
+    apply_analysis_bayes_knobs(analysis.bayesian_analysis(), construct);
+    analysis.run();
+    AnalysisResult r;
+    const auto* results = analysis.analysis_results();
+    if (results == nullptr) return r;
+    const auto& ba = analysis.bayesian_analysis();
+    if (ba.results()) {
+        r.parameters = ba.point_estimator() == estimation::PointEstimateType::PosteriorMean
+                           ? ba.results()->posterior_mean.values
+                           : ba.results()->map.values;
+    }
+    r.mode_curve = results->mode_curve;
+    r.mean_curve = results->mean_curve;
+    for (const auto& ci : results->confidence_intervals) {
+        r.lower_ci.push_back(ci[0]);
+        r.upper_ci.push_back(ci[1]);
+    }
+    r.aic = results->aic;
+    r.bic = results->bic;
+    r.dic = results->dic;
+    r.rmse = results->rmse;
+    return r;
+}
+
+// Builds a Normal (or any univariate) model, runs a BayesianAnalysis, and computes all three
+// diagnostics off that fit (D5). Mirrors bf_analysis_diagnostics_run_.
+static AnalysisResult run_diagnostics_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+                                               const json& construct) {
+    bestfit::models::ModelBase& model = *base;
+    estimation::BayesianAnalysis ba(model);
+    ba.set_use_simulation_defaults(false);
+    ba.set_use_advanced_simulation_defaults(false);
+    apply_analysis_bayes_knobs(ba, construct);
+    AnalysisResult r;
+    if (!ba.estimate()) return r;
+
+    auto lev = ba.compute_leverage_diagnostics();
+    r.lev_count = lev.count();
+    r.lev_prior_count = static_cast<int>(lev.prior_components().size());
+    r.total_leverage = lev.total_leverage();
+    r.total_fit_influence = lev.total_fit_influence();
+    r.total_variance_influence = lev.total_variance_influence();
+    for (const auto& o : lev.observations()) {
+        r.lev_obs_leverage.push_back(o.leverage());
+        r.lev_obs_fit.push_back(o.fit_influence());
+        r.lev_obs_var.push_back(o.variance_influence());
+        r.lev_obs_value.push_back(o.value());
+    }
+
+    auto inf = ba.compute_influence_diagnostics();
+    r.inf_count = inf.count();
+    r.mean_pareto_k = inf.mean_pareto_k();
+    r.max_pareto_k = inf.max_pareto_k();
+    r.count_pareto_k_above_05 = inf.count_pareto_k_above_05();
+    r.count_pareto_k_above_07 = inf.count_pareto_k_above_07();
+    r.count_pareto_k_above_10 = inf.count_pareto_k_above_10();
+    r.proportion_problematic = inf.proportion_problematic();
+    r.is_reliable = inf.is_reliable() ? 1.0 : 0.0;
+    for (const auto& o : inf.observations()) {
+        r.inf_pareto_k.push_back(o.pareto_k());
+        r.inf_elpd_loo.push_back(o.elpd_loo());
+    }
+
+    auto pri = ba.compute_prior_influence_diagnostics(construct.value("thin_every", 10));
+    r.pri_count = pri.count();
+    r.total_prior_log_likelihood = pri.total_prior_log_likelihood();
+    r.total_data_log_likelihood = pri.total_data_log_likelihood();
+    r.prior_to_data_ratio = pri.prior_to_data_ratio();
+    r.is_prior_influential = pri.is_prior_influential() ? 1.0 : 0.0;
+    r.mean_prior_precision_share = pri.mean_prior_precision_share();
+    return r;
+}
 
 static AnalysisResult build_and_run_analysis(const std::string& target, const json& construct,
                                              const json& datasets) {
@@ -1990,6 +2175,46 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         return r;
     }
 
+    // --- D5: per-family + diagnostics analyses (build the model via the shared spec builder,
+    // run the matching analysis, collect into the flat surface). ---
+    if (target == "MixtureAnalysis") {
+        return run_univariate_family_analysis<an::MixtureAnalysis, bestfit::models::MixtureModel>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+            ordinates());
+    }
+    if (target == "CompetingRiskAnalysis") {
+        return run_univariate_family_analysis<an::CompetingRiskAnalysis,
+                                              bestfit::models::CompetingRisksModel>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+            ordinates());
+    }
+    if (target == "PointProcessAnalysis") {
+        return run_univariate_family_analysis<an::PointProcessAnalysis,
+                                              bestfit::models::PointProcessModel>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+            ordinates());
+    }
+    if (target == "ARAnalysis") {
+        return run_time_series_analysis<an::ARAnalysis, bestfit::models::AutoRegressive>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+    }
+    if (target == "MAAnalysis") {
+        return run_time_series_analysis<an::MAAnalysis, bestfit::models::MovingAverage>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+    }
+    if (target == "ARIMAAnalysis") {
+        return run_time_series_analysis<an::ARIMAAnalysis, bestfit::models::ARIMA>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+    }
+    if (target == "ARIMAXAnalysis") {
+        return run_time_series_analysis<an::ARIMAXAnalysis, bestfit::models::ARIMAX>(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+    }
+    if (target == "Diagnostics") {
+        return run_diagnostics_analysis(
+            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+    }
+
     if (target == "Bulletin17CAnalysis") {
         auto model = bestfit::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
         an::Bulletin17CAnalysis analysis(std::move(model));
@@ -2043,6 +2268,36 @@ static double dispatch_analysis(const AnalysisResult& r, const std::string& m, c
     if (m == "dic") return r.dic;
     if (m == "rmse") return r.rmse;
     if (m == "confidence_level") return r.confidence_level;
+    // D5: time-series curve length (structural invariant).
+    if (m == "curve_length") return static_cast<double>(r.mode_curve.size());
+    // D5: leverage diagnostics.
+    if (m == "leverage_count") return static_cast<double>(r.lev_count);
+    if (m == "leverage_prior_count") return static_cast<double>(r.lev_prior_count);
+    if (m == "total_leverage") return r.total_leverage;
+    if (m == "total_fit_influence") return r.total_fit_influence;
+    if (m == "total_variance_influence") return r.total_variance_influence;
+    if (m == "obs_leverage") return r.lev_obs_leverage.at(idx(0));
+    if (m == "obs_fit_influence") return r.lev_obs_fit.at(idx(0));
+    if (m == "obs_variance_influence") return r.lev_obs_var.at(idx(0));
+    if (m == "obs_value") return r.lev_obs_value.at(idx(0));
+    // D5: influence (PSIS-LOO) diagnostics.
+    if (m == "influence_count") return static_cast<double>(r.inf_count);
+    if (m == "mean_pareto_k") return r.mean_pareto_k;
+    if (m == "max_pareto_k") return r.max_pareto_k;
+    if (m == "count_pareto_k_above_05") return static_cast<double>(r.count_pareto_k_above_05);
+    if (m == "count_pareto_k_above_07") return static_cast<double>(r.count_pareto_k_above_07);
+    if (m == "count_pareto_k_above_10") return static_cast<double>(r.count_pareto_k_above_10);
+    if (m == "proportion_problematic") return r.proportion_problematic;
+    if (m == "is_reliable") return r.is_reliable;
+    if (m == "pareto_k") return r.inf_pareto_k.at(idx(0));
+    if (m == "elpd_loo") return r.inf_elpd_loo.at(idx(0));
+    // D5: prior influence diagnostics.
+    if (m == "prior_influence_count") return static_cast<double>(r.pri_count);
+    if (m == "total_prior_log_likelihood") return r.total_prior_log_likelihood;
+    if (m == "total_data_log_likelihood") return r.total_data_log_likelihood;
+    if (m == "prior_to_data_ratio") return r.prior_to_data_ratio;
+    if (m == "is_prior_influential") return r.is_prior_influential;
+    if (m == "mean_prior_precision_share") return r.mean_prior_precision_share;
     throw std::runtime_error("unknown analysis fixture method: " + m);
 }
 

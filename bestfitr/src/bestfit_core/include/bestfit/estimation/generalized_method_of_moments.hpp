@@ -77,6 +77,8 @@
 #include <utility>
 #include <vector>
 
+#include "bestfit/diagnostics/influence_diagnostics.hpp"
+#include "bestfit/diagnostics/leverage_diagnostics.hpp"
 #include "bestfit/estimation/gmm_delegates.hpp"
 #include "bestfit/estimation/numerical_diff.hpp"
 #include "bestfit/estimation/optimization_method.hpp"
@@ -732,42 +734,291 @@ class GeneralizedMethodOfMoments {
     }
 
     // ------------------------------------------------------------------------------------
-    // Influence Diagnostics -- DEFERRED throwing stubs (see this file's header)
+    // Influence Diagnostics (D4 un-stub -- the Diagnostics layer is now ported)
     // ------------------------------------------------------------------------------------
+    //
+    // These four methods are NON-const (the C# instance methods use `Sigma ?? GetCovariance(...)`,
+    // and `get_covariance` recomputes + stores S/W as a side effect -- see its NOTE). This
+    // mirrors the C# fidelity: bread uses the current W, then sigma is taken from the cached
+    // `sigma_` or recomputed. The C# InvalidOperationException maps to std::invalid_argument.
 
-    // Pointwise influence of each observation on parameter estimates (C# 1402). STUB: the
-    // Diagnostics layer is unported.
-    [[noreturn]] Matrix get_observation_influence() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Pointwise influence of each observation on parameter estimates (DFBETAS-like; C# 1402).
+    // IF_ij = (Sigma . D'W g_i)_j / SE_j.
+    Matrix get_observation_influence() {
+        namespace linalg = bestfit::numerics::math::linalg;
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        if (!pointwise_moment_conditions_)
+            throw std::invalid_argument(
+                "Observation influence requires pointwise moment conditions. Provide a "
+                "PointwiseMomentConditionFunction.");
+
+        int p = number_of_parameters_;
+        int q = number_of_moment_conditions_;
+        linalg::Matrix2D gi = pointwise_moment_conditions_(best_parameter_set_.values);
+        int n = static_cast<int>(gi.size());
+
+        // Penalized bread B = D'WD + H; breadInv with regularization fallback.
+        Matrix d_mat = get_jacobian(best_parameter_set_.values);
+        Matrix dt_w = d_mat.transpose() * w_.value();
+        Matrix bread = dt_w * d_mat + get_penalty_hessian(best_parameter_set_.values);
+        Matrix bread_inv(p, p);
+        try {
+            bread_inv = bread.inverse();
+        } catch (const std::exception&) {
+            bread = linalg::MatrixRegularization::make_symmetric_positive_definite(bread);
+            bread_inv = bread.inverse();
+        }
+
+        // Sigma and standard errors.
+        Matrix sigma = sigma_.has_value() ? *sigma_
+                                          : get_covariance(best_parameter_set_.values, true);
+        std::vector<double> se(static_cast<std::size_t>(p));
+        for (int j = 0; j < p; ++j)
+            se[static_cast<std::size_t>(j)] = std::sqrt(std::max(0.0, sigma(j, j)));
+
+        Matrix influence(n, p);
+        for (int i = 0; i < n; ++i) {
+            // DtWg_i = D'W g_i [p]; psi_i = B^{-1} D'W g_i [p].
+            std::vector<double> dtwg(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < q; ++k)
+                    dtwg[static_cast<std::size_t>(j)] +=
+                        dt_w(j, k) * gi[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+            std::vector<double> psi(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < p; ++k)
+                    psi[static_cast<std::size_t>(j)] +=
+                        bread_inv(j, k) * dtwg[static_cast<std::size_t>(k)];
+
+            for (int j = 0; j < p; ++j) {
+                double infl_j = 0;
+                for (int k = 0; k < p; ++k)
+                    infl_j += sigma(j, k) * psi[static_cast<std::size_t>(k)];
+                influence(i, j) = se[static_cast<std::size_t>(j)] > 0
+                                      ? infl_j / se[static_cast<std::size_t>(j)]
+                                      : 0.0;
+            }
+        }
+        return influence;
     }
 
-    // Cook's distance-like measure for each observation (C# 1486). STUB.
-    [[noreturn]] std::vector<double> get_cooks_distance() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Cook's distance-like measure for each observation (C# 1486): D_i = psi_i' Sigma psi_i / p,
+    // psi_i = B^{-1} D'W g_i.
+    std::vector<double> get_cooks_distance() {
+        namespace linalg = bestfit::numerics::math::linalg;
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        if (!pointwise_moment_conditions_)
+            throw std::invalid_argument(
+                "Cook's distance requires pointwise moment conditions. Provide a "
+                "PointwiseMomentConditionFunction.");
+
+        int p = number_of_parameters_;
+        int q = number_of_moment_conditions_;
+        linalg::Matrix2D gi = pointwise_moment_conditions_(best_parameter_set_.values);
+        int n = static_cast<int>(gi.size());
+
+        Matrix d_mat = get_jacobian(best_parameter_set_.values);
+        Matrix dt_w = d_mat.transpose() * w_.value();
+        Matrix bread = dt_w * d_mat + get_penalty_hessian(best_parameter_set_.values);
+        Matrix bread_inv(p, p);
+        try {
+            bread_inv = bread.inverse();
+        } catch (const std::exception&) {
+            bread = linalg::MatrixRegularization::make_symmetric_positive_definite(bread);
+            bread_inv = bread.inverse();
+        }
+
+        Matrix sigma = sigma_.has_value() ? *sigma_
+                                          : get_covariance(best_parameter_set_.values, true);
+
+        std::vector<double> cooks_d(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            std::vector<double> dtwg(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < q; ++k)
+                    dtwg[static_cast<std::size_t>(j)] +=
+                        dt_w(j, k) * gi[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+            std::vector<double> psi(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < p; ++k)
+                    psi[static_cast<std::size_t>(j)] +=
+                        bread_inv(j, k) * dtwg[static_cast<std::size_t>(k)];
+
+            double quad_form = 0;
+            for (int j = 0; j < p; ++j) {
+                double tmp = 0;
+                for (int k = 0; k < p; ++k) tmp += sigma(j, k) * psi[static_cast<std::size_t>(k)];
+                quad_form += psi[static_cast<std::size_t>(j)] * tmp;
+            }
+            cooks_d[static_cast<std::size_t>(i)] = quad_form / p;
+        }
+        return cooks_d;
     }
 
-    // Influence diagnostics with Cook's distance mapped to ParetoK (C# 1562). STUB: the C#
-    // returns an InfluenceDiagnostics object; the type is unported, so no return type here.
-    [[noreturn]] void get_influence_diagnostics() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Influence diagnostics using Cook's distance as the influence metric, mapped to ParetoK
+    // (C# 1562).
+    //
+    // BULLETIN17C-COUPLED BRANCH OMITTED (deliberate, C#-faithful for every non-B17C model): the
+    // C# body has a `Model is Bulletin17CDistribution` branch (aggregated DataComponent metadata +
+    // BuildRowToComponentMapping). The Bulletin17CDistribution coupling is severed from this port
+    // (see the DEFERRED header note / D3 leverage precedent), so `dataComponents`/`rowMap` stay
+    // null exactly as for any non-B17C IGMMModel and the method falls to the raw per-row path.
+    bestfit::diagnostics::InfluenceDiagnostics get_influence_diagnostics() {
+        std::vector<double> cooks_d = get_cooks_distance();
+        std::vector<bestfit::diagnostics::InfluenceDiagnostics::ObservationInfluence> observations;
+        observations.reserve(cooks_d.size());
+        for (std::size_t i = 0; i < cooks_d.size(); ++i)
+            observations.emplace_back(static_cast<int>(i), cooks_d[i],
+                                      std::numeric_limits<double>::quiet_NaN());
+        return bestfit::diagnostics::InfluenceDiagnostics(std::move(observations));
     }
 
-    // Influence diagnostics with data component metadata for labeling (C# 1770). STUB.
-    [[noreturn]] void get_influence_diagnostics(
-        const std::vector<bestfit::models::DataComponent>& /*data_components*/) const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Influence diagnostics (Cook's distance in ParetoK) with data component metadata for labeling
+    // (C# 1770).
+    bestfit::diagnostics::InfluenceDiagnostics get_influence_diagnostics(
+        const std::vector<bestfit::models::DataComponent>& data_components) {
+        std::vector<double> cooks_d = get_cooks_distance();
+        int n = std::min(static_cast<int>(cooks_d.size()),
+                         static_cast<int>(data_components.size()));
+        std::vector<bestfit::diagnostics::InfluenceDiagnostics::ObservationInfluence> observations;
+        observations.reserve(static_cast<std::size_t>(n));
+        for (int i = 0; i < n; ++i) {
+            const bestfit::models::DataComponent& dc = data_components[static_cast<std::size_t>(i)];
+            observations.emplace_back(i, cooks_d[static_cast<std::size_t>(i)],
+                                      std::numeric_limits<double>::quiet_NaN(), dc.value(),
+                                      dc.type(), dc.count(), dc.name());
+        }
+        return bestfit::diagnostics::InfluenceDiagnostics(std::move(observations));
     }
 
-    // Leverage diagnostics for the GMM estimator (C# 1822). STUB: the C# returns a
-    // LeverageDiagnostics object; the type is unported (Phase 4 precedent:
-    // MaximumAPosteriori::compute_leverage_diagnostics).
-    [[noreturn]] void get_leverage_diagnostics() const {
-        throw std::logic_error(
-            "GMM influence diagnostics are deferred with the RMC.BestFit.Diagnostics layer.");
+    // Leverage diagnostics for the GMM estimator (C# 1822; D3 un-stub -- the Diagnostics layer
+    // is now ported). Decomposes each observation's leverage into FitInfluence (Cook's D via
+    // fullSigma = [Hessian(Q)]^{-1}) and VarianceInfluence (via breadInv = (D'WD + H)^{-1}).
+    //
+    // BULLETIN17C-COUPLED BRANCHES OMITTED (deliberate, C#-faithful for every non-B17C model):
+    // the C# body has two `Model is Bulletin17CDistribution` branches -- (1) the aggregated
+    // DataComponent metadata + row-to-component mapping (BuildDataComponents /
+    // BuildRowToComponentMapping), and (2) the per-parameter / per-quantile penalty components
+    // (ParameterPenalties / QuantilePenalties / LinkController). The Bulletin17CDistribution
+    // model coupling is severed from this port (see PLAN / this file's DEFERRED header note),
+    // so both branches are unreachable exactly as they are for any non-B17C IGMMModel: data
+    // components stay absent (each expanded gi row is its own component with default metadata)
+    // and the penalty-component array stays empty. Returns an EMPTY LeverageDiagnostics on the
+    // bread regularization-failure branch, mirroring the C#.
+    bestfit::diagnostics::LeverageDiagnostics get_leverage_diagnostics() const {
+        using LD = bestfit::diagnostics::LeverageDiagnostics;
+        namespace linalg = bestfit::numerics::math::linalg;
+
+        if (!is_estimated_) throw std::invalid_argument("The model has not been estimated.");
+        if (!pointwise_moment_conditions_)
+            throw std::invalid_argument(
+                "Leverage diagnostics require pointwise moment conditions.");
+
+        int p = number_of_parameters_;
+        int q = number_of_moment_conditions_;
+
+        // 1. Per-observation moment conditions gi [n x q].
+        linalg::Matrix2D gi = pointwise_moment_conditions_(best_parameter_set_.values);
+        int n = static_cast<int>(gi.size());
+
+        // 2. Penalized bread: B = D'WD + H.
+        Matrix d_mat = get_jacobian(best_parameter_set_.values);
+        Matrix dt = d_mat.transpose();
+        Matrix dt_w = dt * w_.value();
+        Matrix bread = dt_w * d_mat + get_penalty_hessian(best_parameter_set_.values);
+
+        Matrix bread_inv(p, p);
+        try {
+            bread_inv = bread.inverse();
+        } catch (const std::exception&) {
+            // C# Debug.WriteLine then attempts regularization.
+            try {
+                bread = linalg::MatrixRegularization::make_symmetric_positive_definite(bread);
+                bread_inv = bread.inverse();
+            } catch (const std::exception&) {
+                // C# returns an empty LeverageDiagnostics on regularization failure.
+                return LD();
+            }
+        }
+
+        // 3. fullSigma = [Hessian(Q)]^{-1}; -Q is the GMM analog of LogLikelihood.
+        auto neg_q = [this](std::vector<double>& parms) { return -this->q(parms); };
+        Matrix full_hess =
+            LD::compute_numerical_hessian_public(neg_q, best_parameter_set_.values, p);
+        Matrix full_neg_hess = full_hess * -1.0;
+        Matrix full_sigma(p, p);
+        try {
+            full_sigma = full_neg_hess.inverse();
+        } catch (const std::exception&) {
+            full_sigma =
+                linalg::MatrixRegularization::make_symmetric_positive_definite(full_neg_hess)
+                    .inverse();
+        }
+
+        // 4. (B17C DataComponent metadata + row mapping omitted -- see this method's header.)
+        //    rowMap == null so each row is its own component: nComponents = n, ci = i.
+        int n_components = n;
+        std::vector<double> agg_fit_influence(static_cast<std::size_t>(n_components), 0.0);
+        std::vector<double> agg_variance_influence(static_cast<std::size_t>(n_components), 0.0);
+        std::vector<std::vector<double>> agg_dtwg(static_cast<std::size_t>(n_components),
+                                                  std::vector<double>(static_cast<std::size_t>(p),
+                                                                      0.0));
+
+        // Phase 1: accumulate DtWg vectors per component.
+        for (int i = 0; i < n; ++i) {
+            std::vector<double> dtwg(static_cast<std::size_t>(p), 0.0);
+            for (int j = 0; j < p; ++j)
+                for (int k = 0; k < q; ++k)
+                    dtwg[static_cast<std::size_t>(j)] +=
+                        dt_w(j, k) * gi[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)];
+            std::size_t ci = static_cast<std::size_t>(i);  // rowMap == null -> ci = i
+            for (int j = 0; j < p; ++j)
+                agg_dtwg[ci][static_cast<std::size_t>(j)] += dtwg[static_cast<std::size_t>(j)];
+        }
+
+        // Phase 2: quadratic forms on the summed DtWg vectors.
+        for (int ci = 0; ci < n_components; ++ci) {
+            const std::vector<double>& v = agg_dtwg[static_cast<std::size_t>(ci)];
+
+            // Variance influence: |v' breadInv v| / (n . p).
+            double raw_leverage = 0;
+            for (int j = 0; j < p; ++j) {
+                double tmp = 0;
+                for (int k = 0; k < p; ++k)
+                    tmp += bread_inv(j, k) * v[static_cast<std::size_t>(k)];
+                raw_leverage += v[static_cast<std::size_t>(j)] * tmp;
+            }
+            agg_variance_influence[static_cast<std::size_t>(ci)] =
+                std::fabs(raw_leverage) / (static_cast<double>(n) * p);
+
+            // Fit influence (Cook's D): |v' fullSigma v| / (n^2 . p).
+            double fit_influence = 0;
+            for (int j = 0; j < p; ++j) {
+                double tmp = 0;
+                for (int k = 0; k < p; ++k)
+                    tmp += full_sigma(j, k) * v[static_cast<std::size_t>(k)];
+                fit_influence += v[static_cast<std::size_t>(j)] * tmp;
+            }
+            agg_fit_influence[static_cast<std::size_t>(ci)] =
+                std::fabs(fit_influence) / (static_cast<double>(n) * n * p);
+        }
+
+        // Build ObservationLeverage array from the aggregated values (default metadata, since
+        // the B17C DataComponent branch is omitted).
+        std::vector<LD::ObservationLeverage> observations;
+        observations.reserve(static_cast<std::size_t>(n_components));
+        for (int i = 0; i < n_components; ++i) {
+            std::size_t si = static_cast<std::size_t>(i);
+            double leverage = agg_fit_influence[si] + agg_variance_influence[si];
+            observations.emplace_back(i, leverage, 0.0, agg_fit_influence[si],
+                                      agg_variance_influence[si], 0.0, 0.0, 0.0,
+                                      bestfit::models::DataComponentType::Exact, 1, std::nullopt);
+        }
+
+        // 5/6. Penalty components omitted (B17C-coupled; see this method's header) -- empty.
+        std::vector<LD::PriorComponentLeverage> penalty_components;
+
+        return LD(std::move(observations), std::move(penalty_components), p);
     }
 
     // ------------------------------------------------------------------------------------
