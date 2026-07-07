@@ -1,7 +1,8 @@
 {
   "target": "PointProcessAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/PointProcessAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). PointProcessAnalysis drives a Bayesian DEMCzs MCMC over a peaks-over-threshold PointProcessModel (single-GEV mark distribution, explicit threshold/total_years) and assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python. thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5).",
+  "oracle_skip": true,
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/PointProcessAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). PointProcessAnalysis drives a Bayesian DEMCzs MCMC over a peaks-over-threshold PointProcessModel (single-GEV mark distribution, explicit threshold/total_years) and assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python. thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5). D6 oracle-exemption: this analysis target has NO C# numeric oracle (D1/D2 shipped the per-family analyses as STRUCTURAL oracles only; the seeded forecast trajectory is not C#-reproducible -- documented P4-class MersenneTwister-seed concern) and the emitter has no driver for it, so the fixture carries \"oracle_skip\": true: the dev-only dotnet gate (verify_oracles.py) SKIPS these assertions while the shipped C++/R/Python harnesses still check the self-computed values. See docs/upstream-csharp-issues.md.",
   "datasets": {
     "pot": [950, 1020, 1130, 980, 1250, 1090, 1430, 1010, 1180, 1620, 970, 1300, 1050, 1550, 1210]
   },

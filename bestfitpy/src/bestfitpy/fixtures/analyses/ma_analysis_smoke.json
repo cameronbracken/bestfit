@@ -1,7 +1,8 @@
 {
   "target": "MAAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/MAAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). MAAnalysis drives a Bayesian DEMCzs MCMC over an MA(1) MovingAverage model, then builds the posterior forecast ensemble (mode/mean/credible band). training_time_steps pinned to 15; curve_length = 20 + 3 = 23. Values reproduce bit-identically across C++/R/Python; thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5).",
+  "oracle_skip": true,
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/MAAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). MAAnalysis drives a Bayesian DEMCzs MCMC over an MA(1) MovingAverage model, then builds the posterior forecast ensemble (mode/mean/credible band). training_time_steps pinned to 15; curve_length = 20 + 3 = 23. Values reproduce bit-identically across C++/R/Python; thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5). D6 oracle-exemption: this analysis target has NO C# numeric oracle (D1/D2 shipped the per-family analyses as STRUCTURAL oracles only; the seeded forecast trajectory is not C#-reproducible -- documented P4-class MersenneTwister-seed concern) and the emitter has no driver for it, so the fixture carries \"oracle_skip\": true: the dev-only dotnet gate (verify_oracles.py) SKIPS these assertions while the shipped C++/R/Python harnesses still check the self-computed values. See docs/upstream-csharp-issues.md.",
   "datasets": {
     "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
   },

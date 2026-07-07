@@ -2900,9 +2900,29 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
             foreach (var kv in anDs.EnumerateObject())
                 anDatasets[kv.Name] = kv.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray();
 
+        // Whole-target/whole-case oracle-exempt: the D5 per-family analyses (AR/MA/ARIMA/ARIMAX/
+        // Mixture/CompetingRisk/PointProcess) have NO C# numeric oracle. D1/D2 shipped these
+        // analyses as STRUCTURAL oracles only -- their seeded forecast trajectories ride a
+        // documented P4-class MersenneTwister-seed non-reproducibility and the emitter has no
+        // driver for these targets. A fixture-level (or case-level) "oracle_skip": true marks every
+        // assertion in the case SKIPPED (the shipped C++/R/Python harnesses still exercise the
+        // self-computed loose values) so the dev-only gate stays 0-failed WITHOUT a broad
+        // unknown-target mask -- an unexpected unknown target still fails loudly. See each fixture's
+        // `source` + docs/upstream-csharp-issues.md.
+        bool rootAnalysisSkip = root.TryGetProperty("oracle_skip", out var rasEl) && rasEl.GetBoolean();
+
         foreach (var c in root.GetProperty("cases").EnumerateArray())
         {
             string caseName = c.GetProperty("name").GetString()!;
+
+            bool caseAnalysisSkip = rootAnalysisSkip
+                || (c.TryGetProperty("oracle_skip", out var casEl) && casEl.GetBoolean());
+            if (caseAnalysisSkip)
+            {
+                if (!dump) skip += c.GetProperty("assertions").GetArrayLength();
+                continue;
+            }
+
             AnalysisData anData;
             try { anData = BuildAndRunAnalysis(anTarget, c.GetProperty("construct"), anDatasets); }
             catch (Exception ex)
