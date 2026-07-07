@@ -69,6 +69,7 @@ set(BF_TESTS
   test_univariate_analysis
   test_rating_curve_analysis
   test_bivariate_analysis
+  test_spatial_gev_analysis
   test_fitting_analysis
   test_bulletin17c_analysis
   test_univariate_family_analyses
