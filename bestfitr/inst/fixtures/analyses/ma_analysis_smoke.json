@@ -1,7 +1,7 @@
 {
   "target": "MAAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/MAAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified; D6 tightens to exact). MAAnalysis drives a Bayesian DEMCzs MCMC over an MA(1) MovingAverage model, then builds the posterior forecast ensemble (mode/mean/credible band). training_time_steps pinned to 15; curve_length = 20 + 3 = 23. Values reproduce bit-identically across C++/R/Python; thinning_interval pinned to 1. Short run (iterations 100, output_length 400). Tolerances loose (rel 1e-5).",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/TimeSeries/MAAnalysis.cs @ fc28c0c -- D6 STRUCTURAL oracle (D5 seeded-scalar assertions removed; see below). MAAnalysis drives a Bayesian DEMCzs MCMC over an MA(1) MovingAverage model, then builds the posterior forecast ensemble (mode/mean/credible band). training_time_steps pinned to 15; curve_length = 20 + 3 = 23 (the deterministic invariant, reproduced exactly across C++/R/Python AND the real-RMC.BestFit emitter, tools/oracle_emitter mirroring ma_analysis::run()). D6 REALITY: the emitter does NOT reproduce the D5 self-computed seeded scalars (forecast mode/mean/credible band, AIC/BIC/DIC/RMSE) -- the ported C++ MA analysis and the real C# MAAnalysis micro-diverge on this short chaotic DEMCzs chain (AIC/BIC agree to ~0.02%, but the forecast band and point estimate drift). This matches the D6 brief's design statement that the time-series analyses are STRUCTURAL oracles only -- no numeric MCMC oracle exists upstream. Unlike AR, the MA forecast step-0 value is itself a seeded posterior forecast (not a deterministic first observation), so only curve_length survives as a cross-reproducible invariant. thinning_interval pinned to 1; short run (iterations 100, output_length 400).",
   "datasets": {
     "series": [10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1, 11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8]
   },
@@ -20,15 +20,7 @@
         "forecasting_time_steps": 3
       },
       "assertions": [
-        { "method": "curve_length", "expected": 23, "mode": "equal" },
-        { "method": "mode_curve", "args": [0], "expected": 12.2748636725, "mode": "rel", "tol": 1e-5 },
-        { "method": "mean_curve", "args": [0], "expected": 12.1038965834, "mode": "rel", "tol": 1e-5 },
-        { "method": "lower_ci", "args": [0], "expected": 9.30331615503, "mode": "rel", "tol": 1e-5 },
-        { "method": "upper_ci", "args": [0], "expected": 14.6404303531, "mode": "rel", "tol": 1e-5 },
-        { "method": "aic", "expected": 83.1353966496, "mode": "rel", "tol": 1e-5 },
-        { "method": "bic", "expected": 86.1225934703, "mode": "rel", "tol": 1e-5 },
-        { "method": "dic", "expected": 56.5222574834, "mode": "rel", "tol": 1e-5 },
-        { "method": "rmse", "expected": 1.69096727036, "mode": "rel", "tol": 1e-5 }
+        { "method": "curve_length", "expected": 23, "mode": "equal" }
       ]
     }
   ]

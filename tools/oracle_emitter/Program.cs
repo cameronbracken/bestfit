@@ -2254,6 +2254,101 @@ static BestFitAnalyses.UncertaintyMethod ParseUncertaintyMethod(string s) => s s
     _ => throw new Exception($"unsupported/ deferred uncertainty method: {s}")
 };
 
+// Applies the shared Bayesian MCMC knobs from a construct object (D6; mirrors the C++
+// test_fixtures.cpp::apply_analysis_bayes_knobs and the R/Python analysis glue). Used by the
+// D5-authored per-family (Mixture/CompetingRisk/PointProcess) and time-series (AR/MA/ARIMA/ARIMAX)
+// analysis drivers. Sets Type FIRST (its C# setter reruns SetDefaultSimulationOptions while
+// UseSimulationDefaults is true), then the explicit overrides -- exactly as the C++ side does.
+static void ApplyAnalysisBayesKnobs(BayesianAnalysis ba, JsonElement construct)
+{
+    ba.Type = ParseSamplerType(construct.TryGetProperty("sampler", out var s)
+        ? s.GetString()! : "DEMCzs");
+    if (construct.TryGetProperty("credible_level", out var clEl))
+        ba.CredibleIntervalWidth = clEl.GetDouble();
+    if (construct.TryGetProperty("seed", out var seEl)) ba.PRNGSeed = seEl.GetInt32();
+    if (construct.TryGetProperty("output_length", out var olEl)) ba.OutputLength = olEl.GetInt32();
+    if (construct.TryGetProperty("iterations", out var itEl))
+    {
+        int it = itEl.GetInt32();
+        ba.Iterations = it;
+        ba.WarmupIterations = Math.Max(50, it / 2);
+    }
+    if (construct.TryGetProperty("thinning_interval", out var thEl)) ba.ThinningInterval = thEl.GetInt32();
+    if (construct.TryGetProperty("number_of_chains", out var ncEl)) ba.NumberOfChains = ncEl.GetInt32();
+    if (construct.TryGetProperty("initial_iterations", out var iiEl)) ba.InitialIterations = iiEl.GetInt32();
+}
+
+// Collects the UncertaintyAnalysisResults surface for a univariate-family analysis
+// (Mixture/CompetingRisk/PointProcess). Mirrors test_fixtures.cpp::collect_univariate_family_results:
+// parameters from the point-estimate distribution, and the compute-ctor's double[n,2]
+// ConfidenceIntervals (col 0 = lower, col 1 = upper).
+static void CollectFamilyResults(UncertaintyAnalysisResults? results,
+                                 UnivariateDistributionBase? pe, AnalysisData r)
+{
+    if (results == null) return;
+    if (pe != null) r.Parameters.AddRange(pe.GetParameters);
+    if (results.ModeCurve != null) r.ModeCurve.AddRange(results.ModeCurve);
+    if (results.MeanCurve != null) r.MeanCurve.AddRange(results.MeanCurve);
+    if (results.ConfidenceIntervals != null)
+    {
+        int n = results.ConfidenceIntervals.GetLength(0);
+        for (int i = 0; i < n; i++)
+        {
+            r.LowerCI.Add(results.ConfidenceIntervals[i, 0]);
+            r.UpperCI.Add(results.ConfidenceIntervals[i, 1]);
+        }
+    }
+    r.Aic = results.AIC;
+    r.Bic = results.BIC;
+    r.Dic = results.DIC;
+    r.Rmse = results.RMSE;
+}
+
+// Collects the UncertaintyAnalysisResults surface for a time-series analysis (AR/MA/ARIMA/ARIMAX).
+// Mirrors test_fixtures.cpp::run_time_series_analysis's collect: the time-series analyses expose no
+// point-estimate distribution, so parameters come from the BayesianAnalysis posterior (posterior
+// mean or MAP per the point estimator); the forecast ConfidenceIntervals are the plain-DTO
+// double[n,3] (col 0 = time index, col 1 = lower, col 2 = upper).
+static void CollectTimeSeriesResults(UncertaintyAnalysisResults? results, BayesianAnalysis ba,
+                                     AnalysisData r)
+{
+    if (results == null) return;
+    if (ba.Results != null)
+    {
+        var pe = ba.PointEstimator == BayesianAnalysis.PointEstimateType.PosteriorMean
+            ? ba.Results.PosteriorMean.Values
+            : ba.Results.MAP.Values;
+        r.Parameters.AddRange(pe);
+    }
+    if (results.ModeCurve != null) r.ModeCurve.AddRange(results.ModeCurve);
+    if (results.MeanCurve != null) r.MeanCurve.AddRange(results.MeanCurve);
+    if (results.ConfidenceIntervals != null)
+    {
+        int n = results.ConfidenceIntervals.GetLength(0);
+        for (int i = 0; i < n; i++)
+        {
+            r.LowerCI.Add(results.ConfidenceIntervals[i, 1]);
+            r.UpperCI.Add(results.ConfidenceIntervals[i, 2]);
+        }
+    }
+    r.Aic = results.AIC;
+    r.Bic = results.BIC;
+    r.Dic = results.DIC;
+    r.Rmse = results.RMSE;
+}
+
+// Drives a time-series analysis's Bayesian fit, mirroring the C++ time_series run(): the
+// sim-defaults guard (which reruns SetDefault{,Advanced}SimulationOptions while
+// UseSimulationDefaults is true -- the C# model property-change cascade the port folds into run(),
+// deviation 6), then the SERIAL (parallel:false) fit and, when estimated, the forecast assembly.
+static void RunTimeSeriesAnalysis(BayesianAnalysis ba, Action createResults)
+{
+    if (ba.UseSimulationDefaults) ba.SetDefaultSimulationOptions();
+    if (ba.UseAdvancedSimulationDefaults) ba.SetDefaultAdvancedSimulationOptions();
+    ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+    if (ba.IsEstimated) createResults();
+}
+
 static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
                                         Dictionary<string, double[]> datasets)
 {
@@ -2467,6 +2562,134 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         return r;
     }
 
+    // --- D6: per-family analyses (Mixture/CompetingRisk/PointProcess). Mirror the C++
+    // {mixture,competing_risk,point_process}_analysis::run(): build the model, apply ordinates +
+    // Bayesian knobs, prep the data frame, then drive the Bayesian fit SERIALLY (parallel:false)
+    // and assemble the frequency results. Driving BayesianAnalysis.RunAsync directly (rather than
+    // analysis.RunAsync) skips the C# EM-seed initialization the C++ port omits, keeping the
+    // seeded chain on the same standard-init path the C++ core uses. ---
+    if (target == "MixtureAnalysis")
+    {
+        var model = (BestFitModels.MixtureModel)BuildSpecModel(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.MixtureAnalysis(model);
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        model.DataFrame.ProcessThresholdSeries();
+        model.ProcessQuantilePriors();
+        analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (analysis.BayesianAnalysis.IsEstimated)
+            analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+        CollectFamilyResults(analysis.AnalysisResults, analysis.GetPointEstimateDistribution(), r);
+        return r;
+    }
+
+    if (target == "CompetingRiskAnalysis")
+    {
+        var model = (BestFitModels.CompetingRisksModel)BuildSpecModel(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.CompetingRiskAnalysis(model);
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        model.DataFrame.ProcessThresholdSeries();
+        model.ProcessQuantilePriors();
+        analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (analysis.BayesianAnalysis.IsEstimated)
+            analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+        CollectFamilyResults(analysis.AnalysisResults, analysis.GetPointEstimateDistribution(), r);
+        return r;
+    }
+
+    if (target == "PointProcessAnalysis")
+    {
+        var model = (BestFitModels.PointProcessModel)BuildSpecModel(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.PointProcessAnalysis(model);
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        model.DataFrame.ProcessThresholdSeries();
+        model.ProcessQuantilePriors();
+        analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (analysis.BayesianAnalysis.IsEstimated)
+            analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+        CollectFamilyResults(analysis.AnalysisResults, analysis.GetPointEstimateDistribution(), r);
+        return r;
+    }
+
+    // --- D6: time-series analyses (AR/MA/ARIMA/ARIMAX). Mirror the C++ run_time_series_analysis:
+    // build the concrete model, pin the training window (a fixed training_time_steps overriding the
+    // 80%-of-data default), set the forecast horizon, apply knobs, then RunTimeSeriesAnalysis
+    // (sim-defaults guard + serial fit + forecast assembly). The four model types share the
+    // training-window property names but no common base, so the pin is repeated in each case. ---
+    if (target == "ARAnalysis")
+    {
+        var model = (BestFitModels.AutoRegressive)BuildTimeSeriesModelGeneral(modelSpec, datasets);
+        if (construct.TryGetProperty("training_time_steps", out var ttsEl))
+        {
+            model.UseDefaultTrainingSteps = false;
+            model.TrainingTimeSteps = ttsEl.GetInt32();
+        }
+        var analysis = new BestFitAnalyses.ARAnalysis(model);
+        if (construct.TryGetProperty("forecasting_time_steps", out var ftsEl))
+            analysis.ForecastingTimeSteps = ftsEl.GetInt32();
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        RunTimeSeriesAnalysis(analysis.BayesianAnalysis,
+            () => analysis.CreateUncertaintyAnalysisResultsAsync().GetAwaiter().GetResult());
+        CollectTimeSeriesResults(analysis.AnalysisResults, analysis.BayesianAnalysis, r);
+        return r;
+    }
+
+    if (target == "MAAnalysis")
+    {
+        var model = (BestFitModels.MovingAverage)BuildTimeSeriesModelGeneral(modelSpec, datasets);
+        if (construct.TryGetProperty("training_time_steps", out var ttsEl))
+        {
+            model.UseDefaultTrainingSteps = false;
+            model.TrainingTimeSteps = ttsEl.GetInt32();
+        }
+        var analysis = new BestFitAnalyses.MAAnalysis(model);
+        if (construct.TryGetProperty("forecasting_time_steps", out var ftsEl))
+            analysis.ForecastingTimeSteps = ftsEl.GetInt32();
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        RunTimeSeriesAnalysis(analysis.BayesianAnalysis,
+            () => analysis.CreateUncertaintyAnalysisResultsAsync().GetAwaiter().GetResult());
+        CollectTimeSeriesResults(analysis.AnalysisResults, analysis.BayesianAnalysis, r);
+        return r;
+    }
+
+    if (target == "ARIMAAnalysis")
+    {
+        var model = (BestFitModels.ARIMA)BuildTimeSeriesModelGeneral(modelSpec, datasets);
+        if (construct.TryGetProperty("training_time_steps", out var ttsEl))
+        {
+            model.UseDefaultTrainingSteps = false;
+            model.TrainingTimeSteps = ttsEl.GetInt32();
+        }
+        var analysis = new BestFitAnalyses.ARIMAAnalysis(model);
+        if (construct.TryGetProperty("forecasting_time_steps", out var ftsEl))
+            analysis.ForecastingTimeSteps = ftsEl.GetInt32();
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        RunTimeSeriesAnalysis(analysis.BayesianAnalysis,
+            () => analysis.CreateUncertaintyAnalysisResultsAsync().GetAwaiter().GetResult());
+        CollectTimeSeriesResults(analysis.AnalysisResults, analysis.BayesianAnalysis, r);
+        return r;
+    }
+
+    if (target == "ARIMAXAnalysis")
+    {
+        var model = (BestFitModels.ARIMAX)BuildTimeSeriesModelGeneral(modelSpec, datasets);
+        if (construct.TryGetProperty("training_time_steps", out var ttsEl))
+        {
+            model.UseDefaultTrainingSteps = false;
+            model.TrainingTimeSteps = ttsEl.GetInt32();
+        }
+        var analysis = new BestFitAnalyses.ARIMAXAnalysis(model);
+        if (construct.TryGetProperty("forecasting_time_steps", out var ftsEl))
+            analysis.ForecastingTimeSteps = ftsEl.GetInt32();
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        RunTimeSeriesAnalysis(analysis.BayesianAnalysis,
+            () => analysis.CreateUncertaintyAnalysisResultsAsync().GetAwaiter().GetResult());
+        CollectTimeSeriesResults(analysis.AnalysisResults, analysis.BayesianAnalysis, r);
+        return r;
+    }
+
     throw new Exception($"unknown analysis target: {target}");
 }
 
@@ -2482,6 +2705,9 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "candidate_rmse": return r.CandRmse[I(0)];
         case "candidate_converged": return r.CandConverged[I(0)];
         case "parameter": return r.Parameters[I(0)];
+        // curve_length == mode-curve length (test_fixtures.cpp: mode_curve.size()); used by the
+        // D5 time-series forecast fixtures to assert the observed + forecast horizon length.
+        case "curve_length": return r.ModeCurve.Count;
         case "mode_curve": return r.ModeCurve[I(0)];
         case "mean_curve": return r.MeanCurve[I(0)];
         case "lower_ci": return r.LowerCI[I(0)];

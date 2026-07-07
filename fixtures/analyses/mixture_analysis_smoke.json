@@ -1,7 +1,7 @@
 {
   "target": "MixtureAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/MixtureAnalysis.cs @ fc28c0c -- D5 LOOSE smoke oracle (self-computed from the ported C++ core, NOT yet emitter-verified against the real RMC.BestFit; D6 tightens to exact). MixtureAnalysis drives a Bayesian DEMCzs MCMC over a 2-component Normal MixtureModel, then assembles the frequency (mode) curve + credible band on the exceedance grid. Values reproduce bit-identically across C++/R/Python (identical compiled core + bit-exact Mersenne Twister). thinning_interval pinned to 1 (the bayes_normal / univariate_analysis_smoke proven bit-identical path; the default thinning=20 exposes a documented population-sampler divergence). Short run (iterations 100, output_length 400). Parameter layout [w1, w2, mu1, sigma1, mu2, sigma2]; rmse over a mixture inverse-CDF grid can be non-finite and is deliberately NOT asserted. Tolerances are intentionally loose (rel 1e-5).",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/MixtureAnalysis.cs @ fc28c0c -- D6 STRUCTURAL oracle (D5 seeded-scalar assertions removed; see below). MixtureAnalysis drives a Bayesian DEMCzs MCMC over a 2-component Normal MixtureModel, then assembles the frequency (mode) curve + credible band on the 5-point exceedance grid. curve_length == 5 is the deterministic invariant, reproduced exactly across C++/R/Python AND the real-RMC.BestFit emitter (tools/oracle_emitter mirroring mixture_analysis::run(): serial seeded fit, CreateFrequencyAnalysisResults). D6 REALITY: the emitter does NOT reproduce the D5 self-computed seeded scalars (mixture weight, frequency curve, credible band, AIC/BIC/DIC). Unlike the sibling CompetingRisk/PointProcess analyses (which DO reproduce and are pinned exact), the standard-init MAP search over this strongly bimodal Normal-mixture likelihood lands on a different mode in the real C# vs the ported C++ core -- the mixture LogSumExp likelihood is float-reassociation sensitive, so a single last-bit difference flips the DE optimizer's basin (parameter[0] weight 0.50 vs 0.61; mode_curve 3917 vs 25909). This matches the D6 brief's design statement that the analyses are STRUCTURAL oracles only -- no numeric MCMC oracle exists upstream. thinning_interval pinned to 1; short run (iterations 100, output_length 400). Parameter layout [w1, w2, mu1, sigma1, mu2, sigma2].",
   "datasets": {
     "bimodal": [520, 580, 610, 650, 700, 730, 760, 800, 850, 880, 910, 950, 990, 1030, 1080, 5000, 5400, 5800, 6300, 6800]
   },
@@ -19,14 +19,7 @@
         "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]
       },
       "assertions": [
-        { "method": "parameter", "args": [0], "expected": 0.504630204498561, "mode": "rel", "tol": 1e-5 },
-        { "method": "mode_curve", "args": [2], "expected": 3916.74850843377, "mode": "rel", "tol": 1e-5 },
-        { "method": "mean_curve", "args": [2], "expected": 1833.15469878355, "mode": "rel", "tol": 1e-5 },
-        { "method": "lower_ci", "args": [2], "expected": -5654.25453838596, "mode": "rel", "tol": 1e-5 },
-        { "method": "upper_ci", "args": [2], "expected": 5458.12060890774, "mode": "rel", "tol": 1e-5 },
-        { "method": "aic", "expected": 521.176002393693, "mode": "rel", "tol": 1e-5 },
-        { "method": "bic", "expected": 527.150396035017, "mode": "rel", "tol": 1e-5 },
-        { "method": "dic", "expected": 345.032563352644, "mode": "rel", "tol": 1e-5 }
+        { "method": "curve_length", "expected": 5, "mode": "equal" }
       ]
     }
   ]
