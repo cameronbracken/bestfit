@@ -252,11 +252,56 @@ void test_run_multivariate_normal_structural() {
     CHECK_TRUE(analysis->get_point_estimate_distribution() != nullptr);
 }
 
-// ---- The still-deferred dispatch arm throws a clear error (BiasCorrectedBootstrap = X9) ----
-void test_deferred_uncertainty_methods_throw() {
-    auto a = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
-    a->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
-    CHECK_THROWS(a->run());  // BiasCorrectedBootstrap deferred to X9
+// ---- A real run() through the BiasCorrectedBootstrap (pivot-bootstrap) UQ path (X9): after X9
+//      un-gates the last dispatch arm, run() completes (no throw) and produces a populated,
+//      structural / finite / monotone UncertaintyAnalysisResults with lower <= mode <= upper. The
+//      exact seeded pivot digest is the X12 emitter's job -- only structural invariants here. ----
+void test_run_pivot_bootstrap_structural() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
+    const int b = 30;  // small replicate count keeps the re-fit loop fast
+    analysis->bayesian_analysis().set_output_length(b);
+    analysis->run();  // no longer throws once X9 ships the pivot dispatch arm
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    // NOTE: unlike the LinkedMVN path, the pivot method builds a LOCAL LinkController (C# 2151) and
+    // never installs one on the distribution, so there is no link-controller restore to assert here.
+
+    // Diagnostics populated with the replicate accounting identity (Phase 1 fits B replicates).
+    const auto* diag = analysis->bootstrap_results();
+    CHECK_TRUE(diag != nullptr);
+    if (diag != nullptr) {
+        CHECK_EQ(diag->total_replicates(), b);
+        CHECK_EQ(diag->valid_replicates() + diag->failed_replicates(), b);
+    }
+
+    // The stored posterior ensemble holds >= 2 finite parameter sets.
+    const auto& results_bayes = analysis->bayesian_analysis().results();
+    CHECK_TRUE(results_bayes.has_value());
+    if (results_bayes.has_value()) {
+        CHECK_TRUE(results_bayes->output.size() >= 2);
+        for (const auto& ps : results_bayes->output)
+            for (double v : ps.values) CHECK_TRUE(std::isfinite(v));
+    }
+
+    const auto* results = analysis->analysis_results();
+    CHECK_TRUE(results != nullptr);
+    if (results != nullptr) {
+        std::size_t n = analysis->probability_ordinates().count();
+        CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->confidence_intervals.size(), n);
+        for (std::size_t i = 0; i < n; ++i) CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+        // Mode curve DESCENDS on ascending exceedance ordinates (same as the MVN/Bootstrap tests).
+        for (std::size_t i = 1; i < n; ++i)
+            CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
+        // Each CI brackets the mode curve.
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(results->confidence_intervals[i][0] <= results->mode_curve[i]);
+            CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
+        }
+    }
 }
 
 // ---- A real run() through the LinkedMultivariateNormal UQ path (X8): structural / finite /
@@ -813,7 +858,7 @@ int main() {
     test_validate_invalid_model_propagates();
     test_getters_null_when_unestimated();
     test_run_multivariate_normal_structural();
-    test_deferred_uncertainty_methods_throw();
+    test_run_pivot_bootstrap_structural();
     test_run_linked_multivariate_normal_structural();
 
     // A8: parametric bootstrap + jackknife acceleration

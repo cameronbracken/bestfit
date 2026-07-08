@@ -28,7 +28,8 @@
 //   * MultivariateNormal       -> SHIPPED here (get_parameter_sets_from_multivariate_normal).
 //   * Bootstrap                -> ships in A8 (dispatch arm throws until then; clearly marked).
 //   * LinkedMultivariateNormal -> SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal).
-//   * BiasCorrectedBootstrap   -> DEFERRED to X9 (dispatch arm throws "deferred to Phase 9").
+//   * BiasCorrectedBootstrap   -> SHIPPED (X9: get_parameter_sets_from_pivot_bootstrap). After X9,
+//                                 the B17C UncertaintyMethod dispatcher has NO throwing arm left.
 //
 // BAYESIANANALYSIS PLUMBING (C#-vs-port deviation, documented):
 //   The C# ctor builds `new BayesianAnalysis()` whose `Model` is null -- this analysis uses GMM,
@@ -65,7 +66,10 @@
 //     LogScaleFromRelativeStandardError) and ComputeInfluenceStatistics / InfluenceStatistics /
 //     ComputeDegreesOfFreedomFromKurtosis / ComputeSkewnessFromInfluence (COMPUTED then DISCARDED --
 //     see the X8 PROVENANCE note above).
-//   * DEFERRED to X9: GetParameterSetsFromPivotBootstrap (BiasCorrected). And the ~617-line GMM
+//   * SHIPPED in X9 (this header): GetParameterSetsFromPivotBootstrap (the BiasCorrectedBootstrap
+//     dispatch arm) -- the three-phase pivot bootstrap (bootstrap fits collecting theta*_b + Sigma*_b,
+//     Yeo-Johnson/Log link fitting with a parent-Cholesky fallback to the parametric bootstrap, and
+//     the seeded pivot draws). DEFERRED / dropped: the ~617-line GMM
 //     report generator, C# 3168-3785 -- GenerateGMMReport + its ReportAppend* / covariance-table
 //     StringBuilder helpers (pure plain-text formatting, no compute content). AFormulaOverride is a
 //     deferred A9-adjacent member (not declared here).
@@ -100,10 +104,13 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/chi_squared.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "bestfit/numerics/distributions/normal.hpp"
 #include "bestfit/numerics/distributions/pearson_type_iii.hpp"
 #include "bestfit/numerics/distributions/student_t.hpp"
 #include "bestfit/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
 #include "bestfit/numerics/functions/link_controller.hpp"
+#include "bestfit/numerics/functions/log_link.hpp"
+#include "bestfit/numerics/functions/yeo_johnson_link.hpp"
 #include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/eigenvalue_decomposition.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -122,7 +129,7 @@ enum class UncertaintyMethod {
     MultivariateNormal,        // SHIPPED (A7)
     LinkedMultivariateNormal,  // DEFERRED to Phase 9 (dispatch throws)
     Bootstrap,                 // ships in A8 (dispatch throws until then)
-    BiasCorrectedBootstrap,    // DEFERRED to Phase 9 (dispatch throws)
+    BiasCorrectedBootstrap,    // SHIPPED (X9: get_parameter_sets_from_pivot_bootstrap)
 };
 
 namespace detail {
@@ -514,8 +521,12 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                 if (!raw_sets) raw_sets = get_parameter_sets_from_multivariate_normal();
                 break;
             case UncertaintyMethod::BiasCorrectedBootstrap:
-                throw std::runtime_error(
-                    "Bulletin17CAnalysis: BiasCorrectedBootstrap is deferred to Phase 9.");
+                // C# `UncertaintyMethod.BiasCorrectedBootstrap => GetParameterSetsFromPivotBootstrap(...)`
+                // (C# 662). The pivot bootstrap fits B replicates, builds Yeo-Johnson/Log links, and
+                // draws pivoted parameter sets. No inline caller fallback (the Cholesky-failure
+                // fallback to the parametric path lives INSIDE the method, C# 2167-2172).
+                raw_sets = get_parameter_sets_from_pivot_bootstrap();
+                break;
         }
 
         // Empty-result guard (C# 676-682): a non-positive-definite covariance leaves the point
@@ -717,6 +728,251 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         }
 
         // Persist the diagnostics on the analysis and return the sets (C# 1959-1961).
+        bootstrap_results_ = std::move(diag);
+        return results;
+    }
+
+    // ================= X9: BiasCorrectedBootstrap (pivot bootstrap) uncertainty path =================
+
+    // C# `GetParameterSetsFromPivotBootstrap` (C# 2008-2273): the bias-corrected / pivot-bootstrap
+    // UQ path. THREE phases:
+    //   Phase 1 (C# 2044-2122): B parametric-bootstrap GMM re-fits, collecting BOTH the accepted
+    //     parameter vector theta*_b AND its sandwich covariance Sigma*_b per replicate. Shares the A8
+    //     seed cascade (masterPRNG(PRNGSeed) -> B integers -> per-replicate MersenneTwister), the
+    //     BootstrapDataFrame resample, the randomized penalty, the 5-retry Mahalanobis rejection, and
+    //     the parent-vector fallback -- BUT the bootstrap GMM here sets PenaltyIsRandom = false (C#
+    //     2065; distinct from the A8 default true), and the rejection threshold is ChiSquared(p) at
+    //     0.999 (C# 2033; the A8 path uses 0.9999).
+    //   Phase 2 (C# 2124-2172): fit link functions from the bootstrap samples -- location (idx 0) ->
+    //     YeoJohnsonLink(samples); scale (idx 1) -> plain LogLink; shape (idx 2, if p >= 3) ->
+    //     YeoJohnsonLink(samples). Transform the parent to link-space, delta-method V_eta = G Sigma G',
+    //     regularize, and take its Cholesky lower factor LHat. On Cholesky failure fall back to the A8
+    //     parametric bootstrap (C# 2167-2172).
+    //   Phase 3 (C# 2174-2267): per draw, z = LStar^-1 (etaHat - etaStar) + StandardZ*smoothStd jitter,
+    //     reject when any |z_j| > zLimit (6.0), etaDraw = etaHat + LHat*z, InverseLink, then validate;
+    //     on any failure the slot falls back to the parent thetaHat (C# 2262).
+    // The C# Parallel.For -> a serial loop; the MersenneTwister draw cadence (seeds[idx] Phase 1,
+    // seeds[idx]+B Phase 3, one StandardZ(NextDouble()) draw per parameter) is load-bearing for the
+    // X12 emitter's MT parity -- DO NOT reorder. Async/progress/cancellation/stopwatch lines dropped.
+    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_pivot_bootstrap() {
+        using bestfit::numerics::math::linalg::Matrix;
+        using bestfit::numerics::math::linalg::MatrixRegularization;
+
+        const int max_retries = 5;               // C# 2010
+        const double smooth_std_scale = 0.01;    // C# 2011
+        const double z_limit = 6.0;              // C# 2012
+
+        int b = bayesian_analysis_.output_length();                  // C# 2014
+        int p = bulletin17c_distribution_->number_of_parameters();   // C# 2015
+        std::vector<ParameterSet> results(static_cast<std::size_t>(b));  // C# 2016
+
+        // Up-front seed cascade (C# 2017-2018): master PRNG seeds B per-replicate integers.
+        bestfit::numerics::sampling::MersenneTwister master_prng(
+            static_cast<std::uint32_t>(bayesian_analysis_.prng_seed()));
+        std::vector<int> seeds = bestfit::numerics::utilities::next_integers(master_prng, b);
+
+        // Parent distribution cloned + set to thetaHat as the data-generating model (C# 2020-2022).
+        const std::vector<double> theta_hat = gmm_->best_parameter_set().values;
+        std::unique_ptr<UnivariateDistributionBase> parent_distribution =
+            bulletin17c_distribution_->distribution()->clone();
+        parent_distribution->set_parameters(theta_hat);
+        Matrix sigma_hat = gmm_->get_covariance(theta_hat);          // C# 2023
+
+        // Sandwich inverse for the Mahalanobis rejection (C# 2026-2032). On a singular inverse the C#
+        // regularizes; port as a try/catch falling back to the regularized inverse (Debug.WriteLine
+        // is a dropped silent guard).
+        Matrix sigma_inv(p);
+        try {
+            sigma_inv = sigma_hat.inverse();
+        } catch (...) {
+            sigma_inv = MatrixRegularization::make_symmetric_positive_definite(sigma_hat).inverse();
+        }
+        double mahal_threshold =
+            bestfit::numerics::distributions::ChiSquared(p).inverse_cdf(0.999);  // C# 2033
+
+        // Diagnostics (C# 2036): TotalReplicates = B.
+        BootstrapDiagnostics diag;
+        diag.set_total_replicates(b);
+
+        // --- Phase 1: collect bootstrap fits theta*_b AND Sigma*_b (C# 2044-2122) ---
+        std::vector<std::vector<double>> boot_theta(static_cast<std::size_t>(b));
+        std::vector<Matrix> boot_sigma(static_cast<std::size_t>(b), Matrix(p));
+        for (int idx = 0; idx < b; ++idx) {
+            std::size_t iu = static_cast<std::size_t>(idx);
+            bestfit::numerics::sampling::MersenneTwister prng(
+                static_cast<std::uint32_t>(seeds[iu]));  // C# 2058
+            bool estimated = false;
+
+            for (int attempt = 0; attempt < max_retries && !estimated; ++attempt) {  // C# 2061
+                try {
+                    std::unique_ptr<UnivariateDistributionBase> boot_dist =
+                        parent_distribution->clone();
+                    bestfit::models::DataFrame boot_data_frame =
+                        bulletin17c_distribution_->data_frame().BootstrapDataFrame(*boot_dist, prng);
+                    std::unique_ptr<bestfit::models::IGMMModel> boot_model =
+                        bulletin17c_distribution_->clone();
+                    auto* boot_b17c = static_cast<Bulletin17CDistribution*>(boot_model.get());
+                    boot_b17c->set_data_frame(std::move(boot_data_frame));
+                    boot_b17c->set_random_penalty_function(theta_hat, &prng);
+
+                    // C# `new GeneralizedMethodOfMoments(...) { PenaltyIsRandom = false }` (C# 2065):
+                    // NOTE distinct from the A8 path's default (true) -- the pivot fit uses a fixed
+                    // penalty, which also drops H from the sandwich meat of Sigma*_b below.
+                    GeneralizedMethodOfMoments boot_gmm(*boot_b17c);
+                    boot_gmm.penalty_is_random = false;
+                    boot_gmm.estimate();  // C# 2067
+                    if (boot_gmm.status() != OptimizationStatus::Success)
+                        throw std::runtime_error("bootstrap GMM solver failed");  // C# 2068-2069
+
+                    // Mahalanobis distance of the bootstrap fit from thetaHat (C# 2072-2080).
+                    const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
+                    double mahal_dist = 0.0;
+                    for (int j = 0; j < p; ++j) {
+                        double tmp = 0.0;
+                        for (int k = 0; k < p; ++k)
+                            tmp += sigma_inv(j, k) *
+                                   (boot_params[static_cast<std::size_t>(k)] -
+                                    theta_hat[static_cast<std::size_t>(k)]);
+                        mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
+                                       theta_hat[static_cast<std::size_t>(j)]) *
+                                      tmp;
+                    }
+                    if (mahal_dist > mahal_threshold) {  // C# 2081-2085
+                        diag.increment_mahalanobis_rejection();
+                        throw std::runtime_error("pivot bootstrap replicate rejected: Mahalanobis");
+                    }
+
+                    boot_theta[iu] = boot_params;                                    // C# 2087
+                    boot_sigma[iu] = boot_gmm.get_covariance(boot_theta[iu]);        // C# 2088
+                    diag.add_function_evaluations(boot_gmm.total_function_evaluations());  // C# 2089
+                    estimated = true;
+                } catch (...) {
+                    // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
+                    if (attempt < max_retries - 1) diag.add_retries(1);  // C# 2096
+                }
+            }
+
+            // Fall back to parent fit if all retries failed (C# 2101-2106).
+            if (!estimated) {
+                boot_theta[iu] = theta_hat;
+                boot_sigma[iu] = sigma_hat;
+                diag.increment_failed();
+            }
+        }
+
+        // --- Phase 2: fit link functions from the bootstrap parameter samples (C# 2124-2172) ---
+        std::vector<double> location_samples(static_cast<std::size_t>(b));
+        std::vector<double> scale_samples(static_cast<std::size_t>(b));
+        for (int idx = 0; idx < b; ++idx) {
+            std::size_t iu = static_cast<std::size_t>(idx);
+            location_samples[iu] = boot_theta[iu][0];
+            scale_samples[iu] = boot_theta[iu][1];
+        }
+
+        std::vector<std::unique_ptr<ILinkFunction>> links(static_cast<std::size_t>(p));
+        // Location (idx 0): Yeo-Johnson fitted to bootstrap location estimates (C# 2130-2131).
+        links[0] = std::make_unique<bestfit::numerics::functions::YeoJohnsonLink>(location_samples);
+        // Scale (idx 1): plain Log link -- scale is strictly positive (C# 2134-2136; the commented
+        // YeoJohnson(scaleSamples) alternative in the C# source is NOT used).
+        links[1] = std::make_unique<bestfit::numerics::functions::LogLink>();
+        // Shape (idx 2, if present): Yeo-Johnson fitted to bootstrap shape estimates (C# 2139-2144).
+        if (p >= 3) {
+            std::vector<double> shape_samples(static_cast<std::size_t>(b));
+            for (int idx = 0; idx < b; ++idx)
+                shape_samples[static_cast<std::size_t>(idx)] = boot_theta[static_cast<std::size_t>(idx)][2];
+            links[2] =
+                std::make_unique<bestfit::numerics::functions::YeoJohnsonLink>(shape_samples);
+        }
+        LinkController link_controller(std::move(links));  // C# 2147-2151
+
+        // Transform the parent to link-space and take the parent Cholesky factor (C# 2154-2166).
+        std::vector<double> eta_hat = link_controller.link(theta_hat);
+        Matrix g_hat = link_controller.link_jacobian(theta_hat);
+        Matrix v_eta_hat = g_hat * sigma_hat * g_hat.transpose();
+        v_eta_hat = MatrixRegularization::make_symmetric_positive_definite(v_eta_hat);
+        Matrix l_hat(p);
+        try {
+            l_hat = bestfit::numerics::math::linalg::CholeskyDecomposition(v_eta_hat).l();
+        } catch (...) {
+            // C# 2167-2172: parent Cholesky failed -> fall back to the A8 parametric bootstrap.
+            return get_parameter_sets_from_parametric_bootstrap();
+        }
+
+        // --- Phase 3: generate the pivot draws (C# 2174-2267) ---
+        double smooth_std = smooth_std_scale / std::sqrt(static_cast<double>(p));  // C# 2181
+
+        // A single reusable validator clone (serial loop; C# clones per Parallel.For thread).
+        std::unique_ptr<UnivariateDistributionBase> validator =
+            parent_distribution->clone();
+
+        for (int idx = 0; idx < b; ++idx) {
+            std::size_t iu = static_cast<std::size_t>(idx);
+            bestfit::numerics::sampling::MersenneTwister prng(
+                static_cast<std::uint32_t>(seeds[iu] + b));  // C# 2193
+            std::optional<std::vector<double>> accepted_theta;
+
+            try {
+                // Transform the bootstrap fit to link-space (C# 2201-2205).
+                std::vector<double> eta_star = link_controller.link(boot_theta[iu]);
+                Matrix g_star = link_controller.link_jacobian(boot_theta[iu]);
+                Matrix v_eta_star = g_star * boot_sigma[iu] * g_star.transpose();
+                v_eta_star = MatrixRegularization::make_symmetric_positive_definite(v_eta_star);
+
+                Matrix l_star =
+                    bestfit::numerics::math::linalg::CholeskyDecomposition(v_eta_star).l();  // C# 2207-2208
+                Matrix l_star_inv = l_star.inverse();  // C# 2209
+
+                // Pivot: z = L*^-1 (etaHat - etaStar) (C# 2212-2219).
+                Matrix diff_matrix(p, 1);
+                for (int j = 0; j < p; ++j)
+                    diff_matrix(j, 0) = eta_hat[static_cast<std::size_t>(j)] -
+                                        eta_star[static_cast<std::size_t>(j)];
+                Matrix z_matrix = l_star_inv * diff_matrix;
+
+                // Add the smoothing jitter and check the z-limit (C# 2222-2233). One StandardZ draw
+                // per parameter -- the NextDouble() cadence is MT-parity load-bearing.
+                std::vector<double> z(static_cast<std::size_t>(p));
+                bool bad_pivot = false;
+                for (int j = 0; j < p; ++j) {
+                    std::size_t ju = static_cast<std::size_t>(j);
+                    z[ju] = z_matrix(j, 0) +
+                            bestfit::numerics::distributions::Normal::standard_z(prng.next_double()) *
+                                smooth_std;
+                    if (std::abs(z[ju]) > z_limit) {
+                        bad_pivot = true;
+                        break;
+                    }
+                }
+                if (bad_pivot) {  // C# 2235-2239
+                    diag.increment_pivot_rejection();
+                    throw std::runtime_error("pivot exceeded z-limit");
+                }
+
+                // Map back: etaDraw = etaHat + LHat * z (C# 2242-2251).
+                Matrix z_col(p, 1);
+                for (int j = 0; j < p; ++j) z_col(j, 0) = z[static_cast<std::size_t>(j)];
+                Matrix lz_matrix = l_hat * z_col;
+                std::vector<double> eta_draw(static_cast<std::size_t>(p));
+                for (int j = 0; j < p; ++j)
+                    eta_draw[static_cast<std::size_t>(j)] =
+                        eta_hat[static_cast<std::size_t>(j)] + lz_matrix(j, 0);
+
+                // Inverse transform back to real-space, then validate (C# 2254-2258). The C#
+                // `ValidateParameters(theta, true)` throws on an invalid vector -> the catch below.
+                std::vector<double> theta = link_controller.inverse_link(eta_draw);
+                validator->set_parameters(theta);
+                if (!validator->parameters_valid())
+                    throw std::runtime_error("pivot draw failed parameter validation");
+                accepted_theta = std::move(theta);
+            } catch (...) {
+                // C# Debug.WriteLine dropped -> fall back to the parent thetaHat below (C# 2260-2264).
+            }
+
+            results[iu] = ParameterSet(accepted_theta ? std::move(*accepted_theta) : theta_hat,
+                                       std::numeric_limits<double>::quiet_NaN());  // C# 2262
+        }
+
+        // Persist the diagnostics on the analysis and return the sets (C# 2266-2268).
         bootstrap_results_ = std::move(diag);
         return results;
     }
