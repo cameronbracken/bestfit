@@ -1890,6 +1890,9 @@ namespace an = bestfit::analyses;
 static an::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
     if (s == "MultivariateNormal") return an::UncertaintyMethod::MultivariateNormal;
     if (s == "Bootstrap") return an::UncertaintyMethod::Bootstrap;
+    // X12: the two B17C uncertainty paths un-gated in the core by X8/X9.
+    if (s == "LinkedMultivariateNormal") return an::UncertaintyMethod::LinkedMultivariateNormal;
+    if (s == "BiasCorrectedBootstrap") return an::UncertaintyMethod::BiasCorrectedBootstrap;
     throw std::runtime_error("unsupported/ deferred uncertainty method: " + s);
 }
 

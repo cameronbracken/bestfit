@@ -1,7 +1,7 @@
 {
   "target": "Bulletin17CAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c -- A11 EXACT oracle, verified against the real RMC.BestFit Bulletin17CAnalysis by the dotnet gate. Bulletin17CAnalysis fits an LP3 model by GMM (default MultivariateNormal UQ) then computes the deterministic Cohn-style delta-method CIs (nested Gaussian quadrature over the GMM fit -- no MCMC/bootstrap seed dependence given the fitted parameters). The GMM fit uses BFGS + a numerical Jacobian (no RNG), so the parameters/point_estimates/CIs reproduce bit-identically across C++/R/Python; parameter + point_estimate match C# to rel 1e-9, the Cohn CI bounds to rel 1e-8 (the nested quadrature is a distinct summation path). confidence_level and the exceedance-probability round-trip are exact structural invariants. The 25 default exceedance ordinates ascend, so the point-estimate curve descends.",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c -- A11 EXACT oracle, verified against the real RMC.BestFit Bulletin17CAnalysis by the dotnet gate. Bulletin17CAnalysis fits an LP3 model by GMM (default MultivariateNormal UQ) then computes the deterministic Cohn-style delta-method CIs (nested Gaussian quadrature over the GMM fit -- no MCMC/bootstrap seed dependence given the fitted parameters). The GMM fit uses BFGS + a numerical Jacobian (no RNG), so the parameters/point_estimates/CIs reproduce bit-identically across C++/R/Python; parameter + point_estimate match C# to rel 1e-9, the Cohn CI bounds to rel 1e-8 (the nested quadrature is a distinct summation path). confidence_level and the exceedance-probability round-trip are exact structural invariants. The 25 default exceedance ordinates ascend, so the point-estimate curve descends. X8/X9 arms: the lp3_linked_multivariate_normal and lp3_bias_corrected_bootstrap cases drive the two un-gated uncertainty methods (LinkedMultivariateNormal / BiasCorrectedBootstrap). ComputeCohnStyleConfidenceIntervals is a diagnostic delta-method computed off the RNG-free GMM point estimate ALONE (independent of UncertaintyMethod, which only governs the heavy parameter-set UQ that populates BayesianAnalysis.Results, not the Cohn curve), so those two cases assert the SAME deterministic Cohn point_estimate/CI/parameter oracle -- exercising the ParseUncertaintyMethod dispatch arms end-to-end without a chaotic seeded curve.",
   "datasets": {
     "peaks": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600, 19200, 13800, 25600, 10500, 16900, 21300, 14700, 8200, 23800, 15900]
   },
@@ -18,6 +18,42 @@
       "assertions": [
         { "method": "confidence_level", "expected": 0.90, "mode": "abs", "tol": 1e-12 },
         { "method": "exceedance_probability", "args": [0], "expected": 0.000001, "mode": "abs", "tol": 1e-15 },
+        { "method": "exceedance_probability", "args": [18], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
+        { "method": "point_estimate", "args": [18], "expected": 4.1944719079793105, "mode": "rel", "tol": 1e-9 },
+        { "method": "lower_ci", "args": [18], "expected": 13499.17657441065, "mode": "rel", "tol": 1e-8 },
+        { "method": "upper_ci", "args": [18], "expected": 18150.55871527481, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [0], "expected": 4.1909286502166205, "mode": "rel", "tol": 1e-9 }
+      ]
+    },
+    {
+      "name": "lp3_linked_multivariate_normal",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
+        "uncertainty_method": "LinkedMultivariateNormal",
+        "output_length": 200,
+        "seed": 12345,
+        "confidence_level": 0.90
+      },
+      "assertions": [
+        { "method": "confidence_level", "expected": 0.90, "mode": "abs", "tol": 1e-12 },
+        { "method": "exceedance_probability", "args": [18], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
+        { "method": "point_estimate", "args": [18], "expected": 4.1944719079793105, "mode": "rel", "tol": 1e-9 },
+        { "method": "lower_ci", "args": [18], "expected": 13499.17657441065, "mode": "rel", "tol": 1e-8 },
+        { "method": "upper_ci", "args": [18], "expected": 18150.55871527481, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [0], "expected": 4.1909286502166205, "mode": "rel", "tol": 1e-9 }
+      ]
+    },
+    {
+      "name": "lp3_bias_corrected_bootstrap",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
+        "uncertainty_method": "BiasCorrectedBootstrap",
+        "output_length": 200,
+        "seed": 12345,
+        "confidence_level": 0.90
+      },
+      "assertions": [
+        { "method": "confidence_level", "expected": 0.90, "mode": "abs", "tol": 1e-12 },
         { "method": "exceedance_probability", "args": [18], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
         { "method": "point_estimate", "args": [18], "expected": 4.1944719079793105, "mode": "rel", "tol": 1e-9 },
         { "method": "lower_ci", "args": [18], "expected": 13499.17657441065, "mode": "rel", "tol": 1e-8 },
