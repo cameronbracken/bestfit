@@ -1,25 +1,172 @@
 {
   "target": "BootstrapAnalysis",
   "kind": "analysis",
-  "source": "Numerics/Distributions/Univariate/Uncertainty Analysis/BootstrapAnalysis.cs @ a2c4dbf -- X11 SELF-COMPUTED smoke oracle. BootstrapAnalysis (X7) fits a Normal to the dataset by MLE, then Estimate(probabilities, alpha) returns the UncertaintyAnalysisResults mode/mean curve + percentile CI band over the 3 non-exceedance probabilities. The mode curve is the fitted-distribution inverse_cdf, so mode_curve at prob 0.5 == the Normal MLE mean 15900.3860971 (the deterministic BFGS optimizer result, no RNG) -- a cross-language numeric oracle at rel 1e-6. curve_length == 3 is the deterministic length invariant. The percentile CI band is seeded-bootstrap dependent (deterministic across C++/R/Python via the shared MersenneTwister); X12 tightens the CI band to an exact oracle against the real Numerics BootstrapAnalysis via the emitter driver it must add.",
+  "source": "Numerics/Distributions/Univariate/Uncertainty Analysis/BootstrapAnalysis.cs @ a2c4dbf -- X12 exact oracle, emitter-verified against the real Numerics BootstrapAnalysis (tools/oracle_emitter) and reproduced bit-identically by the C++/R/Python runners. BootstrapAnalysis fits a Normal by MLE (deterministic BFGS, no RNG) then Estimate(probabilities, alpha) returns the mode/mean curve + percentile CI band over the 3 non-exceedance probabilities. The mode curve is the fitted inverse_cdf (mode_curve[0] == the Normal MLE mean 15900.386...); the mean/CI band is the seeded parametric bootstrap over the shared bit-exact MersenneTwister -- both reproduce to rel 1e-8 across C#/C++/R/Python.",
   "datasets": {
-    "flow": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600]
+    "flow": [
+      12500,
+      15300,
+      8900,
+      22100,
+      18700,
+      14200,
+      9800,
+      28500,
+      17400,
+      11600
+    ]
   },
   "cases": [
     {
       "name": "normal_mle_percentile",
       "construct": {
-        "model": { "family": "Normal", "dataset": "flow" },
+        "model": {
+          "family": "Normal",
+          "dataset": "flow"
+        },
         "estimation_method": "MaximumLikelihood",
         "sample_size": 30,
         "replications": 200,
         "seed": 12345,
         "alpha": 0.1,
-        "probabilities": [0.5, 0.9, 0.99]
+        "probabilities": [
+          0.5,
+          0.9,
+          0.99
+        ]
       },
       "assertions": [
-        { "method": "mode_curve", "args": [0], "expected": 15900.3860971, "mode": "rel", "tol": 1e-6 },
-        { "method": "curve_length", "expected": 3, "mode": "equal" }
+        {
+          "method": "parameter",
+          "args": [
+            0
+          ],
+          "expected": 15900.386097096198,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "parameter",
+          "args": [
+            1
+          ],
+          "expected": 5717.031039723016,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "mode_curve",
+          "args": [
+            0
+          ],
+          "expected": 15900.386097096198,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "mode_curve",
+          "args": [
+            1
+          ],
+          "expected": 23227.056176320308,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "mode_curve",
+          "args": [
+            2
+          ],
+          "expected": 29200.189102181335,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "mean_curve",
+          "args": [
+            0
+          ],
+          "expected": 15879.36486308599,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "mean_curve",
+          "args": [
+            1
+          ],
+          "expected": 23006.682337470556,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "mean_curve",
+          "args": [
+            2
+          ],
+          "expected": 29190.864779812393,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "lower_ci",
+          "args": [
+            0
+          ],
+          "expected": 13962.08960479707,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "lower_ci",
+          "args": [
+            1
+          ],
+          "expected": 20679.699280921683,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "lower_ci",
+          "args": [
+            2
+          ],
+          "expected": 25620.330561748495,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "upper_ci",
+          "args": [
+            0
+          ],
+          "expected": 17551.31901401469,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "upper_ci",
+          "args": [
+            1
+          ],
+          "expected": 25188.268025857575,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "upper_ci",
+          "args": [
+            2
+          ],
+          "expected": 32008.570301767984,
+          "mode": "rel",
+          "tol": 1e-08
+        },
+        {
+          "method": "curve_length",
+          "expected": 3,
+          "mode": "equal"
+        }
       ]
     }
   ]

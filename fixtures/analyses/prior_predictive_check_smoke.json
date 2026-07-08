@@ -1,21 +1,147 @@
 {
   "target": "PriorPredictiveCheck",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ fc28c0c -- X11 SELF-COMPUTED structural smoke oracle. PriorPredictiveCheck (X10) samples 200 parameter sets from the Normal model priors (seeded), simulates a sample_size=30 dataset per draw, and summarizes the predictive mean/SD/min/max quantiles. For a Normal model every prior draw yields valid parameters, so number_of_valid_draws == 200 is the deterministic structural invariant reproduced bit-identically across C++/R/Python. X12 tightens the summary quantiles to an exact oracle against the real RMC.BestFit PriorPredictiveCheck via the emitter driver it must add.",
+  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ fc28c0c -- X12 exact oracle, emitter-verified against the real RMC.BestFit PriorPredictiveCheck and reproduced bit-identically by the C++/R/Python runners. PriorPredictiveCheck samples 200 parameter sets from the Normal model priors (seeded MersenneTwister -- NO MCMC chain), simulates a sample_size=30 dataset per draw, and summarizes the predictive mean/SD/min/max quantiles. Every draw is valid (number_of_valid_draws == 200); the summary quantiles reproduce to rel 1e-9 across C#/C++/R/Python (the prior-sampling MT is bit-exact).",
   "datasets": {
-    "flow": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600]
+    "flow": [
+      12500,
+      15300,
+      8900,
+      22100,
+      18700,
+      14200,
+      9800,
+      28500,
+      17400,
+      11600
+    ]
   },
   "cases": [
     {
       "name": "normal_prior_predictive",
       "construct": {
-        "model": { "family": "Normal", "dataset": "flow" },
+        "model": {
+          "family": "Normal",
+          "dataset": "flow"
+        },
         "number_of_draws": 200,
         "sample_size": 30,
         "seed": 12345
       },
       "assertions": [
-        { "method": "number_of_valid_draws", "expected": 200, "mode": "equal" }
+        {
+          "method": "number_of_valid_draws",
+          "expected": 200,
+          "mode": "equal"
+        },
+        {
+          "method": "summary_mean_quantile",
+          "args": [
+            0
+          ],
+          "expected": -917525.4213589907,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_mean_quantile",
+          "args": [
+            1
+          ],
+          "expected": -503059.4683860806,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_mean_quantile",
+          "args": [
+            2
+          ],
+          "expected": -24178.05856027671,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_sd_quantile",
+          "args": [
+            0
+          ],
+          "expected": 3138.7837981684925,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_sd_quantile",
+          "args": [
+            1
+          ],
+          "expected": 22410.516543832477,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_sd_quantile",
+          "args": [
+            2
+          ],
+          "expected": 45837.19418654409,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_min_quantile",
+          "args": [
+            0
+          ],
+          "expected": -1035932.2137480816,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_min_quantile",
+          "args": [
+            1
+          ],
+          "expected": -607971.9933596851,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_min_quantile",
+          "args": [
+            2
+          ],
+          "expected": -145181.79791147044,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_max_quantile",
+          "args": [
+            0
+          ],
+          "expected": -867526.5974106254,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_max_quantile",
+          "args": [
+            1
+          ],
+          "expected": -395957.64639544446,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "summary_max_quantile",
+          "args": [
+            2
+          ],
+          "expected": 46713.78117524253,
+          "mode": "rel",
+          "tol": 1e-09
+        }
       ]
     }
   ]

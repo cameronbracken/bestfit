@@ -2251,6 +2251,10 @@ static BestFitAnalyses.UncertaintyMethod ParseUncertaintyMethod(string s) => s s
 {
     "MultivariateNormal" => BestFitAnalyses.UncertaintyMethod.MultivariateNormal,
     "Bootstrap" => BestFitAnalyses.UncertaintyMethod.Bootstrap,
+    // Task X12: the two B17C uncertainty paths un-gated in the core by X8/X9 (LinkedMVN, pivot /
+    // BiasCorrected bootstrap). Both draws are MersenneTwister-seeded -> reproducible.
+    "LinkedMultivariateNormal" => BestFitAnalyses.UncertaintyMethod.LinkedMultivariateNormal,
+    "BiasCorrectedBootstrap" => BestFitAnalyses.UncertaintyMethod.BiasCorrectedBootstrap,
     _ => throw new Exception($"unsupported/ deferred uncertainty method: {s}")
 };
 
@@ -2347,6 +2351,90 @@ static void RunTimeSeriesAnalysis(BayesianAnalysis ba, Action createResults)
     if (ba.UseAdvancedSimulationDefaults) ba.SetDefaultAdvancedSimulationOptions();
     ba.RunAsync(null, false, false).GetAwaiter().GetResult();
     if (ba.IsEstimated) createResults();
+}
+
+// Task X12: AnalysisBase.IsEstimated has a PROTECTED setter (only RunAsync sets it). The serial-BA
+// drivers below bypass RunAsync, so the CompositeAnalysis child-validation gate (which requires each
+// sub-analysis IsEstimated == true) needs the flag set out of band. Invoke the non-public setter via
+// reflection -- dev-only emitter, mirrors what the real RunAsync would have set on a successful fit.
+static void ForceIsEstimated(object analysis, bool value)
+{
+    var setter = analysis.GetType().GetProperty("IsEstimated")!.GetSetMethod(nonPublic: true)!;
+    setter.Invoke(analysis, new object[] { value });
+}
+
+// Task X12: parameter-estimation-method parse for the BootstrapAnalysis fixture (mirrors
+// analysis_runner.hpp::parse_estimation_method).
+static ParameterEstimationMethod ParseAnalysisEstimationMethod(string s) => s switch
+{
+    "MethodOfMoments" => ParameterEstimationMethod.MethodOfMoments,
+    "MethodOfLinearMoments" => ParameterEstimationMethod.MethodOfLinearMoments,
+    "MaximumLikelihood" => ParameterEstimationMethod.MaximumLikelihood,
+    _ => throw new Exception($"unknown parameter estimation method '{s}'")
+};
+
+// Task X12: build + fit a BivariateAnalysis SERIALLY, mirroring the C++ bivariate_analysis::run()
+// (analysis_runner.hpp::build_and_fit_bivariate): construct the copula-coupled model, optionally set
+// the XY-ordinate joint-exceedance grid, apply the Bayesian knobs, then SetSampleData ->
+// BayesianAnalysis.RunAsync(null,false,false) [serial, matching the C++ estimate()] -> if estimated
+// CreateFrequencyAnalysisResultsAsync -> mirror the inner IsEstimated. Driving BA directly (not
+// analysis.RunAsync, which leaves parallel=true) keeps the seeded DEMCzs stream on the same serial
+// path the C++/R/Python harnesses use.
+static BestFitAnalyses.BivariateAnalysis BuildAndFitBivariate(
+    JsonElement construct, Dictionary<string, double[]> datasets, bool setOrdinatesFromXY)
+{
+    var bd = (BestFitModels.BivariateDistribution)
+        BuildBivariateModelGeneral(construct.GetProperty("model"), datasets);
+    var analysis = new BestFitAnalyses.BivariateAnalysis(bd);
+    if (setOrdinatesFromXY && construct.TryGetProperty("xy_x", out var xxEl)
+        && construct.TryGetProperty("xy_y", out var yyEl))
+    {
+        var xs = xxEl.EnumerateArray().Select(ParseNum).ToArray();
+        var ys = yyEl.EnumerateArray().Select(ParseNum).ToArray();
+        var ord = new List<UncertainOrdinate>();
+        for (int i = 0; i < xs.Length && i < ys.Length; i++)
+            ord.Add(new UncertainOrdinate(xs[i], new Deterministic(ys[i])));
+        if (ord.Count > 0)
+            analysis.XYOrdinates = new UncertainOrderedPairedData(
+                ord, false, SortOrder.Ascending, false, SortOrder.Ascending,
+                UnivariateDistributionType.Deterministic);
+    }
+    ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+    bd.SetSampleData();
+    analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+    if (analysis.BayesianAnalysis.IsEstimated)
+        analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+    ForceIsEstimated(analysis, analysis.BayesianAnalysis.IsEstimated);
+    return analysis;
+}
+
+// Task X12: build + fit ONE UnivariateAnalysis child SERIALLY, mirroring the C++ UnivariateAnalysis
+// arm (used by the CompositeAnalysis driver, one per child family). Same drive idiom as the
+// UnivariateAnalysis target above: apply ordinates + Bayesian knobs, prep the data frame, serial BA
+// fit, then the frequency + chronology results.
+static BestFitAnalyses.UnivariateAnalysis BuildAndFitUnivariateChild(
+    UnivariateDistributionType distType, double[] data, JsonElement construct)
+{
+    var df = new BestFitModels.DataFrame { ExactSeries = new ExactSeries(data) };
+    var ud = new BestFitModels.UnivariateDistribution(df, distType);
+    var analysis = new BestFitAnalyses.UnivariateAnalysis(ud);
+    if (construct.TryGetProperty("exceedance_probabilities", out var epEl))
+    {
+        analysis.ProbabilityOrdinates.Clear();
+        foreach (var v in epEl.EnumerateArray()) analysis.ProbabilityOrdinates.Add(ParseNum(v));
+    }
+    ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+    ud.DataFrame.ProcessThresholdSeries();
+    if (ud.IsNonstationary) ud.DataFrame.CreateFullTimeSeries();
+    ud.ProcessQuantilePriors();
+    analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+    if (analysis.BayesianAnalysis.IsEstimated)
+    {
+        analysis.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+        analysis.CreateChronologyResultsAsync().GetAwaiter().GetResult();
+    }
+    ForceIsEstimated(analysis, analysis.BayesianAnalysis.IsEstimated);
+    return analysis;
 }
 
 static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
@@ -2690,6 +2778,229 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         return r;
     }
 
+    // --- X12: Phase-10 full-parity analysis drivers. Each mirrors the C++ analysis_runner.hpp
+    // run_* builder against the REAL RMC.BestFit / Numerics classes so ONE fixture file drives all
+    // four harnesses. The MCMC-driven arms fit the seeded DEMCzs BayesianAnalysis SERIALLY
+    // (RunAsync(null,false,false)) to land on the same serial stream the C++ estimate() uses; the
+    // deterministic post-processing (curve/CI aggregation) is order-invariant. ---
+
+    if (target == "BivariateAnalysis")
+    {
+        var analysis = BuildAndFitBivariate(construct, datasets, /*setOrdinatesFromXY:*/ true);
+        CollectFamilyResults(analysis.AnalysisResults, null, r);
+        if (analysis.BayesianAnalysis.Results != null)
+            r.Parameters.AddRange(analysis.BayesianAnalysis.Results.MAP.Values);
+        return r;
+    }
+
+    if (target == "CoincidentFrequencyAnalysis")
+    {
+        // Fit the upstream bivariate WITHOUT the XY joint-exceedance grid (CFA consumes the fitted
+        // marginals + copula and its own X/Y/response surface). Mirrors run_coincident.
+        var biv = BuildAndFitBivariate(construct, datasets, /*setOrdinatesFromXY:*/ false);
+
+        var xValues = construct.GetProperty("x_values").EnumerateArray().Select(ParseNum).ToArray();
+        var yValues = construct.GetProperty("y_values").EnumerateArray().Select(ParseNum).ToArray();
+        int rows = construct.GetProperty("response_rows").GetInt32();
+        int cols = construct.GetProperty("response_cols").GetInt32();
+        var flat = construct.GetProperty("response").EnumerateArray().Select(ParseNum).ToArray();
+        var response = new double[rows, cols];
+        for (int i = 0; i < rows; i++)
+            for (int j = 0; j < cols; j++)
+                response[i, j] = flat[i * cols + j];
+
+        var cfa = new BestFitAnalyses.CoincidentFrequencyAnalysis(biv, xValues, yValues, response);
+        if (construct.TryGetProperty("number_of_bins", out var nbEl)) cfa.NumberOfBins = nbEl.GetInt32();
+        if (construct.TryGetProperty("credible_level", out var clEl))
+            cfa.BayesianAnalysis.CredibleIntervalWidth = clEl.GetDouble();
+        // CFA.CreateFrequencyAnalysisResultsAsync reads the bivariate posterior directly and does not
+        // gate on IsEstimated (there is no MCMC on CFA itself), so calling it is sufficient.
+        cfa.CreateFrequencyAnalysisResultsAsync().GetAwaiter().GetResult();
+        CollectFamilyResults(cfa.AnalysisResults, null, r);
+        if (cfa.ZOutputValues != null) r.ZOutput.AddRange(cfa.ZOutputValues);
+        return r;
+    }
+
+    if (target == "CompositeAnalysis")
+    {
+        // Fit one UnivariateAnalysis child per family over the shared dataset, then aggregate
+        // deterministically (composite has no MCMC of its own). Mirrors run_composite.
+        var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
+        var children = new List<BestFitAnalyses.UnivariateAnalysis>();
+        foreach (var f in modelSpec.GetProperty("families").EnumerateArray())
+            children.Add(BuildAndFitUnivariateChild(
+                Enum.Parse<UnivariateDistributionType>(f.GetString()!), data, construct));
+
+        var composite = new BestFitAnalyses.CompositeAnalysis();
+        foreach (var c in children)
+            composite.Analyses.Add(new BestFitAnalyses.WeightedUnivariateAnalysis(c, 0.0));
+
+        composite.CompositeDistributionType = construct.TryGetProperty("composite_type", out var ctEl)
+            ? Enum.Parse<BestFitAnalyses.CompositeType>(ctEl.GetString()!)
+            : BestFitAnalyses.CompositeType.CompetingRisks;
+        composite.ModelAverageMethod = construct.TryGetProperty("average_method", out var amEl)
+            ? Enum.Parse<BestFitAnalyses.AverageMethod>(amEl.GetString()!)
+            : BestFitAnalyses.AverageMethod.AIC;
+        ApplyOrdinates(composite.ProbabilityOrdinates);
+        if (construct.TryGetProperty("credible_level", out var clEl))
+            composite.BayesianAnalysis.CredibleIntervalWidth = clEl.GetDouble();
+        composite.RunAsync().GetAwaiter().GetResult();
+        CollectFamilyResults(composite.AnalysisResults, composite.GetPointEstimateDistribution(), r);
+        return r;
+    }
+
+    if (target == "RatingCurveAnalysis")
+    {
+        var rc = (BestFitModels.RatingCurve)BuildRatingCurveModelGeneral(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.RatingCurveAnalysis(rc);
+        if (construct.TryGetProperty("stage_bins", out var sbEl))
+        {
+            analysis.UseDefaultStageBins = false;
+            analysis.StageBins = sbEl.GetInt32();
+        }
+        if (construct.TryGetProperty("min_stage", out var minEl)) analysis.MinStage = minEl.GetDouble();
+        if (construct.TryGetProperty("max_stage", out var maxEl)) analysis.MaxStage = maxEl.GetDouble();
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        analysis.BayesianAnalysis.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (analysis.BayesianAnalysis.IsEstimated)
+        {
+            analysis.CreateUncertaintyAnalysisResultsAsync().GetAwaiter().GetResult();
+            analysis.UpdatePointEstimateResultsAsync().GetAwaiter().GetResult();
+        }
+        CollectFamilyResults(analysis.AnalysisResults, null, r);
+        if (analysis.BayesianAnalysis.Results != null)
+            r.Parameters.AddRange(analysis.BayesianAnalysis.Results.MAP.Values);
+        return r;
+    }
+
+    if (target == "SpatialGEVAnalysis")
+    {
+        var sg = (BestFitModels.SpatialExtremes.SpatialGEV)BuildSpatialGevModelGeneral(modelSpec, datasets);
+        var analysis = new BestFitAnalyses.SpatialGEVAnalysis(sg);
+        ApplyOrdinates(analysis.ProbabilityOrdinates);
+        ApplyAnalysisBayesKnobs(analysis.BayesianAnalysis, construct);
+        // Site/uncertainty post-processing is PRIVATE (only RunAsync / ordinate-reprocess reach
+        // it), so drive the analysis's own RunAsync. The DEMCzs population sampler draws from the
+        // shared history archive, so its parallel default is order-invariant vs the C++ serial
+        // estimate() (the same invariance the UnivariateAnalysis arm documents).
+        analysis.RunAsync().GetAwaiter().GetResult();
+        if (construct.TryGetProperty("cross_validation", out var cvEl) && cvEl.GetBoolean())
+            analysis.RunCrossValidationAsync().GetAwaiter().GetResult();
+
+        // Regional curve: CI is double[n,3] (col 0 = prob, 1 = lower, 2 = upper). Collect manually.
+        var res = analysis.AnalysisResults;
+        if (res != null)
+        {
+            if (res.ModeCurve != null) r.ModeCurve.AddRange(res.ModeCurve);
+            if (res.MeanCurve != null) r.MeanCurve.AddRange(res.MeanCurve);
+            if (res.ConfidenceIntervals != null)
+            {
+                int n = res.ConfidenceIntervals.GetLength(0);
+                for (int i = 0; i < n; i++)
+                {
+                    r.LowerCI.Add(res.ConfidenceIntervals[i, 1]);
+                    r.UpperCI.Add(res.ConfidenceIntervals[i, 2]);
+                }
+            }
+            r.Aic = res.AIC; r.Bic = res.BIC; r.Dic = res.DIC; r.Rmse = res.RMSE;
+        }
+        if (analysis.BayesianAnalysis.Results != null)
+            r.Parameters.AddRange(analysis.BayesianAnalysis.Results.MAP.Values);
+        var sites = analysis.SiteResults;
+        if (sites != null)
+        {
+            r.SiteCount = sites.Length;
+            foreach (var sr in sites)
+            {
+                r.SiteLocationMean.Add(sr.LocationMean);
+                r.SiteScaleMean.Add(sr.ScaleMean);
+                r.SiteShapeMean.Add(sr.ShapeMean);
+            }
+            if (sites.Length > 0) r.Site0QuantileMean.AddRange(sites[0].QuantileMean);
+        }
+        var cv = analysis.CrossValidationResults;
+        if (cv != null)
+        {
+            r.CvMae = cv.MeanAbsoluteError;
+            r.CvRmse = cv.RootMeanSquareError;
+            r.CvMeanBias = cv.MeanBias;
+        }
+        return r;
+    }
+
+    if (target == "BootstrapAnalysis")
+    {
+        var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
+        var dist = UnivariateDistributionFactory.CreateDistribution(
+            Enum.Parse<UnivariateDistributionType>(modelSpec.GetProperty("family").GetString()!));
+        var method = ParseAnalysisEstimationMethod(construct.TryGetProperty("estimation_method", out var emEl)
+            ? emEl.GetString()! : "MaximumLikelihood");
+        ((IEstimation)dist).Estimate(data, method);
+
+        int sampleSize = construct.TryGetProperty("sample_size", out var ssEl) ? ssEl.GetInt32() : data.Length;
+        int replications = construct.TryGetProperty("replications", out var rpEl) ? rpEl.GetInt32() : 1000;
+        int seed = construct.TryGetProperty("seed", out var seEl) ? seEl.GetInt32() : 12345;
+        double alpha = construct.TryGetProperty("alpha", out var alEl) ? alEl.GetDouble() : 0.1;
+        var probs = construct.GetProperty("probabilities").EnumerateArray().Select(ParseNum).ToArray();
+
+        var boot = new BootstrapAnalysis(dist, method, sampleSize, replications, seed);
+        var res = boot.Estimate(probs, alpha, null, /*recordParameterSets:*/ false);
+        CollectFamilyResults(res, null, r);
+        r.Parameters.AddRange(dist.GetParameters);
+        return r;
+    }
+
+    if (target == "PriorPredictiveCheck")
+    {
+        var model = BuildSpecModel(modelSpec, datasets);
+        var check = new RMC.BestFit.Diagnostics.PriorPredictiveCheck(model);
+        if (construct.TryGetProperty("seed", out var seEl)) check.Seed = seEl.GetInt32();
+        if (construct.TryGetProperty("number_of_draws", out var ndEl)) check.NumberOfDraws = ndEl.GetInt32();
+        int sampleSize = construct.TryGetProperty("sample_size", out var ssEl)
+            ? ssEl.GetInt32() : datasets[modelSpec.GetProperty("dataset").GetString()!].Length;
+        var summary = check.ComputeSummary(sampleSize);
+        r.NumberOfValidDraws = summary.NumberOfValidDraws;
+        r.SummaryMeanQuantile.AddRange(summary.MeanQuantiles);
+        r.SummarySdQuantile.AddRange(summary.SDQuantiles);
+        r.SummaryMinQuantile.AddRange(summary.MinQuantiles);
+        r.SummaryMaxQuantile.AddRange(summary.MaxQuantiles);
+        return r;
+    }
+
+    if (target == "PosteriorPredictiveCheck")
+    {
+        var model = BuildSpecModel(modelSpec, datasets);
+        var data = datasets[modelSpec.GetProperty("dataset").GetString()!];
+        var observed = construct.TryGetProperty("observed_dataset", out var odEl)
+            ? datasets[odEl.GetString()!] : data;
+
+        // Fit a quick seeded serial BayesianAnalysis for the posterior draws.
+        var ba = new BayesianAnalysis(model, ParseSamplerType(
+            construct.TryGetProperty("sampler", out var sEl) ? sEl.GetString()! : "DEMCzs"))
+        {
+            UseSimulationDefaults = false,
+            UseAdvancedSimulationDefaults = false,
+        };
+        ApplyAnalysisBayesKnobs(ba, construct);
+        ba.RunAsync(null, false, false).GetAwaiter().GetResult();
+        if (!ba.IsEstimated || ba.Results == null)
+            throw new Exception("PosteriorPredictiveCheck MCMC fit failed");
+
+        var check = new RMC.BestFit.Diagnostics.PosteriorPredictiveCheck(model, ba.Results, observed);
+        if (construct.TryGetProperty("check_seed", out var csEl)) check.Seed = csEl.GetInt32();
+        else if (construct.TryGetProperty("seed", out var seEl)) check.Seed = seEl.GetInt32();
+        int nRep = construct.TryGetProperty("number_of_replicates", out var nrEl) ? nrEl.GetInt32() : 1000;
+        var results = check.ComputeCommonPValues(nRep);
+        r.NumberOfReplicates = results.NumberOfReplicates;
+        r.MeanPValue = results.MeanPValue;
+        r.SdPValue = results.SDPValue;
+        r.SkewnessPValue = results.SkewnessPValue;
+        r.MinPValue = results.MinPValue;
+        r.MaxPValue = results.MaxPValue;
+        r.HasMisfit = results.HasPotentialMisfit() ? 1.0 : 0.0;
+        return r;
+    }
+
     throw new Exception($"unknown analysis target: {target}");
 }
 
@@ -2748,6 +3059,29 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "prior_to_data_ratio": return r.PriorToDataRatio;
         case "is_prior_influential": return r.IsPriorInfluential;
         case "mean_prior_precision_share": return r.MeanPriorPrecisionShare;
+        // --- X12 extended-analysis dispatch (names match test_fixtures.cpp + the *_smoke.json). ---
+        case "z_output": return r.ZOutput[I(0)];
+        case "z_output_length": return r.ZOutput.Count;
+        case "site_count": return r.SiteCount;
+        case "site_location_mean": return r.SiteLocationMean[I(0)];
+        case "site_scale_mean": return r.SiteScaleMean[I(0)];
+        case "site_shape_mean": return r.SiteShapeMean[I(0)];
+        case "site_quantile_mean": return r.Site0QuantileMean[I(0)];
+        case "cv_mae": return r.CvMae;
+        case "cv_rmse": return r.CvRmse;
+        case "cv_mean_bias": return r.CvMeanBias;
+        case "mean_p_value": return r.MeanPValue;
+        case "sd_p_value": return r.SdPValue;
+        case "skewness_p_value": return r.SkewnessPValue;
+        case "min_p_value": return r.MinPValue;
+        case "max_p_value": return r.MaxPValue;
+        case "predictive_replicates": return r.NumberOfReplicates;
+        case "has_misfit": return r.HasMisfit;
+        case "number_of_valid_draws": return r.NumberOfValidDraws;
+        case "summary_mean_quantile": return r.SummaryMeanQuantile[I(0)];
+        case "summary_sd_quantile": return r.SummarySdQuantile[I(0)];
+        case "summary_min_quantile": return r.SummaryMinQuantile[I(0)];
+        case "summary_max_quantile": return r.SummaryMaxQuantile[I(0)];
         default: throw new Exception($"unknown analysis fixture method: {m}");
     }
 }
@@ -3399,4 +3733,21 @@ class AnalysisData
     public double TotalPriorLogLik = double.NaN, TotalDataLogLik = double.NaN,
                  PriorToDataRatio = double.NaN, IsPriorInfluential = double.NaN,
                  MeanPriorPrecisionShare = double.NaN;
+
+    // --- X12 extended-analysis surface (Phase 10 full parity). Mirrors test_fixtures.cpp's
+    // ExtendedAnalysisResult slice field-for-field so the same fixtures drive both. ---
+    // CoincidentFrequency Z output bins.
+    public List<double> ZOutput = new();
+    // SpatialGEV site results (per site) + site-0 quantile curve.
+    public int SiteCount = 0;
+    public List<double> SiteLocationMean = new(), SiteScaleMean = new(), SiteShapeMean = new();
+    public List<double> Site0QuantileMean = new();
+    // SpatialGEV cross-validation (populated only when construct.cross_validation is true).
+    public double CvMae = double.NaN, CvRmse = double.NaN, CvMeanBias = double.NaN;
+    // Predictive checks (posterior p-values / misfit; prior summary quantiles).
+    public int NumberOfReplicates = 0, NumberOfValidDraws = 0;
+    public double MeanPValue = double.NaN, SdPValue = double.NaN, SkewnessPValue = double.NaN,
+                  MinPValue = double.NaN, MaxPValue = double.NaN, HasMisfit = double.NaN;
+    public List<double> SummaryMeanQuantile = new(), SummarySdQuantile = new(),
+                        SummaryMinQuantile = new(), SummaryMaxQuantile = new();
 }

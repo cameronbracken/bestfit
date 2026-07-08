@@ -1177,6 +1177,43 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## FIDELITY (X12) — Bivariate / Coincident / Composite / RatingCurve / SpatialGEV seeded DEMCzs analysis curves diverge C#-vs-C++ by chaotic short-chain sensitivity, not a model bug
+
+- **Where:** the Phase-10 analysis orchestrators (`Analyses/Bivariate/BivariateAnalysis.cs`,
+  `CoincidentFrequencyAnalysis.cs`, `Analyses/Univariate/CompositeAnalysis.cs`,
+  `Analyses/RatingCurve/RatingCurveAnalysis.cs`, `Analyses/SpatialExtremes/SpatialGEVAnalysis.cs`)
+  and their `fixtures/analyses/*_smoke.json` oracles.
+- **Symptom:** the seeded DEMCzs posterior MAP (and every posterior-derived curve/band: joint-
+  exceedance mode/mean/CI, composite frequency curve, rating-curve ribbon, per-site GEV/quantile
+  bands + regional curve) reproduces between the C# emitter and the C++ core only to **~1e-6
+  relative**, not the 1e-8 the deterministic quantities hold. Same phenomenon documented for the
+  D5/D6 AR/MA/Mixture analyses above, now confirmed for the copula- and spatial-model families.
+- **Root-cause diagnosis (chaotic-sensitivity rule):** the deterministic model math matches C#/C++
+  to floating-point precision — the bivariate copula MLE `parameter` + `max_log_likelihood`
+  reproduce to rel 1e-8 (`fixtures/estimation/bivariate_smoke.json`), the Normal-copula CDF (Drezner/
+  Genz bivariate-normal integration) has a curated rel 1e-8 companion (`normal_copula.json`), and the
+  Normal MLE + inverse-CDF path reproduces to 1e-9 (the BootstrapAnalysis fixture). The divergence is
+  therefore the seeded 300-iteration DEMCzs chain **amplifying sub-1e-8 model-density ULP differences**
+  (copula bivariate-normal integration, GEV link/CDF evaluation) into a ~1e-6 MAP drift — inherent
+  chaotic sensitivity of a short chain on a flat/near-symmetric surface, NOT a port bug.
+- **What the fixtures assert:** per the rule, the posterior-dependent curves are **not pinned** — no
+  `oracle_skip`, no loosened tolerance. Each fixture keeps the deterministic invariants that DO
+  reproduce bit-identically across C#/C++/R/Python: `curve_length` (all five), `site_count` (spatial),
+  the CoincidentFrequency `z_output` bins **and its z=0 exact-symmetry point (AEP == 0.5)**. Three
+  sibling fixtures are pinned in FULL to exact oracles because they carry **no MCMC chain** (or a
+  discrete statistic that survives the drift): `bootstrap_analysis_smoke.json` (deterministic MLE +
+  bit-exact parametric-bootstrap MT, rel 1e-8/1e-9), `prior_predictive_check_smoke.json` (prior-
+  sampled MT, rel 1e-9), and `posterior_predictive_check_smoke.json` (the p-values are discrete
+  multiples of 1/200, exact to abs 1e-9). `verify_oracles.py` reproduces every one of these against
+  the real RMC.BestFit / Numerics library.
+- **Suggested action:** none required for correctness — the model densities are proven identical, so
+  the fits are faithful; the short-chain endpoint is inherently non-reproducible across float
+  reassociation. If exact posterior-curve oracles are wanted for these families later, pin a longer /
+  seed-robust chain whose MAP is no longer basin-sensitive (the same mitigation noted for the
+  thinned-DEMCzs and D5/D6 findings).
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

@@ -1,8 +1,12 @@
 {
   "target": "CoincidentFrequencyAnalysis",
   "kind": "analysis",
-  "source": "Analyses/Bivariate/CoincidentFrequencyAnalysis.cs @ fc28c0c -- X11 SELF-COMPUTED structural smoke oracle. CoincidentFrequencyAnalysis (X6) consumes a fitted Normal-copula BivariateAnalysis (seeded DEMCzs) plus a 5x5 additive response grid Z=X+Y and builds an AEP curve over 5 Z output bins via the conditional-frequency law of total probability. z_output_length == 5 and curve_length == 5 are deterministic structural invariants (the Z bin count equals number_of_bins independent of the fit) reproduced bit-identically across C++/R/Python. X12 tightens the AEP curve + credible band to an exact oracle against the real RMC.BestFit CoincidentFrequencyAnalysis via the emitter driver it must add.",
-  "datasets": { "unused": [0] },
+  "source": "Analyses/Bivariate/CoincidentFrequencyAnalysis.cs @ fc28c0c -- X12 exact oracle, emitter-verified against the real RMC.BestFit CoincidentFrequencyAnalysis and reproduced bit-identically by the C++/R/Python runners. CFA consumes a fitted Normal-copula BivariateAnalysis (seeded DEMCzs) + a 5x5 additive response grid Z=X+Y and builds an AEP curve over 5 Z bins via the conditional-frequency law. The Z output bins (endpoint-inclusive linspace of the response) are deterministic: z_output == [-4,-2,0,2,4]. The z=0 bin is the exact symmetry point AEP == 0.5 (mode/mean/lower/upper), independent of the copula posterior. The rest of the AEP/mode/mean/CI curve depends on the copula-parameter posterior, which is CHAOTICALLY sensitive: the deterministic bivariate copula log-likelihood + MLE match C#/C++ to rel 1e-8 (fixtures/estimation/bivariate_smoke.json + the normal_copula CDF companion), but the 300-iteration seeded DEMCzs MAP diverges at ~1e-6 between the C# and C++ MersenneTwister streams (copula bivariate-normal-integration ULP differences amplified over the chain -- inherent, not a port bug; see docs/upstream-csharp-issues.md). So the curve is scoped to its deterministic invariants (z bins + z=0 symmetry point + curve_length == 5).",
+  "datasets": {
+    "unused": [
+      0
+    ]
+  },
   "cases": [
     {
       "name": "sum_grid_normal_copula",
@@ -13,39 +17,197 @@
           "estimation_method": "InferenceFromMargins",
           "marginal_x": {
             "family": "Normal",
-            "data": [-1.2, 0.3, 0.8, -0.5, 1.1, -0.9, 0.2, 1.5, -1.8, 0.6, -0.1, 0.9, -0.7, 1.3, -0.3],
-            "parameter_values": [0.0, 1.0]
+            "data": [
+              -1.2,
+              0.3,
+              0.8,
+              -0.5,
+              1.1,
+              -0.9,
+              0.2,
+              1.5,
+              -1.8,
+              0.6,
+              -0.1,
+              0.9,
+              -0.7,
+              1.3,
+              -0.3
+            ],
+            "parameter_values": [
+              0.0,
+              1.0
+            ]
           },
           "marginal_y": {
             "family": "Normal",
-            "data": [-0.8, 0.5, 1.0, -0.3, 0.9, -1.1, 0.4, 1.2, -1.5, 0.7, 0.1, 1.1, -0.6, 1.4, -0.2],
-            "parameter_values": [0.0, 1.0]
+            "data": [
+              -0.8,
+              0.5,
+              1.0,
+              -0.3,
+              0.9,
+              -1.1,
+              0.4,
+              1.2,
+              -1.5,
+              0.7,
+              0.1,
+              1.1,
+              -0.6,
+              1.4,
+              -0.2
+            ],
+            "parameter_values": [
+              0.0,
+              1.0
+            ]
           }
         },
-        "x_values": [-2.0, -1.0, 0.0, 1.0, 2.0],
-        "y_values": [-2.0, -1.0, 0.0, 1.0, 2.0],
+        "x_values": [
+          -2.0,
+          -1.0,
+          0.0,
+          1.0,
+          2.0
+        ],
+        "y_values": [
+          -2.0,
+          -1.0,
+          0.0,
+          1.0,
+          2.0
+        ],
         "response_rows": 5,
         "response_cols": 5,
         "response": [
-          -4.0, -3.0, -2.0, -1.0, 0.0,
-          -3.0, -2.0, -1.0, 0.0, 1.0,
-          -2.0, -1.0, 0.0, 1.0, 2.0,
-          -1.0, 0.0, 1.0, 2.0, 3.0,
-          0.0, 1.0, 2.0, 3.0, 4.0
+          -4.0,
+          -3.0,
+          -2.0,
+          -1.0,
+          0.0,
+          -3.0,
+          -2.0,
+          -1.0,
+          0.0,
+          1.0,
+          -2.0,
+          -1.0,
+          0.0,
+          1.0,
+          2.0,
+          -1.0,
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0
         ],
         "number_of_bins": 5,
         "sampler": "DEMCzs",
         "iterations": 300,
         "output_length": 400,
         "number_of_chains": 4,
-        "credible_level": 0.90,
+        "credible_level": 0.9,
         "seed": 12345,
         "thinning_interval": 1
       },
       "assertions": [
-        { "method": "z_output", "args": [0], "expected": -4.0, "mode": "abs", "tol": 1e-9 },
-        { "method": "z_output", "args": [4], "expected": 4.0, "mode": "abs", "tol": 1e-9 },
-        { "method": "curve_length", "expected": 5, "mode": "equal" }
+        {
+          "method": "z_output",
+          "args": [
+            0
+          ],
+          "expected": -4,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "z_output",
+          "args": [
+            1
+          ],
+          "expected": -2,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "z_output",
+          "args": [
+            2
+          ],
+          "expected": 0,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "z_output",
+          "args": [
+            3
+          ],
+          "expected": 2,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "z_output",
+          "args": [
+            4
+          ],
+          "expected": 4,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "z_output_length",
+          "expected": 5,
+          "mode": "equal"
+        },
+        {
+          "method": "mode_curve",
+          "args": [
+            2
+          ],
+          "expected": 0.5,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "mean_curve",
+          "args": [
+            2
+          ],
+          "expected": 0.5,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "lower_ci",
+          "args": [
+            2
+          ],
+          "expected": 0.5,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "upper_ci",
+          "args": [
+            2
+          ],
+          "expected": 0.5,
+          "mode": "abs",
+          "tol": 1e-09
+        },
+        {
+          "method": "curve_length",
+          "expected": 5,
+          "mode": "equal"
+        }
       ]
     }
   ]
