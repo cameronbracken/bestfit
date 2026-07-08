@@ -658,7 +658,56 @@ def _dispatch_analysis(result: dict, method: str, args: list):
         return result["prior_influence"][method]
     if method == "is_prior_influential":
         return 1.0 if result["prior_influence"]["is_prior_influential"] else 0.0
+    # X11 extended analyses (composite / spatial_gev / bivariate / coincident / rating_curve /
+    # bootstrap / prior + posterior predictive).
+    if method == "z_output":
+        return result["z_output_values"][int(args[0])]
+    if method == "z_output_length":
+        return len(result["z_output_values"])
+    if method == "site_count":
+        return result["site_count"]
+    if method == "site_location_mean":
+        return result["site_location_mean"][int(args[0])]
+    if method == "site_scale_mean":
+        return result["site_scale_mean"][int(args[0])]
+    if method == "site_shape_mean":
+        return result["site_shape_mean"][int(args[0])]
+    if method == "site_quantile_mean":
+        return result["site0_quantile_mean"][int(args[0])]
+    if method in ("cv_mae", "cv_rmse", "cv_mean_bias"):
+        return result[method]
+    if method in ("mean_p_value", "sd_p_value", "skewness_p_value", "min_p_value", "max_p_value"):
+        return result[method]
+    if method == "predictive_replicates":
+        return result["number_of_replicates"]
+    if method == "has_misfit":
+        return result["has_misfit"]
+    if method == "number_of_valid_draws":
+        return result["number_of_valid_draws"]
+    if method == "summary_mean_quantile":
+        return result["summary_mean_quantiles"][int(args[0])]
+    if method == "summary_sd_quantile":
+        return result["summary_sd_quantiles"][int(args[0])]
+    if method == "summary_min_quantile":
+        return result["summary_min_quantiles"][int(args[0])]
+    if method == "summary_max_quantile":
+        return result["summary_max_quantiles"][int(args[0])]
     raise KeyError(f"unknown analysis fixture method: {method}")
+
+
+# X11: analysis fixture targets routed through the shared analysis_extended_run dispatch.
+_EXTENDED_ANALYSIS_TARGETS = frozenset(
+    {
+        "CompositeAnalysis",
+        "SpatialGEVAnalysis",
+        "BivariateAnalysis",
+        "CoincidentFrequencyAnalysis",
+        "RatingCurveAnalysis",
+        "BootstrapAnalysis",
+        "PriorPredictiveCheck",
+        "PosteriorPredictiveCheck",
+    }
+)
 
 
 # D5: map an analysis fixture target to the analysis_family_run analysis_type discriminator.
@@ -740,6 +789,11 @@ def _run_analysis_case(target: str, construct: dict, assertions: list, datasets:
             int(construct.get("thinning_interval", -1)),
             int(construct.get("thin_every", 10)),
         )
+    elif target in _EXTENDED_ANALYSIS_TARGETS:
+        # X11: the five remaining analyses + bootstrap + predictive checks. Re-serialize the whole
+        # construct + datasets and call the single shared dispatch binding (byte-identical path to
+        # the C++ runner and the R twin).
+        result = _core.analysis_extended_run(target, json.dumps(construct), json.dumps(datasets))
     else:
         raise KeyError(f"unknown analysis target: {target}")
 

@@ -20,6 +20,10 @@ bf_analysis_diagnostics_run_ <- function(model_json, dataset, sampler, iteration
   .Call(`_bestfitr_bf_analysis_diagnostics_run_`, model_json, dataset, sampler, iterations, output_length, seed, thinning_interval, thin_every)
 }
 
+bf_analysis_extended_run_ <- function(target, construct_json, datasets_json) {
+  .Call(`_bestfitr_bf_analysis_extended_run_`, target, construct_json, datasets_json)
+}
+
 bf_bootstrap_run_ <- function(model, mu, sigma, sample_size, probabilities, dataset, replicates, seed, max_retries, run, ci_method, alpha) {
   .Call(`_bestfitr_bf_bootstrap_run_`, model, mu, sigma, sample_size, probabilities, dataset, replicates, seed, max_retries, run, ci_method, alpha)
 }

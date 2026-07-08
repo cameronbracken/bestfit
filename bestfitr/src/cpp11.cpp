@@ -40,6 +40,13 @@ extern "C" SEXP _bestfitr_bf_analysis_diagnostics_run_(SEXP model_json, SEXP dat
     return cpp11::as_sexp(bf_analysis_diagnostics_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(model_json), cpp11::as_cpp<cpp11::decay_t<doubles>>(dataset), cpp11::as_cpp<cpp11::decay_t<std::string>>(sampler), cpp11::as_cpp<cpp11::decay_t<int>>(iterations), cpp11::as_cpp<cpp11::decay_t<int>>(output_length), cpp11::as_cpp<cpp11::decay_t<int>>(seed), cpp11::as_cpp<cpp11::decay_t<int>>(thinning_interval), cpp11::as_cpp<cpp11::decay_t<int>>(thin_every)));
   END_CPP11
 }
+// analysis.cpp
+list bf_analysis_extended_run_(std::string target, std::string construct_json, std::string datasets_json);
+extern "C" SEXP _bestfitr_bf_analysis_extended_run_(SEXP target, SEXP construct_json, SEXP datasets_json) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(bf_analysis_extended_run_(cpp11::as_cpp<cpp11::decay_t<std::string>>(target), cpp11::as_cpp<cpp11::decay_t<std::string>>(construct_json), cpp11::as_cpp<cpp11::decay_t<std::string>>(datasets_json)));
+  END_CPP11
+}
 // bootstrap.cpp
 list bf_bootstrap_run_(std::string model, double mu, double sigma, int sample_size, doubles probabilities, doubles dataset, int replicates, int seed, int max_retries, std::string run, std::string ci_method, double alpha);
 extern "C" SEXP _bestfitr_bf_bootstrap_run_(SEXP model, SEXP mu, SEXP sigma, SEXP sample_size, SEXP probabilities, SEXP dataset, SEXP replicates, SEXP seed, SEXP max_retries, SEXP run, SEXP ci_method, SEXP alpha) {
@@ -493,6 +500,7 @@ extern "C" {
 static const R_CallMethodDef CallEntries[] = {
     {"_bestfitr_bf_analysis_b17c_run_",          (DL_FUNC) &_bestfitr_bf_analysis_b17c_run_,           7},
     {"_bestfitr_bf_analysis_diagnostics_run_",   (DL_FUNC) &_bestfitr_bf_analysis_diagnostics_run_,    8},
+    {"_bestfitr_bf_analysis_extended_run_",      (DL_FUNC) &_bestfitr_bf_analysis_extended_run_,       3},
     {"_bestfitr_bf_analysis_family_run_",        (DL_FUNC) &_bestfitr_bf_analysis_family_run_,        12},
     {"_bestfitr_bf_analysis_fit_distributions_", (DL_FUNC) &_bestfitr_bf_analysis_fit_distributions_,  1},
     {"_bestfitr_bf_analysis_univariate_run_",    (DL_FUNC) &_bestfitr_bf_analysis_univariate_run_,     9},

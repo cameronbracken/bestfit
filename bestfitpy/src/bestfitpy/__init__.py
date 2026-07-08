@@ -13,13 +13,21 @@ from .analysis import (
     ar_analysis,
     arima_analysis,
     arimax_analysis,
+    bivariate_analysis,
+    bootstrap_analysis,
     bulletin17c_analysis,
+    coincident_frequency_analysis,
     competing_risk_analysis,
+    composite_analysis,
     estimation_diagnostics,
     fit_distributions,
     ma_analysis,
     mixture_analysis,
     point_process_analysis,
+    posterior_predictive_check,
+    prior_predictive_check,
+    rating_curve_analysis,
+    spatial_gev_analysis,
     univariate_analysis,
 )
 
@@ -41,6 +49,14 @@ __all__ = [
     "arima_analysis",
     "arimax_analysis",
     "estimation_diagnostics",
+    "composite_analysis",
+    "spatial_gev_analysis",
+    "bivariate_analysis",
+    "coincident_frequency_analysis",
+    "rating_curve_analysis",
+    "bootstrap_analysis",
+    "prior_predictive_check",
+    "posterior_predictive_check",
 ]
 
 

@@ -1,0 +1,30 @@
+{
+  "target": "RatingCurveAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/RatingCurve/RatingCurveAnalysis.cs @ fc28c0c -- X11 SELF-COMPUTED structural smoke oracle. RatingCurveAnalysis (X3) drives a seeded DEMCzs MCMC over a single-segment BaRatin RatingCurve (15 date-aligned stage/discharge pairs), then builds the predicted-discharge mode/mean curve + credible band over 20 Stratify stage bins. curve_length == 20 (mode_curve length == stage_bins) is the deterministic length invariant reproduced bit-identically across C++/R/Python. NOTE: RatingCurve::predict uses a seeded MersenneTwister noise draw (a documented model deviation), so the seeded values are NOT C#-reproducible -- X12 pins the reproducible quantities (mode curve at MAP, AIC/BIC) via the emitter driver it must add; the length invariant is honest here.",
+  "datasets": { "unused": [0] },
+  "cases": [
+    {
+      "name": "single_segment_demczs",
+      "construct": {
+        "model": {
+          "type": "rating_curve",
+          "segments": 1,
+          "stage": [1.0, 1.2, 1.5, 1.8, 2.0, 2.3, 2.6, 2.9, 3.1, 3.4, 3.7, 4.0, 4.3, 4.6, 5.0],
+          "discharge": [5.0, 7.1, 11.0, 16.2, 20.5, 28.0, 37.1, 47.9, 55.6, 68.0, 82.3, 98.1, 115.4, 134.8, 160.2]
+        },
+        "stage_bins": 20,
+        "sampler": "DEMCzs",
+        "iterations": 300,
+        "output_length": 400,
+        "number_of_chains": 4,
+        "credible_level": 0.90,
+        "seed": 12345,
+        "thinning_interval": 1
+      },
+      "assertions": [
+        { "method": "curve_length", "expected": 20, "mode": "equal" }
+      ]
+    }
+  ]
+}

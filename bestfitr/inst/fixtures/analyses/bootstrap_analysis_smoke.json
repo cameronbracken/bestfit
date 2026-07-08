@@ -1,0 +1,26 @@
+{
+  "target": "BootstrapAnalysis",
+  "kind": "analysis",
+  "source": "Numerics/Distributions/Univariate/Uncertainty Analysis/BootstrapAnalysis.cs @ a2c4dbf -- X11 SELF-COMPUTED smoke oracle. BootstrapAnalysis (X7) fits a Normal to the dataset by MLE, then Estimate(probabilities, alpha) returns the UncertaintyAnalysisResults mode/mean curve + percentile CI band over the 3 non-exceedance probabilities. The mode curve is the fitted-distribution inverse_cdf, so mode_curve at prob 0.5 == the Normal MLE mean 15900.3860971 (the deterministic BFGS optimizer result, no RNG) -- a cross-language numeric oracle at rel 1e-6. curve_length == 3 is the deterministic length invariant. The percentile CI band is seeded-bootstrap dependent (deterministic across C++/R/Python via the shared MersenneTwister); X12 tightens the CI band to an exact oracle against the real Numerics BootstrapAnalysis via the emitter driver it must add.",
+  "datasets": {
+    "flow": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_mle_percentile",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "flow" },
+        "estimation_method": "MaximumLikelihood",
+        "sample_size": 30,
+        "replications": 200,
+        "seed": 12345,
+        "alpha": 0.1,
+        "probabilities": [0.5, 0.9, 0.99]
+      },
+      "assertions": [
+        { "method": "mode_curve", "args": [0], "expected": 15900.3860971, "mode": "rel", "tol": 1e-6 },
+        { "method": "curve_length", "expected": 3, "mode": "equal" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "target": "PriorPredictiveCheck",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ fc28c0c -- X11 SELF-COMPUTED structural smoke oracle. PriorPredictiveCheck (X10) samples 200 parameter sets from the Normal model priors (seeded), simulates a sample_size=30 dataset per draw, and summarizes the predictive mean/SD/min/max quantiles. For a Normal model every prior draw yields valid parameters, so number_of_valid_draws == 200 is the deterministic structural invariant reproduced bit-identically across C++/R/Python. X12 tightens the summary quantiles to an exact oracle against the real RMC.BestFit PriorPredictiveCheck via the emitter driver it must add.",
+  "datasets": {
+    "flow": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_prior_predictive",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "flow" },
+        "number_of_draws": 200,
+        "sample_size": 30,
+        "seed": 12345
+      },
+      "assertions": [
+        { "method": "number_of_valid_draws", "expected": 200, "mode": "equal" }
+      ]
+    }
+  ]
+}

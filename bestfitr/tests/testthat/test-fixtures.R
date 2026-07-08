@@ -652,9 +652,40 @@ dispatch_analysis <- function(result, method, args) {
     prior_to_data_ratio   = result$prior_influence$prior_to_data_ratio,
     is_prior_influential  = as.numeric(result$prior_influence$is_prior_influential),
     mean_prior_precision_share = result$prior_influence$mean_prior_precision_share,
+    # X11 extended analyses (composite / spatial_gev / bivariate / coincident / rating_curve /
+    # bootstrap / prior + posterior predictive).
+    z_output              = result$z_output_values[[i1(args[[1]])]],
+    z_output_length       = length(result$z_output_values),
+    site_count            = result$site_count,
+    site_location_mean    = result$site_location_mean[[i1(args[[1]])]],
+    site_scale_mean       = result$site_scale_mean[[i1(args[[1]])]],
+    site_shape_mean       = result$site_shape_mean[[i1(args[[1]])]],
+    site_quantile_mean    = result$site0_quantile_mean[[i1(args[[1]])]],
+    cv_mae                = result$cv_mae,
+    cv_rmse               = result$cv_rmse,
+    cv_mean_bias          = result$cv_mean_bias,
+    mean_p_value          = result$mean_p_value,
+    sd_p_value            = result$sd_p_value,
+    skewness_p_value      = result$skewness_p_value,
+    min_p_value           = result$min_p_value,
+    max_p_value           = result$max_p_value,
+    predictive_replicates = result$number_of_replicates,
+    has_misfit            = result$has_misfit,
+    number_of_valid_draws = result$number_of_valid_draws,
+    summary_mean_quantile = result$summary_mean_quantiles[[i1(args[[1]])]],
+    summary_sd_quantile   = result$summary_sd_quantiles[[i1(args[[1]])]],
+    summary_min_quantile  = result$summary_min_quantiles[[i1(args[[1]])]],
+    summary_max_quantile  = result$summary_max_quantiles[[i1(args[[1]])]],
     stop(sprintf("unknown analysis fixture method: %s", method))
   )
 }
+
+# X11: analysis fixture targets routed through the shared bf_analysis_extended_run_ dispatch.
+.extended_analysis_targets <- c(
+  "CompositeAnalysis", "SpatialGEVAnalysis", "BivariateAnalysis",
+  "CoincidentFrequencyAnalysis", "RatingCurveAnalysis", "BootstrapAnalysis",
+  "PriorPredictiveCheck", "PosteriorPredictiveCheck"
+)
 
 # D5: map an analysis fixture target to the bf_analysis_family_run_ analysis_type discriminator.
 .family_analysis_type <- function(target) {
@@ -723,6 +754,13 @@ run_analysis_case <- function(target, construct, assertions, datasets) {
       model_json, data, sampler, geti("iterations", 3000L), geti("output_length", 10000L),
       geti("seed", 12345L), geti("thinning_interval", -1L), geti("thin_every", 10L)
     )
+  } else if (target %in% .extended_analysis_targets) {
+    # X11: the five remaining analyses + bootstrap + predictive checks. Re-serialize the whole
+    # construct + datasets and call the single shared dispatch binding (byte-identical path to the
+    # C++ runner and the Python twin).
+    construct_json <- as.character(jsonlite::toJSON(construct, auto_unbox = TRUE, digits = I(17)))
+    datasets_json <- as.character(jsonlite::toJSON(datasets, auto_unbox = TRUE, digits = I(17)))
+    result <- ns$bf_analysis_extended_run_(target, construct_json, datasets_json)
   } else {
     stop(sprintf("unknown analysis target: %s", target))
   }

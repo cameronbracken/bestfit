@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "bestfit/analyses/support/analysis_runner.hpp"
 #include "bestfit/analyses/time_series/ar_analysis.hpp"
 #include "bestfit/analyses/time_series/arima_analysis.hpp"
 #include "bestfit/analyses/time_series/arimax_analysis.hpp"
@@ -52,9 +53,11 @@ static est::SamplerType parse_analysis_sampler(const std::string& s) {
 static analyses::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
     if (s == "MultivariateNormal") return analyses::UncertaintyMethod::MultivariateNormal;
     if (s == "Bootstrap") return analyses::UncertaintyMethod::Bootstrap;
-    if (s == "LinkedMultivariateNormal" || s == "BiasCorrectedBootstrap")
-        throw py::value_error("uncertainty method '" + s +
-                              "' is deferred to Phase 9; use 'MultivariateNormal' or 'Bootstrap'");
+    // X8/X9: the two previously-deferred methods now ship.
+    if (s == "LinkedMultivariateNormal")
+        return analyses::UncertaintyMethod::LinkedMultivariateNormal;
+    if (s == "BiasCorrectedBootstrap")
+        return analyses::UncertaintyMethod::BiasCorrectedBootstrap;
     throw py::value_error("unknown uncertainty method '" + s + "'");
 }
 
@@ -518,4 +521,67 @@ void register_analysis(py::module_& m) {
         py::arg("model_json"), py::arg("dataset"), py::arg("sampler"), py::arg("iterations"),
         py::arg("output_length"), py::arg("seed"), py::arg("thinning_interval") = -1,
         py::arg("thin_every") = 10);
+
+    // X11: the five remaining analyses + BootstrapAnalysis + predictive checks. Byte-for-byte twin
+    // of bestfitr's bf_analysis_extended_run_: wraps the shared run_extended_analysis dispatch (a
+    // bestfit-addition runner header, sibling of model_spec.hpp) so CompositeAnalysis (X5),
+    // SpatialGEVAnalysis (X4), BivariateAnalysis (X3), CoincidentFrequencyAnalysis (X6),
+    // RatingCurveAnalysis (X3), BootstrapAnalysis (X7), and PriorPredictiveCheck /
+    // PosteriorPredictiveCheck (X10) all go through ONE construction path shared across the three
+    // harnesses. Returns the union result surface as a dict; only the requested target's fields are
+    // non-empty.
+    m.def(
+        "analysis_extended_run",
+        [](const std::string& target, const std::string& construct_json,
+           const std::string& datasets_json) {
+            bestfit::analyses::support::ExtendedAnalysisResult r =
+                bestfit::analyses::support::run_extended_analysis(target, construct_json,
+                                                                  datasets_json);
+            py::dict out;
+            out["parameters"] = r.parameters;
+            out["mode_curve"] = r.mode_curve;
+            out["mean_curve"] = r.mean_curve;
+            out["lower_ci"] = r.lower_ci;
+            out["upper_ci"] = r.upper_ci;
+            out["aic"] = r.aic;
+            out["bic"] = r.bic;
+            out["dic"] = r.dic;
+            out["rmse"] = r.rmse;
+            out["z_output_values"] = r.z_output_values;
+            out["site_count"] = r.site_count;
+            out["site_location_mean"] = r.site_location_mean;
+            out["site_location_lower"] = r.site_location_lower;
+            out["site_location_upper"] = r.site_location_upper;
+            out["site_scale_mean"] = r.site_scale_mean;
+            out["site_scale_lower"] = r.site_scale_lower;
+            out["site_scale_upper"] = r.site_scale_upper;
+            out["site_shape_mean"] = r.site_shape_mean;
+            out["site_shape_lower"] = r.site_shape_lower;
+            out["site_shape_upper"] = r.site_shape_upper;
+            out["site0_probabilities"] = r.site0_probabilities;
+            out["site0_quantile_mean"] = r.site0_quantile_mean;
+            out["site0_quantile_lower"] = r.site0_quantile_lower;
+            out["site0_quantile_upper"] = r.site0_quantile_upper;
+            out["site0_quantile_mode"] = r.site0_quantile_mode;
+            out["cv_site_prediction_errors"] = r.cv_site_prediction_errors;
+            out["cv_site_rmse"] = r.cv_site_rmse;
+            out["cv_site_bias"] = r.cv_site_bias;
+            out["cv_mae"] = r.cv_mae;
+            out["cv_rmse"] = r.cv_rmse;
+            out["cv_mean_bias"] = r.cv_mean_bias;
+            out["number_of_replicates"] = r.number_of_replicates;
+            out["mean_p_value"] = r.mean_p_value;
+            out["sd_p_value"] = r.sd_p_value;
+            out["skewness_p_value"] = r.skewness_p_value;
+            out["min_p_value"] = r.min_p_value;
+            out["max_p_value"] = r.max_p_value;
+            out["has_misfit"] = r.has_misfit;
+            out["number_of_valid_draws"] = r.number_of_valid_draws;
+            out["summary_mean_quantiles"] = r.summary_mean_quantiles;
+            out["summary_sd_quantiles"] = r.summary_sd_quantiles;
+            out["summary_min_quantiles"] = r.summary_min_quantiles;
+            out["summary_max_quantiles"] = r.summary_max_quantiles;
+            return out;
+        },
+        py::arg("target"), py::arg("construct_json"), py::arg("datasets_json"));
 }

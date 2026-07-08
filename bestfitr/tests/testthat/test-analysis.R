@@ -62,10 +62,16 @@ test_that("bulletin17c_analysis returns Cohn-style confidence intervals", {
   expect_length(res$parameters, 3) # LP3: location / scale / shape
 })
 
-test_that("bulletin17c_analysis rejects deferred uncertainty methods", {
-  expect_error(
-    bulletin17c_analysis(smoke_peaks(), uncertainty_method = "LinkedMultivariateNormal")
-  )
+test_that("bulletin17c_analysis accepts the X8/X9 uncertainty methods", {
+  # X8/X9 un-gated LinkedMultivariateNormal + BiasCorrectedBootstrap; they now run (X11 wired the
+  # binding knob). An unknown method still errors.
+  for (um in c("LinkedMultivariateNormal", "BiasCorrectedBootstrap")) {
+    res <- bulletin17c_analysis(smoke_peaks(), uncertainty_method = um, output_length = 200,
+                                seed = 12345)
+    expect_length(res$parameters, 3)
+    expect_true(all(res$lower_ci <= res$upper_ci))
+  }
+  expect_error(bulletin17c_analysis(smoke_peaks(), uncertainty_method = "NotAMethod"))
 })
 
 # --- D5: per-family analyses + diagnostics ----------------------------------------------

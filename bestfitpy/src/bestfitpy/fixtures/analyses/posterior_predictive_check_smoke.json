@@ -1,0 +1,25 @@
+{
+  "target": "PosteriorPredictiveCheck",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PosteriorPredictiveCheck.cs @ fc28c0c -- X11 SELF-COMPUTED structural smoke oracle. PosteriorPredictiveCheck (X10) fits a quick seeded DEMCzs MCMC over the Normal model, then draws 200 replicate datasets from the posterior and computes the common mean/SD/skewness/min/max posterior predictive p-values. For a Normal model every replicate draw is valid, so predictive_replicates == 200 is the deterministic structural invariant reproduced bit-identically across C++/R/Python. X12 tightens the five p-values + misfit flag to an exact oracle against the real RMC.BestFit PosteriorPredictiveCheck via the emitter driver it must add.",
+  "datasets": {
+    "flow": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600]
+  },
+  "cases": [
+    {
+      "name": "normal_posterior_predictive",
+      "construct": {
+        "model": { "family": "Normal", "dataset": "flow" },
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 200,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "number_of_replicates": 200
+      },
+      "assertions": [
+        { "method": "predictive_replicates", "expected": 200, "mode": "equal" }
+      ]
+    }
+  ]
+}
