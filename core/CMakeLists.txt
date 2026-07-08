@@ -76,6 +76,7 @@ set(BF_TESTS
   test_time_series_analyses
   test_leverage_diagnostics
   test_influence_diagnostics
+  test_predictive_checks
   test_parameter_names
   test_composite_analysis
   test_coincident_frequency_analysis
