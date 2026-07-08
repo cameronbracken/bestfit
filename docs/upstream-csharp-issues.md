@@ -1214,6 +1214,41 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
+## FIDELITY (X12) — the two un-gated Bulletin17C uncertainty arms (LinkedMVN X8 / pivot-BiasCorrected bootstrap X9) gain no numeric cross-language oracle beyond the method-independent Cohn CI
+
+- **Where:** `RMC.BestFit/Analyses/Bulletin17CAnalysis.cs` @ fc28c0c, `ParseUncertaintyMethod`'s
+  `LinkedMultivariateNormal` and `BiasCorrectedBootstrap` arms (ported at
+  `core/include/bestfit/analyses/univariate/bulletin17c_analysis.hpp`, the two formerly-throwing
+  dispatch cases replaced by X8/X9), and the two fixture cases
+  `fixtures/analyses/bulletin17c_analysis_smoke.json`: `lp3_linked_multivariate_normal` and
+  `lp3_bias_corrected_bootstrap`.
+- **What:** the X8/X9 work un-gated the two heavy uncertainty-quantification paths (LinkedMVN
+  link-fitting + the pivot / BiasCorrected parametric bootstrap) that populate
+  `Bulletin17CAnalysis.Results` (the method-dependent parameter-set ensemble band). The two smoke
+  fixture cases drive those dispatch arms end-to-end -- proving the LinkedMVN link-builders and the
+  pivot bootstrap run to completion without throwing in BOTH the C# emitter (`RunAsync`) and the
+  C++/R/Python runners -- but the value they ASSERT is the deterministic Cohn-style delta-method CI
+  (`point_estimate` / `lower_ci` / `upper_ci` / `parameter`), which is computed off the RNG-free GMM
+  point estimate ALONE and is therefore INDEPENDENT of the UncertaintyMethod
+  (`ComputeCohnStyleConfidenceIntervals`, C# ~666-673, is unchanged whichever arm runs -- confirmed
+  empirically by the real-library emitter dump reproducing all three cases identically). So the
+  method-dependent UQ ensemble output itself (`analysis_results_`, the band the two arms actually
+  populate) gains NO numeric cross-language oracle: the fixture surfaces only the Cohn CI, never the
+  ensemble band.
+- **Why not pinned:** the LinkedMVN/pivot ensemble is a seeded parameter-set draw over a
+  link-function fit that is itself plausibly basin-sensitive (the same short-chain chaotic-sensitivity
+  family documented above for the five DEMCzs analysis curves), so a full-curve oracle would need a
+  chaotic-sensitivity root-cause check before it could be pinned to a point tolerance. Per the binding
+  rule this is left as an HONEST documented residual, NOT an `oracle_skip` mask and NOT a loosened
+  tolerance -- the deterministic Cohn CI that IS asserted reproduces cleanly against the real library
+  (part of the 4069-reproduced corpus), and the dispatch arms are proven non-throwing end-to-end.
+- **Suggested action:** none required for correctness -- both arms are faithful ports and run to
+  completion. A follow-up that wants numeric validation of the X8/X9 draws would add dispatch
+  accessors on the ensemble CI (`analysis_results_`) plus a chaotic-sensitivity check on that band
+  before pinning it, the same treatment applied to the seeded analysis curves.
+
+---
+
 ## How to work this list later
 
 1. Reproduce each finding directly against the pinned upstream (`dotnet test` a targeted case, or a

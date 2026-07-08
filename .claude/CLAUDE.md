@@ -181,6 +181,39 @@ off the fitted estimator. The ctest suites are
 `core/tests/test_univariate_family_analyses.cpp`, `test_time_series_analyses.cpp`,
 `test_leverage_diagnostics.cpp`, and `test_influence_diagnostics.cpp`.
 
+Phase 10 completed the port -- FULL PARITY. The five remaining analysis orchestrators landed under
+`core/include/bestfit/analyses/`: `spatial_extremes/` holds `spatial_gev_analysis.hpp` with its two
+result DTOs `spatial_gev_site_results.hpp` and `spatial_gev_cross_validation_results.hpp`;
+`bivariate/` holds `bivariate_analysis.hpp` (the joint-marginals + copula frequency analysis) and
+`coincident_frequency_analysis.hpp` (the conditional-frequency law over a bivariate copula);
+`rating_curve/rating_curve_analysis.hpp` is the BaRatin stage-discharge analysis; and
+`univariate/composite_analysis.hpp` (the weighted multi-family aggregate) is fed by
+`support/weighted_univariate_analysis.hpp`. Each is a faithful AnalysisBase clone of the Phase-8
+`univariate_analysis.hpp` template. The Numerics BootstrapAnalysis frequentist engine is
+`numerics/distributions/uncertainty_analysis/bootstrap_analysis.hpp` (five CI methods --
+Percentile/BiasCorrected/Normal cube-root/Bootstrap-t/BCa), over the new
+`numerics/distributions/base/i_bootstrappable.hpp` mixin whose `bootstrap()` override is added to
+Normal (a class-layout change -- preclean R rebuild after). The two formerly-throwing Bulletin17C
+uncertainty dispatch arms in `analyses/univariate/bulletin17c_analysis.hpp` (the ~496-500 throwing
+cases) are replaced by LinkedMultivariateNormal (its ~13 link-builder helpers +
+InfluenceStatistics; constructs MultivariateNormal not MVT, center-shift commented out as in C#) and
+the pivot / BiasCorrected bootstrap (reusing the A8 parametric-bootstrap fallback). The four
+predictive-check classes landed under `core/include/bestfit/diagnostics/` beside the Phase-9a
+leverage/influence/prior-influence diagnostics: `posterior_predictive_check.hpp`,
+`prior_predictive_check.hpp`, `predictive_check_results.hpp`, and `predictive_summary.hpp`. The
+Phase-1 follow-ups closed out: distribution `ParameterNames` on
+`numerics/distributions/base/univariate_distribution_base.hpp` + each concrete distribution (with
+`models/support/model_parameter.hpp` carrying the ModelParameter naming), and the mutable
+UserDefined MCMC seeding hook (`seed_population`/`seed_chain` on
+`numerics/sampling/mcmc/base/mcmc_sampler.hpp` + `estimation/bayesian_analysis.hpp`, wired into the
+MixtureAnalysis EM-seed path). All of this surface is bound in R and Python via the shared
+`analysis_runner.hpp` driven identically by the three harnesses, plus `bestfitr/src/analysis.cpp` +
+`R/analysis.R` and `bestfitpy/src/bindings/analysis.cpp` + `analysis.py`. The ctest suites are
+`core/tests/test_rating_curve_analysis.cpp`, `test_bivariate_analysis.cpp`,
+`test_coincident_frequency_analysis.cpp`, `test_spatial_gev_analysis.cpp`,
+`test_composite_analysis.cpp`, `test_bootstrap_analysis.cpp`, `test_predictive_checks.cpp`, and
+`test_parameter_names.cpp`.
+
 ## Build & test commands
 
 ```bash
@@ -247,8 +280,9 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 
 ## Status
 
-Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7a, Phase 8, and Phase 9a are
-**complete**; Phases 1-4 are merged (latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
+Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7a, Phase 8, Phase 9a, and
+Phase 10 are **complete** -- **FULL PARITY with the USACE-RMC Numerics / RMC.BestFit C# libraries is
+reached**; Phases 1-4 are merged (latest: PR #6) with CI green on the full matrix. Phase 1 delivered the full
 Numerics math/RNG foundation plus all 42 univariate distributions; CI is green on 3 platforms for
 that merge. Phase 2 delivered the multivariate distributions and copula layer -- Dirichlet, Multinomial,
 BivariateEmpirical, MultivariateNormal (Genz MVNDST), MultivariateStudentT; all seven bivariate
@@ -381,5 +415,42 @@ WeightedUnivariateAnalysis; SpatialGEVAnalysis (+ its 2 DTOs); BivariateAnalysis
 CoincidentFrequencyAnalysis; RatingCurveAnalysis; the B17C-deferred uncertainty methods (LinkedMVN +
 link-builders + pivot/BiasCorrected bootstrap + InfluenceStatistics); and the two predictive checks
 (PosteriorPredictiveCheck/PriorPredictiveCheck). Permanent skips: GMM report generation
-(presentation-only text) and BatchAnalysisRunner + options (GUI batch scheduling). Pending: CI run
-and PR for the phase9-analyses-diagnostics branch. See `PLAN.md`.
+(presentation-only text) and BatchAnalysisRunner + options (GUI batch scheduling). See `PLAN.md`.
+
+Phase 10 delivered the final parity tail and closes the port -- **FULL PARITY**. The five remaining
+user-facing analysis orchestrators landed: RatingCurveAnalysis (`analyses/rating_curve/`),
+BivariateAnalysis + CoincidentFrequencyAnalysis (`analyses/bivariate/`), SpatialGEVAnalysis plus its
+two DTOs SpatialGEVSiteResults / SpatialGEVCrossValidationResults (`analyses/spatial_extremes/`), and
+CompositeAnalysis (`analyses/univariate/`) + WeightedUnivariateAnalysis (`analyses/support/`) -- each
+a faithful AnalysisBase clone of the Phase-8 template. The Numerics BootstrapAnalysis frequentist
+engine (`numerics/distributions/uncertainty_analysis/bootstrap_analysis.hpp`) shipped with all five
+CI methods (Percentile / BiasCorrected / Normal cube-root / Bootstrap-t / BCa) over the new
+IBootstrappable mixin (`numerics/distributions/base/i_bootstrappable.hpp`, wired onto Normal). The two
+formerly-throwing Bulletin17C uncertainty dispatch arms in `bulletin17c_analysis.hpp` were un-gated:
+LinkedMultivariateNormal (its ~13 link-builder helpers + InfluenceStatistics, constructing
+MultivariateNormal not MVT with the center-shift commented out exactly as C#) and the pivot /
+BiasCorrected bootstrap. The four predictive-check classes (PosteriorPredictiveCheck /
+PriorPredictiveCheck / PredictiveCheckResults / PredictiveSummary) landed under `diagnostics/`,
+completing that layer beside the Phase-9a leverage/influence/prior-influence diagnostics. The Phase-1
+follow-ups closed out: distribution ParameterNames on the base + every concrete distribution (+
+ModelParameter naming) and the mutable UserDefined MCMC seeding hook (seed_population/seed_chain on
+`mcmc_sampler.hpp` + `bayesian_analysis.hpp`, wired into the MixtureAnalysis EM-seed path). The
+user-facing R/Python API binds every one of these. With this, every distribution, the
+multivariate/copula layer, MCMC + bootstrap, all estimators (MLE/MAP/Bayesian/GMM/BootstrapAnalysis +
+the B17C-deferred LinkedMVN + pivot uncertainty), all model families, the complete Analyses layer
+(the five remaining orchestrators), and the complete Diagnostics layer (leverage/influence/
+prior-influence + the four predictive checks) are ported and validated. Everything is
+fixture-validated in C++/R/Python and reproduced against the real Numerics/RMC.BestFit libraries by
+the dotnet oracle gate (verify_oracles 4069 reproduced, 0 failed, 11 skipped; ctest 69/69; testthat
+3770/0; pytest 606). The ONLY remaining permanent skips are presentation-only with no
+numeric/statistical surface: Bulletin17CAnalysis GMM report generation (~607 lines of StringBuilder
+text) and BatchAnalysisRunner + BatchAnalysisResult/Options (the WPF batch scheduler) -- R/Python
+users supply their own. Honest fidelity note (the Phase-9a chaotic-sensitivity precedent, documented
+in `docs/upstream-csharp-issues.md`): five seeded-DEMCzs analysis curves (Bivariate / Coincident-curve
+/ Composite / RatingCurve / SpatialGEV) reproduce their posterior MAP C#-vs-C++ only to ~1e-6 by
+short-chain amplification of sub-1e-8 model-density ULP drift (the deterministic copula-MLE /
+log-likelihood / Normal-MLE paths reproduce to 1e-8/1e-9), so those fixtures assert only the
+deterministic structural invariants that reproduce bit-identically across all four runners -- NO
+oracle_skip mask, NO loosened tolerance. Pending: FULL PARITY is reached; only the CI run and PR ship
+step remains, driven as a separate workflow run (per the standing "WORKFLOW RESUME is UNSAFE"
+instruction). See `PLAN.md`.

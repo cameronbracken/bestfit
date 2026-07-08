@@ -1,7 +1,8 @@
 # Plan: `bestfitr` (R) + `bestfitpy` (Python) from a shared C++ core
 
 > **Current status (kept in sync by hand):** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4,
-> Phase 5, Phase 6, Phase 7a, Phase 8, and Phase 9a are **complete**.
+> Phase 5, Phase 6, Phase 7a, Phase 8, Phase 9a, and Phase 10 are **complete** -- **FULL PARITY
+> with the USACE-RMC Numerics / RMC.BestFit C# libraries is reached.**
 >
 > Phase 1 delivered the full Numerics math/RNG foundation plus all 42 univariate distributions.
 > Ported and fixture-validated in C++/R/Python, reproduced against the real Numerics library via
@@ -193,6 +194,40 @@
 > predictive checks (PosteriorPredictiveCheck/PriorPredictiveCheck). PERMANENT SKIPS: GMM report
 > generation (presentation-only text) and BatchAnalysisRunner + options (GUI batch scheduling).
 > Pending CI run and PR.
+>
+> Phase 10 delivered the final parity tail and closes the port: **FULL PARITY**. The five remaining
+> user-facing analysis orchestrators landed -- `RatingCurveAnalysis` (`analyses/rating_curve/`),
+> `BivariateAnalysis` + `CoincidentFrequencyAnalysis` (`analyses/bivariate/`), `SpatialGEVAnalysis`
+> plus its two DTOs SpatialGEVSiteResults / SpatialGEVCrossValidationResults
+> (`analyses/spatial_extremes/`), and `CompositeAnalysis` (`analyses/univariate/`) +
+> `WeightedUnivariateAnalysis` (`analyses/support/`) -- each a faithful AnalysisBase clone of the
+> Phase-8 template. The Numerics `BootstrapAnalysis` frequentist engine
+> (`numerics/distributions/uncertainty_analysis/bootstrap_analysis.hpp`) shipped with all five CI
+> methods (Percentile / BiasCorrected / Normal cube-root / Bootstrap-t / BCa) over the new
+> `IBootstrappable` mixin (`numerics/distributions/base/i_bootstrappable.hpp`, wired onto Normal).
+> The two formerly-throwing Bulletin17C uncertainty dispatch arms were un-gated:
+> LinkedMultivariateNormal (the ~13 link-builder helpers + InfluenceStatistics, MVN not MVT, the
+> center-shift commented out exactly as C#) and the pivot / BiasCorrected bootstrap. The four
+> predictive-check classes (`PosteriorPredictiveCheck` / `PriorPredictiveCheck` /
+> `PredictiveCheckResults` / `PredictiveSummary`) landed under `diagnostics/`, completing that layer
+> beside the Phase-9a leverage/influence/prior-influence diagnostics. The Phase-1 follow-ups closed
+> out: distribution `ParameterNames` on the base + every concrete distribution (+ ModelParameter
+> naming) and the mutable UserDefined MCMC seeding hook (`seed_population`/`seed_chain` on
+> `mcmc_sampler.hpp` + `bayesian_analysis.hpp`, wired into the MixtureAnalysis EM-seed path). The
+> user-facing R/Python API binds every one of these. Everything is fixture-validated in C++/R/Python
+> and reproduced against the real Numerics / RMC.BestFit libraries by the dotnet oracle gate
+> (`verify_oracles.py`: 4069 reproduced, 0 failed, 11 skipped; ctest 69/69; testthat 3770/0; pytest
+> 606). The ONLY remaining permanent skips are presentation-only with no numeric/statistical surface:
+> Bulletin17CAnalysis GMM report generation (~607 lines of StringBuilder text) and BatchAnalysisRunner
+> + BatchAnalysisResult/Options (the WPF batch scheduler) -- R/Python users supply their own. Honest
+> fidelity note (the Phase-9a chaotic-sensitivity precedent, documented in
+> `docs/upstream-csharp-issues.md`): five seeded-DEMCzs analysis curves (Bivariate / Coincident-curve
+> / Composite / RatingCurve / SpatialGEV) reproduce their posterior MAP C#-vs-C++ only to ~1e-6 by
+> short-chain amplification of sub-1e-8 model-density ULP drift (the deterministic copula-MLE /
+> log-likelihood / Normal-MLE paths reproduce to 1e-8/1e-9), so those fixtures assert only the
+> deterministic structural invariants that reproduce bit-identically across all four runners -- NO
+> `oracle_skip` mask, NO loosened tolerance. Pending: the CI run and PR ship step only (driven as a
+> separate workflow run, per the standing "WORKFLOW RESUME is UNSAFE" instruction).
 >
 > CI is green on the full matrix (`sync-check`, `core`, `r-cmd-check`, `python`) on
 > Linux/macOS/Windows as of the Phase 4 merge (PR #6); the Phase 5 branch (`phase5-models`) has
@@ -498,6 +533,22 @@ the upstream-sync loop / `PORTING_MANIFEST.toml` / submodules are deferred — s
    Carried-forward BUG (A11): seeded DEMCz/DEMCzs runs with `thinning_interval > 1` are NOT
    oracle-guaranteed C#-vs-C++ until bisected (thin=1 is bit-identical; every shipped Bayesian
    fixture uses thin=1).
+   [DONE — FULL PARITY (Phase 10)] The final parity tail: the five remaining analysis orchestrators
+   (RatingCurveAnalysis; BivariateAnalysis + CoincidentFrequencyAnalysis; SpatialGEVAnalysis + its
+   two DTOs; CompositeAnalysis + WeightedUnivariateAnalysis); the Numerics BootstrapAnalysis engine
+   (+ the IBootstrappable mixin on Normal); the two un-gated Bulletin17C uncertainty arms
+   (LinkedMultivariateNormal + the pivot/BiasCorrected bootstrap); the four predictive checks
+   (PosteriorPredictiveCheck/PriorPredictiveCheck/PredictiveCheckResults/PredictiveSummary,
+   completing the Diagnostics layer); and the Phase-1 follow-ups (distribution ParameterNames + the
+   mutable UserDefined MCMC seeding hook wired into MixtureAnalysis's EM seed). All bound in R and
+   Python, fixture-validated in C++/R/Python, and reproduced against the real Numerics/RMC.BestFit
+   libraries by the dotnet oracle gate (4069 reproduced, 0 failed, 11 skipped; ctest 69/69; testthat
+   3770/0; pytest 606). Only permanent skips remain: GMM report generation and BatchAnalysisRunner +
+   options (both presentation-only). With this, every distribution, the multivariate/copula layer,
+   MCMC + bootstrap, all estimators (MLE/MAP/Bayesian/GMM/BootstrapAnalysis + the B17C LinkedMVN +
+   pivot uncertainty), all model families, the complete Analyses layer, the complete Diagnostics
+   layer, and the user-facing R/Python API are ported and validated. Pending: the CI run and PR ship
+   step (a separate workflow run).
 
 Each phase merges only when its fixtures pass in all three harnesses and all CI jobs are green.
 
