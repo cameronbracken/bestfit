@@ -1,10 +1,18 @@
 # bestfit
 
-R (`bestfitr`) and Python (`bestfitpy`) packages for stochastic hydrology: flood-frequency,
-extreme-value, and Bayesian frequency analysis. Both wrap a shared **C++17 core library** ported from the
-USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
-[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries. 
-Both packages are designed to return identical results with the same random seed.
+bestfit is a set of tools for stochastic hydrology including distribution fitting, 
+timeseries modeling, uncertainty quantification, optimization, machine learning, and flood and precip 
+frequency estimation, and a whole lot more. Most features have both Bayesian and frequentist versions available. 
+
+This repository contains a C++ port of the USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
+[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries (not incuding the the Windows GUI). 
+See those libraries for more details. The ported C++ code is designed to exactly reproduce the 
+original C# code whenever possible (up to compiler and platform differences). See the [Why?](#why?) section for 
+the motivation behind this porting effort. 
+
+R (`bestfitr`) and Python (`bestfitpy`) packages are also available with bindings to call the 
+functions in the core library. Both packages call the same code and are expected to produce 
+identical results with the same random seed.
 
 ## Development status
 Early development. All [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) features have 
@@ -123,8 +131,8 @@ carries the multivariate distributions and seven bivariate copulas.
 | `posterior_predictive_check`, `prior_predictive_check` | model-adequacy checks |
 | `estimation_diagnostics` | leverage, PSIS-LOO influence, prior influence |
 
-Every function is documented in the package help (`?univariate_analysis` in R, `help(...)` in
-Python), including MCMC sampler choice, credible level, and seeding.
+Every function is documented in the package help (eg. `?univariate_analysis` in R, `help(...)` in
+Python), with additional information about MCMC sampler choice, credible level, and seeding.
 
 ## Reproducibility
 
@@ -165,6 +173,10 @@ Rscript -e 'testthat::test_local("bestfitr")'
 pip install ./bestfitpy
 pytest bestfitpy/tests
 ```
+
+## Why?
+The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assesment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers.
+
 
 ## License
 
