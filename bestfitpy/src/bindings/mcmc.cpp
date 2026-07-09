@@ -5,7 +5,7 @@
 // every assertion in a case (see fixtures/README.md's mcmc_sampler schema) -- so this file
 // exposes ONE function, `mcmc_run`, that builds the model, configures and runs the sampler
 // once, and returns every value test_fixtures.py's dispatcher needs in one dict.
-// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 

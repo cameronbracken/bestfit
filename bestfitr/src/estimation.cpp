@@ -9,7 +9,7 @@
 // sampler type + numeric knobs, not an optimizer string), and `bf_model_simulate_` (M13) for
 // the estimator-less Simulation target. Each builds the model, runs its one stateful call,
 // and returns every value test-fixtures.R's dispatcher needs. Core headers are vendored under
-// src/bestfit_core/include (see tools/sync_core.py).
+// src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 //
 // M13 MODEL CONSTRUCTION: the flat Phase 4 `family` string became the serialized
 // `construct.model` JSON object (`model_json`), parsed and built by the SHARED spec builder

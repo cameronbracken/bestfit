@@ -1,5 +1,5 @@
 // cpp11 glue exposing the Sobol quasi-random sequence to R.
-// Core header is vendored under src/bestfit_core/include (see tools/sync_core.py).
+// Core header is vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 // The direction-numbers file is installed under inst/extdata/ and located at runtime via
 //   system.file("extdata", "new-joe-kuo-6.21201", package = "bestfitr")
 #include <cpp11.hpp>

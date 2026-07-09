@@ -3,7 +3,7 @@
 // Python. Mirrors the trunc_*/emp_* style in dist.cpp: bespoke per-target module
 // functions, generic-by-method-string rather than one function per method, so each new
 // multivariate target only adds one more <name>_val function here.
-// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 

@@ -10,7 +10,7 @@
 // estimator-less Simulation target, mirroring bestfitr's `bf_estimation_run_`/
 // `bf_estimation_bayes_run_`/`bf_model_simulate_` split. Each builds the model, runs its one
 // stateful call, and returns every value test_fixtures.py's dispatcher needs in one dict.
-// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 //
 // M13 MODEL CONSTRUCTION: the flat Phase 4 `family` string became the serialized
 // `construct.model` JSON object (`model_json`), parsed and built by the SHARED spec builder

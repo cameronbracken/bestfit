@@ -48,43 +48,41 @@ distributions, all driven by the same fixture pipeline. See the implementation p
 |------|---------|
 | `core/` | canonical C++17 core (headers, sources, tests) — single source of truth |
 | `fixtures/` | language-neutral oracle fixtures (JSON) — single source of truth for validation |
-| `bestfitr/` | R package (cpp11); vendored copy of the core in `src/bestfit_core/` |
-| `bestfitpy/` | Python package (scikit-build-core + pybind11); vendored copy of the core |
-| `tools/` | `sync_core.py`, `sync_fixtures.py` (vendoring + CI drift guards), `extract_oracles.py` |
+| `bestfitr/` | R package (cpp11); vendors the core via subtree symlinks under `src/bestfit_core/` |
+| `bestfitpy/` | Python package (scikit-build-core + pybind11); vendors the core via subtree symlinks |
+| `tools/` | `materialize_core.py` (dereference symlinks for a self-contained build), `verify_oracles.py`, `extract_oracles.py` |
 
-The vendored `bestfit_core/` copies and the shipped fixtures are generated from the canonical
-`core/` and `fixtures/`; CI fails if they drift (`tools/sync_*.py --check`).
+The vendored `bestfit_core/` and the shipped fixtures are subtree symlinks into the canonical
+`core/` and `fixtures/`, so git holds one copy and there is no drift to guard against.
 
-## Vendoring, the sync scripts, and oracle fixtures
+## Vendoring: one source of truth, self-contained builds
 
-Two design constraints pull in opposite directions, and the tooling in `tools/` exists to
-reconcile them:
+Two design constraints pull in opposite directions, and the layout reconciles them:
 
 - **Development wants one source of truth.** Every line of C++ math lives in `core/`, and every
   expected value lives in `fixtures/`. You edit each in exactly one place.
-- **CRAN and PyPI build each package from a self-contained tarball, on their own machines.**
-  `R CMD build` and `pip`'s sdist export do not follow git submodules, symlinks, or `../core`
-  relative includes — anything outside the package directory is simply absent when the registry
-  compiles it. So a package cannot *reference* the canonical `core/`; it must *contain* it.
+- **CRAN and PyPI build each package from a self-contained tarball, on their own machines.** The
+  shipped tarball/sdist must physically contain the core; it cannot reference a sibling `core/`.
 
-**Vendoring** is the resolution: bundle a committed *copy* of the dependency inside each package
-rather than fetching it at build time. This repo vendors at two layers:
+The resolution is **symlink vendoring**: each package's vendored location is a committed *symlink*
+into `core/{include,data}` or `fixtures/` (e.g. `bestfitr/src/bestfit_core/include ->
+../../../core/include`). Git holds one copy, and the symlinks resolve for local development and for
+a full clone. A build then dereferences them into a self-contained, symlink-free artifact:
 
-- The **C++ core** is vendored into `bestfitr/src/bestfit_core/` and `bestfitpy/src/bestfit_core/`
-  — each package physically carries its own full copy, so its tarball builds anywhere with no
-  network and no external paths.
-- The **upstream C# libraries** (`upstream/Numerics`, `upstream/RMC-BestFit`) are vendored only as
-  **dev-only git submodules** — the baseline the port is diffed against. They are deliberately
-  *not* shipped in the packages, so they add nothing to the CRAN/PyPI sdists.
+- **R:** `R CMD build` dereferences symlinks into the tarball automatically.
+- **Python:** `tools/materialize_core.py` dereferences them into real files (run in a throwaway
+  checkout, e.g. `make build-py`); scikit-build-core then packs the real files into the sdist.
 
-The risk of "copy and commit" is **drift**: edit a core header, forget to re-copy, and the package
-silently builds stale code. The sync scripts both copy and guard against that:
+CI runs `materialize_core.py` in the R and Python jobs (this also covers Windows, where a checkout
+may materialize a committed symlink as a text stub). The **upstream C# libraries**
+(`upstream/Numerics`, `upstream/RMC-BestFit`) remain dev-only git submodules, not shipped in the
+packages.
 
 | Command | Effect |
 |---------|--------|
-| `python3 tools/sync_core.py` | copy `core/{include,data}` → each package's `src/bestfit_core/` |
-| `python3 tools/sync_fixtures.py` | copy `fixtures/` → `bestfitr/inst/fixtures/` and the bestfitpy package data |
-| `python3 tools/sync_*.py --check` | compare instead of copy; exit non-zero on any difference, changing nothing |
+| (none needed) | the core + fixtures are subtree symlinks; editing a core header is live through the link |
+| `python3 tools/materialize_core.py` | dereference the symlinks into real files (a symlink-free tree for a build; rewrites the tree) |
+| `make build-r` / `make build-py` | build a self-contained tarball / sdist (dereferences symlinks; Python via a throwaway worktree) |
 
 CI runs the `--check` form as a gate (the `sync-check` job): commit a `core/` or `fixtures/` change
 without re-syncing and the build goes red. **Rule: after any edit under `core/` or `fixtures/`, run

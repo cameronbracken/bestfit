@@ -1,7 +1,7 @@
 // pybind11 glue exposing the polymorphic univariate-distribution surface of the shared
 // C++ core to Python (Normal, Uniform, Exponential, ... -- everything on
 // UnivariateDistributionBase + the factory). GEV keeps its own bespoke class in gev.cpp.
-// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 

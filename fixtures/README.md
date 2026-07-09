@@ -14,9 +14,10 @@ dev-only — it needs `dotnet` and the `upstream/Numerics` submodule — and con
 expected value still reproduces to its stated tolerance. A scripted extractor to harvest
 the C# test literals *en masse* is planned for the bulk distribution port.
 
-`tools/sync_fixtures.py` copies this directory into each package
-(`bestfitr/inst/fixtures`, `bestfitpy/src/bestfitpy/fixtures`) so each ships its own
-verbatim copy; a CI `--check` run fails on drift.
+Each package vendors this directory as a subtree symlink
+(`bestfitr/inst/fixtures`, `bestfitpy/src/bestfitpy/fixtures` -> `fixtures/`), so there
+is one copy in git. Builds dereference the symlink into the shipped tarball/sdist
+(`R CMD build` for R; `tools/materialize_core.py` for Python).
 
 ## Schema
 

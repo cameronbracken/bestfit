@@ -1,8 +1,0 @@
-{
-  "kind": "special_function",
-  "target": "Beta.incbd",
-  "source": "Numerics/Test_Numerics/Mathematics/Special Functions/Test_Beta.cs",
-  "cases": [
-    { "name": "incbd_4_2_42", "args": [4.0, 2.0, 4.2], "assertions": [{ "method": "value", "expected": 0.7375, "mode": "equal" }] }
-  ]
-}
