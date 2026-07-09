@@ -12,6 +12,10 @@ enable_testing()
 
 add_library(bestfit_core INTERFACE)
 target_include_directories(bestfit_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(bestfit_core INTERFACE cxx_std_17)
+# Namespaced alias so external consumers / a future repo split can add_subdirectory(core)
+# (or FetchContent) and link `bestfit::core` -- the header-only, dependency-free core.
+add_library(bestfit::core ALIAS bestfit_core)
 
 set(BF_TESTS
   test_mersenne_twister
