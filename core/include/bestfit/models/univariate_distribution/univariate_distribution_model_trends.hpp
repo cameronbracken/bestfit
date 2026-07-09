@@ -221,8 +221,18 @@ inline void UnivariateDistributionModel::set_default_parameters() {
             "Failed to set default parameters for the univariate distribution.");
     }
 
-    // (OwnerName wiring from Distribution.ParameterNames, C# 747-749: display-only,
-    // skipped -- ParameterNames is not on the ported distribution base.)
+    // OwnerName wiring from Distribution.ParameterNames (C# 747-749; X1). Each trend's
+    // set_owner_name propagates the name onto that trend's ModelParameters before the
+    // parameters_ list is rebuilt below (so PriorInfluenceDiagnostics keys distinctly).
+    {
+        std::vector<std::string> parameter_names = distribution_->parameter_names();
+        for (std::size_t i = 0;
+             i < static_cast<std::size_t>(distribution_->number_of_parameters()) &&
+             i < parameter_names.size();
+             ++i) {
+            trend_models_[i]->set_owner_name(parameter_names[i]);
+        }
+    }
 
     // C# 751-753: _parameters = the concatenation of all trend parameters. The C# AddRange
     // ALIASES the trend's ModelParameter objects; the C++ value type COPIES (see the model
@@ -418,7 +428,14 @@ inline void UnivariateDistributionModel::set_trend_model(int index, TrendModelTy
     }
 
     trend_models_[static_cast<std::size_t>(index)] = std::move(model);
-    // (OwnerName wiring from ParameterNames, C# 1004: display-only, skipped.)
+    // OwnerName wiring from ParameterNames (C# 1004; X1): name the replaced trend, propagating
+    // onto its ModelParameters.
+    {
+        std::vector<std::string> parameter_names = distribution_->parameter_names();
+        if (static_cast<std::size_t>(index) < parameter_names.size())
+            trend_models_[static_cast<std::size_t>(index)]->set_owner_name(
+                parameter_names[static_cast<std::size_t>(index)]);
+    }
 
     // Reset the Parameters list (C# 1007-1011; copies, see the aliasing note).
     parameters_.clear();

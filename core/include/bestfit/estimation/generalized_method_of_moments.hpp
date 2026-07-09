@@ -51,14 +51,16 @@
 // catch BODIES (zero matrix / fallback value / Failure status) are ported, only the trace
 // text is not.
 //
-// DEFERRED -- Influence Diagnostics region (C# 1382-2061): GetObservationInfluence,
-// GetCooksDistance, both GetInfluenceDiagnostics overloads, GetLeverageDiagnostics, and
-// their private BuildDataComponents/BuildRowToComponentMapping helpers depend on the
-// unported RMC.BestFit.Diagnostics layer (InfluenceDiagnostics / ObservationInfluence /
-// LeverageDiagnostics) and on the B9+ Bulletin17CDistribution model coupling. Following
-// the Phase 4 precedent (MaximumAPosteriori::compute_leverage_diagnostics), they are
-// ported as THROWING STUBS (std::logic_error) so callers get a clear member and runtime
-// message; none of it is on any oracle path.
+// Influence Diagnostics region (C# 1382-2061): GetObservationInfluence, GetCooksDistance,
+// both GetInfluenceDiagnostics overloads, and GetLeverageDiagnostics are now PORTED (D4
+// un-stubbed the RMC.BestFit.Diagnostics layer -- InfluenceDiagnostics / ObservationInfluence
+// / LeverageDiagnostics). They compute off the pointwise moment conditions and throw
+// std::invalid_argument when no PointwiseMomentConditionFunction is supplied (rather than
+// silently returning garbage). STILL DEFERRED: the Bulletin17CDistribution model coupling and
+// its private BuildDataComponents/BuildRowToComponentMapping helpers -- without that
+// dataComponents/rowMap path the per-observation DataComponent metadata stays absent (each
+// expanded gi row is its own default component). None of the deferred coupling is on any
+// oracle path.
 //
 // SKIPPED (deliberate, one-line note per the brief): the XML (de)serialization region
 // (ToXElement/RestoreFromXElement/DeserializeParameterSet/DeserializeMatrix, C# 2446+;

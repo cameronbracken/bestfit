@@ -5,6 +5,7 @@
 // exactly. Moments use numerical integration (stratified bins) matching C# CentralMoments.
 // Special cases: h=-1 → Generalized Logistic; h=0 → GEV; h=1 → Generalized Pareto.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -177,6 +178,15 @@ class KappaFour : public UnivariateDistributionBase,
             // κ=0, h=0 (Gumbel)
             return xi_ - alpha_ * std::log(-std::log(probability));
         }
+    }
+
+    // --- Parameter display names (X1; C# KappaFour.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xCE\xBE)", "Scale (\xCE\xB1)", "Shape (\xCE\xBA)", "Shape (h)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBE", "\xCE\xB1", "\xCE\xBA", "h"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

@@ -4,6 +4,7 @@
 // source method-for-method. The WPF helpers, IBootstrappable, and IStandardError
 // interfaces are not ported (desktop / uncertainty-analysis concerns).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -116,6 +117,15 @@ class Weibull : public UnivariateDistributionBase,
         if (probability == 1.0) return maximum();
         if (!parameters_valid_) throw std::invalid_argument("Weibull: invalid parameters");
         return lambda_ * std::pow(std::log(1.0 / (1.0 - probability)), 1.0 / kappa_);
+    }
+
+    // --- Parameter display names (X1; C# Weibull.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Scale (\xCE\xBB)", "Shape (\xCE\xBA)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBB", "\xCE\xBA"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

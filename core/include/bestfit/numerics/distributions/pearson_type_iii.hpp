@@ -7,6 +7,7 @@
 // ParametersFromMoments/MomentsFromParameters, QuantileGradientForMoments, and the
 // ConditionalMoments override for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -159,6 +160,15 @@ class PearsonTypeIII : public UnivariateDistributionBase,
         } else {
             return xi() - sf::inverse_lower_incomplete(alpha(), 1.0 - probability) * std::fabs(beta());
         }
+    }
+
+    // --- Parameter display names (X1; C# PearsonTypeIII.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (\xC2\xB5)", "Std Dev (\xCF\x83)", "Skew (\xCE\xB3)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83", "\xCE\xB3"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

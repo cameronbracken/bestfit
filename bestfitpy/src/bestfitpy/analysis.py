@@ -16,6 +16,7 @@ import numpy as np
 from ._core import (
     analysis_b17c_run as _b17c_run,
     analysis_diagnostics_run as _diagnostics_run,
+    analysis_extended_run as _extended_run,
     analysis_family_run as _family_run,
     analysis_fit_distributions as _fit_distributions,
     analysis_univariate_run as _univariate_run,
@@ -358,3 +359,325 @@ def estimation_diagnostics(
         model_json, values, sampler, int(iterations), int(output_length), int(seed),
         int(thinning_interval), int(thin_every),
     )
+
+
+# --- X11: the five remaining analyses + BootstrapAnalysis + predictive checks ----------------
+# Each wrapper assembles the construct dict the shared C++ runner
+# (bestfit::analyses::support::run_extended_analysis) understands and calls the single
+# analysis_extended_run dispatch. The R twins (bestfitr) build the identical construct, so a seeded
+# call returns identical numbers in either language.
+
+
+def _extended(target: str, construct: dict, datasets: dict) -> dict:
+    return _extended_run(target, json.dumps(construct), json.dumps(datasets))
+
+
+def composite_analysis(
+    data,
+    families,
+    composite_type: str = "CompetingRisks",
+    average_method: str = "AIC",
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    credible_level: float = 0.90,
+    seed: int = 12345,
+    exceedance_probabilities=None,
+    thinning_interval: int = -1,
+) -> dict:
+    """Composite frequency analysis over one child analysis per ``families`` entry.
+
+    Combines the child univariate frequency analyses (each fit to ``data``) into a single composite
+    curve via ``composite_type`` (``"CompetingRisks"`` / ``"Mixture"`` / ``"ModelAverage"``);
+    ``average_method`` selects the model-averaging criterion. Wraps the shared C++
+    ``CompositeAnalysis``. Returns the ``univariate_analysis`` dict shape.
+    """
+    construct = {
+        "model": {"families": [str(f) for f in families], "dataset": "data"},
+        "composite_type": str(composite_type),
+        "average_method": str(average_method),
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "credible_level": float(credible_level),
+        "seed": int(seed),
+        "thinning_interval": int(thinning_interval),
+    }
+    if exceedance_probabilities is not None:
+        construct["exceedance_probabilities"] = [float(v) for v in exceedance_probabilities]
+    return _extended("CompositeAnalysis", construct, {"data": [float(v) for v in np.asarray(data).ravel()]})
+
+
+def spatial_gev_analysis(
+    coordinates,
+    at_site_data,
+    cross_validation: bool = False,
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    credible_level: float = 0.90,
+    seed: int = 12345,
+    number_of_chains: int = 4,
+    exceedance_probabilities=None,
+    thinning_interval: int = -1,
+) -> dict:
+    """Hierarchical spatial-GEV frequency analysis over gauged sites.
+
+    ``coordinates`` is one ``[x, y]`` row per site; ``at_site_data`` is ``[observations x sites]``.
+    Returns the regional frequency curve + per-site GEV/quantile bands (and, when
+    ``cross_validation``, the leave-one-site-out diagnostics). Wraps the shared C++
+    ``SpatialGEVAnalysis``.
+    """
+    coords = [[float(v) for v in row] for row in np.asarray(coordinates, dtype=float)]
+    at_site = [[float(v) for v in row] for row in np.asarray(at_site_data, dtype=float)]
+    construct = {
+        "model": {"type": "spatial_gev", "coordinates": coords, "at_site_data": at_site},
+        "cross_validation": bool(cross_validation),
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "number_of_chains": int(number_of_chains),
+        "credible_level": float(credible_level),
+        "seed": int(seed),
+        "thinning_interval": int(thinning_interval),
+    }
+    if exceedance_probabilities is not None:
+        construct["exceedance_probabilities"] = [float(v) for v in exceedance_probabilities]
+    return _extended("SpatialGEVAnalysis", construct, {"unused": [0]})
+
+
+def _bivariate_model(
+    marginal_x_family, marginal_x_data, marginal_x_parameters,
+    marginal_y_family, marginal_y_data, marginal_y_parameters, copula, estimation_method,
+) -> dict:
+    return {
+        "type": "bivariate",
+        "copula": str(copula),
+        "estimation_method": str(estimation_method),
+        "marginal_x": {
+            "family": str(marginal_x_family),
+            "data": [float(v) for v in np.asarray(marginal_x_data).ravel()],
+            "parameter_values": [float(v) for v in marginal_x_parameters],
+        },
+        "marginal_y": {
+            "family": str(marginal_y_family),
+            "data": [float(v) for v in np.asarray(marginal_y_data).ravel()],
+            "parameter_values": [float(v) for v in marginal_y_parameters],
+        },
+    }
+
+
+def bivariate_analysis(
+    marginal_x_family,
+    marginal_x_data,
+    marginal_x_parameters,
+    marginal_y_family,
+    marginal_y_data,
+    marginal_y_parameters,
+    xy_x,
+    xy_y,
+    copula: str = "Normal",
+    estimation_method: str = "InferenceFromMargins",
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    credible_level: float = 0.90,
+    seed: int = 12345,
+    number_of_chains: int = 4,
+    thinning_interval: int = -1,
+) -> dict:
+    """Bivariate (copula) joint-exceedance frequency analysis over two fixed marginals.
+
+    Returns the AND-joint-exceedance mode/mean curve + credible band over the ``(xy_x, xy_y)``
+    ordinate grid. Wraps the shared C++ ``BivariateAnalysis``.
+    """
+    construct = {
+        "model": _bivariate_model(
+            marginal_x_family, marginal_x_data, marginal_x_parameters,
+            marginal_y_family, marginal_y_data, marginal_y_parameters, copula, estimation_method,
+        ),
+        "xy_x": [float(v) for v in xy_x],
+        "xy_y": [float(v) for v in xy_y],
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "number_of_chains": int(number_of_chains),
+        "credible_level": float(credible_level),
+        "seed": int(seed),
+        "thinning_interval": int(thinning_interval),
+    }
+    return _extended("BivariateAnalysis", construct, {"unused": [0]})
+
+
+def coincident_frequency_analysis(
+    marginal_x_family,
+    marginal_x_data,
+    marginal_x_parameters,
+    marginal_y_family,
+    marginal_y_data,
+    marginal_y_parameters,
+    x_values,
+    y_values,
+    response,
+    number_of_bins: int = 50,
+    copula: str = "Normal",
+    estimation_method: str = "InferenceFromMargins",
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    credible_level: float = 0.90,
+    seed: int = 12345,
+    number_of_chains: int = 4,
+    thinning_interval: int = -1,
+) -> dict:
+    """Coincident-frequency analysis: a fitted bivariate copula + an M x N response surface.
+
+    Derives the annual-exceedance-probability curve of ``Z = f(X, Y)`` from the response grid.
+    ``response`` is an M x N matrix ``Z[i, j] = f(x_i, y_j)``. Wraps the shared C++
+    ``CoincidentFrequencyAnalysis`` (which internally fits the bivariate analysis).
+    """
+    resp = np.asarray(response, dtype=float)
+    construct = {
+        "model": _bivariate_model(
+            marginal_x_family, marginal_x_data, marginal_x_parameters,
+            marginal_y_family, marginal_y_data, marginal_y_parameters, copula, estimation_method,
+        ),
+        "x_values": [float(v) for v in x_values],
+        "y_values": [float(v) for v in y_values],
+        "response_rows": int(resp.shape[0]),
+        "response_cols": int(resp.shape[1]),
+        "response": [float(v) for v in resp.ravel(order="C")],
+        "number_of_bins": int(number_of_bins),
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "number_of_chains": int(number_of_chains),
+        "credible_level": float(credible_level),
+        "seed": int(seed),
+        "thinning_interval": int(thinning_interval),
+    }
+    return _extended("CoincidentFrequencyAnalysis", construct, {"unused": [0]})
+
+
+def rating_curve_analysis(
+    stage,
+    discharge,
+    segments: int = 1,
+    stage_bins=None,
+    min_stage=None,
+    max_stage=None,
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    credible_level: float = 0.90,
+    seed: int = 12345,
+    number_of_chains: int = 4,
+    thinning_interval: int = -1,
+) -> dict:
+    """Stage-discharge rating-curve frequency analysis.
+
+    Returns the predicted-discharge mode/mean curve + credible band across a stage grid. Wraps the
+    shared C++ ``RatingCurveAnalysis``.
+    """
+    construct = {
+        "model": {
+            "type": "rating_curve",
+            "segments": int(segments),
+            "stage": [float(v) for v in np.asarray(stage).ravel()],
+            "discharge": [float(v) for v in np.asarray(discharge).ravel()],
+        },
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "number_of_chains": int(number_of_chains),
+        "credible_level": float(credible_level),
+        "seed": int(seed),
+        "thinning_interval": int(thinning_interval),
+    }
+    if stage_bins is not None:
+        construct["stage_bins"] = int(stage_bins)
+    if min_stage is not None:
+        construct["min_stage"] = float(min_stage)
+    if max_stage is not None:
+        construct["max_stage"] = float(max_stage)
+    return _extended("RatingCurveAnalysis", construct, {"unused": [0]})
+
+
+def bootstrap_analysis(
+    data,
+    distribution: str,
+    probabilities,
+    estimation_method: str = "MaximumLikelihood",
+    sample_size=None,
+    replications: int = 1000,
+    seed: int = 12345,
+    alpha: float = 0.1,
+) -> dict:
+    """Parametric bootstrap confidence bands for a fitted distribution.
+
+    Fits ``distribution`` to ``data``, then resamples it ``replications`` times to derive percentile
+    confidence bands on the quantile curve at the non-exceedance ``probabilities``. Wraps the shared
+    C++ ``BootstrapAnalysis`` (Numerics).
+    """
+    construct = {
+        "model": {"family": str(distribution), "dataset": "data"},
+        "estimation_method": str(estimation_method),
+        "replications": int(replications),
+        "seed": int(seed),
+        "alpha": float(alpha),
+        "probabilities": [float(v) for v in probabilities],
+    }
+    if sample_size is not None:
+        construct["sample_size"] = int(sample_size)
+    return _extended("BootstrapAnalysis", construct, {"data": [float(v) for v in np.asarray(data).ravel()]})
+
+
+def prior_predictive_check(
+    data,
+    distribution: str,
+    number_of_draws: int = 1000,
+    sample_size=None,
+    seed: int = 12345,
+) -> dict:
+    """Prior predictive check: sample from the model priors, simulate, summarize.
+
+    Returns ``number_of_valid_draws`` and the predictive quantile summaries
+    (``summary_mean_quantiles`` etc., each ``[2.5, 25, 50, 75, 97.5]%``). Wraps the shared C++
+    ``PriorPredictiveCheck``.
+    """
+    construct = {
+        "model": {"family": str(distribution), "dataset": "data"},
+        "number_of_draws": int(number_of_draws),
+        "seed": int(seed),
+    }
+    if sample_size is not None:
+        construct["sample_size"] = int(sample_size)
+    return _extended("PriorPredictiveCheck", construct, {"data": [float(v) for v in np.asarray(data).ravel()]})
+
+
+def posterior_predictive_check(
+    data,
+    distribution: str,
+    sampler: str = "DEMCz",
+    iterations: int = 3000,
+    output_length: int = 10000,
+    seed: int = 12345,
+    number_of_replicates: int = 1000,
+    thinning_interval: int = -1,
+) -> dict:
+    """Posterior predictive check: fit an MCMC, draw replicates, compute common p-values.
+
+    Returns ``number_of_replicates``, the five posterior predictive p-values (``mean_p_value`` etc.)
+    and ``has_misfit`` (1 when any p-value is extreme, else 0). Wraps the shared C++
+    ``PosteriorPredictiveCheck``.
+    """
+    construct = {
+        "model": {"family": str(distribution), "dataset": "data"},
+        "sampler": str(sampler),
+        "iterations": int(iterations),
+        "output_length": int(output_length),
+        "seed": int(seed),
+        "number_of_replicates": int(number_of_replicates),
+        "thinning_interval": int(thinning_interval),
+    }
+    return _extended("PosteriorPredictiveCheck", construct, {"data": [float(v) for v in np.asarray(data).ravel()]})

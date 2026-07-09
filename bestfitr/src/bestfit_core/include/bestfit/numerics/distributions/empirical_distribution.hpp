@@ -13,7 +13,15 @@
 // ports of the C# source including the boundary and clamping logic.
 // NOTE: set_parameters(vector) throws (mirrors C# NotImplementedException), matching
 // the fact that Empirical is constructed with structured x/p arrays, not a flat vector.
+//
+// X5 ADDITIVE PORT (Numerics EmpiricalDistribution.XTransform @ a2c4dbf): the x-value transform
+// (None / Logarithmic / NormalZ) was previously hardcoded to None. It is now a settable field
+// (default None -> identical prior behavior, all existing fixtures byte-green), applied in the
+// get_y_from_x / get_x_from_y interpolation exactly as OrderedPairedData.BaseInterpolate does.
+// CompositeAnalysis's CreateEmpiricalCDF path builds Mixture/CompetingRisks empirical CDFs with
+// XTransform = Logarithmic, so the two composite distributions need a log-space-capable backing.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -21,6 +29,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bestfit/numerics/data/interpolation/transform.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/normal.hpp"
@@ -60,6 +69,15 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
     EmpiricalTransform probability_transform() const { return p_transform_; }
     void set_probability_transform(EmpiricalTransform t) {
         p_transform_ = t;
+        moments_computed_ = false;
+    }
+
+    /// The x-value transform used for CDF/InverseCDF interpolation (X1-era addition; mirrors
+    /// C# EmpiricalDistribution.XTransform, default None). None reproduces the prior behavior
+    /// exactly, so all existing fixtures stay byte-green.
+    data::Transform x_transform() const { return x_transform_; }
+    void set_x_transform(data::Transform t) {
+        x_transform_ = t;
         moments_computed_ = false;
     }
 
@@ -172,8 +190,18 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         return dFdx < 0.0 ? 0.0 : dFdx;
     }
 
+    // --- Parameter display names (X1; C# EmpiricalDistribution.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"X Values", "P Values"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"X()", "P()"};
+    }
+
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         auto c = std::make_unique<EmpiricalDistribution>(x_, p_, p_transform_);
+        c->x_transform_ = x_transform_;
         return c;
     }
 
@@ -181,6 +209,7 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
     std::vector<double> x_;  // ascending x values
     std::vector<double> p_;  // ascending probability values
     EmpiricalTransform p_transform_ = EmpiricalTransform::NormalZ;
+    data::Transform x_transform_ = data::Transform::None;  // mirrors C# XTransform (default None)
 
     mutable bool moments_computed_ = false;
     mutable double u_[4] = {kNaN, kNaN, kNaN, kNaN};  // [mean, sd, skew, kurt]
@@ -208,6 +237,32 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
             return Normal::standard_cdf(z);
         }
         return z;
+    }
+
+    // Apply the x-value transform (going into the interpolation space). Mirrors the
+    // OrderedPairedData.BaseInterpolate x-transform branch (None / Logarithmic via Tools.Log10 /
+    // NormalZ via Normal.StandardZ).
+    double transform_x(double x) const {
+        switch (x_transform_) {
+            case data::Transform::Logarithmic:
+                return bestfit::numerics::clamped_log10(x);
+            case data::Transform::NormalZ:
+                return Normal::standard_z(x);
+            default:
+                return x;
+        }
+    }
+
+    // Invert the x-value transform (coming out of the interpolation space).
+    double untransform_x(double v) const {
+        switch (x_transform_) {
+            case data::Transform::Logarithmic:
+                return std::pow(10.0, v);
+            case data::Transform::NormalZ:
+                return Normal::standard_cdf(v);
+            default:
+                return v;
+        }
     }
 
     // Binary search: returns index i such that x_[i] <= query < x_[i+1].
@@ -240,11 +295,13 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         if (x <= x_[0]) return p_[0];
         if (x >= x_[n - 1]) return p_[n - 1];
         int i = bisect_x(x);
-        // XTransform = None: no transform on x values.
-        double x1 = x_[i], x2 = x_[i + 1];
+        // Apply the x-transform (transforms are monotonic increasing, so bisect_x on raw x
+        // still selects the correct bracketing interval).
+        double tx = transform_x(x);
+        double x1 = transform_x(x_[i]), x2 = transform_x(x_[i + 1]);
         double y1 = transform_p(p_[i]), y2 = transform_p(p_[i + 1]);
         if (x2 == x1) return untransform_p(y1);
-        double y = y1 + (x - x1) / (x2 - x1) * (y2 - y1);
+        double y = y1 + (tx - x1) / (x2 - x1) * (y2 - y1);
         return untransform_p(y);
     }
 
@@ -260,11 +317,11 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         double y = transform_p(prob);
         int i = bisect_p(prob);
         double y1 = transform_p(p_[i]), y2 = transform_p(p_[i + 1]);
-        double x1 = x_[i], x2 = x_[i + 1];
-        if (y2 == y1) return x1;
+        double x1 = transform_x(x_[i]), x2 = transform_x(x_[i + 1]);
+        if (y2 == y1) return untransform_x(x1);
         double x = x1 + (y - y1) / (y2 - y1) * (x2 - x1);
-        // XTransform = None: no back-transform needed.
-        return x;
+        // Back-transform out of the x interpolation space.
+        return untransform_x(x);
     }
 
     // --- Numerical derivative step size -----------------------------------------------

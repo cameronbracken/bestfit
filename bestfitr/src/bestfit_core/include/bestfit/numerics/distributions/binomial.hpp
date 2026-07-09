@@ -5,6 +5,7 @@
 // InverseCDF via integer walk 0..n. No estimation interfaces upstream.
 // Logic mirrors the C# source method-for-method.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -116,6 +117,15 @@ class Binomial : public UnivariateDistributionBase {
             }
         }
         return k;
+    }
+
+    // --- Parameter display names (X1; C# Binomial.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Probability of Success (p)", "Number of Trials (n)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"p", "n"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

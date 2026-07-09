@@ -5,6 +5,7 @@
 // (desktop / uncertainty-analysis concerns). ILinearMomentEstimation is not implemented
 // in the C# source and is therefore absent here.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -71,6 +72,15 @@ class Logistic : public UnivariateDistributionBase,
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return xi_ + alpha_ * std::log(probability / (1.0 - probability));
+    }
+
+    // --- Parameter display names (X1; C# Logistic.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xCE\xBE)", "Scale (\xCE\xB1)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBE", "\xCE\xB1"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

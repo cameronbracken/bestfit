@@ -6,6 +6,7 @@
 // internal beta. get_parameters() returns the three stored percentile values (flat-param).
 // No estimation interfaces (C# implements none).
 #pragma once
+#include <string>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -119,6 +120,15 @@ class PertPercentile : public UnivariateDistributionBase {
             return beta_.min_val();
         if (std::isnan(beta_.mode())) return beta_.min_val();
         return beta_.inverse_cdf(probability);
+    }
+
+    // --- Parameter display names (X1; C# PertPercentile.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"5%", "50%", "95%"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"5%", "50%", "95%"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

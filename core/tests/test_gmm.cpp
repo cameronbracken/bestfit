@@ -657,7 +657,9 @@ void test_covariance_matrix_guards_and_failure_fallback() {
     CHECK_EQ(zero(1, 1), 0.0);
 }
 
-void test_influence_diagnostics_stubs_throw() {
+// The Influence Diagnostics methods are ported (D4), but require a pointwise moment condition
+// function. This toy GMM supplies none, so each still throws std::invalid_argument.
+void test_influence_diagnostics_still_throw_without_pointwise_conditions() {
     auto gmm = make_toy_gmm_analytic_jacobian();
     CHECK_TRUE(gmm.estimate());
     CHECK_THROWS(gmm.get_observation_influence());
@@ -883,7 +885,7 @@ int main() {
     test_under_identified_with_penalty_estimates();
     test_penalty_is_random_toggle_in_sandwich_meat();
     test_covariance_matrix_guards_and_failure_fallback();
-    test_influence_diagnostics_stubs_throw();
+    test_influence_diagnostics_still_throw_without_pointwise_conditions();
     test_clear_results_resets_state();
     test_is_valid_reports_errors();
     test_clone_copies_configuration();

@@ -3,6 +3,7 @@
 // The continuous Uniform distribution on [min, max]. Logic mirrors the C# source
 // method-for-method. Uniform has no parameter-estimation methods upstream.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -73,6 +74,15 @@ class Uniform : public UnivariateDistributionBase {
         if (!parameters_valid_)
             throw std::out_of_range("The min cannot be greater than the max.");
         return min_ + probability * (max_ - min_);
+    }
+
+    // --- Parameter display names (X1; C# Uniform.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Min", "Max"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"Min", "Max"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

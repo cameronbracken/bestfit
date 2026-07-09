@@ -5,6 +5,7 @@
 // InverseCDF via integer search near floor(λ). Mirrors the C# source method-for-method.
 // No estimation interfaces are implemented upstream.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -96,6 +97,15 @@ class Poisson : public UnivariateDistributionBase {
             ++k;
 
         return static_cast<double>(k);
+    }
+
+    // --- Parameter display names (X1; C# Poisson.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Rate (\xCE\xBB)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBB"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

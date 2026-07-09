@@ -3,6 +3,7 @@
 // Chi-Squared (χ²) distribution with degrees of freedom ν. Logic mirrors the C# source
 // method-for-method. The WPF helpers are not ported (desktop concerns).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -97,6 +98,15 @@ class ChiSquared : public UnivariateDistributionBase {
         if (!parameters_valid_) throw std::invalid_argument("ChiSquared: invalid parameters");
         double v = static_cast<double>(dof_);
         return sf_chi2::inverse_lower_incomplete(v / 2.0, probability) * 2.0;
+    }
+
+    // --- Parameter display names (X1; C# ChiSquared.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Degrees of Freedom (\xCE\xBD)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBD"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

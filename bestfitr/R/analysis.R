@@ -400,3 +400,295 @@ estimation_diagnostics <- function(data, distribution, sampler = "DEMCz", iterat
     as.integer(seed), as.integer(thinning_interval), as.integer(thin_every)
   )
 }
+
+# --- X11: the five remaining analyses + BootstrapAnalysis + predictive checks ----------------
+# Each wrapper assembles the construct list the shared C++ runner
+# (bestfit::analyses::support::run_extended_analysis) understands and calls the single
+# bf_analysis_extended_run_ dispatch. The Python twins (bestfitpy.analysis) build the identical
+# construct, so a seeded call returns identical numbers in either language.
+
+.bf_extended_run <- function(target, construct, datasets) {
+  ns <- asNamespace("bestfitr")
+  construct_json <- as.character(jsonlite::toJSON(construct, auto_unbox = TRUE, digits = I(17)))
+  datasets_json <- as.character(jsonlite::toJSON(datasets, auto_unbox = TRUE, digits = I(17)))
+  ns$bf_analysis_extended_run_(target, construct_json, datasets_json)
+}
+
+#' Composite frequency analysis
+#'
+#' Combine several fitted univariate frequency analyses (one per `families` entry, each fit to
+#' `data` by a Bayesian MCMC) into a single composite frequency curve via competing-risks, mixture,
+#' or model-averaging aggregation. Wraps the shared C++ `CompositeAnalysis`.
+#'
+#' @param data numeric vector of observations shared by every child analysis.
+#' @param families character vector of child distribution family names (one child analysis each).
+#' @param composite_type `"CompetingRisks"` (default), `"Mixture"`, or `"ModelAverage"`.
+#' @param average_method model-averaging criterion when `composite_type = "ModelAverage"`:
+#'   `"AIC"` (default), `"BIC"`, `"DIC"`, `"WAIC"`, `"LOOIC"`, `"Equal"`, or `"RMSE"`.
+#' @inheritParams univariate_analysis
+#' @return A named list: `parameters`, `mode_curve`, `mean_curve`, `lower_ci`, `upper_ci`, and the
+#'   scalars `aic`, `bic`, `dic`, `rmse`.
+#' @export
+composite_analysis <- function(data, families, composite_type = "CompetingRisks",
+                               average_method = "AIC", sampler = "DEMCz", iterations = 3000L,
+                               output_length = 10000L, credible_level = 0.90, seed = 12345L,
+                               exceedance_probabilities = NULL, thinning_interval = -1L) {
+  construct <- list(
+    model = list(families = as.list(as.character(families)), dataset = "data"),
+    composite_type = as.character(composite_type), average_method = as.character(average_method),
+    sampler = as.character(sampler), iterations = as.integer(iterations),
+    output_length = as.integer(output_length), credible_level = as.double(credible_level),
+    seed = as.integer(seed), thinning_interval = as.integer(thinning_interval)
+  )
+  if (!is.null(exceedance_probabilities)) {
+    construct$exceedance_probabilities <- as.double(exceedance_probabilities)
+  }
+  .bf_extended_run("CompositeAnalysis", construct, list(data = as.double(data)))
+}
+
+#' Hierarchical spatial-GEV frequency analysis
+#'
+#' Fit the hierarchical spatial-GEV model over a set of gauged sites with a Bayesian MCMC and
+#' return the regional (site-averaged) frequency curve plus per-site GEV/quantile credible bands.
+#' Wraps the shared C++ `SpatialGEVAnalysis`.
+#'
+#' @param coordinates numeric matrix (or list of length-2 vectors), one `[x, y]` row per site.
+#' @param at_site_data numeric matrix (or list of rows), `[observations x sites]` at-site maxima.
+#' @param cross_validation logical; run leave-one-site-out cross-validation (default `FALSE`).
+#' @inheritParams univariate_analysis
+#' @param number_of_chains number of MCMC chains (default `4`).
+#' @return A named list: the regional `parameters`/`mode_curve`/`mean_curve`/`lower_ci`/`upper_ci`
+#'   + `aic`/`bic`/`dic`, `site_count`, the per-site `site_location_mean`/`_lower`/`_upper` (and the
+#'   scale/shape analogues), site-0 `site0_quantile_mean`/`_lower`/`_upper`/`_mode`, and (when
+#'   `cross_validation`) `cv_site_prediction_errors`/`cv_site_rmse`/`cv_site_bias`/`cv_mae`/
+#'   `cv_rmse`/`cv_mean_bias`.
+#' @export
+spatial_gev_analysis <- function(coordinates, at_site_data, cross_validation = FALSE,
+                                 sampler = "DEMCz", iterations = 3000L, output_length = 10000L,
+                                 credible_level = 0.90, seed = 12345L, number_of_chains = 4L,
+                                 exceedance_probabilities = NULL, thinning_interval = -1L) {
+  to_rows <- function(m) {
+    if (is.matrix(m)) lapply(seq_len(nrow(m)), function(i) as.double(m[i, ])) else lapply(m, as.double)
+  }
+  construct <- list(
+    model = list(
+      type = "spatial_gev", coordinates = to_rows(coordinates), at_site_data = to_rows(at_site_data)
+    ),
+    cross_validation = as.logical(cross_validation), sampler = as.character(sampler),
+    iterations = as.integer(iterations), output_length = as.integer(output_length),
+    number_of_chains = as.integer(number_of_chains), credible_level = as.double(credible_level),
+    seed = as.integer(seed), thinning_interval = as.integer(thinning_interval)
+  )
+  if (!is.null(exceedance_probabilities)) {
+    construct$exceedance_probabilities <- as.double(exceedance_probabilities)
+  }
+  .bf_extended_run("SpatialGEVAnalysis", construct, list(unused = 0))
+}
+
+# Internal: assemble the shared `bivariate` model spec (two fixed marginals + a copula).
+.bf_bivariate_model <- function(marginal_x_family, marginal_x_data, marginal_x_parameters,
+                                marginal_y_family, marginal_y_data, marginal_y_parameters,
+                                copula, estimation_method) {
+  list(
+    type = "bivariate", copula = as.character(copula),
+    estimation_method = as.character(estimation_method),
+    marginal_x = list(
+      family = as.character(marginal_x_family), data = as.double(marginal_x_data),
+      parameter_values = as.double(marginal_x_parameters)
+    ),
+    marginal_y = list(
+      family = as.character(marginal_y_family), data = as.double(marginal_y_data),
+      parameter_values = as.double(marginal_y_parameters)
+    )
+  )
+}
+
+#' Bivariate (copula) joint-exceedance frequency analysis
+#'
+#' Fit a copula over two fixed univariate marginals with a Bayesian MCMC and return the
+#' AND-joint-exceedance mode/mean curve + credible band across an XY ordinate grid. Wraps the
+#' shared C++ `BivariateAnalysis`.
+#'
+#' @param marginal_x_family,marginal_y_family marginal distribution family names.
+#' @param marginal_x_data,marginal_y_data numeric vectors of the marginal samples.
+#' @param marginal_x_parameters,marginal_y_parameters numeric fixed marginal parameter vectors.
+#' @param copula copula family name (e.g. `"Normal"`, `"Clayton"`, `"Gumbel"`).
+#' @param estimation_method copula estimation method (default `"InferenceFromMargins"`).
+#' @param xy_x,xy_y numeric vectors of the (x, y) ordinate grid at which to evaluate the joint curve.
+#' @inheritParams univariate_analysis
+#' @param number_of_chains number of MCMC chains (default `4`).
+#' @return A named list: `parameters`, `mode_curve`, `mean_curve`, `lower_ci`, `upper_ci`, and the
+#'   scalars `aic`, `bic`, `dic`, `rmse` (one curve entry per XY ordinate).
+#' @export
+bivariate_analysis <- function(marginal_x_family, marginal_x_data, marginal_x_parameters,
+                               marginal_y_family, marginal_y_data, marginal_y_parameters, xy_x, xy_y,
+                               copula = "Normal", estimation_method = "InferenceFromMargins",
+                               sampler = "DEMCz", iterations = 3000L, output_length = 10000L,
+                               credible_level = 0.90, seed = 12345L, number_of_chains = 4L,
+                               thinning_interval = -1L) {
+  construct <- list(
+    model = .bf_bivariate_model(
+      marginal_x_family, marginal_x_data, marginal_x_parameters,
+      marginal_y_family, marginal_y_data, marginal_y_parameters, copula, estimation_method
+    ),
+    xy_x = as.double(xy_x), xy_y = as.double(xy_y), sampler = as.character(sampler),
+    iterations = as.integer(iterations), output_length = as.integer(output_length),
+    number_of_chains = as.integer(number_of_chains), credible_level = as.double(credible_level),
+    seed = as.integer(seed), thinning_interval = as.integer(thinning_interval)
+  )
+  .bf_extended_run("BivariateAnalysis", construct, list(unused = 0))
+}
+
+#' Coincident-frequency analysis
+#'
+#' Combine a fitted bivariate (copula) analysis with an M x N response surface `Z = f(X, Y)` to
+#' derive the annual-exceedance-probability curve of `Z` via the conditional-frequency law of total
+#' probability. Wraps the shared C++ `CoincidentFrequencyAnalysis` (which internally fits the
+#' bivariate analysis from the same marginal/copula spec).
+#'
+#' @inheritParams bivariate_analysis
+#' @param x_values,y_values numeric ascending vectors of the primary (X) / secondary (Y) ordinates.
+#' @param response numeric M x N matrix of the response surface `Z[i, j] = f(x_i, y_j)`.
+#' @param number_of_bins number of Z output bins (default `50`).
+#' @return A named list: `z_output_values` (the Z bins), `mode_curve`, `mean_curve`, `lower_ci`,
+#'   `upper_ci` (the AEP curve + credible band, one entry per Z bin).
+#' @export
+coincident_frequency_analysis <- function(marginal_x_family, marginal_x_data, marginal_x_parameters,
+                                          marginal_y_family, marginal_y_data, marginal_y_parameters,
+                                          x_values, y_values, response, number_of_bins = 50L,
+                                          copula = "Normal",
+                                          estimation_method = "InferenceFromMargins",
+                                          sampler = "DEMCz", iterations = 3000L,
+                                          output_length = 10000L, credible_level = 0.90,
+                                          seed = 12345L, number_of_chains = 4L,
+                                          thinning_interval = -1L) {
+  response <- as.matrix(response)
+  construct <- list(
+    model = .bf_bivariate_model(
+      marginal_x_family, marginal_x_data, marginal_x_parameters,
+      marginal_y_family, marginal_y_data, marginal_y_parameters, copula, estimation_method
+    ),
+    x_values = as.double(x_values), y_values = as.double(y_values),
+    response_rows = as.integer(nrow(response)), response_cols = as.integer(ncol(response)),
+    response = as.double(as.vector(t(response))), number_of_bins = as.integer(number_of_bins),
+    sampler = as.character(sampler), iterations = as.integer(iterations),
+    output_length = as.integer(output_length), number_of_chains = as.integer(number_of_chains),
+    credible_level = as.double(credible_level), seed = as.integer(seed),
+    thinning_interval = as.integer(thinning_interval)
+  )
+  .bf_extended_run("CoincidentFrequencyAnalysis", construct, list(unused = 0))
+}
+
+#' Stage-discharge rating-curve frequency analysis
+#'
+#' Fit a stage-discharge rating curve with a Bayesian MCMC and return the predicted-discharge
+#' mode/mean curve + credible band across a stage grid. Wraps the shared C++ `RatingCurveAnalysis`.
+#'
+#' @param stage,discharge numeric vectors of date-aligned stage / discharge observations.
+#' @param segments number of rating-curve segments (default `1`).
+#' @param stage_bins number of stage grid points (default `NULL`, keeps the data-derived default).
+#' @param min_stage,max_stage optional stage-grid bounds (default `NULL`, data-derived).
+#' @inheritParams univariate_analysis
+#' @param number_of_chains number of MCMC chains (default `4`).
+#' @return A named list: `parameters`, `mode_curve`, `mean_curve`, `lower_ci`, `upper_ci`, `aic`,
+#'   `bic`, `dic`, `rmse`.
+#' @export
+rating_curve_analysis <- function(stage, discharge, segments = 1L, stage_bins = NULL,
+                                  min_stage = NULL, max_stage = NULL, sampler = "DEMCz",
+                                  iterations = 3000L, output_length = 10000L, credible_level = 0.90,
+                                  seed = 12345L, number_of_chains = 4L, thinning_interval = -1L) {
+  construct <- list(
+    model = list(
+      type = "rating_curve", segments = as.integer(segments), stage = as.double(stage),
+      discharge = as.double(discharge)
+    ),
+    sampler = as.character(sampler), iterations = as.integer(iterations),
+    output_length = as.integer(output_length), number_of_chains = as.integer(number_of_chains),
+    credible_level = as.double(credible_level), seed = as.integer(seed),
+    thinning_interval = as.integer(thinning_interval)
+  )
+  if (!is.null(stage_bins)) construct$stage_bins <- as.integer(stage_bins)
+  if (!is.null(min_stage)) construct$min_stage <- as.double(min_stage)
+  if (!is.null(max_stage)) construct$max_stage <- as.double(max_stage)
+  .bf_extended_run("RatingCurveAnalysis", construct, list(unused = 0))
+}
+
+#' Parametric bootstrap confidence bands for a distribution
+#'
+#' Fit `distribution` to `data`, then resample it `replications` times to derive percentile
+#' confidence bands on the quantile curve. Wraps the shared C++ `BootstrapAnalysis` (Numerics).
+#'
+#' @param data numeric vector of observations.
+#' @param distribution distribution family name to fit + bootstrap.
+#' @param estimation_method fit method: `"MaximumLikelihood"` (default), `"MethodOfMoments"`, or
+#'   `"MethodOfLinearMoments"`.
+#' @param probabilities numeric vector of non-exceedance probabilities at which to tabulate the
+#'   quantile curve + confidence band.
+#' @param sample_size bootstrap sample size (default `NULL`, uses `length(data)`).
+#' @param replications number of bootstrap replications (default `1000`).
+#' @param seed PRNG seed for the bootstrap.
+#' @param alpha significance level for the two-sided percentile band (default `0.1` -> 90% band).
+#' @return A named list: `parameters` (fitted), `mode_curve` (fitted-distribution quantiles),
+#'   `mean_curve`, `lower_ci`, `upper_ci` (percentile band, one entry per probability).
+#' @export
+bootstrap_analysis <- function(data, distribution, probabilities,
+                               estimation_method = "MaximumLikelihood", sample_size = NULL,
+                               replications = 1000L, seed = 12345L, alpha = 0.1) {
+  construct <- list(
+    model = list(family = as.character(distribution), dataset = "data"),
+    estimation_method = as.character(estimation_method), replications = as.integer(replications),
+    seed = as.integer(seed), alpha = as.double(alpha), probabilities = as.double(probabilities)
+  )
+  if (!is.null(sample_size)) construct$sample_size <- as.integer(sample_size)
+  .bf_extended_run("BootstrapAnalysis", construct, list(data = as.double(data)))
+}
+
+#' Prior predictive check
+#'
+#' Sample parameter sets from a model's priors, simulate a dataset per draw, and summarize the
+#' resulting predictive distribution. Wraps the shared C++ `PriorPredictiveCheck`.
+#'
+#' @param data numeric vector used to build the model (its priors are the check's target).
+#' @param distribution distribution family name.
+#' @param number_of_draws number of prior draws (default `1000`).
+#' @param sample_size simulated dataset size per draw (default `NULL`, uses `length(data)`).
+#' @param seed PRNG seed.
+#' @return A named list: `number_of_valid_draws` and the predictive quantile summaries
+#'   `summary_mean_quantiles`, `summary_sd_quantiles`, `summary_min_quantiles`,
+#'   `summary_max_quantiles` (each `[2.5, 25, 50, 75, 97.5]%`).
+#' @export
+prior_predictive_check <- function(data, distribution, number_of_draws = 1000L, sample_size = NULL,
+                                   seed = 12345L) {
+  construct <- list(
+    model = list(family = as.character(distribution), dataset = "data"),
+    number_of_draws = as.integer(number_of_draws), seed = as.integer(seed)
+  )
+  if (!is.null(sample_size)) construct$sample_size <- as.integer(sample_size)
+  .bf_extended_run("PriorPredictiveCheck", construct, list(data = as.double(data)))
+}
+
+#' Posterior predictive check
+#'
+#' Fit a Bayesian MCMC over a model, draw replicate datasets from the posterior, and compute the
+#' common posterior predictive p-values (mean / SD / skewness / min / max) plus a misfit flag.
+#' Wraps the shared C++ `PosteriorPredictiveCheck`.
+#'
+#' @param data numeric vector of observations (also the observed data for the p-value comparison).
+#' @param distribution distribution family name.
+#' @param number_of_replicates number of posterior replicate datasets (default `1000`).
+#' @inheritParams univariate_analysis
+#' @return A named list: `number_of_replicates`, `mean_p_value`, `sd_p_value`, `skewness_p_value`,
+#'   `min_p_value`, `max_p_value`, and `has_misfit` (`1` when any p-value is extreme, else `0`).
+#' @export
+posterior_predictive_check <- function(data, distribution, sampler = "DEMCz", iterations = 3000L,
+                                       output_length = 10000L, seed = 12345L,
+                                       number_of_replicates = 1000L, thinning_interval = -1L) {
+  construct <- list(
+    model = list(family = as.character(distribution), dataset = "data"),
+    sampler = as.character(sampler), iterations = as.integer(iterations),
+    output_length = as.integer(output_length), seed = as.integer(seed),
+    number_of_replicates = as.integer(number_of_replicates),
+    thinning_interval = as.integer(thinning_interval)
+  )
+  .bf_extended_run("PosteriorPredictiveCheck", construct, list(data = as.double(data)))
+}

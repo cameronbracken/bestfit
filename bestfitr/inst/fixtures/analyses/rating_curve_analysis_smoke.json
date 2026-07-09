@@ -1,0 +1,70 @@
+{
+  "target": "RatingCurveAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/RatingCurve/RatingCurveAnalysis.cs @ fc28c0c -- X12 structural oracle. RatingCurveAnalysis drives a seeded DEMCzs MCMC over a single-segment BaRatin RatingCurve then builds the predicted-discharge mode/mean curve + credible band over 20 Stratify stage bins. curve_length == 20 (mode_curve length == stage_bins). The mode curve is deterministic Predict at the MAP, but the MAP itself comes from the seeded chain. The seeded DEMCzs posterior is CHAOTICALLY sensitive across the C# and C++ MersenneTwister streams: the deterministic model log-likelihood + MLE match C#/C++ to rel 1e-8 (proven by the model_estimation fixtures), but the 300-iteration seeded chain MAP diverges at ~1e-6 (model-density ULP differences amplified over the chain -- inherent chaotic sensitivity, NOT a port bug; see docs/upstream-csharp-issues.md). Per the chaotic-sensitivity rule the posterior-dependent curve is NOT pinned (never oracle_skip-masked, never a loosened tolerance); the fixture asserts the deterministic structural invariants that reproduce bit-identically across C#/C++/R/Python. Emitter-verified against the real RMC.BestFit class via tools/oracle_emitter.",
+  "datasets": {
+    "unused": [
+      0
+    ]
+  },
+  "cases": [
+    {
+      "name": "single_segment_demczs",
+      "construct": {
+        "model": {
+          "type": "rating_curve",
+          "segments": 1,
+          "stage": [
+            1.0,
+            1.2,
+            1.5,
+            1.8,
+            2.0,
+            2.3,
+            2.6,
+            2.9,
+            3.1,
+            3.4,
+            3.7,
+            4.0,
+            4.3,
+            4.6,
+            5.0
+          ],
+          "discharge": [
+            5.0,
+            7.1,
+            11.0,
+            16.2,
+            20.5,
+            28.0,
+            37.1,
+            47.9,
+            55.6,
+            68.0,
+            82.3,
+            98.1,
+            115.4,
+            134.8,
+            160.2
+          ]
+        },
+        "stage_bins": 20,
+        "sampler": "DEMCzs",
+        "iterations": 300,
+        "output_length": 400,
+        "number_of_chains": 4,
+        "credible_level": 0.9,
+        "seed": 12345,
+        "thinning_interval": 1
+      },
+      "assertions": [
+        {
+          "method": "curve_length",
+          "expected": 20,
+          "mode": "equal"
+        }
+      ]
+    }
+  ]
+}

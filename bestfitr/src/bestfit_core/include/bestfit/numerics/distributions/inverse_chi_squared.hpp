@@ -4,6 +4,7 @@
 // Mirrors the C# source method-for-method. No estimation interfaces upstream.
 // CDF = UpperIncomplete(ν/2, ν·σ/(2x)); InverseCDF = ν·σ / (2·InverseUpperIncomplete(ν/2, p)).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -113,6 +114,15 @@ class InverseChiSquared : public UnivariateDistributionBase {
         double v  = static_cast<double>(dof_);
         double t2 = sigma_;
         return v * t2 / (2.0 * sf_ics::inverse_upper_incomplete(v / 2.0, probability));
+    }
+
+    // --- Parameter display names (X1; C# InverseChiSquared.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Degrees of Freedom (\xCE\xBD)", "Scale (\xCF\x83)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBD", "\xCF\x83"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

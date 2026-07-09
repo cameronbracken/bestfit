@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "bestfit/analyses/univariate/competing_risk_analysis.hpp"
 #include "bestfit/analyses/univariate/mixture_analysis.hpp"
 #include "bestfit/analyses/univariate/point_process_analysis.hpp"
+#include "bestfit/analyses/support/analysis_runner.hpp"
 #include "bestfit/analyses/univariate/univariate_analysis.hpp"
 #include "bestfit/estimation/bayesian_analysis.hpp"
 #include "bestfit/estimation/generalized_method_of_moments.hpp"
@@ -1888,6 +1890,9 @@ namespace an = bestfit::analyses;
 static an::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
     if (s == "MultivariateNormal") return an::UncertaintyMethod::MultivariateNormal;
     if (s == "Bootstrap") return an::UncertaintyMethod::Bootstrap;
+    // X12: the two B17C uncertainty paths un-gated in the core by X8/X9.
+    if (s == "LinkedMultivariateNormal") return an::UncertaintyMethod::LinkedMultivariateNormal;
+    if (s == "BiasCorrectedBootstrap") return an::UncertaintyMethod::BiasCorrectedBootstrap;
     throw std::runtime_error("unsupported/ deferred uncertainty method: " + s);
 }
 
@@ -1929,6 +1934,10 @@ struct AnalysisResult {
     double prior_to_data_ratio = std::numeric_limits<double>::quiet_NaN();
     double is_prior_influential = std::numeric_limits<double>::quiet_NaN();
     double mean_prior_precision_share = std::numeric_limits<double>::quiet_NaN();
+
+    // --- X11 extended-analysis slice (the five new analyses + bootstrap + predictive checks).
+    // Populated only by the run_extended_analysis targets; every other target leaves it empty. ---
+    bestfit::analyses::support::ExtendedAnalysisResult ext;
 };
 
 // Applies the shared Bayesian MCMC knobs from a construct object (D5; mirrors the R/Python
@@ -2124,6 +2133,33 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         return r;
     }
 
+    // --- X11 extended analyses (composite / spatial_gev / bivariate / coincident / rating_curve /
+    // bootstrap / prior + posterior predictive) through the shared run_extended_analysis path. The
+    // C++ runner re-serializes the nlohmann construct + datasets to strings and calls the same
+    // json_lite-parsing entry point the cpp11 / pybind bindings call, so all three agree. These
+    // targets carry their own model shapes (inline spatial/rating/bivariate arrays, child family
+    // lists), so they are handled BEFORE the shared model_spec/dataset extraction below. ---
+    static const std::set<std::string> kExtendedTargets = {
+        "CompositeAnalysis",           "SpatialGEVAnalysis",  "BivariateAnalysis",
+        "CoincidentFrequencyAnalysis", "RatingCurveAnalysis", "BootstrapAnalysis",
+        "PriorPredictiveCheck",        "PosteriorPredictiveCheck"};
+    if (kExtendedTargets.count(target) > 0) {
+        r.ext = bestfit::analyses::support::run_extended_analysis(target, construct.dump(),
+                                                                 datasets.dump());
+        // Mirror the shared UncertaintyAnalysisResults surface into the flat fields so the base
+        // accessors (parameter / mode_curve / aic / ...) read the extended result too.
+        r.parameters = r.ext.parameters;
+        r.mode_curve = r.ext.mode_curve;
+        r.mean_curve = r.ext.mean_curve;
+        r.lower_ci = r.ext.lower_ci;
+        r.upper_ci = r.ext.upper_ci;
+        r.aic = r.ext.aic;
+        r.bic = r.ext.bic;
+        r.dic = r.ext.dic;
+        r.rmse = r.ext.rmse;
+        return r;
+    }
+
     const json& model_spec = construct["model"];
     std::vector<double> data = resolve_dataset(model_spec["dataset"].get<std::string>());
 
@@ -2298,6 +2334,29 @@ static double dispatch_analysis(const AnalysisResult& r, const std::string& m, c
     if (m == "prior_to_data_ratio") return r.prior_to_data_ratio;
     if (m == "is_prior_influential") return r.is_prior_influential;
     if (m == "mean_prior_precision_share") return r.mean_prior_precision_share;
+    // X11 extended analyses.
+    if (m == "z_output") return r.ext.z_output_values.at(idx(0));
+    if (m == "z_output_length") return static_cast<double>(r.ext.z_output_values.size());
+    if (m == "site_count") return static_cast<double>(r.ext.site_count);
+    if (m == "site_location_mean") return r.ext.site_location_mean.at(idx(0));
+    if (m == "site_scale_mean") return r.ext.site_scale_mean.at(idx(0));
+    if (m == "site_shape_mean") return r.ext.site_shape_mean.at(idx(0));
+    if (m == "site_quantile_mean") return r.ext.site0_quantile_mean.at(idx(0));
+    if (m == "cv_mae") return r.ext.cv_mae;
+    if (m == "cv_rmse") return r.ext.cv_rmse;
+    if (m == "cv_mean_bias") return r.ext.cv_mean_bias;
+    if (m == "mean_p_value") return r.ext.mean_p_value;
+    if (m == "sd_p_value") return r.ext.sd_p_value;
+    if (m == "skewness_p_value") return r.ext.skewness_p_value;
+    if (m == "min_p_value") return r.ext.min_p_value;
+    if (m == "max_p_value") return r.ext.max_p_value;
+    if (m == "predictive_replicates") return static_cast<double>(r.ext.number_of_replicates);
+    if (m == "has_misfit") return r.ext.has_misfit;
+    if (m == "number_of_valid_draws") return static_cast<double>(r.ext.number_of_valid_draws);
+    if (m == "summary_mean_quantile") return r.ext.summary_mean_quantiles.at(idx(0));
+    if (m == "summary_sd_quantile") return r.ext.summary_sd_quantiles.at(idx(0));
+    if (m == "summary_min_quantile") return r.ext.summary_min_quantiles.at(idx(0));
+    if (m == "summary_max_quantile") return r.ext.summary_max_quantiles.at(idx(0));
     throw std::runtime_error("unknown analysis fixture method: " + m);
 }
 

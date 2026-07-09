@@ -13,6 +13,7 @@
 // type() delegates to the base distribution (mirrors C# `_baseDist.Type`).
 // No IEstimation / ILinearMomentEstimation (TruncatedDistribution does not implement them in C#).
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -124,6 +125,22 @@ class TruncatedDistribution : public UnivariateDistributionBase {
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
         return base_dist_->inverse_cdf(probability * (f_max_ - f_min_) + f_min_);
+    }
+
+    // --- Parameter display names (X1; C# TruncatedDistribution.cs ParametersToString col0 +
+    // ParameterNamesShortForm): the base distribution's names followed by "Min"/"Max" (C#
+    // 78-107). ---
+    std::vector<std::string> parameter_names() const override {
+        std::vector<std::string> names = base_dist_->parameter_names();
+        names.push_back("Min");
+        names.push_back("Max");
+        return names;
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        std::vector<std::string> names = base_dist_->parameter_names_short_form();
+        names.push_back("Min");
+        names.push_back("Max");
+        return names;
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

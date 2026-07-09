@@ -9,6 +9,7 @@
 // IBootstrappable desktop interface is not ported; IMaximumLikelihoodEstimation is wired in
 // Phase 2 (bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp).
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -100,6 +101,15 @@ class Pert : public UnivariateDistributionBase,
         if (almost_equals(min_, max_) && almost_equals(min_, mode_)) return min_;
         if (std::isnan(mode_)) return min_;
         return beta_.inverse_cdf(probability);
+    }
+
+    // --- Parameter display names (X1; C# Pert.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Min (a)", "Most Likely (c)", "Max (b)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"a", "c", "b"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

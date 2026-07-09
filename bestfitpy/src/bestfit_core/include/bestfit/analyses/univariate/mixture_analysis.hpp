@@ -29,33 +29,24 @@
 //      cloned distributions are OWNED by the analysis in `distribution_cache_`.
 //   5. RUN ERROR REPORTING. With events dropped, `run()` lets exceptions propagate.
 //
-//   6. THE MANUAL EM-SEEDING PATH IS NOT WIRED (primary port deviation). The C# `RunAsync`
-//      (lines 360-486) does NOT let `BayesianAnalysis.estimate()` auto-initialize the sampler.
-//      Instead it calls `BayesianAnalysis.SetUpSampler()`, grabs `BayesianAnalysis.Sampler!`,
-//      sets `sampler.Initialize = MCMCSampler.InitializationType.UserDefined`, runs
+//   6. THE MANUAL EM-SEEDING PATH IS NOW WIRED (X2). The C# `RunAsync` (lines 360-486) does NOT
+//      let `BayesianAnalysis.estimate()` auto-initialize the sampler. Instead it calls
+//      `BayesianAnalysis.SetUpSampler()`, grabs `BayesianAnalysis.Sampler!`, sets
+//      `sampler.Initialize = MCMCSampler.InitializationType.UserDefined`, runs
 //      `MixtureModel.ExpectationMaximization(...)` for an initial (parameters, covariance), draws
 //      `InitialIterations` proposals from a Dirichlet (weights) + MultivariateNormal (component
-//      parameters) prior-predictive, and SEEDS the sampler by MUTATING `sampler.PopulationMatrix`
-//      (`.Add(...)`) and `sampler.MarkovChains[i]` (`.Add(...)`); on ANY exception during this
-//      block the C# falls back to `sampler.Initialize = Randomize`. This manual seeding CANNOT be
-//      ported against the current oracle-locked Phase-3 MCMC API without editing it, which the D1
-//      task scope forbids (additive-only; D1 adds only new headers). Two hard blocks:
-//        (a) `MCMCSampler` exposes `population_matrix()` / `markov_chains()` as CONST accessors
-//            only (mcmc_sampler.hpp) -- there is no public mutator to `.Add(...)` a seeded
-//            ParameterSet, and the backing fields are `protected`.
-//        (b) The ported `BayesianAnalysis::estimate()` UNCONDITIONALLY rebuilds the sampler via
-//            `set_up_sampler()` immediately before `sample()` (bayesian_analysis.hpp scope
-//            decision 2) rather than reusing an externally-configured `Sampler`, so any external
-//            seeding would be discarded even if it could be written.
-//      Consequently `run()` here takes the C#'s OWN documented fallback branch: it drives the
-//      standard `bayesian_analysis_.estimate()` path (random chain initialization), which is
-//      exactly the state the C# lands in when its EM-seeding block throws. The EM machinery
-//      itself (`MixtureModel::expectation_maximization`) is fully ported and independently tested
-//      in the models layer; only its use as a SAMPLER SEED is unavailable at this API boundary.
-//      Re-wiring the seed is tracked as a follow-up (needs a mutable seeding hook on the ported
-//      MCMCSampler / BayesianAnalysis, which is out of D1's additive-only scope).
+//      parameters) prior-predictive, and SEEDS the sampler by adding to `sampler.PopulationMatrix`
+//      and `sampler.MarkovChains[i]`; on ANY exception during this block the C# falls back to
+//      `sampler.Initialize = Randomize`. `run()` below reproduces this exactly, using the X2
+//      additive seeding hooks: `MCMCSampler::seed_population(...)` / `seed_chain(...)` (which
+//      survive `reset()`) and `BayesianAnalysis::estimate(/*set_up=*/false)` (mirroring the C#
+//      `RunAsync(..., false)` that reuses the already-seeded sampler rather than rebuilding it).
+//      On any throw in the seed block the sampler falls back to `Randomize` -- byte-identical to
+//      the C#'s init-failure branch (and to the pre-X2 port's fallback-only behavior).
 #pragma once
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -68,7 +59,13 @@
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/data/probability_ordinates.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
+#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
+#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
+#include "bestfit/numerics/sampling/mcmc/base/mcmc_sampler.hpp"
+#include "bestfit/numerics/sampling/mersenne_twister.hpp"
 
 namespace bestfit::analyses {
 
@@ -132,14 +129,10 @@ class MixtureAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     void clear_frequency_analysis_results() { analysis_results_.reset(); }
 
     // C# `RunAsync` (C# 325), synchronous. Validate guard -> prepare input data
-    // (ProcessThresholdSeries + ProcessQuantilePriors) -> BayesianAnalysis.estimate() ->
-    // IF estimated: create frequency results -> IsEstimated mirrors the inner fit.
-    //
-    // NOTE (deviation 6, see the file header): the C# manual EM-seeding of the sampler
-    // (SetUpSampler / Sampler / Initialize = UserDefined + population/chain seeding) is NOT
-    // wired here -- the ported MCMC API exposes no mutable seeding hook and estimate() rebuilds
-    // the sampler unconditionally. This takes the C#'s own init-failure fallback: the standard
-    // random-initialized estimate() path.
+    // (ProcessThresholdSeries + ProcessQuantilePriors) -> set up + EM-seed the sampler ->
+    // BayesianAnalysis.estimate(set_up=false) -> IF estimated: create frequency results ->
+    // IsEstimated mirrors the inner fit. The EM-seed of the sampler (C# 366-486) is wired via
+    // the X2 additive seeding hooks (see the file header, deviation 6).
     void run() override {
         if (!validate().is_valid) {
             throw std::runtime_error(
@@ -153,10 +146,28 @@ class MixtureAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         mixture_distribution_->data_frame().process_threshold_series();
         mixture_distribution_->process_quantile_priors();
 
-        // Run the Bayesian analysis. (The C# manual EM-seed of the sampler -- C# 366-486 -- is
-        // not portable against the current MCMC API; see deviation 6. This is the C# init-
-        // failure fallback branch: standard random-initialized estimation.)
-        bayesian_analysis_.estimate();
+        // Set up the sampler with EM initialization (C# 366-368).
+        bayesian_analysis_.set_up_sampler();
+        auto* sampler = bayesian_analysis_.sampler();
+        if (sampler != nullptr) {
+            using MCMCSampler = bestfit::numerics::sampling::mcmc::MCMCSampler;
+            sampler->initialize = MCMCSampler::InitializationType::UserDefined;
+
+            // EM-seed the sampler's population + chains (C# 372-483; Task.Run -> serial). On
+            // ANY throw during initialization, fall back to Randomize (C# 478-482) -- the
+            // C#'s own init-failure branch. The exception is swallowed (Debug.WriteLine ->
+            // silent no-throw per the standing rule).
+            try {
+                seed_sampler_from_em(*sampler);
+            } catch (...) {
+                sampler->clear_seed();
+                sampler->initialize = MCMCSampler::InitializationType::Randomize;
+            }
+        }
+
+        // Run the Bayesian analysis WITHOUT rebuilding the seeded sampler (C# 484
+        // `RunAsync(..., false)`).
+        bayesian_analysis_.estimate(/*set_up=*/false);
 
         // Post-process.
         if (bayesian_analysis_.is_estimated()) {
@@ -328,6 +339,125 @@ class MixtureAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     }
 
    private:
+    // EM-seeds `sampler`'s population + first-N chains (C# 374-477). Runs
+    // ExpectationMaximization for an initial (parameters, covariance), builds a Dirichlet
+    // proposal for the weights + a MultivariateNormal proposal for the component parameters,
+    // draws `InitialIterations` prior-predictive proposals (retry-up-to-20 on invalid MVN
+    // draws; throw "Bad parameters" past 20), seeds them into the population, then seeds the
+    // best `NumberOfChains` sets (by descending fitness) as the per-chain initial states. Uses
+    // the SAME PRNG cadence as C#: one `prng.next()` for the Dirichlet draw, then the
+    // `NextDoubles(1, Np)` cadence (one `prng.next()`-seeded fresh MT per dimension) for the
+    // MVN draw. Any throw propagates to `run()`'s catch (-> Randomize fallback).
+    void seed_sampler_from_em(bestfit::numerics::sampling::mcmc::MCMCSampler& sampler) {
+        namespace dists = bestfit::numerics::distributions;
+        using ParameterSet = bestfit::numerics::math::optimization::ParameterSet;
+        using MersenneTwister = bestfit::numerics::sampling::MersenneTwister;
+
+        // Initial parameters + covariance from Expectation-Maximization (C# 375).
+        std::vector<double> parameters;
+        bestfit::numerics::math::linalg::Matrix covariance(0, 0);
+        int em_iterations = 0;
+        mixture_distribution_->expectation_maximization(parameters, covariance, em_iterations);
+
+        const int K = mixture_distribution_->mixture()->component_count();
+        const int Np = static_cast<int>(parameters.size()) - K;
+        MersenneTwister prng(static_cast<std::uint32_t>(sampler.prng_seed()));
+        std::vector<ParameterSet> temp_population;
+
+        // Weights proposal: Dirichlet centered on the EM weights (C# 388-401). Only for K > 1;
+        // a single component always has weight 1.0.
+        std::optional<dists::Dirichlet> weight_dirichlet;
+        if (K > 1) {
+            const int N = mixture_distribution_->data_frame().total_record_length();
+            const double S = static_cast<double>(std::max(N - 1, K + 1));
+            const double deflation = 1.5;
+            std::vector<double> alpha(static_cast<std::size_t>(K));
+            for (int j = 0; j < K; ++j)
+                alpha[static_cast<std::size_t>(j)] =
+                    std::max(parameters[static_cast<std::size_t>(j)] * S / deflation, 0.1);
+            weight_dirichlet.emplace(std::move(alpha));
+        }
+
+        // Component proposal: MVN over the Fisher sub-block of the EM covariance, inflated 1.5x
+        // (C# 405-413).
+        std::vector<double> em_components(static_cast<std::size_t>(Np));
+        std::vector<std::vector<double>> component_covar(
+            static_cast<std::size_t>(Np), std::vector<double>(static_cast<std::size_t>(Np)));
+        for (int i = 0; i < Np; ++i) {
+            em_components[static_cast<std::size_t>(i)] = parameters[static_cast<std::size_t>(i + K)];
+            for (int j = 0; j < Np; ++j)
+                component_covar[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                    covariance(i + K, j + K) * 1.5;
+        }
+        dists::MultivariateNormal component_mvn(em_components, component_covar);
+
+        // Draw InitialIterations proposals (C# 415-467).
+        std::vector<ParameterSet> seeded_population;
+        seeded_population.reserve(static_cast<std::size_t>(sampler.initial_iterations()));
+        for (int i = 0; i < sampler.initial_iterations(); ++i) {
+            // Weights from the Dirichlet (always valid on the simplex), or {1.0} for K == 1.
+            std::vector<double> weights;
+            if (weight_dirichlet.has_value()) {
+                std::vector<std::vector<double>> w_sample =
+                    weight_dirichlet->generate_random_values(1, prng.next());
+                weights.assign(w_sample[0].begin(), w_sample[0].end());
+            } else {
+                weights = {1.0};
+            }
+
+            bool failed = true;
+            int failed_count = 0;
+            std::vector<double> p;
+            double lh = -std::numeric_limits<double>::infinity();
+            while (failed) {
+                try {
+                    // MVN component draw via the C# NextDoubles(1, Np) cadence: one outer
+                    // prng.next() per dimension, each seeding a fresh MT whose first
+                    // next_double() is the uniform for that dimension.
+                    std::vector<double> u(static_cast<std::size_t>(Np));
+                    for (int d = 0; d < Np; ++d) {
+                        MersenneTwister sub(static_cast<std::uint32_t>(prng.next()));
+                        u[static_cast<std::size_t>(d)] = sub.next_double();
+                    }
+                    std::vector<double> comp = component_mvn.inverse_cdf(u);
+
+                    // Concatenate weights ++ component parameters (C# 447-450).
+                    p.clear();
+                    p.reserve(static_cast<std::size_t>(K + Np));
+                    p.insert(p.end(), weights.begin(), weights.end());
+                    p.insert(p.end(), comp.begin(), comp.end());
+
+                    // MixtureModel::log_likelihood normalizes the weight entries IN PLACE (C#
+                    // `SetParameters(ref parameters)`, M14), so the seeded set stores the
+                    // normalized weights -- exactly as the C# `new ParameterSet(p, lh)` does.
+                    lh = mixture_distribution_->log_likelihood(p);
+                    failed = false;
+                } catch (const std::exception&) {
+                    // Invalid component draw -- retry (C# 458-465).
+                    ++failed_count;
+                    if (failed_count > 20) break;
+                }
+            }
+
+            if (failed) throw std::runtime_error("Bad parameters");  // C# 466.
+
+            seeded_population.emplace_back(p, lh);
+            temp_population.emplace_back(p, lh);
+        }
+
+        // Seed the sampler's population (C# 465 `PopulationMatrix.Add` collapsed to one call).
+        sampler.seed_population(std::move(seeded_population));
+
+        // Sort temp population by log-likelihood descending (C# 470).
+        std::stable_sort(
+            temp_population.begin(), temp_population.end(),
+            [](const ParameterSet& a, const ParameterSet& b) { return a.fitness > b.fitness; });
+
+        // Seed the first NumberOfChains chains with the best-performing sets (C# 473-476).
+        for (int i = 0; i < sampler.number_of_chains(); ++i)
+            sampler.seed_chain(i, temp_population[static_cast<std::size_t>(i)].clone());
+    }
+
     // Null-guard helper for the ctor init list (C# `?? throw new ArgumentNullException`).
     static std::unique_ptr<MixtureModel> require_non_null(std::unique_ptr<MixtureModel> model) {
         if (model == nullptr) {

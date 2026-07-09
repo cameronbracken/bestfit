@@ -52,12 +52,12 @@
 //      compute_* methods after building `Results`, mirroring `RunAsync`'s post-await block
 //      (C# 1301-1304). See each method's doc comment below for numerics-fidelity notes.
 //
-//   5. GATED (Diagnostics layer deferred past Phase 4, see `.claude/PLAN.md`):
-//      `ComputeInfluenceDiagnostics` (1870), `ComputePriorInfluenceDiagnostics` (1927),
-//      `ComputeLeverageDiagnostics` (1955) are provided as throwing stubs (same convention
-//      as `maximum_a_posteriori.hpp`'s `compute_leverage_diagnostics()`), not omitted
-//      entirely, so callers get a clear compile-time-visible member and a clear runtime
-//      message.
+//   5. PORTED (Diagnostics layer, D4 un-stub): `ComputeInfluenceDiagnostics` (1870),
+//      `ComputePriorInfluenceDiagnostics` (1927), `ComputeLeverageDiagnostics` (1955) are
+//      fully ported (no longer throwing stubs). `compute_influence_diagnostics()`,
+//      `compute_prior_influence_diagnostics()`, and `compute_leverage_diagnostics()` build and
+//      return the populated `InfluenceDiagnostics` / `PriorInfluenceDiagnostics` /
+//      `LeverageDiagnostics` off the completed MCMC `Results`.
 //
 //   6. SKIPPED (WPF/GUI/async/XML, no compute-layer analogue): `INotifyPropertyChanged` /
 //      `PropertyChanged` / `RaisePropertyChange`, the `RunAsync` async/Task/
@@ -510,7 +510,13 @@ class BayesianAnalysis {
     // `InvalidOperationException` from the same check). Returns `false` (without throwing) if
     // the model has no parameters, mirroring C#'s early return when `SetUpSampler` leaves
     // `Sampler == null`.
-    bool estimate() {
+    // `set_up` mirrors the C# `RunAsync(progress, setUpSampler)` bool (C# line 484 passes
+    // `false` from MixtureAnalysis). When `set_up == true` (default; every existing caller)
+    // the sampler is rebuilt from the current knobs -- byte-identical to before. When `set_up
+    // == false` the ALREADY-built, already-seeded `sampler_` is reused as-is (the mixture
+    // EM-seed caller sets up + seeds via the MCMC hook, then runs with `set_up == false` so the
+    // seed is not clobbered). ADDITIVE ONLY.
+    bool estimate(bool set_up = true) {
         auto [valid, messages] = validate();
         (void)messages;
         if (!valid) {
@@ -519,7 +525,7 @@ class BayesianAnalysis {
                 "analysis.");
         }
 
-        set_up_sampler();
+        if (set_up) set_up_sampler();
         if (!sampler_) return false;
 
         is_estimated_ = false;

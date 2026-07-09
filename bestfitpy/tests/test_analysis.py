@@ -76,11 +76,17 @@ def test_bulletin17c_analysis_returns_cohn_intervals():
     assert len(res["parameters"]) == 3  # LP3: location / scale / shape
 
 
-def test_bulletin17c_analysis_rejects_deferred_methods():
-    with pytest.raises(Exception):
-        bestfitpy.bulletin17c_analysis(
-            SMOKE_PEAKS, uncertainty_method="LinkedMultivariateNormal"
+def test_bulletin17c_analysis_accepts_x8_x9_methods():
+    # X8/X9 un-gated LinkedMultivariateNormal + BiasCorrectedBootstrap; they now run (X11 wired the
+    # binding knob). An unknown method still raises.
+    for um in ("LinkedMultivariateNormal", "BiasCorrectedBootstrap"):
+        res = bestfitpy.bulletin17c_analysis(
+            SMOKE_PEAKS, uncertainty_method=um, output_length=200, seed=12345
         )
+        assert len(res["parameters"]) == 3
+        assert all(lo <= hi for lo, hi in zip(res["lower_ci"], res["upper_ci"]))
+    with pytest.raises(Exception):
+        bestfitpy.bulletin17c_analysis(SMOKE_PEAKS, uncertainty_method="NotAMethod")
 
 
 # --- D5: per-family analyses + diagnostics ----------------------------------------------

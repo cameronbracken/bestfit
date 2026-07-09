@@ -8,11 +8,13 @@
 // B4 adds ParametersFromMoments/MomentsFromParameters, QuantileGradient, and the
 // ConditionalMoments override for the Bulletin 17C GMM track.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
 
 #include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/distributions/base/i_bootstrappable.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
@@ -26,7 +28,8 @@ namespace bestfit::numerics::distributions {
 class Normal : public UnivariateDistributionBase,
                public IEstimation,
                public ILinearMomentEstimation,
-               public IMaximumLikelihoodEstimation {
+               public IMaximumLikelihoodEstimation,
+               public IBootstrappable {
    public:
     Normal() { set_parameters(0.0, 1.0); }
     explicit Normal(double mean) { set_parameters(mean, 1.0); }
@@ -76,6 +79,15 @@ class Normal : public UnivariateDistributionBase,
         return mu_ + sigma_ * standard_z(probability);
     }
 
+    // --- Parameter display names (X1; C# Normal.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (\xC2\xB5)", "Std Dev (\xCF\x83)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83"};
+    }
+
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         return std::make_unique<Normal>(mu_, sigma_);
     }
@@ -89,6 +101,21 @@ class Normal : public UnivariateDistributionBase,
         } else {
             set_parameters(mle(sample));
         }
+    }
+
+    // Bootstrap (C# Normal.cs:239, IBootstrappable): draw a fresh sample from the current
+    // parameters, re-fit by `method`, and return the fitted Normal; throws if the fit is
+    // invalid. ADDITIVE-ONLY: a new method on this oracle-locked Phase 1 file (X7) -- no
+    // existing member's layout or signature changes.
+    std::unique_ptr<UnivariateDistributionBase> bootstrap(ParameterEstimationMethod method,
+                                                          int sample_size,
+                                                          int seed = -1) const override {
+        auto new_distribution = std::make_unique<Normal>(mu_, sigma_);
+        auto sample = new_distribution->generate_random_values(sample_size, seed);
+        new_distribution->estimate(sample, method);
+        if (!new_distribution->parameters_valid())
+            throw std::runtime_error("Bootstrapped distribution parameters are invalid.");
+        return new_distribution;
     }
 
     // ParametersFromMoments (C# Normal.cs:267): the Normal is parameterized by its

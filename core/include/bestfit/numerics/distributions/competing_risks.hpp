@@ -38,7 +38,16 @@
 //   ported, no ported caller).
 // type() returns UnivariateDistributionType::CompetingRisks (mirrors C#).
 // Not wired into the flat factory (composite-only, like Mixture).
+//
+// X5 ADDITIVE PORT (CompetingRisks.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ a2c4dbf):
+// the CompositeAnalysis aggregation builds a CompetingRisks per posterior realisation, sets
+// XTransform = Logarithmic / ProbabilityTransform = NormalZ, and calls CreateEmpiricalCDF() so the
+// InverseCDF the UncertaintyAnalysisResults reads is the fast piecewise empirical curve. These are
+// NEW methods/fields only -- existing behaviour and all existing fixtures stay byte-green because
+// empirical_cdf_created_ defaults false (the pre-existing root-find/bisection path is unchanged
+// until CreateEmpiricalCDF() is explicitly called).
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -48,17 +57,21 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bestfit/numerics/data/interpolation/transform.hpp"
 #include "bestfit/numerics/data/probability.hpp"
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "bestfit/numerics/sampling/stratify.hpp"
+#include "bestfit/numerics/sampling/stratification_options.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
@@ -89,6 +102,12 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     // (a plain auto-property with no side effects, hence the plain public field, same
     // convention as minimum_of_random_variables above).
     prob::DependencyType dependency = prob::DependencyType::Independent;
+
+    // X5: the x-value / probability transforms the empirical CDF interpolates in (mirrors C#
+    // XTransform / ProbabilityTransform; defaults None / NormalZ). Plain public fields, matching
+    // the C# auto-properties and the convention above.
+    data::Transform x_transform = data::Transform::None;
+    data::Transform probability_transform = data::Transform::NormalZ;
 
     // The correlation matrix used for modeling dependency between the marginal
     // distributions. Only used when dependency == CorrelationMatrix. Mirrors C#
@@ -259,6 +278,15 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         if (probability == 1.0) return maximum();
         if (components_.size() == 1) return components_[0]->inverse_cdf(probability);
 
+        // X5: once CreateEmpiricalCDF() has been called (composite aggregation path), read the
+        // fast piecewise empirical curve, mirroring C# `if (_empiricalCDFCreated) x =
+        // _empiricalCDF.InverseCDF(probability)`.
+        if (empirical_cdf_created_) {
+            double xe = empirical_cdf_->inverse_cdf(probability);
+            double mn0 = minimum(), mx0 = maximum();
+            return xe < mn0 ? mn0 : xe > mx0 ? mx0 : xe;
+        }
+
         // Build bracket from per-component InverseCDF values (mirrors C#).
         double minX = kInf, maxX = -kInf;
         for (const auto& c : components_) {
@@ -334,6 +362,82 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         return sample;
     }
 
+    // --- Parameter display names (X1; C# CompetingRisks.cs ParameterNames /
+    // ParameterNamesShortForm). BOTH are OVERRIDDEN dynamically in C# (148-180): they are NOT the
+    // ParametersToString col-0 single "Distributions" entry, but a per-component list built as
+    // "D{i+1} {sub}" over every component's own names (long form) / short form (C# 148-180). ---
+    std::vector<std::string> parameter_names() const override {
+        std::vector<std::string> result;
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        std::vector<std::string> result;
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names_short_form();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
+    }
+
+    // X5: builds the piecewise EmpiricalDistribution backing the composite InverseCDF (mirrors C#
+    // CompetingRisks.CreateEmpiricalCDF, CompetingRisks.cs:1050). Verbatim port: per-component
+    // 1e-16/1-1e-16 quantile range, positive shift, a log10-spread bin count, then a Stratify grid
+    // whose LowerBounds seed strictly-increasing (x, CDF(x)) pairs, capped by maxX. The backing
+    // EmpiricalDistribution carries this XTransform / ProbabilityTransform.
+    void create_empirical_cdf() {
+        double min_p = 1E-16;
+        double max_p = 1.0 - 1E-16;
+        double minX = kInf, maxX = -kInf;
+        for (const auto& c : components_) {
+            minX = std::min(minX, c->inverse_cdf(min_p));
+            maxX = std::max(maxX, c->inverse_cdf(max_p));
+        }
+        double shift = 0.0;
+        if (minX <= 0.0) shift = std::fabs(minX) + 1.0;
+        double mn = minX + shift;
+        double mx = maxX + shift;
+        int order = static_cast<int>(std::floor(std::log10(mx) - std::log10(mn)));
+        int binN = std::max(200, 100 * order) - 1;
+
+        auto bins = sampling::Stratify::XValues(
+            sampling::StratificationOptions(minX, maxX, binN, false),
+            x_transform == data::Transform::Logarithmic);
+        std::vector<double> x_values, p_values;
+        double x = bins.front().lower_bound();
+        double p = cdf(bins.front().lower_bound());
+        x_values.push_back(x);
+        p_values.push_back(p);
+        for (std::size_t i = 1; i < bins.size(); ++i) {
+            x = bins[i].lower_bound();
+            p = cdf(x);
+            if (x > x_values.back() && p > p_values.back()) {
+                x_values.push_back(x);
+                p_values.push_back(p);
+            }
+        }
+        x = maxX;
+        p = cdf(x);
+        if (x > x_values.back() && p > p_values.back()) {
+            x_values.push_back(x);
+            p_values.push_back(p);
+        }
+
+        auto ecdf = std::make_unique<EmpiricalDistribution>(
+            x_values, p_values,
+            probability_transform == data::Transform::NormalZ ? EmpiricalTransform::NormalZ
+                                                              : EmpiricalTransform::None);
+        ecdf->set_x_transform(x_transform);
+        empirical_cdf_ = std::move(ecdf);
+        empirical_cdf_created_ = true;
+        moments_computed_ = false;
+    }
+
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         std::vector<std::unique_ptr<UnivariateDistributionBase>> cloned;
         cloned.reserve(components_.size());
@@ -341,6 +445,8 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         auto cr = std::make_unique<CompetingRisks>(std::move(cloned));
         cr->minimum_of_random_variables = minimum_of_random_variables;
         cr->dependency = dependency;
+        cr->x_transform = x_transform;
+        cr->probability_transform = probability_transform;
         // Mirrors C# Clone(): `if (CorrelationMatrix != null) cr.CorrelationMatrix = ...`.
         if (!correlation_matrix_.empty()) cr->set_correlation_matrix(correlation_matrix_);
         return cr;
@@ -348,6 +454,10 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
 
    private:
     std::vector<std::unique_ptr<UnivariateDistributionBase>> components_;
+
+    // X5: lazily-built empirical CDF backing (mirrors C# _empiricalCDF / _empiricalCDFCreated).
+    std::unique_ptr<EmpiricalDistribution> empirical_cdf_;
+    bool empirical_cdf_created_ = false;
 
     // Lazy moment cache.
     mutable bool moments_computed_ = false;

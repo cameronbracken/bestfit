@@ -1,0 +1,130 @@
+{
+  "target": "SpatialGEVAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/SpatialExtremes/SpatialGEVAnalysis.cs @ fc28c0c -- X12 structural oracle. SpatialGEVAnalysis drives a seeded DEMCzs MCMC over the hierarchical 3-site x 15-obs SpatialGEV model then turns the posterior into per-site GEV/quantile bands and a regional site-averaged frequency curve on the 25 default exceedance ordinates. site_count == 3 and curve_length == 25. The site bands + regional curve are posterior means/quantiles, so they inherit the chaotic sensitivity. The seeded DEMCzs posterior is CHAOTICALLY sensitive across the C# and C++ MersenneTwister streams: the deterministic model log-likelihood + MLE match C#/C++ to rel 1e-8 (proven by the model_estimation fixtures), but the 300-iteration seeded chain MAP diverges at ~1e-6 (model-density ULP differences amplified over the chain -- inherent chaotic sensitivity, NOT a port bug; see docs/upstream-csharp-issues.md). Per the chaotic-sensitivity rule the posterior-dependent curve is NOT pinned (never oracle_skip-masked, never a loosened tolerance); the fixture asserts the deterministic structural invariants that reproduce bit-identically across C#/C++/R/Python. Emitter-verified against the real RMC.BestFit class via tools/oracle_emitter.",
+  "datasets": {
+    "unused": [
+      0
+    ]
+  },
+  "cases": [
+    {
+      "name": "base_three_site_demczs",
+      "construct": {
+        "model": {
+          "type": "spatial_gev",
+          "coordinates": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.5
+            ],
+            [
+              0.5,
+              1.0
+            ]
+          ],
+          "at_site_data": [
+            [
+              20,
+              22,
+              18
+            ],
+            [
+              25,
+              26,
+              24
+            ],
+            [
+              18,
+              19,
+              17
+            ],
+            [
+              30,
+              31,
+              28
+            ],
+            [
+              22,
+              23,
+              21
+            ],
+            [
+              28,
+              29,
+              27
+            ],
+            [
+              35,
+              34,
+              33
+            ],
+            [
+              24,
+              25,
+              23
+            ],
+            [
+              26,
+              27,
+              25
+            ],
+            [
+              40,
+              38,
+              37
+            ],
+            [
+              21,
+              22,
+              20
+            ],
+            [
+              27,
+              28,
+              26
+            ],
+            [
+              33,
+              32,
+              31
+            ],
+            [
+              23,
+              24,
+              22
+            ],
+            [
+              29,
+              30,
+              28
+            ]
+          ]
+        },
+        "sampler": "DEMCzs",
+        "iterations": 300,
+        "output_length": 400,
+        "number_of_chains": 4,
+        "credible_level": 0.9,
+        "seed": 12345,
+        "thinning_interval": 1
+      },
+      "assertions": [
+        {
+          "method": "site_count",
+          "expected": 3,
+          "mode": "equal"
+        },
+        {
+          "method": "curve_length",
+          "expected": 25,
+          "mode": "equal"
+        }
+      ]
+    }
+  ]
+}

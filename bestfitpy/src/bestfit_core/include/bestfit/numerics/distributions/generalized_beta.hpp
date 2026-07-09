@@ -6,6 +6,7 @@
 // The static PERT(...) factory methods are consumed by the Pert distribution and are kept here.
 // SetParametersFromMoments and the WPF helpers are not ported (application concerns).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -137,6 +138,15 @@ class GeneralizedBeta : public UnivariateDistributionBase {
             throw std::invalid_argument("GeneralizedBeta: invalid parameters");
         double z = math::special::beta::incomplete_inverse(alpha_, beta_, probability);
         return z * (max_ - min_) + min_;
+    }
+
+    // --- Parameter display names (X1; C# GeneralizedBeta.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Shape (\xCE\xB1)", "Shape (\xCE\xB2)", "Min", "Max"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xB1", "\xCE\xB2", "Min", "Max"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

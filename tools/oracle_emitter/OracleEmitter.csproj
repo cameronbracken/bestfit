@@ -47,6 +47,15 @@
     <Compile Include="$(BF)/Diagnostics/InfluenceDiagnostics.cs" />
     <Compile Include="$(BF)/Diagnostics/PriorInfluenceDiagnostics.cs" />
 
+    <!-- Task X12: the four predictive-check classes (X10) so the real C# PriorPredictiveCheck /
+         PosteriorPredictiveCheck drive the fixtures/analyses/{prior,posterior}_predictive_check_smoke
+         .json oracles. They were left OUT before X12 (no compiled estimator referenced them); now
+         the two X12 predictive-check drivers do. -->
+    <Compile Include="$(BF)/Diagnostics/PriorPredictiveCheck.cs" />
+    <Compile Include="$(BF)/Diagnostics/PosteriorPredictiveCheck.cs" />
+    <Compile Include="$(BF)/Diagnostics/PredictiveCheckResults.cs" />
+    <Compile Include="$(BF)/Diagnostics/PredictiveSummary.cs" />
+
     <!-- Real RMC.BestFit estimation + models, compiled in place (read-only; never copied or
          modified under upstream/). Task B12 INCLUDES the GMM estimator, its IGMMModel interface,
          and the Bulletin17C distribution so their exact GMM/B17C fit oracles can be dumped from
@@ -71,6 +80,17 @@
          classes drive the fixtures/analyses/{ar,ma,arima,arimax}_analysis_smoke.json oracles.
          TimeSeries has no Support subdir, so the glob picks up exactly the four analysis files. -->
     <Compile Include="$(BF)/Analyses/TimeSeries/**/*.cs" />
+
+    <!-- Task X12 (Phase 10 full parity): unlock the final three Analyses closures so the real C#
+         SpatialGEVAnalysis (+ its two DTOs), BivariateAnalysis + CoincidentFrequencyAnalysis, and
+         RatingCurveAnalysis drive the fixtures/analyses/{spatial_gev,bivariate,
+         coincident_frequency,rating_curve}_analysis_smoke.json oracles. BootstrapAnalysis is reached
+         through the existing Numerics ProjectReference (no glob). BatchAnalysisRunner.cs stays
+         Removed below (a GUI batch scheduler that references CoincidentFrequencyAnalysis, now
+         buildable but still presentation-only with no dumped-oracle path). -->
+    <Compile Include="$(BF)/Analyses/SpatialExtremes/**/*.cs" />
+    <Compile Include="$(BF)/Analyses/Bivariate/**/*.cs" />
+    <Compile Include="$(BF)/Analyses/RatingCurve/**/*.cs" />
 
     <!-- CS0104 patch: the upstream Bulletin17CAnalysis.cs has an ambiguous `new YeoJohnsonLink(`
          (both Numerics.Functions and RMC.BestFit.Models.LinkFunctions export the type). Compile a

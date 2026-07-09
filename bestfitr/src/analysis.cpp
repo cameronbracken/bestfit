@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "bestfit/analyses/support/analysis_runner.hpp"
 #include "bestfit/analyses/time_series/ar_analysis.hpp"
 #include "bestfit/analyses/time_series/arima_analysis.hpp"
 #include "bestfit/analyses/time_series/arimax_analysis.hpp"
@@ -51,9 +52,11 @@ static est::SamplerType parse_analysis_sampler(const std::string& s) {
 static analyses::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
     if (s == "MultivariateNormal") return analyses::UncertaintyMethod::MultivariateNormal;
     if (s == "Bootstrap") return analyses::UncertaintyMethod::Bootstrap;
-    if (s == "LinkedMultivariateNormal" || s == "BiasCorrectedBootstrap")
-        stop("uncertainty method '%s' is deferred to Phase 9; use 'MultivariateNormal' or 'Bootstrap'",
-             s.c_str());
+    // X8/X9: the two previously-deferred methods now ship.
+    if (s == "LinkedMultivariateNormal")
+        return analyses::UncertaintyMethod::LinkedMultivariateNormal;
+    if (s == "BiasCorrectedBootstrap")
+        return analyses::UncertaintyMethod::BiasCorrectedBootstrap;
     stop("unknown uncertainty method '%s'", s.c_str());
 }
 
@@ -531,5 +534,70 @@ list bf_analysis_diagnostics_run_(std::string model_json, doubles dataset, std::
         "leverage"_nm = leverage,
         "influence"_nm = influence,
         "prior_influence"_nm = prior_influence,
+    });
+}
+
+// --- X11: the five remaining analyses + BootstrapAnalysis + predictive checks ----------------
+//
+// These wrap the shared bestfit::analyses::support::run_extended_analysis dispatch (a
+// bestfit-addition runner header, sibling of model_spec.hpp) so ALL of CompositeAnalysis (X5),
+// SpatialGEVAnalysis (X4), BivariateAnalysis (X3), CoincidentFrequencyAnalysis (X6),
+// RatingCurveAnalysis (X3), BootstrapAnalysis (X7), and the PriorPredictiveCheck /
+// PosteriorPredictiveCheck (X10) go through ONE construction path shared with the C++ fixture
+// runner and the pybind twin (analysis_extended_run). The R wrappers (composite_analysis,
+// spatial_gev_analysis, ...) assemble the construct JSON and call this. Returns the union result
+// surface as a named list; only the fields the requested target populates are non-empty.
+[[cpp11::register]]
+list bf_analysis_extended_run_(std::string target, std::string construct_json,
+                               std::string datasets_json) {
+    bestfit::analyses::support::ExtendedAnalysisResult r =
+        bestfit::analyses::support::run_extended_analysis(target, construct_json, datasets_json);
+
+    auto dv = [](const std::vector<double>& v) { return writable::doubles(v.begin(), v.end()); };
+
+    return writable::list({
+        "parameters"_nm = dv(r.parameters),
+        "mode_curve"_nm = dv(r.mode_curve),
+        "mean_curve"_nm = dv(r.mean_curve),
+        "lower_ci"_nm = dv(r.lower_ci),
+        "upper_ci"_nm = dv(r.upper_ci),
+        "aic"_nm = writable::doubles({r.aic}),
+        "bic"_nm = writable::doubles({r.bic}),
+        "dic"_nm = writable::doubles({r.dic}),
+        "rmse"_nm = writable::doubles({r.rmse}),
+        "z_output_values"_nm = dv(r.z_output_values),
+        "site_count"_nm = writable::integers({r.site_count}),
+        "site_location_mean"_nm = dv(r.site_location_mean),
+        "site_location_lower"_nm = dv(r.site_location_lower),
+        "site_location_upper"_nm = dv(r.site_location_upper),
+        "site_scale_mean"_nm = dv(r.site_scale_mean),
+        "site_scale_lower"_nm = dv(r.site_scale_lower),
+        "site_scale_upper"_nm = dv(r.site_scale_upper),
+        "site_shape_mean"_nm = dv(r.site_shape_mean),
+        "site_shape_lower"_nm = dv(r.site_shape_lower),
+        "site_shape_upper"_nm = dv(r.site_shape_upper),
+        "site0_probabilities"_nm = dv(r.site0_probabilities),
+        "site0_quantile_mean"_nm = dv(r.site0_quantile_mean),
+        "site0_quantile_lower"_nm = dv(r.site0_quantile_lower),
+        "site0_quantile_upper"_nm = dv(r.site0_quantile_upper),
+        "site0_quantile_mode"_nm = dv(r.site0_quantile_mode),
+        "cv_site_prediction_errors"_nm = dv(r.cv_site_prediction_errors),
+        "cv_site_rmse"_nm = dv(r.cv_site_rmse),
+        "cv_site_bias"_nm = dv(r.cv_site_bias),
+        "cv_mae"_nm = writable::doubles({r.cv_mae}),
+        "cv_rmse"_nm = writable::doubles({r.cv_rmse}),
+        "cv_mean_bias"_nm = writable::doubles({r.cv_mean_bias}),
+        "number_of_replicates"_nm = writable::integers({r.number_of_replicates}),
+        "mean_p_value"_nm = writable::doubles({r.mean_p_value}),
+        "sd_p_value"_nm = writable::doubles({r.sd_p_value}),
+        "skewness_p_value"_nm = writable::doubles({r.skewness_p_value}),
+        "min_p_value"_nm = writable::doubles({r.min_p_value}),
+        "max_p_value"_nm = writable::doubles({r.max_p_value}),
+        "has_misfit"_nm = writable::doubles({r.has_misfit}),
+        "number_of_valid_draws"_nm = writable::integers({r.number_of_valid_draws}),
+        "summary_mean_quantiles"_nm = dv(r.summary_mean_quantiles),
+        "summary_sd_quantiles"_nm = dv(r.summary_sd_quantiles),
+        "summary_min_quantiles"_nm = dv(r.summary_min_quantiles),
+        "summary_max_quantiles"_nm = dv(r.summary_max_quantiles),
     });
 }

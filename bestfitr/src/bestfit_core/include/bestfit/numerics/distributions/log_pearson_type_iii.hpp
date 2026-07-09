@@ -5,6 +5,7 @@
 // space. Mirrors the C# source method-for-method. Standard USACE flood-frequency
 // distribution (Bulletin 17C).
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -272,6 +273,15 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
                        * std::fabs(beta()))
                 / K);
         }
+    }
+
+    // --- Parameter display names (X1; C# LogPearsonTypeIII.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Mean (of log) (\xC2\xB5)", "Std Dev (of log) (\xCF\x83)", "Skew (of log) (\xCE\xB3)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xC2\xB5", "\xCF\x83", "\xCE\xB3"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

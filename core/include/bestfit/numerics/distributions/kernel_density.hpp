@@ -17,6 +17,7 @@
 // Uniform(-1,1).pdf(u), mirroring the C# private nested classes exactly.
 // No IEstimation / ILinearMomentEstimation: KernelDensity is non-parametric.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -206,6 +207,15 @@ class KernelDensity : public UnivariateDistributionBase {
         if (lo == hi) return kNaN;
         if (!cdf_created_) create_cdf();
         return cdf_table_->inverse_cdf(probability);
+    }
+
+    // --- Parameter display names (X1; C# KernelDensity.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Sample Data", "Kernel Type", "Bandwidth"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"Data()", "Kernel", "BW"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

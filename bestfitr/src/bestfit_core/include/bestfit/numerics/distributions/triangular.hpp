@@ -4,6 +4,7 @@
 // method-for-method. Implements IEstimation (MoM and MLE via NelderMead). The IBootstrappable
 // interface is a desktop/application concern and is not ported.
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -124,6 +125,15 @@ class Triangular : public UnivariateDistributionBase,
         } else {
             return max_ - std::sqrt((1.0 - probability) * (max_ - min_) * (max_ - mode_));
         }
+    }
+
+    // --- Parameter display names (X1; C# Triangular.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Min (a)", "Most Likely (c)", "Max (b)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"a", "c", "b"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

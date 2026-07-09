@@ -171,6 +171,48 @@ class MCMCSampler {
     // initialization.
     bool map_initialization_failed() const { return map_initialization_failed_; }
 
+    // --- UserDefined seeding hook (ADDITIVE, X2) -------------------------------------------
+    //
+    // The C# MixtureAnalysis.RunAsync EM-seeds the sampler by mutating
+    // `sampler.PopulationMatrix` (`.Add(...)`) and `sampler.MarkovChains[i]` (`.Add(...)`)
+    // DIRECTLY, after `SetUpSampler()` and just before `Sample()`, with `Initialize =
+    // UserDefined` and NO intervening setter. A caller of this port cannot mutate
+    // `population_matrix_` / `markov_chains_` for the same effect, because the LAST
+    // reset-triggering setter it touches would wipe the seed (reset() clears
+    // `population_matrix_` and re-assigns `markov_chains_` to N empty chains), and any harness
+    // that re-seeds then flips a setter would silently lose it.
+    //
+    // These hooks store the seed in members reset() does NOT clear (`seeded_population_` /
+    // `seeded_chains_`). When `initialize == InitializationType::UserDefined`,
+    // `initialize_chains()` re-materializes `population_matrix_` / `markov_chains_` from the
+    // stored seed at the point sample() consumes them -- so the seed SURVIVES a reset()
+    // triggered after seeding, mirroring the C#'s effective ordering. ADDITIVE ONLY: for a
+    // never-seeded sampler both members are empty and the Randomize / MAP paths are
+    // byte-identical (the existing seeded-chain digest fixtures guard this).
+
+    // Seeds the whole population matrix used by population-based samplers (mirrors the C#
+    // `sampler.PopulationMatrix.Add(...)` loop collapsed to a single assignment). Honored only
+    // when `initialize == InitializationType::UserDefined`.
+    void seed_population(std::vector<ParameterSet> population) {
+        seeded_population_ = std::move(population);
+    }
+
+    // Appends a user-defined initial state for chain `chain_index` (mirrors the C#
+    // `sampler.MarkovChains[i].Add(...)` seed). Grows the seed store as needed. Honored only
+    // when `initialize == InitializationType::UserDefined`.
+    void seed_chain(int chain_index, ParameterSet state) {
+        if (chain_index < 0) throw std::out_of_range("chain_index must be non-negative.");
+        if (static_cast<std::size_t>(chain_index) >= seeded_chains_.size())
+            seeded_chains_.resize(static_cast<std::size_t>(chain_index) + 1);
+        seeded_chains_[static_cast<std::size_t>(chain_index)].push_back(std::move(state));
+    }
+
+    // Clears any stored UserDefined seed (both the population and the per-chain seeds).
+    void clear_seed() {
+        seeded_population_.clear();
+        seeded_chains_.clear();
+    }
+
     // --- Outputs ---------------------------------------------------------------------------
 
     // The population matrix used for population-based samplers.
@@ -337,6 +379,12 @@ class MCMCSampler {
 
     std::vector<ParameterSet> population_matrix_;
     std::vector<std::vector<ParameterSet>> markov_chains_;
+
+    // UserDefined seed store (ADDITIVE, X2). NOT cleared by reset(); materialized into
+    // population_matrix_ / markov_chains_ by initialize_chains() when initialize ==
+    // UserDefined. Empty for every never-seeded sampler (Randomize / MAP paths untouched).
+    std::vector<ParameterSet> seeded_population_;
+    std::vector<std::vector<ParameterSet>> seeded_chains_;
     std::vector<int> accept_count_;
     std::vector<int> sample_count_;
     std::vector<double> mean_log_likelihood_;
@@ -370,6 +418,15 @@ class MCMCSampler {
     // Initialize the Markov Chains.
     virtual std::vector<ParameterSet> initialize_chains() {
         if (initialize == InitializationType::UserDefined) {
+            // Materialize any stored UserDefined seed past reset()'s wipe (ADDITIVE, X2 hook).
+            // For a never-seeded resume (the pre-existing use case: markov_chains_ already
+            // holds prior-Sample() states, seeds empty) both stores are empty and this is a
+            // no-op -- behavior is byte-identical to before the hook.
+            if (!seeded_population_.empty()) population_matrix_ = seeded_population_;
+            for (std::size_t i = 0; i < seeded_chains_.size() && i < markov_chains_.size(); ++i) {
+                if (!seeded_chains_[i].empty()) markov_chains_[i] = seeded_chains_[i];
+            }
+
             // Return the last state of each existing chain.
             std::vector<ParameterSet> chain_states(static_cast<std::size_t>(number_of_chains_));
             for (int i = 0; i < number_of_chains_; ++i)

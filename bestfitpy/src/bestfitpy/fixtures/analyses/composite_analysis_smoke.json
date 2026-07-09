@@ -1,0 +1,65 @@
+{
+  "target": "CompositeAnalysis",
+  "kind": "analysis",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/CompositeAnalysis.cs @ fc28c0c -- X12 structural oracle. CompositeAnalysis fits one UnivariateAnalysis per child family (seeded DEMCzs) then aggregates the children into a CompetingRisks composite frequency curve on the 5-point exceedance grid. curve_length == 5. The composite curve is a deterministic aggregation OVER the seeded child posteriors, so it inherits their chaotic sensitivity. The seeded DEMCzs posterior is CHAOTICALLY sensitive across the C# and C++ MersenneTwister streams: the deterministic model log-likelihood + MLE match C#/C++ to rel 1e-8 (proven by the model_estimation fixtures), but the 300-iteration seeded chain MAP diverges at ~1e-6 (model-density ULP differences amplified over the chain -- inherent chaotic sensitivity, NOT a port bug; see docs/upstream-csharp-issues.md). Per the chaotic-sensitivity rule the posterior-dependent curve is NOT pinned (never oracle_skip-masked, never a loosened tolerance); the fixture asserts the deterministic structural invariants that reproduce bit-identically across C#/C++/R/Python. Emitter-verified against the real RMC.BestFit class via tools/oracle_emitter.",
+  "datasets": {
+    "flow": [
+      12500,
+      15300,
+      8900,
+      22100,
+      18700,
+      14200,
+      9800,
+      28500,
+      17400,
+      11600,
+      19200,
+      13800,
+      25600,
+      10500,
+      16900,
+      21300,
+      14700,
+      8200,
+      23800,
+      15900
+    ]
+  },
+  "cases": [
+    {
+      "name": "two_normal_competing_risks",
+      "construct": {
+        "model": {
+          "families": [
+            "Normal",
+            "Normal"
+          ],
+          "dataset": "flow"
+        },
+        "composite_type": "CompetingRisks",
+        "average_method": "AIC",
+        "sampler": "DEMCzs",
+        "iterations": 100,
+        "output_length": 200,
+        "credible_level": 0.9,
+        "seed": 12345,
+        "thinning_interval": 1,
+        "exceedance_probabilities": [
+          0.01,
+          0.1,
+          0.5,
+          0.9,
+          0.99
+        ]
+      },
+      "assertions": [
+        {
+          "method": "curve_length",
+          "expected": 5,
+          "mode": "equal"
+        }
+      ]
+    }
+  ]
+}

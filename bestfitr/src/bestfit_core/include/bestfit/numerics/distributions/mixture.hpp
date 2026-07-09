@@ -36,7 +36,16 @@
 //     draw feeds the component's InverseCDF); zero inflation prepends a Deterministic(0)
 //     "component" with weight ZeroWeight. Replaces the base-class inverse-CDF stream so
 //     seeded mixture streams are bit-identical to the C#.
+//
+// X5 ADDITIVE PORT (Mixture.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ a2c4dbf): the
+// CompositeAnalysis aggregation builds a Mixture per posterior realisation, sets XTransform =
+// Logarithmic / ProbabilityTransform = NormalZ, and calls CreateEmpiricalCDF() so the InverseCDF
+// the UncertaintyAnalysisResults reads is the fast piecewise empirical curve. NEW methods/fields
+// only -- existing behaviour and all existing fixtures stay byte-green (empirical_cdf_created_
+// defaults false; the pre-existing root-find/bisection path is unchanged until CreateEmpiricalCDF()
+// is explicitly called).
 #pragma once
+#include <string>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -46,6 +55,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "bestfit/numerics/data/interpolation/transform.hpp"
 #include "bestfit/numerics/data/statistics.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
@@ -53,10 +63,13 @@
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "bestfit/numerics/distributions/deterministic.hpp"
+#include "bestfit/numerics/distributions/empirical_distribution.hpp"
 #include "bestfit/numerics/math/integration/adaptive_gauss_kronrod.hpp"
 #include "bestfit/numerics/math/optimization/nelder_mead.hpp"
 #include "bestfit/numerics/math/rootfinding/brent.hpp"
 #include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "bestfit/numerics/sampling/stratify.hpp"
+#include "bestfit/numerics/sampling/stratification_options.hpp"
 #include "bestfit/numerics/tools.hpp"
 
 namespace bestfit::numerics::distributions {
@@ -84,6 +97,11 @@ class Mixture : public UnivariateDistributionBase,
     // Zero-inflation option (mirrors C# IsZeroInflated / ZeroWeight).
     bool is_zero_inflated = false;
     double zero_weight = 0.0;
+
+    // X5: the x-value / probability transforms the empirical CDF interpolates in (mirrors C#
+    // XTransform / ProbabilityTransform; defaults None / NormalZ).
+    data::Transform x_transform = data::Transform::None;
+    data::Transform probability_transform = data::Transform::NormalZ;
 
     // EM convergence settings (mirrors C# MaxIterations / Tolerance).
     int max_iterations = 1000;
@@ -399,6 +417,15 @@ class Mixture : public UnivariateDistributionBase,
         if (components_.size() == 1 && !is_zero_inflated)
             return components_[0]->inverse_cdf(probability);
 
+        // X5: once CreateEmpiricalCDF() has been called (composite aggregation path), read the
+        // fast piecewise empirical curve, mirroring C# `if (_empiricalCDFCreated) x =
+        // _empiricalCDF.InverseCDF(probability)`.
+        if (empirical_cdf_created_) {
+            double xe = empirical_cdf_->inverse_cdf(probability);
+            double mn0 = minimum(), mx0 = maximum();
+            return xe < mn0 ? mn0 : xe > mx0 ? mx0 : xe;
+        }
+
         // Derive bracket from component InverseCDF values (mirrors C# logic).
         double adj_prob = is_zero_inflated
             ? (probability - zero_weight) / (1.0 - zero_weight)
@@ -444,6 +471,84 @@ class Mixture : public UnivariateDistributionBase,
         set_parameters(mle(sample));
     }
 
+    // --- Parameter display names (X1; C# Mixture.cs ParameterNames / ParameterNamesShortForm).
+    // BOTH are OVERRIDDEN dynamically in C# (154-195): they are NOT the ParametersToString col-0
+    // "Weights"/"Distributions" entries, but "Weight 1..n" ("W1..Wn" short) then "D{i+1} {sub}"
+    // over every component's own names (long form) / short form (C# 154-195). ---
+    std::vector<std::string> parameter_names() const override {
+        std::vector<std::string> result;
+        for (int i = 1; i <= component_count(); ++i)
+            result.push_back("Weight " + std::to_string(i));
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        std::vector<std::string> result;
+        for (int i = 1; i <= component_count(); ++i) result.push_back("W" + std::to_string(i));
+        for (int i = 0; i < component_count(); ++i) {
+            std::vector<std::string> sub = component(i).parameter_names_short_form();
+            for (const std::string& s : sub)
+                result.push_back("D" + std::to_string(i + 1) + " " + s);
+        }
+        return result;
+    }
+
+    // X5: builds the piecewise EmpiricalDistribution backing the composite InverseCDF (mirrors C#
+    // Mixture.CreateEmpiricalCDF, Mixture.cs:939). Verbatim port; the backing EmpiricalDistribution
+    // carries this XTransform / ProbabilityTransform. cdf() here is the mixture CDF (zero-inflation
+    // included), so a zero-inflated mixture bakes its inflation into the empirical curve.
+    void create_empirical_cdf() {
+        double min_p = 1E-16;
+        double max_p = 1.0 - 1E-16;
+        double minX = kInf, maxX = -kInf;
+        for (const auto& c : components_) {
+            minX = std::min(minX, c->inverse_cdf(min_p));
+            maxX = std::max(maxX, c->inverse_cdf(max_p));
+        }
+        double shift = 0.0;
+        if (minX <= 0.0) shift = std::fabs(minX) + 1.0;
+        double mn = minX + shift;
+        double mx = maxX + shift;
+        int order = static_cast<int>(std::floor(std::log10(mx) - std::log10(mn)));
+        int binN = std::max(200, 100 * order) - 1;
+
+        auto bins = sampling::Stratify::XValues(
+            sampling::StratificationOptions(minX, maxX, binN, false),
+            x_transform == data::Transform::Logarithmic);
+        std::vector<double> x_values, p_values;
+        double x = bins.front().lower_bound();
+        double p = cdf(bins.front().lower_bound());
+        x_values.push_back(x);
+        p_values.push_back(p);
+        for (std::size_t i = 1; i < bins.size(); ++i) {
+            x = bins[i].lower_bound();
+            p = cdf(x);
+            if (x > x_values.back() && p > p_values.back()) {
+                x_values.push_back(x);
+                p_values.push_back(p);
+            }
+        }
+        x = maxX;
+        p = cdf(x);
+        if (x > x_values.back() && p > p_values.back()) {
+            x_values.push_back(x);
+            p_values.push_back(p);
+        }
+
+        auto ecdf = std::make_unique<EmpiricalDistribution>(
+            x_values, p_values,
+            probability_transform == data::Transform::NormalZ ? EmpiricalTransform::NormalZ
+                                                              : EmpiricalTransform::None);
+        ecdf->set_x_transform(x_transform);
+        empirical_cdf_ = std::move(ecdf);
+        empirical_cdf_created_ = true;
+        moments_computed_ = false;
+    }
+
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         std::vector<std::unique_ptr<UnivariateDistributionBase>> cloned;
         cloned.reserve(components_.size());
@@ -453,12 +558,18 @@ class Mixture : public UnivariateDistributionBase,
         m->zero_weight = zero_weight;
         m->max_iterations = max_iterations;
         m->tolerance = tolerance;
+        m->x_transform = x_transform;
+        m->probability_transform = probability_transform;
         return m;
     }
 
    private:
     std::vector<double> weights_;
     std::vector<std::unique_ptr<UnivariateDistributionBase>> components_;
+
+    // X5: lazily-built empirical CDF backing (mirrors C# _empiricalCDF / _empiricalCDFCreated).
+    std::unique_ptr<EmpiricalDistribution> empirical_cdf_;
+    bool empirical_cdf_created_ = false;
 
     // Lazy moment cache.
     mutable bool moments_computed_ = false;

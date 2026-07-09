@@ -7,6 +7,7 @@
 // κ > 0: bounded above at ξ + α/κ.
 // κ < 0: bounded below at ξ + α/κ.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -153,6 +154,15 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
             return xi_ - alpha_ * std::log((1.0 - probability) / probability);
         return xi_ + alpha_ / kappa_ *
                          (1.0 - std::pow((1.0 - probability) / probability, kappa_));
+    }
+
+    // --- Parameter display names (X1; C# GeneralizedLogistic.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Location (\xCE\xBE)", "Scale (\xCE\xB1)", "Shape (\xCE\xBA)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"\xCE\xBE", "\xCE\xB1", "\xCE\xBA"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {

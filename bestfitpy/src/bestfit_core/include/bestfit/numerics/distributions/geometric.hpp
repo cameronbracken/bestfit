@@ -4,6 +4,7 @@
 // Single parameter p = probability of success. Logic mirrors the C# source method-for-method.
 // No estimation interfaces are implemented upstream.
 #pragma once
+#include <string>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -82,6 +83,15 @@ class Geometric : public UnivariateDistributionBase {
         // C#: Math.Ceiling(Math.Log(1-prob, 1-p)) - 1
         // Math.Log(x, base) = ln(x)/ln(base)
         return std::ceil(std::log(1.0 - probability) / std::log(1.0 - p_)) - 1.0;
+    }
+
+    // --- Parameter display names (X1; C# Geometric.cs ParametersToString col0 +
+    // ParameterNamesShortForm) ---
+    std::vector<std::string> parameter_names() const override {
+        return {"Probability (p)"};
+    }
+    std::vector<std::string> parameter_names_short_form() const override {
+        return {"p"};
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
