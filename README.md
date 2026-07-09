@@ -1,139 +1,171 @@
 # bestfit
 
-R (`bestfitr`) and Python (`bestfitpy`) packages for stochastic hydrology, including
-Bayesian flood-frequency and extreme-value analysis. Both packages are built on a
-**shared C++17 core** that is a faithful port of the USACE-RMC
-[Numerics](https://github.com/USACE-RMC/Numerics) and
-[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries.
+R (`bestfitr`) and Python (`bestfitpy`) packages for stochastic hydrology: flood-frequency,
+extreme-value, and Bayesian frequency analysis. Both wrap a shared **C++17 core library** ported from the
+USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
+[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries. 
+Both packages are designed to return identical results with the same random seed.
 
-The C++ core is wrapped by [cpp11](https://cpp11.r-lib.org/) for R and
-[pybind11](https://pybind11.readthedocs.io/) for Python. The core and both packages are
-validated by tests derived from the original RMC libraries, ensuring the ported code
-produces the same results as the originals — and, because the Mersenne Twister RNG is
-ported bit-exact, identical output across R and Python given the same seed.
+## Development status
+Early development. All [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) features have 
+been ported but more testing is needed. 
 
-## Status
+Neither package is on CRAN or PyPI yet.
 
-Early development. **Phase 0** (prove the full toolchain end-to-end on one distribution —
-the Generalized Extreme Value) is **complete**, with CI green on Linux, macOS, and Windows:
+## Install
 
-- [x] Monorepo scaffold + C++ build (CMake/ctest)
-- [x] Mersenne Twister ported and pinned to the canonical mt19937ar reference stream
-- [x] Gamma special functions (Cephes `function`, Lanczos, digamma)
-- [x] GEV distribution core: moments, PDF/CDF/InverseCDF, log-likelihood
-- [x] GEV estimation: method of moments, L-moments, MLE (Nelder-Mead), quantile standard error
-- [x] Language-neutral oracle fixtures + generic runners (C++ / R / Python validate from one JSON)
-- [x] `bestfitr` (cpp11) and `bestfitpy` (pybind11 + scikit-build-core) bindings for the GEV slice
-- [x] CI: C++ ctest, `R CMD check --as-cran`, Python build + pytest, drift guards — all 3 platforms
+At the moment, the packages can only be installed by compiling from source. 
+Which requires a C++17 compiler. Confirmed working compilers: 
+    - macOS: clang++ ‘Apple clang version 21.0.0 (clang-2100.1.1.101)’ from Xcode command-line tools
+    - Linux: gcc/clang (whatever version GitHub Actions provides)
+    - Windows: gcc/clang (whatever version GitHub Actions provides)
 
-Verified: an MLE fit agrees to 15 significant figures between R and Python (same compiled core).
+R:
 
-**Phase 1** is underway. The first increment landed the polymorphic distribution layer and the
-first three pilot distributions:
+```r
+# install.packages("pak")
+pak::pak("cameronbracken/bestfit/bestfitr")
+```
 
-- [x] `UnivariateDistributionBase` + the `UnivariateDistributionType` enum and factory, plus the
-      `IEstimation` / `ILinearMomentEstimation` capability mixins (`dynamic_cast`-dispatched)
-- [x] **Normal**, **Uniform**, and **Exponential** distributions (GEV refactored onto the base)
-- [x] Polymorphic, factory-driven runners and bindings in all three languages, so a new
-      distribution needs only a fixture file plus a couple of dispatch entries — no new glue
-- [x] Hybrid oracle workflow: fixtures are curated from the C# unit tests **and** confirmed
-      reproducible against the real Numerics library (`tools/verify_oracles.py`, needs `dotnet`)
+Python (3.10+):
 
-Next in Phase 1: the rest of Numerics' math/RNG foundation, then the remaining ~38 univariate
-distributions, all driven by the same fixture pipeline. See the implementation plan.
+```bash
+pip install "git+https://github.com/cameronbracken/bestfit.git#subdirectory=bestfitpy"
+```
+
+## Quick start
+
+Fit a distribution and read a frequency curve. The two snippets return the same numbers.
+
+R:
+
+```r
+library(bestfitr)
+
+peaks <- c(12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600,
+           19200, 13800, 25600, 10500, 16900)
+
+# Point-estimate GEV fit
+gev_fit(peaks, method = "mle")
+
+# Bayesian frequency analysis: parameters, mean curve, and a 90% credible band
+fit <- univariate_analysis(peaks, "GeneralizedExtremeValue", seed = 12345)
+fit$parameters
+fit$mean_curve   # quantile at each of the 25 default exceedance probabilities
+fit$lower_ci     # credible band
+```
+
+Python:
+
+```python
+import bestfitpy as bf
+
+peaks = [
+    12500,
+    15300,
+    8900,
+    22100,
+    18700,
+    14200,
+    9800,
+    28500,
+    17400,
+    11600,
+    19200,
+    13800,
+    25600,
+    10500,
+    16900,
+]
+
+bf.gev_fit(peaks, method="mle")
+
+fit = bf.univariate_analysis(peaks, "GeneralizedExtremeValue", seed=12345)
+fit["parameters"]
+fit["mean_curve"]
+fit["lower_ci"]
+```
+
+Bulletin 17C (log-Pearson Type III) flood-frequency, the USACE standard, with Cohn delta-method
+confidence intervals:
+
+```r
+b17c <- bulletin17c_analysis(peaks, confidence_level = 0.90, seed = 12345)
+b17c$point_estimates   # log10 space
+b17c$lower_ci          # discharge space
+b17c$upper_ci
+```
+
+## Features
+
+**Probability Distributions.** 42 univariate families with density, CDF, quantile, moments, and fitting
+(maximum likelihood, L-moments, product moments). Names accepted by the analysis functions include
+`Normal`, `LogNormal`, `Gumbel`, `Weibull`, `GeneralizedExtremeValue`, `GeneralizedPareto`,
+`GeneralizedLogistic`, `LogPearsonTypeIII`, `PearsonTypeIII`, `KappaFour`, and more. The core library also
+carries the multivariate distributions and seven bivariate copulas.
+
+**Analyses.** Easily conduct common statistical hydrology analyses with your own data. Each analysis returns a named list (R) / dict (Python) with fitted parameters, a frequency or forecast curve, a credible band, and goodness-of-fit metrics.
+
+| Function | Purpose |
+|----------|---------|
+| `univariate_analysis` | Bayesian MCMC frequency curve for one distribution |
+| `fit_distributions` | fit and rank 14 candidate distributions by AIC / BIC / RMSE |
+| `bulletin17c_analysis` | LP3 flood-frequency with Cohn delta-method intervals |
+| `mixture_analysis` | finite mixture of 1-3 component distributions |
+| `competing_risk_analysis` | maximum of several independent parents |
+| `point_process_analysis` | peaks-over-threshold point process |
+| `ar_analysis`, `ma_analysis`, `arima_analysis`, `arimax_analysis` | Bayesian time-series models with forecasting |
+| `spatial_gev_analysis` | hierarchical spatial GEV over gauged sites |
+| `bivariate_analysis`, `coincident_frequency_analysis` | copula joint-exceedance and conditional frequency |
+| `rating_curve_analysis` | BaRatin stage-discharge rating curve |
+| `composite_analysis` | competing-risks / mixture / model-average aggregate |
+| `bootstrap_analysis` | parametric-bootstrap confidence bands |
+| `posterior_predictive_check`, `prior_predictive_check` | model-adequacy checks |
+| `estimation_diagnostics` | leverage, PSIS-LOO influence, prior influence |
+
+Every function is documented in the package help (`?univariate_analysis` in R, `help(...)` in
+Python), including MCMC sampler choice, credible level, and seeding.
+
+## Reproducibility
+
+Both packages use the same implementation of the Mersenne Twister random number generator ported from the original USACE library, so the same random seed gives identical output across R and Python and across platforms:
+
+```r
+univariate_analysis(peaks, "Normal", seed = 42)$parameters   # R
+```
+```python
+bf.univariate_analysis(peaks, "Normal", seed=42)["parameters"]  # same numbers
+```
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `core/` | canonical C++17 core (headers, sources, tests) — single source of truth |
-| `fixtures/` | language-neutral oracle fixtures (JSON) — single source of truth for validation |
-| `bestfitr/` | R package (cpp11); vendors the core via subtree symlinks under `src/bestfit_core/` |
-| `bestfitpy/` | Python package (scikit-build-core + pybind11); vendors the core via subtree symlinks |
-| `tools/` | `materialize_core.py` (dereference symlinks for a self-contained build), `verify_oracles.py`, `extract_oracles.py` |
+| `core/` |  C++17 core library (headers, sources, tests) |
+| `fixtures/` | language-neutral oracle fixtures (JSON) validating both packages |
+| `bestfitr/` | R package (cpp11) |
+| `bestfitpy/` | Python package (scikit-build-core + pybind11) |
+| `tools/` | build and validation scripts |
 
-The vendored `bestfit_core/` and the shipped fixtures are subtree symlinks into the canonical
-`core/` and `fixtures/`, so git holds one copy and there is no drift to guard against.
+`bestfitr` and `bestfitpy` share the same code from `core/` and `fixtures/` using symlinks which are resolved at build time. See
+`.claude/CLAUDE.md`, `.claude/PLAN.md` and `docs/` for the port architecture and development workflow.
 
-## Vendoring: one source of truth, self-contained builds
-
-Two design constraints pull in opposite directions, and the layout reconciles them:
-
-- **Development wants one source of truth.** Every line of C++ math lives in `core/`, and every
-  expected value lives in `fixtures/`. You edit each in exactly one place.
-- **CRAN and PyPI build each package from a self-contained tarball, on their own machines.** The
-  shipped tarball/sdist must physically contain the core; it cannot reference a sibling `core/`.
-
-The resolution is **symlink vendoring**: each package's vendored location is a committed *symlink*
-into `core/{include,data}` or `fixtures/` (e.g. `bestfitr/src/bestfit_core/include ->
-../../../core/include`). Git holds one copy, and the symlinks resolve for local development and for
-a full clone. A build then dereferences them into a self-contained, symlink-free artifact:
-
-- **R:** `R CMD build` dereferences symlinks into the tarball automatically.
-- **Python:** `tools/materialize_core.py` dereferences them into real files (run in a throwaway
-  checkout, e.g. `make build-py`); scikit-build-core then packs the real files into the sdist.
-
-CI runs `materialize_core.py` in the R and Python jobs (this also covers Windows, where a checkout
-may materialize a committed symlink as a text stub). The **upstream C# libraries**
-(`upstream/Numerics`, `upstream/RMC-BestFit`) remain dev-only git submodules, not shipped in the
-packages.
-
-| Command | Effect |
-|---------|--------|
-| (none needed) | the core + fixtures are subtree symlinks; editing a core header is live through the link |
-| `python3 tools/materialize_core.py` | dereference the symlinks into real files (a symlink-free tree for a build; rewrites the tree) |
-| `make build-r` / `make build-py` | build a self-contained tarball / sdist (dereferences symlinks; Python via a throwaway worktree) |
-
-CI runs the `--check` form as a gate (the `sync-check` job): commit a `core/` or `fixtures/` change
-without re-syncing and the build goes red. **Rule: after any edit under `core/` or `fixtures/`, run
-the matching sync script before committing** — otherwise the packages compile yesterday's code.
-
-### Oracles and the "bulk oracle" extraction
-
-An **oracle** is a known-correct expected value a test checks against. The USACE-RMC C# test
-suites contain roughly 3,877 of them — each `Assert.AreEqual(expected, actual, tol)` is one oracle
-(a mean, a quantile, a PDF value) that was itself validated against R, SciPy, or published tables.
-
-Rather than hand-transcribe oracle values one distribution at a time, the **bulk oracle**
-extraction harvests them *en masse* into language-neutral `fixtures/*.json`. All three test
-runners — C++ (`core/tests/test_fixtures.cpp`), R (`bestfitr/tests/testthat/test-fixtures.R`),
-Python (`bestfitpy/tests/test_fixtures.py`) — then validate against that one shared JSON set.
-Write the assertions once; validate identically in three languages. This is why oracle values are
-never hardcoded in the test files themselves.
-
-The oracles are produced by a **hybrid workflow**: the expected values are curated from the C#
-unit tests (the literals that were themselves validated against R / SciPy / published tables),
-**and** every fixture is then confirmed reproducible against the real Numerics library by
-`tools/verify_oracles.py`. That gate builds the small C# `tools/oracle_emitter` project, replays
-each fixture's construct + assertions through the actual C# distributions, and fails on any value
-that does not reproduce to its stated tolerance. It is **dev-only** — it needs `dotnet` and the
-`upstream/Numerics` submodule, neither of which is required to build or ship the packages — so the
-fixtures are pinned to the C# source they were ported from without adding any package dependency.
-
-## Build & test
-
-C++ core:
+## Build from source
 
 ```bash
+# C++ core
 cmake -S core -B core/build && cmake --build core/build && ctest --test-dir core/build
-```
 
-R package:
-
-```bash
-Rscript -e 'cpp11::cpp_register("bestfitr")'   # only after editing src/*.cpp
+# R package
+Rscript -e 'cpp11::cpp_register("bestfitr")'   # only after editing bestfitr/src/*.cpp
 R CMD INSTALL bestfitr
 Rscript -e 'testthat::test_local("bestfitr")'
-```
 
-Python package:
-
-```bash
+# Python package
 pip install ./bestfitpy
 pytest bestfitpy/tests
 ```
 
 ## License
 
-The ported C++ library and both packages are licensed under the 0BSD license, matching the
-original USACE-RMC libraries.
+The C++ core and both packages are released under the 0BSD license, matching the upstream USACE-RMC libraries.
