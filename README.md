@@ -7,7 +7,7 @@ frequency estimation, and a whole lot more. Most features have both Bayesian and
 This repository contains a C++ port of the USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
 [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries (not incuding the the Windows GUI). 
 See those libraries for more details. The ported C++ code is designed to exactly reproduce the 
-original C# code whenever possible (up to compiler and platform differences). See the [Why?](#why?) section for 
+original C# code whenever possible (up to compiler and platform differences). See the [Why?](#why) section for 
 the motivation behind this porting effort. 
 
 R (`bestfitr`) and Python (`bestfitpy`) packages are also available with bindings to call the 
