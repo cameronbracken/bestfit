@@ -8,7 +8,7 @@
 // method-of-moments fit, which in the C# source is a member of each concrete Archimedean
 // class (not part of IBivariateCopula/IArchimedeanCopula), so bf_cop_fit_ dynamic_casts by
 // type name for that one method; each new tau-capable copula adds one branch there.
-// Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <memory>

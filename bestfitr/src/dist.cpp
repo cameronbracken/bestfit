@@ -1,7 +1,7 @@
 // cpp11 glue exposing the polymorphic univariate-distribution surface of the shared C++
 // core to R (Normal, Uniform, Exponential, ... -- everything built on
 // UnivariateDistributionBase + the factory). GEV keeps its own bespoke glue in gev.cpp.
-// Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <memory>

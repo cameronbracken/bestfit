@@ -1,5 +1,5 @@
 // pybind11 glue exposing the Sobol quasi-random sequence to Python.
-// Core header is vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core header is vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 // The direction-numbers file is packaged under bestfitpy/data/ and located at runtime via
 //   importlib.resources.files("bestfitpy") / "data" / "new-joe-kuo-6.21201"
 #include <pybind11/pybind11.h>

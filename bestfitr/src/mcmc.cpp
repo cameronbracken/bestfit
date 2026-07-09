@@ -6,7 +6,7 @@
 // function, `bf_mcmc_run_`, that builds the model, configures and runs the sampler once, and
 // returns every value the test-fixtures.R dispatcher needs in one named list. This avoids a
 // "seq machinery" batching mechanism entirely: there is only ever one run per case.
-// Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <functional>

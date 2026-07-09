@@ -28,11 +28,15 @@ own forks live elsewhere on disk under different names.)
   numerical development happens here.
 - `fixtures/` — **canonical** language-neutral oracle fixtures (JSON). Single source of truth
   for expected values; see `fixtures/README.md` for the schema.
-- `bestfitr/`, `bestfitpy/` — the packages. Each contains a **generated, committed copy** of the
-  core at `src/bestfit_core/` and (R) `inst/fixtures` / (Py) `src/bestfitpy/fixtures`.
-- `tools/sync_core.py`, `tools/sync_fixtures.py` — copy canonical → vendored. Run after ANY
-  change to `core/` or `fixtures/`. CI runs `--check` and fails on drift. **If you edit a core
-  header, re-run `python3 tools/sync_core.py` or the packages build stale code.**
+- `bestfitr/`, `bestfitpy/` — the packages. Each vendors the core + fixtures as **subtree
+  symlinks** into `core/{include,data}` and `fixtures/` (NOT committed copies): e.g.
+  `bestfitr/src/bestfit_core/include -> ../../../core/include`. Editing a core header is live
+  through the symlink; nothing to re-sync.
+- Builds dereference the symlinks into self-contained, symlink-free artifacts: `R CMD build`
+  does it automatically for the R tarball; `tools/materialize_core.py` does it for Python (run in
+  a throwaway checkout, e.g. `make build-py`). CI runs materialize in the R + Python jobs (also
+  covers Windows, where a checkout may materialize a symlink as a text stub). See
+  `docs/superpowers/specs/2026-07-08-shared-core-symlink-vendoring-design.md`.
 - `tools/oracle_emitter/` (C#) + `tools/verify_oracles.py` — the dotnet oracle gate: replays every
   fixture against the real Numerics library and fails on any value that doesn't reproduce to
   tolerance. **Dev-only** (needs `dotnet` + the submodule); not wired into CI.
@@ -225,8 +229,9 @@ Rscript -e 'testthat::test_local("bestfitr")'
 # Python (dev venv at ~/venv/bestfitpy)
 ~/venv/bestfitpy/bin/python -m pip install --force-reinstall --no-deps ./bestfitpy
 ~/venv/bestfitpy/bin/python -m pytest bestfitpy/tests -q
-# sync guards (must pass before commit)
-python3 tools/sync_core.py --check && python3 tools/sync_fixtures.py --check
+# vendoring: the core + fixtures are subtree symlinks; builds dereference them (R CMD build for R,
+# tools/materialize_core.py for Python). No sync/drift guard needed. To get a symlink-free tree:
+python3 tools/materialize_core.py    # (CI/release only; rewrites the working tree)
 # oracle reproduction gate (dev-only; needs dotnet + the upstream submodule)
 python3 tools/verify_oracles.py
 ```

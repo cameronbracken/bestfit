@@ -1,5 +1,5 @@
 // cpp11 glue exposing the GEV slice of the shared C++ core to R.
-// The core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// The core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <string>

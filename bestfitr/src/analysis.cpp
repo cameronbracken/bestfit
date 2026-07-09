@@ -7,7 +7,7 @@
 // runs the analysis once, and packs the full result surface into a named list. The exported R
 // wrappers live in R/analysis.R; the model-neutral fixture harness (test-fixtures.R) also drives
 // these same functions for the `analysis` fixture kind. Core headers are vendored under
-// src/bestfit_core/include (see tools/sync_core.py).
+// src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <algorithm>

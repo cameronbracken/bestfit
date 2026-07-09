@@ -3,7 +3,7 @@
 // R. Mirrors the bf_trunc_*/bf_emp_* style in dist.cpp: bespoke per-target entry points,
 // generic-by-method-string rather than one function per method, so each new multivariate
 // target only adds one more bf_<name>_val_ function here.
-// Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <memory>

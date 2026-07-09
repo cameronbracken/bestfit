@@ -4,7 +4,7 @@
 // assertion in a case (see fixtures/README.md's bootstrap schema) -- so this file exposes ONE
 // function, `bf_bootstrap_run_`, that builds the model, runs it once, computes confidence
 // intervals once, and returns every value test-fixtures.R's dispatcher needs in one named
-// list. Core headers are vendored under src/bestfit_core/include (see tools/sync_core.py).
+// list. Core headers are vendored under src/bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <cpp11.hpp>
 
 #include <string>

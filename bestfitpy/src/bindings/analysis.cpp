@@ -6,7 +6,7 @@
 // the model via the shared spec builder (bestfit/models/model_spec.hpp), runs the analysis once,
 // and returns the full result surface as a dict. The signatures / spec assembly / seed plumbing
 // mirror bestfitr's analysis.cpp exactly, so a seeded call returns identical numbers in either
-// language. Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// language. Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 

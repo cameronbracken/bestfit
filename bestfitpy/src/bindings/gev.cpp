@@ -1,5 +1,5 @@
 // pybind11 binding exposing the GEV slice of the shared C++ core to Python.
-// Core headers are vendored under ../bestfit_core/include (see tools/sync_core.py).
+// Core headers are vendored under ../bestfit_core/include (a symlink into core/; regenerate real files with tools/materialize_core.py).
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 

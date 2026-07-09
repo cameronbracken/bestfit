@@ -293,16 +293,16 @@ bestfit/
 │   ├── R/  inst/fixtures/  inst/extdata/new-joe-kuo-6.21201  tests/testthat/  man/
 ├── bestfitpy/                  # Python package (scikit-build-core + CMake + pybind11)
 │   ├── pyproject.toml  CMakeLists.txt
-│   ├── src/{bestfit_core/,bindings/,bestfitpy/}   # bestfit_core/ is GENERATED+committed
+│   ├── src/{bestfit_core/,bindings/,bestfitpy/}   # bestfit_core/ is a SYMLINK into ../core
 │   └── tests/
-├── tools/{sync_core.py,sync_fixtures.py,extract_oracles.py,upstream_diff.py}
+├── tools/{materialize_core.py,extract_oracles.py,verify_oracles.py,upstream_diff.py}
 └── .github/workflows/
 ```
 
-`tools/sync_core.py` copies `core/{include,src,data}` into both packages **and** regenerates one
-source manifest in two forms — `core_sources.mk` (R `Makevars` `OBJECTS`) and `core_sources.cmake`
-(CMake `include()`). Adding a core file is picked up by both builds after one sync. Avoid build
-wildcards (CRAN dislikes them) — the manifest is explicit.
+Each package vendors `core/{include,data}` and `fixtures/` as committed subtree symlinks (the core
+stayed header-only, so no source manifest is needed). Git holds one copy; a build dereferences the
+symlinks into a self-contained, symlink-free artifact (`R CMD build` for R, `tools/materialize_core.py`
+for Python). See `docs/superpowers/specs/2026-07-08-shared-core-symlink-vendoring-design.md`.
 
 ## C++ core design
 
@@ -368,8 +368,8 @@ RNG/MCMC fixtures add `seed` + expected first-N values / digest to prove identic
 `tools/extract_oracles.py` scrapes the regular RMC test patterns into **draft** fixtures + a coverage
 report; a human curates the residue (interdependent covariance/std-error asserts). Each language has a
 ~40-entry method-dispatch table mapping fixture `"method"` strings to its API
-(`"mean" → Mean / $mean() / .mean()`) — the only per-language test code. `sync_fixtures.py` copies
-`fixtures/` into `bestfitr/inst/fixtures/` and bestfitpy package data.
+(`"mean" → Mean / $mean() / .mean()`) — the only per-language test code. `fixtures/` is vendored
+into `bestfitr/inst/fixtures/` and the bestfitpy package data as a subtree symlink.
 
 ## Upstream synchronization (keeping the port current)
 
