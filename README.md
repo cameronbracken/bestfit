@@ -16,17 +16,18 @@ identical results with the same random seed.
 
 ## Development status
 Early development. All [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) features have 
-been ported but more testing is needed. 
+been ported but more testing and documentation are needed. 
 
 Neither package is on CRAN or PyPI yet.
 
 ## Install
 
-At the moment, the packages can only be installed by compiling from source. 
-Which requires a C++17 compiler. Confirmed working compilers: 
-    - macOS: clang++ ‘Apple clang version 21.0.0 (clang-2100.1.1.101)’ from Xcode command-line tools
-    - Linux: gcc/clang (whatever version GitHub Actions provides)
-    - Windows: gcc/clang (whatever version GitHub Actions provides)
+At the moment, the packages can only be installed by compiling 
+from source which requires a C++17 compiler. Confirmed working compilers: 
+
+- **macOS**: clang++ ‘Apple clang version 21.0.0 (clang-2100.1.1.101)’ from Xcode command-line tools
+- **Linux**: gcc/clang (whatever version GitHub Actions provides)
+- **Windows**: gcc/clang (whatever version GitHub Actions provides)
 
 R:
 
