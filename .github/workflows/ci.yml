@@ -9,23 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  # Guard: the vendored core copies and the shipped fixtures must match the
-  # canonical sources. Fails the whole pipeline early on any drift.
-  sync-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Check vendored core is in sync
-        run: python3 tools/sync_core.py --check
-      - name: Check fixtures are in sync
-        run: python3 tools/sync_fixtures.py --check
-
   # C++ core: build and run the doctest/fixture suites on all three platforms.
+  # (Builds core/ directly; no vendoring involved.)
   core:
-    needs: sync-check
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +28,6 @@ jobs:
 
   # R package: R CMD check on the three platforms.
   r-cmd-check:
-    needs: sync-check
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +44,15 @@ jobs:
       R_KEEP_PKG_SOURCE: yes
     steps:
       - uses: actions/checkout@v4
+      # The vendored core is a subtree symlink into core/. On Windows a checkout may
+      # materialize it as a text stub rather than a real link, so dereference to real
+      # files before R CMD build (build-first also strips symlinks for the tarball).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Materialize shared core (dereference symlinks)
+        working-directory: ${{ github.workspace }}
+        run: python tools/materialize_core.py
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.config.r }}
@@ -77,7 +71,6 @@ jobs:
 
   # Python package: build from source and run pytest on the three platforms.
   python:
-    needs: sync-check
     strategy:
       fail-fast: false
       matrix:
@@ -89,6 +82,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # Dereference the vendored-core symlinks to real files so the source build is
+      # self-contained on every OS (Windows may check the symlink out as a text stub).
+      - name: Materialize shared core (dereference symlinks)
+        run: python tools/materialize_core.py
       - name: Build and install
         run: python -m pip install ./bestfitpy
       - name: Install test deps
