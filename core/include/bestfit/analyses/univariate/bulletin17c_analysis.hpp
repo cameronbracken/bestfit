@@ -127,8 +127,8 @@ namespace bestfit::analyses {
 // the C# enum (MultivariateNormal = 0). See the header comment for which arms ship / defer.
 enum class UncertaintyMethod {
     MultivariateNormal,        // SHIPPED (A7)
-    LinkedMultivariateNormal,  // DEFERRED to Phase 9 (dispatch throws)
-    Bootstrap,                 // ships in A8 (dispatch throws until then)
+    LinkedMultivariateNormal,  // SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal)
+    Bootstrap,                 // SHIPPED (A8: get_parameter_sets_from_parametric_bootstrap)
     BiasCorrectedBootstrap,    // SHIPPED (X9: get_parameter_sets_from_pivot_bootstrap)
 };
 
@@ -1479,8 +1479,9 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     // C# `AccelerationConstants(double[] thetaHats)` (C# 2408-2464): the BCa jackknife acceleration
     // constant a_i = I3_i / (6 * I2_i^1.5), where I2/I3 accumulate the squared/cubed leave-one-out
     // deltas of each parameter. Ported per the A8 brief for structural fidelity; the C# NEVER calls
-    // it on any shipped path (it is BCa/pivot-bootstrap building-block machinery deferred to Phase
-    // 9), so it lands here UNCALLED -- mirroring the A7 evaluate_log_quantile_safe precedent. The
+    // it on any shipped path (it is BCa building-block machinery the C# never wires -- the X9 pivot
+    // bootstrap does not use it), so it lands here UNCALLED -- mirroring the A7
+    // evaluate_log_quantile_safe precedent. The
     // jackknife is fully deterministic (no PRNG). The C# Parallel.For -> a serial loop and
     // Tools.ParallelAdd -> plain `+=`; a GMM failure is the C#'s swallowed exception (silent guard).
     std::vector<double> acceleration_constants(const std::vector<double>& theta_hats) {
@@ -1527,7 +1528,7 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
 
     // C# `EvaluateLogQuantileSafe` (C# 856-880). Ported per the A7 brief for structural fidelity;
     // the shipped MVN path does not call it (the C# MVN sampler validates via ValidateParameters),
-    // but the LinkedMVN / Cohn paths (Phase 9 / A9) use it. Evaluates the log-space quantile for
+    // but the shipped LinkedMVN path (X8) uses it. Evaluates the log-space quantile for
     // LP3/LogNormal (via the P3/Normal base) or the real-space quantile otherwise, falling back to
     // the point estimate on any failure.
     double evaluate_log_quantile_safe(const std::vector<double>& parameters,

@@ -274,7 +274,9 @@ void test_run_pivot_bootstrap_structural() {
     CHECK_TRUE(diag != nullptr);
     if (diag != nullptr) {
         CHECK_EQ(diag->total_replicates(), b);
-        CHECK_EQ(diag->valid_replicates() + diag->failed_replicates(), b);
+        // valid = total - failed by construction, so re-checking the sum against b is redundant
+        // with the line above; assert instead that real fits actually succeeded (not all fell back).
+        CHECK_TRUE(diag->valid_replicates() >= 1);
     }
 
     // The stored posterior ensemble holds >= 2 finite parameter sets.
@@ -459,7 +461,9 @@ void test_run_bootstrap_structural() {
     CHECK_TRUE(diag != nullptr);
     if (diag != nullptr) {
         CHECK_EQ(diag->total_replicates(), b);
-        CHECK_EQ(diag->valid_replicates() + diag->failed_replicates(), b);
+        // valid = total - failed by construction, so re-checking the sum against b is redundant
+        // with the line above; assert instead that real fits actually succeeded (not all fell back).
+        CHECK_TRUE(diag->valid_replicates() >= 1);
     }
 
     const auto* results = analysis->analysis_results();

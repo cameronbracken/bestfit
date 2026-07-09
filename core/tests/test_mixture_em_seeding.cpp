@@ -215,6 +215,9 @@ void test_em_seed_determinism() {
     for (int i = 0; i < c1.number_of_rows(); ++i)
         for (int j = 0; j < c1.number_of_columns(); ++j) CHECK_EQ(c1(i, j), c2(i, j));
 
+    // Sanity check that the seed cadence itself is reproducible (draw_proposals mirrors the
+    // production seed order). The production seed path (seed_sampler_from_em surviving sample()'s
+    // reset) is covered structurally by the survive-reset test + the mixture fixture curve_length.
     // Proposal draws with a fixed seed are byte-identical run-to-run.
     int K = m1.mixture()->component_count();
     int N = m1.data_frame().total_record_length();
