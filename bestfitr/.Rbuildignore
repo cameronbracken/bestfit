@@ -1,3 +1,6 @@
+^.*\.o$
+^.*\.so$
+^src/bestfitr\.so$
+^\.\.Rcheck$
 ^.*\.Rproj$
 ^\.Rproj\.user$
-^\.github$
