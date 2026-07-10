@@ -182,7 +182,7 @@ The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently r
 Anthropic's Claude was used to facilitate the porting process, Fable and Opus 4.8 for planning, Sonnet 5 and Haiku 4.5 for implementation.
 
 ## Credit 
-All credit for the implementation of these tools goes to Haden Smith and the contributors to [Numerics](https://github.com/USACE-RMC/Numerics/graphs/contributors) and [RMC.BestFit](https://github.com/USACE-RMC/RMC.BestFit/graphs/contributors).
+All credit for the implementation of these tools goes to [Haden Smith](https://github.com/HadenSmith) and the contributors to [Numerics](https://github.com/USACE-RMC/Numerics/graphs/contributors) and [RMC.BestFit](https://github.com/USACE-RMC/RMC.BestFit/graphs/contributors).
 
 ## License
-The C++ core and both packages are released under the 0BSD license, matching the upstream USACE-RMC libraries.
+The C++ core and both packages are released under the [Zero-Clause BSD (0BSD) license](https://github.com/cameronbracken/bestfit/blob/main/LICENSE), matching the USACE-RMC libraries.
