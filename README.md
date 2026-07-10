@@ -178,7 +178,11 @@ pytest bestfitpy/tests
 ## Why?
 The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assesment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers.
 
+## AI Use Statement
+Anthropic's Claude was used to facilitate the porting process, Fable and Opus 4.8 for planning, Sonnet 5 and Haiku 4.5 for implementation.
+
+## Credit 
+All credit for the implementation of these tools goes to Haden Smith and the contributors to [Numerics](https://github.com/USACE-RMC/Numerics/graphs/contributors) and [RMC.BestFit](https://github.com/USACE-RMC/RMC.BestFit/graphs/contributors).
 
 ## License
-
 The C++ core and both packages are released under the 0BSD license, matching the upstream USACE-RMC libraries.
