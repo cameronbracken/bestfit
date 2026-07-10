@@ -1,14 +1,14 @@
-# bestfit
+# bestfit++
 
-bestfit is a set of tools for stochastic hydrology including distribution fitting, 
+bestfit++ is a set of tools for stochastic hydrology including distribution fitting, 
 timeseries modeling, uncertainty quantification, optimization, machine learning, and flood and precip 
 frequency estimation, and a whole lot more. Most features have both Bayesian and frequentist versions available. 
 
-This repository contains a C++ port of the USACE-RMC [Numerics](https://github.com/USACE-RMC/Numerics) and
-[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) C# libraries (not incuding the the Windows GUI). 
-See those libraries for more details. The ported C++ code is designed to exactly reproduce the 
-original C# code whenever possible (up to compiler and platform differences). See the [Why?](#why) section for 
-the motivation behind this porting effort. 
+This repository contains a C++ port of two [USACE-RMC](https://github.com/USACE-RMC) libraries: [Numerics](https://github.com/USACE-RMC/Numerics) and
+[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) (not incuding the the Windows GUI).
+The ported C++ code is designed to exactly reproduce the original C# code whenever possible 
+(up to compiler and platform differences). See the [Why?](#why) section for the motivation 
+behind this porting effort. 
 
 R (`bestfitr`) and Python (`bestfitpy`) packages are also available with bindings to call the 
 functions in the core library. Both packages call the same code and are expected to produce 
