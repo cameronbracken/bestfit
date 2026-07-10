@@ -1,6 +1,6 @@
 # bestfit++
 
-bestfit++ is a set of tools for stochastic hydrology including distribution fitting, 
+bestfit++ is a set of tools for stochastic and computational hydrology including distribution fitting, 
 timeseries modeling, uncertainty quantification, optimization, machine learning, and flood and precip 
 frequency estimation, and a whole lot more. Most features have both Bayesian and frequentist versions available. 
 
