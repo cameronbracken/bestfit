@@ -12,3 +12,4 @@ void register_mcmc(pybind11::module_& m);
 void register_bootstrap(pybind11::module_& m);
 void register_estimation(pybind11::module_& m);
 void register_analysis(pybind11::module_& m);
+void register_stats(pybind11::module_& m);

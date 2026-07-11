@@ -45,11 +45,15 @@
 #include "bestfit/models/support/simulatable.hpp"
 #include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "bestfit/numerics/data/box_cox.hpp"
 #include "bestfit/numerics/data/correlation.hpp"
 #include "bestfit/numerics/data/goodness_of_fit.hpp"
 #include "bestfit/numerics/data/histogram.hpp"
 #include "bestfit/numerics/data/interpolation/search.hpp"
+#include "bestfit/numerics/data/multiple_grubbs_beck_test.hpp"
 #include "bestfit/numerics/data/plotting_positions.hpp"
+#include "bestfit/numerics/data/yeo_johnson.hpp"
+#include "bestfit/numerics/sampling/latin_hypercube.hpp"
 #include "bestfit/numerics/distributions/base/i_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
@@ -944,6 +948,10 @@ static double dispatch_generic(const dist::UnivariateDistributionBase& d, const 
     if (m == "cdf") return d.cdf(a[0].get<double>());
     if (m == "quantile") return d.inverse_cdf(a[0].get<double>());
     if (m == "param") return d.get_parameters()[a[0].get<int>()];
+    if (m == "random_value") {
+        // args: [sample_size, seed, index] -- one draw from the seeded MT stream.
+        return d.generate_random_values(a[0].get<int>(), a[1].get<int>())[a[2].get<int>()];
+    }
     if (m == "linear_moment") {
         const auto* lm = dynamic_cast<const dist::ILinearMomentEstimation*>(&d);
         if (lm == nullptr) throw std::runtime_error("distribution has no L-moments");
@@ -1018,6 +1026,56 @@ static void run_goodness_of_fit(const json& spec) {
         double actual = dispatch_gof(fn, args, obs, mod);
         for (const auto& as : c["assertions"]) {
             std::string where = "gof/" + name;
+            check_value(actual, as, where);
+        }
+    }
+}
+
+// --- data_utility path ------------------------------------------------------------------
+// Small data-statistics utilities: MGBT count, Box-Cox / Yeo-Johnson lambda + transform,
+// plotting positions, Latin hypercube sampling. Same flat shape as goodness_of_fit
+// (one function per case, single computed value checked against each assertion).
+
+static double dispatch_data_utility(const std::string& fn, const std::vector<double>& args,
+                                    const std::vector<double>& data) {
+    namespace nd = bestfit::numerics::data;
+    if (fn == "MGBT") return static_cast<double>(nd::MultipleGrubbsBeckTest::function(data));
+    if (fn == "BoxCoxLambda") return nd::BoxCox::fit_lambda(data);
+    if (fn == "BoxCoxTransform")
+        return nd::BoxCox::transform(data, args[0])[static_cast<std::size_t>(args[1])];
+    if (fn == "YeoJohnsonLambda") return nd::YeoJohnson::fit_lambda(data);
+    if (fn == "YeoJohnsonTransform")
+        return nd::YeoJohnson::transform(data, args[0])[static_cast<std::size_t>(args[1])];
+    if (fn == "PlottingPosition")
+        return nd::plotting_positions::function(static_cast<int>(args[0]),
+                                                args[1])[static_cast<std::size_t>(args[2])];
+    if (fn == "LHSRandom" || fn == "LHSMedian") {
+        // args: [sample_size, dimension, seed, row, col]
+        auto m = fn == "LHSRandom"
+            ? bestfit::numerics::sampling::LatinHypercube::random(
+                  static_cast<int>(args[0]), static_cast<int>(args[1]), static_cast<int>(args[2]))
+            : bestfit::numerics::sampling::LatinHypercube::median(
+                  static_cast<int>(args[0]), static_cast<int>(args[1]), static_cast<int>(args[2]));
+        return m[static_cast<std::size_t>(args[3])][static_cast<std::size_t>(args[4])];
+    }
+    throw std::runtime_error("unknown data_utility function: " + fn);
+}
+
+static void run_data_utility(const json& spec) {
+    json datasets = spec.value("datasets", json::object());
+    for (const auto& c : spec["cases"]) {
+        std::string name = c["name"].get<std::string>();
+        std::string fn = c["function"].get<std::string>();
+        std::vector<double> args;
+        if (c.contains("args"))
+            for (const auto& v : c["args"]) args.push_back(parse_num(v));
+        std::vector<double> data;
+        if (c.contains("dataset"))
+            for (const auto& v : datasets[c["dataset"].get<std::string>()])
+                data.push_back(v.get<double>());
+        double actual = dispatch_data_utility(fn, args, data);
+        for (const auto& as : c["assertions"]) {
+            std::string where = "data_utility/" + name;
             check_value(actual, as, where);
         }
     }
@@ -2391,6 +2449,8 @@ int main(int argc, char** argv) {
             run_special_function(spec);
         } else if (kind == "goodness_of_fit") {
             run_goodness_of_fit(spec);
+        } else if (kind == "data_utility") {
+            run_data_utility(spec);
         } else if (kind == "univariate_distribution") {
             if (spec.value("target", "") == "GeneralizedExtremeValue")
                 run_gev(spec);

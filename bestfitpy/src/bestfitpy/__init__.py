@@ -9,6 +9,18 @@ from __future__ import annotations
 import numpy as np
 
 from ._core import GeneralizedExtremeValue, gev_fit as _gev_fit
+from .distributions import Distribution, distribution_names
+from .stats import (
+    box_cox,
+    box_cox_inverse,
+    box_cox_lambda,
+    latin_hypercube,
+    mgbt_test,
+    plotting_positions,
+    yeo_johnson,
+    yeo_johnson_inverse,
+    yeo_johnson_lambda,
+)
 from .analysis import (
     ar_analysis,
     arima_analysis,
@@ -33,6 +45,8 @@ from .analysis import (
 
 __all__ = [
     "GeneralizedExtremeValue",
+    "Distribution",
+    "distribution_names",
     "dgev",
     "pgev",
     "qgev",
@@ -57,6 +71,15 @@ __all__ = [
     "bootstrap_analysis",
     "prior_predictive_check",
     "posterior_predictive_check",
+    "mgbt_test",
+    "box_cox_lambda",
+    "box_cox",
+    "box_cox_inverse",
+    "yeo_johnson_lambda",
+    "yeo_johnson",
+    "yeo_johnson_inverse",
+    "plotting_positions",
+    "latin_hypercube",
 ]
 
 

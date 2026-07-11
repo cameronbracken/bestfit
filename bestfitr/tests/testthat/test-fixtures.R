@@ -69,7 +69,34 @@ dispatch_generic <- function(target, p, method, args) {
     parameters_valid = ns$bf_dist_valid_(target, p),
     param = p[[as.integer(args[[1]]) + 1L]],
     linear_moment = ns$bf_dist_linear_moments_(target, p)[[as.integer(args[[1]]) + 1L]],
+    # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
+    random_value = ns$bf_dist_random_(target, p, as.integer(args[[1]]),
+      as.integer(args[[2]]))[[as.integer(args[[3]]) + 1L]],
     stop(sprintf("unknown fixture method: %s", method))
+  )
+}
+
+# data_utility [function, args, data]: MGBT count, Box-Cox / Yeo-Johnson lambda +
+# transform, plotting positions, Latin hypercube. Mirrors dispatch_data_utility in
+# core/tests/test_fixtures.cpp.
+dispatch_data_utility <- function(fn, args, data) {
+  ns <- asNamespace("bestfitr")
+  switch(fn,
+    MGBT = as.double(ns$bf_mgbt_test_(data)),
+    BoxCoxLambda = ns$bf_box_cox_lambda_(data),
+    BoxCoxTransform = ns$bf_box_cox_(data, args[[1]])[[as.integer(args[[2]]) + 1L]],
+    YeoJohnsonLambda = ns$bf_yeo_johnson_lambda_(data),
+    YeoJohnsonTransform = ns$bf_yeo_johnson_(data, args[[1]])[[as.integer(args[[2]]) + 1L]],
+    PlottingPosition = ns$bf_plotting_positions_alpha_(
+      as.integer(args[[1]]), args[[2]])[[as.integer(args[[3]]) + 1L]],
+    LHSRandom = ,
+    LHSMedian = {
+      # args: [sample_size, dimension, seed, row, col]; glue returns row-major flat.
+      flat <- ns$bf_latin_hypercube_(as.integer(args[[1]]), as.integer(args[[2]]),
+        as.integer(args[[3]]), identical(fn, "LHSMedian"))
+      flat[[as.integer(args[[4]]) * as.integer(args[[2]]) + as.integer(args[[5]]) + 1L]]
+    },
+    stop(sprintf("unknown data_utility function: %s", fn))
   )
 }
 
@@ -803,6 +830,16 @@ test_that("oracle fixtures validate", {
       datasets <- spec$datasets
       for (case in spec$cases) {
         run_bootstrap_case(case$construct, case$assertions, datasets)
+      }
+      next
+    }
+    if (identical(spec$kind, "data_utility")) {
+      datasets <- spec$datasets
+      for (case in spec$cases) {
+        args <- if (is.null(case$args)) numeric() else as.double(unlist(case$args))
+        data <- if (is.null(case$dataset)) numeric() else as.double(unlist(datasets[[case$dataset]]))
+        actual <- dispatch_data_utility(case[["function"]], args, data)
+        for (a in case$assertions) check_assertion(actual, a)
       }
       next
     }

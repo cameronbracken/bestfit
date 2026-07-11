@@ -83,4 +83,7 @@ PYBIND11_MODULE(_core, m) {
 
     // Phase-8 user-facing analyses (UnivariateAnalysis/FittingAnalysis/Bulletin17CAnalysis).
     register_analysis(m);
+
+    // Data-statistics utilities (MGBT, Box-Cox, Yeo-Johnson, plotting positions, LHS).
+    register_stats(m);
 }

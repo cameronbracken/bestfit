@@ -82,6 +82,72 @@ doubles bf_dist_linear_moments_(std::string target, doubles params) {
     return writable::doubles(lm->linear_moments_from_parameters(d->get_parameters()));
 }
 
+// --- Public-API additions (consumed by R/distribution.R) ----------------------------
+// The scalar entry points above are kept untouched for the fixture runner; these
+// vectorized variants construct the distribution once and loop in C++.
+
+[[cpp11::register]]
+doubles bf_dist_random_(std::string target, doubles params, int sample_size, int seed) {
+    return writable::doubles(make_dist(target, params)->generate_random_values(sample_size, seed));
+}
+
+[[cpp11::register]]
+doubles bf_dist_pdf_v_(std::string target, doubles params, doubles xs) {
+    auto d = make_dist(target, params);
+    writable::doubles out(xs.size());
+    for (R_xlen_t i = 0; i < xs.size(); ++i) out[i] = d->pdf(xs[i]);
+    return out;
+}
+
+[[cpp11::register]]
+doubles bf_dist_cdf_v_(std::string target, doubles params, doubles xs) {
+    auto d = make_dist(target, params);
+    writable::doubles out(xs.size());
+    for (R_xlen_t i = 0; i < xs.size(); ++i) out[i] = d->cdf(xs[i]);
+    return out;
+}
+
+[[cpp11::register]]
+doubles bf_dist_quantile_v_(std::string target, doubles params, doubles probs) {
+    auto d = make_dist(target, params);
+    writable::doubles out(probs.size());
+    for (R_xlen_t i = 0; i < probs.size(); ++i) out[i] = d->inverse_cdf(probs[i]);
+    return out;
+}
+
+[[cpp11::register]]
+doubles bf_dist_log_pdf_v_(std::string target, doubles params, doubles xs) {
+    auto d = make_dist(target, params);
+    writable::doubles out(xs.size());
+    for (R_xlen_t i = 0; i < xs.size(); ++i) out[i] = d->log_pdf(xs[i]);
+    return out;
+}
+
+[[cpp11::register]]
+double bf_dist_log_likelihood_(std::string target, doubles params, doubles data) {
+    return make_dist(target, params)
+        ->log_likelihood(std::vector<double>(data.begin(), data.end()));
+}
+
+[[cpp11::register]]
+list bf_dist_parameter_names_(std::string target) {
+    auto d = dist::create_distribution(target);
+    writable::strings full;
+    for (const auto& s : d->parameter_names()) full.push_back(s);
+    writable::strings short_form;
+    for (const auto& s : d->parameter_names_short_form()) short_form.push_back(s);
+    writable::list out({full, short_form});
+    out.names() = {"full", "short"};
+    return out;
+}
+
+[[cpp11::register]]
+strings bf_dist_names_() {
+    writable::strings out;
+    for (const auto& s : dist::distribution_names()) out.push_back(s);
+    return out;
+}
+
 // --- Composite glue: TruncatedDistribution ------------------------------------------
 // Accepts (base_target, base_params, lo, hi) and exposes the full distribution surface.
 // Mirrors the bf_gev_* pattern: bespoke entry points that the R fixture runner uses.

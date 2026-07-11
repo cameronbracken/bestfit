@@ -77,6 +77,53 @@ void register_distributions(py::module_& m) {
         return lm->linear_moments_from_parameters(d->get_parameters());
     });
 
+    // --- Public-API additions (consumed by bestfitpy.distributions) --------------------
+    // The scalar entry points above are kept untouched for the fixture runners; these
+    // vectorized variants construct the distribution once and loop in C++.
+
+    m.def("dist_random", [](const std::string& t, const std::vector<double>& p,
+                            int sample_size, int seed) {
+        return make_dist(t, p)->generate_random_values(sample_size, seed);
+    });
+    m.def("dist_pdf_v", [](const std::string& t, const std::vector<double>& p,
+                           const std::vector<double>& xs) {
+        auto d = make_dist(t, p);
+        std::vector<double> out(xs.size());
+        for (std::size_t i = 0; i < xs.size(); ++i) out[i] = d->pdf(xs[i]);
+        return out;
+    });
+    m.def("dist_cdf_v", [](const std::string& t, const std::vector<double>& p,
+                           const std::vector<double>& xs) {
+        auto d = make_dist(t, p);
+        std::vector<double> out(xs.size());
+        for (std::size_t i = 0; i < xs.size(); ++i) out[i] = d->cdf(xs[i]);
+        return out;
+    });
+    m.def("dist_quantile_v", [](const std::string& t, const std::vector<double>& p,
+                                const std::vector<double>& probs) {
+        auto d = make_dist(t, p);
+        std::vector<double> out(probs.size());
+        for (std::size_t i = 0; i < probs.size(); ++i) out[i] = d->inverse_cdf(probs[i]);
+        return out;
+    });
+    m.def("dist_log_pdf_v", [](const std::string& t, const std::vector<double>& p,
+                               const std::vector<double>& xs) {
+        auto d = make_dist(t, p);
+        std::vector<double> out(xs.size());
+        for (std::size_t i = 0; i < xs.size(); ++i) out[i] = d->log_pdf(xs[i]);
+        return out;
+    });
+    m.def("dist_log_likelihood", [](const std::string& t, const std::vector<double>& p,
+                                    const std::vector<double>& data) {
+        return make_dist(t, p)->log_likelihood(data);
+    });
+    m.def("dist_parameter_names", [](const std::string& t) {
+        auto d = dist::create_distribution(t);
+        return std::map<std::string, std::vector<std::string>>{
+            {"full", d->parameter_names()}, {"short", d->parameter_names_short_form()}};
+    });
+    m.def("dist_names", []() { return dist::distribution_names(); });
+
     // --- Composite glue: TruncatedDistribution -----------------------------------------
     // Accepts (base_target, base_params, lo, hi) and exposes the full distribution surface.
     // Future composites (Empirical, KernelDensity, Mixture, CompetingRisks) follow the same

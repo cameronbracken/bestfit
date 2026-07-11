@@ -229,6 +229,8 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
             if (d is ILinearMomentEstimation lm)
                 return lm.LinearMomentsFromParameters(d.GetParameters)[a[0].GetInt32()];
             throw new Exception("distribution has no L-moments");
+        // args: [sample_size, seed, index] -- one draw from the seeded MT stream.
+        case "random_value": return d.GenerateRandomValues(a[0].GetInt32(), a[1].GetInt32())[a[2].GetInt32()];
         // GEV bespoke standard-error methods -- validated in Phase 0, not re-checked here.
         case "quantile_gradient":
         case "parameter_covariance":
@@ -3226,6 +3228,61 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
             foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
             {
                 string where = $"gof/{caseName}";
+                if (Compare(actual, asrt)) pass++;
+                else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
+            }
+        }
+        continue;
+    }
+
+    // --- data_utility branch --------------------------------------------------------------
+    // MGBT count, Box-Cox / Yeo-Johnson lambda + transform, plotting positions, Latin
+    // hypercube. Same flat shape as goodness_of_fit; --dump supported for curation.
+    if (kindStr == "data_utility")
+    {
+        var duSets = new Dictionary<string, double[]>();
+        if (root.TryGetProperty("datasets", out var duDs))
+            foreach (var kv in duDs.EnumerateObject())
+                duSets[kv.Name] = kv.Value.EnumerateArray().Select(ParseNum).ToArray();
+
+        foreach (var c in root.GetProperty("cases").EnumerateArray())
+        {
+            string caseName = c.GetProperty("name").GetString()!;
+            string fn = c.GetProperty("function").GetString()!;
+            double[] duArgs = c.TryGetProperty("args", out var duArgsNode)
+                ? duArgsNode.EnumerateArray().Select(ParseNum).ToArray()
+                : Array.Empty<double>();
+            double[] duData = c.TryGetProperty("dataset", out var duName)
+                ? duSets[duName.GetString()!] : Array.Empty<double>();
+
+            Func<double> compute = fn switch
+            {
+                "MGBT" => () => MultipleGrubbsBeckTest.Function(duData),
+                "BoxCoxLambda" => () => { BoxCox.FitLambda(duData, out double lam); return lam; },
+                "BoxCoxTransform" => () => BoxCox.Transform(duData, duArgs[0])[(int)duArgs[1]],
+                "YeoJohnsonLambda" => () => YeoJohnson.FitLambda(duData),
+                "YeoJohnsonTransform" => () => YeoJohnson.Transform(duData, duArgs[0])[(int)duArgs[1]],
+                "PlottingPosition" => () => PlottingPositions.Function((int)duArgs[0], duArgs[1])[(int)duArgs[2]],
+                // args: [sample_size, dimension, seed, row, col]
+                "LHSRandom" => () => LatinHypercube.Random((int)duArgs[0], (int)duArgs[1], (int)duArgs[2])[(int)duArgs[3], (int)duArgs[4]],
+                "LHSMedian" => () => LatinHypercube.Median((int)duArgs[0], (int)duArgs[1], (int)duArgs[2])[(int)duArgs[3], (int)duArgs[4]],
+                _ => throw new Exception($"unknown data_utility function: {fn}")
+            };
+
+            if (dump)
+            {
+                var duArgsJson = c.TryGetProperty("args", out var duArgsNode2)
+                    ? duArgsNode2.EnumerateArray().ToArray() : Array.Empty<JsonElement>();
+                DumpLine("data_utility", caseName, fn, duArgsJson, () => (object)compute());
+                continue;
+            }
+
+            double actual;
+            try { actual = compute(); }
+            catch (Exception ex) { fail++; failures.Add($"data_utility/{caseName}: {ex.Message}"); continue; }
+            foreach (var asrt in c.GetProperty("assertions").EnumerateArray())
+            {
+                string where = $"data_utility/{caseName}";
                 if (Compare(actual, asrt)) pass++;
                 else { fail++; failures.Add($"{where}: expected {asrt.GetProperty("expected")} got {actual:G17}"); }
             }
