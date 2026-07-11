@@ -1,0 +1,17 @@
+/*-- scss:defaults --*/
+
+// Earth-tone accents over darkly; lighter variants of the light palette so
+// links and accents keep contrast on the dark background.
+//
+//   primary (olive):  #8fa65c
+//   accent  (clay):   #c98a5e
+
+$primary: #8fa65c;
+$link-color: #a3b878;
+$code-color: #c98a5e;
+
+/*-- scss:rules --*/
+
+.navbar {
+  background-color: #3d4a24;
+}

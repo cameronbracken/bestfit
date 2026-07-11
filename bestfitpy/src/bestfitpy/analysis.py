@@ -37,13 +37,38 @@ def univariate_analysis(
     """Bayesian univariate frequency analysis.
 
     Fit ``distribution`` to ``data`` with a Bayesian MCMC analysis and return the frequency
-    (quantile) curve, the posterior mean and credible band, and goodness-of-fit scalars.
+    (quantile) curve, the posterior mean and credible band, and goodness-of-fit scalars. The
+    MCMC warmup (burn-in) length is set automatically to ``max(50, iterations // 2)`` and is
+    not a user parameter.
 
-    ``sampler`` is one of ``"DEMCz"``, ``"DEMCzs"``, ``"ARWMH"``, ``"NUTS"``. ``thinning_interval``
-    of ``-1`` (default) keeps the sampler's own default. The MCMC warmup (burn-in) length is set
-    automatically to ``max(50, iterations // 2)`` and is not a user parameter. Returns a dict with
-    ``parameters``, ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci`` (one value per
-    exceedance ordinate) and the scalars ``aic``, ``bic``, ``dic``, ``rmse``.
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    distribution : str
+        Distribution family name.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width (e.g. ``0.90`` for a 90% band).
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        Keys ``parameters``, ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci``
+        (one value per exceedance ordinate) and the scalars ``aic``, ``bic``, ``dic``,
+        ``rmse``.
     """
     model_json = json.dumps({"family": distribution, "dataset": "data"})
     ep = [] if exceedance_probabilities is None else [float(v) for v in exceedance_probabilities]
@@ -57,8 +82,18 @@ def univariate_analysis(
 def fit_distributions(data) -> dict:
     """Fit and rank the 14 candidate distributions by maximum likelihood.
 
-    Returns a dict with equal-length lists ``distribution`` (candidate name), ``aic``, ``bic``,
-    ``rmse``, and ``converged`` (bool) -- one entry per candidate. Ranking is left to the caller.
+    Ranking is left to the caller.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+
+    Returns
+    -------
+    dict
+        Equal-length lists with one entry per candidate: ``distribution`` (candidate name),
+        ``aic``, ``bic``, ``rmse``, and ``converged`` (bool).
     """
     values = [float(v) for v in np.asarray(data).ravel()]
     return _fit_distributions(values)
@@ -77,11 +112,29 @@ def bulletin17c_analysis(
     Fit the model by the generalized method of moments and return the Cohn-style delta-method
     confidence intervals, the fitted parameters, and the sandwich covariance.
 
-    ``uncertainty_method`` is ``"MultivariateNormal"`` (default) or ``"Bootstrap"``; the
-    ``"LinkedMultivariateNormal"`` / ``"BiasCorrectedBootstrap"`` methods are deferred and raise.
-    Returns a dict with ``exceedance_probabilities``, ``point_estimates``, ``lower_ci``,
-    ``upper_ci``, ``confidence_level``, ``beta1``, ``nu``, ``quantile_variance``, ``parameters``,
-    and ``covariance`` (a nested p x p list).
+    Parameters
+    ----------
+    data : array_like
+        Annual peak observations.
+    uncertainty_method : str, default "MultivariateNormal"
+        Uncertainty-quantification method: ``"MultivariateNormal"``, ``"Bootstrap"``,
+        ``"LinkedMultivariateNormal"``, or ``"BiasCorrectedBootstrap"``.
+    output_length : int, default 10000
+        Number of parameter-set draws used for uncertainty quantification.
+    seed : int, default 12345
+        PRNG seed for the uncertainty draw.
+    confidence_level : float, default 0.90
+        Confidence level for the intervals.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+
+    Returns
+    -------
+    dict
+        Keys ``exceedance_probabilities``, ``point_estimates``, ``lower_ci``, ``upper_ci``,
+        ``confidence_level``, ``beta1``, ``nu``, ``quantile_variance``, ``parameters``, and
+        ``covariance`` (a nested p x p list).
     """
     model_json = json.dumps(
         {"type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "data"}
@@ -128,10 +181,41 @@ def mixture_analysis(
 ) -> dict:
     """Bayesian mixture-model frequency analysis.
 
-    Fit a finite mixture of ``families`` (each a distribution family name) to ``data`` with a
-    Bayesian MCMC analysis. Returns the same dict shape as :func:`univariate_analysis`
-    (``parameters``, ``mode_curve``, ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``,
-    ``dic``, ``rmse``).
+    Fit a finite mixture of ``families`` to ``data`` with a Bayesian MCMC analysis.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    families : sequence of str
+        Distribution family name of each mixture component.
+    zero_inflated : bool, default False
+        Fit a zero-inflated mixture.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    univariate_analysis
     """
     model = {
         "type": "mixture",
@@ -158,8 +242,40 @@ def competing_risk_analysis(
 ) -> dict:
     """Bayesian competing-risk frequency analysis.
 
-    Fit a competing-risks model (the observed maximum of several independent parent ``families``)
-    to ``data``. Returns the same dict shape as :func:`mixture_analysis`.
+    Fit a competing-risks model (the observed maximum of several independent parent
+    ``families``) to ``data`` with a Bayesian MCMC analysis.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    families : sequence of str
+        Distribution family name of each independent parent.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    univariate_analysis, mixture_analysis
     """
     model = {
         "type": "competing_risks",
@@ -186,9 +302,41 @@ def point_process_analysis(
 ) -> dict:
     """Bayesian point-process (peaks-over-threshold) frequency analysis.
 
-    Fit a peaks-over-threshold point-process model to ``data``. ``threshold`` and ``total_years``
-    are optional (the model default cascade applies when omitted). Returns the same dict shape as
-    :func:`mixture_analysis`.
+    Fit a peaks-over-threshold point-process model to ``data`` with a Bayesian MCMC analysis.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    threshold : float, optional
+        Peaks-over-threshold value; the model default cascade applies when omitted.
+    total_years : float, optional
+        Total record length in years; the model default cascade applies when omitted.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    univariate_analysis, mixture_analysis
     """
     model = {"type": "point_process", "dataset": "data"}
     if threshold is not None:
@@ -216,11 +364,45 @@ def ar_analysis(
 ) -> dict:
     """Bayesian autoregressive AR(p) time-series analysis.
 
-    Fit an AR(``order_p``) model to the observed series ``data`` and return the posterior forecast
-    curve + credible band. ``training_time_steps`` defaults to the model's own default
-    (``max(30, floor(0.8 * n))``), which is invalid for short series -- set it explicitly (e.g.
-    ``15``) when ``n`` is small. ``forecasting_time_steps`` extends the horizon past the observed
-    series. Returns the same dict shape as :func:`mixture_analysis`.
+    Fit an AR(``order_p``) model to the observed series ``data`` and return the posterior
+    forecast curve and credible band.
+
+    Parameters
+    ----------
+    data : array_like
+        Observed time series.
+    order_p : int, default 1
+        Autoregressive order p.
+    include_intercept : bool, default True
+        Include an intercept term.
+    training_time_steps : int, optional
+        Number of training time steps. Defaults to the model's own default
+        (``max(30, floor(0.8 * n))``), which is invalid for short series -- set it
+        explicitly (e.g. ``15``) when ``n`` is small.
+    forecasting_time_steps : int, default 0
+        Extends the forecast horizon past the observed series.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    univariate_analysis, ma_analysis, arima_analysis, arimax_analysis
     """
     model = {
         "type": "time_series",
@@ -249,7 +431,48 @@ def ma_analysis(
     seed: int = 12345,
     thinning_interval: int = -1,
 ) -> dict:
-    """Bayesian moving-average MA(q) time-series analysis. See :func:`ar_analysis`."""
+    """Bayesian moving-average MA(q) time-series analysis.
+
+    Fit an MA(``order_q``) model to the observed series ``data`` and return the posterior
+    forecast curve and credible band.
+
+    Parameters
+    ----------
+    data : array_like
+        Observed time series.
+    order_q : int, default 1
+        Moving-average order q.
+    include_intercept : bool, default True
+        Include an intercept term.
+    training_time_steps : int, optional
+        Number of training time steps. Defaults to the model's own default
+        (``max(30, floor(0.8 * n))``), which is invalid for short series -- set it
+        explicitly (e.g. ``15``) when ``n`` is small.
+    forecasting_time_steps : int, default 0
+        Extends the forecast horizon past the observed series.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    ar_analysis, arima_analysis, arimax_analysis
+    """
     model = {
         "type": "time_series",
         "subtype": "ma",
@@ -279,7 +502,52 @@ def arima_analysis(
     seed: int = 12345,
     thinning_interval: int = -1,
 ) -> dict:
-    """Bayesian ARIMA(p,d,q) time-series analysis. See :func:`ar_analysis`."""
+    """Bayesian ARIMA(p,d,q) time-series analysis.
+
+    Fit an ARIMA(``order_p``, ``order_d``, ``order_q``) model to the observed series
+    ``data`` and return the posterior forecast curve and credible band.
+
+    Parameters
+    ----------
+    data : array_like
+        Observed time series.
+    order_p : int, default 1
+        Autoregressive order p.
+    order_d : int, default 0
+        Differencing order d.
+    order_q : int, default 1
+        Moving-average order q.
+    include_intercept : bool, default True
+        Include an intercept term.
+    training_time_steps : int, optional
+        Number of training time steps. Defaults to the model's own default
+        (``max(30, floor(0.8 * n))``), which is invalid for short series -- set it
+        explicitly (e.g. ``15``) when ``n`` is small.
+    forecasting_time_steps : int, default 0
+        Extends the forecast horizon past the observed series.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    ar_analysis, ma_analysis, arimax_analysis
+    """
     model = {
         "type": "time_series",
         "subtype": "arima",
@@ -313,8 +581,54 @@ def arimax_analysis(
 ) -> dict:
     """Bayesian ARIMAX(p,d,q) time-series analysis with a deterministic ``trend``.
 
-    Covariate forecasting past the observed range is not exposed; run fit-only
-    (``forecasting_time_steps = 0``) with covariates. See :func:`ar_analysis` for the shared knobs.
+    Fit an ARIMAX model to the observed series ``data`` and return the posterior forecast
+    curve and credible band. Covariate forecasting past the observed range is not exposed;
+    run fit-only (``forecasting_time_steps = 0``) with covariates.
+
+    Parameters
+    ----------
+    data : array_like
+        Observed time series.
+    order_p : int, default 1
+        Autoregressive order p.
+    order_d : int, default 0
+        Differencing order d.
+    order_q : int, default 0
+        Moving-average order q.
+    order_b : int, default 0
+        Covariate (exogenous) order b.
+    trend : str, default "None"
+        Deterministic trend model name.
+    include_intercept : bool, default True
+        Include an intercept term.
+    training_time_steps : int, optional
+        Number of training time steps. Defaults to the model's own default
+        (``max(30, floor(0.8 * n))``), which is invalid for short series -- set it
+        explicitly (e.g. ``15``) when ``n`` is small.
+    forecasting_time_steps : int, default 0
+        Extends the forecast horizon past the observed series.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    ar_analysis, ma_analysis, arima_analysis
     """
     model = {
         "type": "time_series",
@@ -344,14 +658,41 @@ def estimation_diagnostics(
     """Bayesian estimation diagnostics (leverage / influence / prior influence).
 
     Fit ``distribution`` to ``data`` with a Bayesian MCMC analysis and compute the three
-    diagnostics off that fit. Returns a dict with three sub-dicts: ``leverage`` (``index``,
-    ``leverage``, ``fit_influence``, ``variance_influence``, ``value`` lists; ``prior_leverage``;
-    ``total_leverage``, ``total_fit_influence``, ``total_variance_influence``), ``influence``
-    (``pareto_k``, ``elpd_loo`` lists; ``count``, ``mean_pareto_k``, ``max_pareto_k``,
-    ``count_pareto_k_above_05``/``_07``/``_10``, ``proportion_problematic``, ``is_reliable``), and
-    ``prior_influence`` (``count``, ``prior_precision_share``, ``total_prior_log_likelihood``,
-    ``total_data_log_likelihood``, ``prior_to_data_ratio``, ``is_prior_influential``,
-    ``mean_prior_precision_share``).
+    diagnostics off that fit.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    distribution : str
+        Distribution family name.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+    thin_every : int, default 10
+        Prior-influence posterior thinning stride.
+
+    Returns
+    -------
+    dict
+        Three sub-dicts:
+
+        - ``leverage`` : the lists ``index``, ``leverage``, ``fit_influence``,
+          ``variance_influence``, ``value``; ``prior_leverage``; and ``total_leverage``,
+          ``total_fit_influence``, ``total_variance_influence``.
+        - ``influence`` : the lists ``pareto_k``, ``elpd_loo``; and ``count``,
+          ``mean_pareto_k``, ``max_pareto_k``, ``count_pareto_k_above_05`` / ``_07`` /
+          ``_10``, ``proportion_problematic``, ``is_reliable``.
+        - ``prior_influence`` : ``count``, ``prior_precision_share``,
+          ``total_prior_log_likelihood``, ``total_data_log_likelihood``,
+          ``prior_to_data_ratio``, ``is_prior_influential``, ``mean_prior_precision_share``.
     """
     model_json = json.dumps({"family": distribution, "dataset": "data"})
     values = [float(v) for v in np.asarray(data).ravel()]
@@ -387,10 +728,44 @@ def composite_analysis(
 ) -> dict:
     """Composite frequency analysis over one child analysis per ``families`` entry.
 
-    Combines the child univariate frequency analyses (each fit to ``data``) into a single composite
-    curve via ``composite_type`` (``"CompetingRisks"`` / ``"Mixture"`` / ``"ModelAverage"``);
-    ``average_method`` selects the model-averaging criterion. Wraps the shared C++
-    ``CompositeAnalysis``. Returns the ``univariate_analysis`` dict shape.
+    Combines the child univariate frequency analyses (each fit to ``data``) into a single
+    composite curve. Wraps the shared C++ ``CompositeAnalysis``.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    families : sequence of str
+        Distribution family name of each child analysis.
+    composite_type : {"CompetingRisks", "Mixture", "ModelAverage"}, default "CompetingRisks"
+        How the child curves are combined.
+    average_method : str, default "AIC"
+        Selects the model-averaging criterion.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curve; when ``None``, the default
+        ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The same shape as ``univariate_analysis``: ``parameters``, ``mode_curve``,
+        ``mean_curve``, ``lower_ci``, ``upper_ci``, ``aic``, ``bic``, ``dic``, ``rmse``.
+
+    See Also
+    --------
+    univariate_analysis
     """
     construct = {
         "model": {"families": [str(f) for f in families], "dataset": "data"},
@@ -423,10 +798,39 @@ def spatial_gev_analysis(
 ) -> dict:
     """Hierarchical spatial-GEV frequency analysis over gauged sites.
 
-    ``coordinates`` is one ``[x, y]`` row per site; ``at_site_data`` is ``[observations x sites]``.
-    Returns the regional frequency curve + per-site GEV/quantile bands (and, when
-    ``cross_validation``, the leave-one-site-out diagnostics). Wraps the shared C++
-    ``SpatialGEVAnalysis``.
+    Wraps the shared C++ ``SpatialGEVAnalysis``.
+
+    Parameters
+    ----------
+    coordinates : array_like
+        Site coordinates, one ``[x, y]`` row per site.
+    at_site_data : array_like
+        At-site observation matrix, ``[observations x sites]``.
+    cross_validation : bool, default False
+        Also compute the leave-one-site-out diagnostics.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible bands.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    number_of_chains : int, default 4
+        Number of MCMC chains.
+    exceedance_probabilities : array_like of float, optional
+        Exceedance probabilities at which to tabulate the curves; when ``None``, the
+        default ordinates are used.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The regional frequency curve plus per-site GEV/quantile bands and, when
+        ``cross_validation`` is true, the leave-one-site-out diagnostics.
     """
     coords = [[float(v) for v in row] for row in np.asarray(coordinates, dtype=float)]
     at_site = [[float(v) for v in row] for row in np.asarray(at_site_data, dtype=float)]
@@ -488,8 +892,50 @@ def bivariate_analysis(
 ) -> dict:
     """Bivariate (copula) joint-exceedance frequency analysis over two fixed marginals.
 
-    Returns the AND-joint-exceedance mode/mean curve + credible band over the ``(xy_x, xy_y)``
-    ordinate grid. Wraps the shared C++ ``BivariateAnalysis``.
+    Wraps the shared C++ ``BivariateAnalysis``.
+
+    Parameters
+    ----------
+    marginal_x_family : str
+        Distribution family name of the X marginal.
+    marginal_x_data : array_like
+        Observations for the X marginal.
+    marginal_x_parameters : array_like of float
+        Fixed parameter values of the X marginal.
+    marginal_y_family : str
+        Distribution family name of the Y marginal.
+    marginal_y_data : array_like
+        Observations for the Y marginal.
+    marginal_y_parameters : array_like of float
+        Fixed parameter values of the Y marginal.
+    xy_x : array_like of float
+        X values of the joint-exceedance ordinate grid.
+    xy_y : array_like of float
+        Y values of the joint-exceedance ordinate grid.
+    copula : str, default "Normal"
+        Bivariate copula name.
+    estimation_method : str, default "InferenceFromMargins"
+        Copula estimation method.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    number_of_chains : int, default 4
+        Number of MCMC chains.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The AND-joint-exceedance mode/mean curve and credible band over the
+        ``(xy_x, xy_y)`` ordinate grid.
     """
     construct = {
         "model": _bivariate_model(
@@ -532,9 +978,59 @@ def coincident_frequency_analysis(
 ) -> dict:
     """Coincident-frequency analysis: a fitted bivariate copula + an M x N response surface.
 
-    Derives the annual-exceedance-probability curve of ``Z = f(X, Y)`` from the response grid.
-    ``response`` is an M x N matrix ``Z[i, j] = f(x_i, y_j)``. Wraps the shared C++
-    ``CoincidentFrequencyAnalysis`` (which internally fits the bivariate analysis).
+    Derives the annual-exceedance-probability curve of ``Z = f(X, Y)`` from the response
+    grid. Wraps the shared C++ ``CoincidentFrequencyAnalysis`` (which internally fits the
+    bivariate analysis).
+
+    Parameters
+    ----------
+    marginal_x_family : str
+        Distribution family name of the X marginal.
+    marginal_x_data : array_like
+        Observations for the X marginal.
+    marginal_x_parameters : array_like of float
+        Fixed parameter values of the X marginal.
+    marginal_y_family : str
+        Distribution family name of the Y marginal.
+    marginal_y_data : array_like
+        Observations for the Y marginal.
+    marginal_y_parameters : array_like of float
+        Fixed parameter values of the Y marginal.
+    x_values : array_like of float
+        Grid values ``x_i`` of the response surface.
+    y_values : array_like of float
+        Grid values ``y_j`` of the response surface.
+    response : array_like
+        M x N matrix ``Z[i, j] = f(x_i, y_j)``.
+    number_of_bins : int, default 50
+        Number of Z output bins.
+    copula : str, default "Normal"
+        Bivariate copula name.
+    estimation_method : str, default "InferenceFromMargins"
+        Copula estimation method.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    number_of_chains : int, default 4
+        Number of MCMC chains.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The derived annual-exceedance-probability curve of ``Z = f(X, Y)``.
+
+    See Also
+    --------
+    bivariate_analysis
     """
     resp = np.asarray(response, dtype=float)
     construct = {
@@ -576,8 +1072,41 @@ def rating_curve_analysis(
 ) -> dict:
     """Stage-discharge rating-curve frequency analysis.
 
-    Returns the predicted-discharge mode/mean curve + credible band across a stage grid. Wraps the
-    shared C++ ``RatingCurveAnalysis``.
+    Wraps the shared C++ ``RatingCurveAnalysis``.
+
+    Parameters
+    ----------
+    stage : array_like
+        Observed stage values.
+    discharge : array_like
+        Observed discharge values.
+    segments : int, default 1
+        Number of rating-curve segments.
+    stage_bins : int, optional
+        Number of stage grid points; when omitted, keeps the data-derived default.
+    min_stage : float, optional
+        Lower stage-grid bound; data-derived when omitted.
+    max_stage : float, optional
+        Upper stage-grid bound; data-derived when omitted.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples used to build the credible band.
+    credible_level : float, default 0.90
+        Credible-interval width.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    number_of_chains : int, default 4
+        Number of MCMC chains.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        The predicted-discharge mode/mean curve and credible band across the stage grid.
     """
     construct = {
         "model": {
@@ -615,9 +1144,33 @@ def bootstrap_analysis(
 ) -> dict:
     """Parametric bootstrap confidence bands for a fitted distribution.
 
-    Fits ``distribution`` to ``data``, then resamples it ``replications`` times to derive percentile
-    confidence bands on the quantile curve at the non-exceedance ``probabilities``. Wraps the shared
-    C++ ``BootstrapAnalysis`` (Numerics).
+    Fits ``distribution`` to ``data``, then resamples it ``replications`` times to derive
+    percentile confidence bands on the quantile curve at the non-exceedance
+    ``probabilities``. Wraps the shared C++ ``BootstrapAnalysis`` (Numerics).
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    distribution : str
+        Distribution family name.
+    probabilities : array_like of float
+        Non-exceedance probabilities at which to evaluate the quantile curve.
+    estimation_method : str, default "MaximumLikelihood"
+        Estimation method used to fit the distribution.
+    sample_size : int, optional
+        Bootstrap sample size; when omitted, uses ``len(data)``.
+    replications : int, default 1000
+        Number of bootstrap replications.
+    seed : int, default 12345
+        PRNG seed for the resampling.
+    alpha : float, default 0.1
+        Significance level of the confidence bands.
+
+    Returns
+    -------
+    dict
+        Percentile confidence bands on the quantile curve at ``probabilities``.
     """
     construct = {
         "model": {"family": str(distribution), "dataset": "data"},
@@ -641,9 +1194,26 @@ def prior_predictive_check(
 ) -> dict:
     """Prior predictive check: sample from the model priors, simulate, summarize.
 
-    Returns ``number_of_valid_draws`` and the predictive quantile summaries
-    (``summary_mean_quantiles`` etc., each ``[2.5, 25, 50, 75, 97.5]%``). Wraps the shared C++
-    ``PriorPredictiveCheck``.
+    Wraps the shared C++ ``PriorPredictiveCheck``.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations defining the model dataset.
+    distribution : str
+        Distribution family name.
+    number_of_draws : int, default 1000
+        Number of prior draws.
+    sample_size : int, optional
+        Simulated dataset size per draw; when omitted, uses ``len(data)``.
+    seed : int, default 12345
+        PRNG seed.
+
+    Returns
+    -------
+    dict
+        ``number_of_valid_draws`` and the predictive quantile summaries
+        (``summary_mean_quantiles`` etc., each the ``[2.5, 25, 50, 75, 97.5]%`` quantiles).
     """
     construct = {
         "model": {"family": str(distribution), "dataset": "data"},
@@ -667,9 +1237,32 @@ def posterior_predictive_check(
 ) -> dict:
     """Posterior predictive check: fit an MCMC, draw replicates, compute common p-values.
 
-    Returns ``number_of_replicates``, the five posterior predictive p-values (``mean_p_value`` etc.)
-    and ``has_misfit`` (1 when any p-value is extreme, else 0). Wraps the shared C++
-    ``PosteriorPredictiveCheck``.
+    Wraps the shared C++ ``PosteriorPredictiveCheck``.
+
+    Parameters
+    ----------
+    data : array_like
+        Observations to fit.
+    distribution : str
+        Distribution family name.
+    sampler : {"DEMCz", "DEMCzs", "ARWMH", "NUTS"}, default "DEMCz"
+        MCMC sampler.
+    iterations : int, default 3000
+        Number of post-warmup MCMC iterations.
+    output_length : int, default 10000
+        Number of posterior samples.
+    seed : int, default 12345
+        PRNG seed for the sampler.
+    number_of_replicates : int, default 1000
+        Number of posterior predictive replicates.
+    thinning_interval : int, default -1
+        MCMC thinning interval; ``-1`` keeps the sampler's own default.
+
+    Returns
+    -------
+    dict
+        ``number_of_replicates``, the five posterior predictive p-values (``mean_p_value``
+        etc.), and ``has_misfit`` (1 when any p-value is extreme, else 0).
     """
     construct = {
         "model": {"family": str(distribution), "dataset": "data"},

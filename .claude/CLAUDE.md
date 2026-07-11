@@ -234,6 +234,8 @@ Rscript -e 'testthat::test_local("bestfitr")'
 python3 tools/materialize_core.py    # (CI/release only; rewrites the working tree)
 # oracle reproduction gate (dev-only; needs dotnet + the upstream submodule)
 python3 tools/verify_oracles.py
+# documentation site (Quarto + quartodoc + pkgdown; see "Documentation site" below)
+make docs        # builds site/_site; serve with `make docs-serve` (NOT quarto preview)
 ```
 
 Toolchain present: clang++, cmake, R 4.6.1 (`/opt/homebrew/bin`), python3.14 + `~/venv/bestfitpy`,
@@ -269,6 +271,33 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
   `bestfitr/src/*.cpp`, re-run `cpp11::cpp_register("bestfitr")`.
 - **Mutation:** the global "never mutate" rule is relaxed for these binding/model objects (they
   mirror the C# stateful API), matching the upstream design.
+
+## Documentation site
+
+One GitHub Pages site (deployed by `.github/workflows/docs.yml` via actions/deploy-pages;
+Pages source must be set to "GitHub Actions" in repo settings). Three build halves:
+
+- `site/` -- the root **Quarto website** (landing page + examples + the quartodoc-generated
+  Python reference under `site/reference/`, gitignored). Dual theme flatly/darkly with
+  earth-tone accents in `site/styles/*.scss` (the palette hexes there are the single source
+  of truth; `bestfitr/_pkgdown.yml` `bslib.primary` mirrors them).
+- `bestfitr/_pkgdown.yml` -- the R reference, built by pkgdown into `bestfitr/docs/`
+  (gitignored) and copied to `/r/` of the assembled site.
+- Examples live at `site/examples/<nn>-<slug>/{python.ipynb, r.qmd}` -- Python examples are
+  **Jupyter notebooks committed WITH outputs** (Quarto renders stored outputs, never
+  re-executes them; re-run with `jupyter nbconvert --to notebook --execute --inplace` after
+  editing), R examples are Quarto with `freeze: auto` and **`site/_freeze/` committed**
+  (render locally and commit the updated freeze after editing an executed chunk).
+
+Contracts: every new package export must be added to BOTH `bestfitr/_pkgdown.yml` (pkgdown
+errors on missing reference-index entries) and the `quartodoc.sections` in
+`site/_quarto.yml`. `site/requirements.txt` pins the docs Python deps (griffe<2 until
+quartodoc supports griffe 2.x). Local build: `make docs`; inspect with `make docs-serve`
+(`quarto preview` cannot serve the pkgdown `/r/` half). Local toolchain quirks: quarto +
+pandoc come from Positron (`/Applications/Positron.app/Contents/Resources/app/quarto/bin`);
+pkgdown needs `RSTUDIO_PANDOC=<that dir>/tools/aarch64`. Reproduction-check literals in the
+R examples compare with 1e-15 relative tolerance (R's decimal parser can land one ulp off a
+written literal); the bit-exactness guarantees themselves are enforced by the fixture suite.
 
 ## Git & CI
 

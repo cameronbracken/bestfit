@@ -1,0 +1,24 @@
+---
+title: "Examples"
+toc: false
+---
+
+Worked examples ported from the USACE-RMC
+[Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
+repository (0BSD licensed). Each example exists in a Python version (`bestfitpy`,
+a Jupyter notebook you can download and run) and an R version (`bestfitr`, a
+Quarto document). The pair uses the same seeds and prints the same numbers: both
+packages run the same compiled core with a bit-exact Mersenne Twister.
+
+Every example ends with a reproduction check comparing this port's results
+against the outputs embedded in the upstream notebooks, run by the original C#
+library. Where a result is seeded and deterministic the match is exact; where an
+example was recast onto this package's API the check is statistical and says so.
+The [coverage page](coverage.qmd) lists every upstream example and its status
+here.
+
+| # | Example | Python | R |
+|---|---------|--------|---|
+| 00 | Getting started | [Python](00-getting-started/python.ipynb) | [R](00-getting-started/r.qmd) |
+
+More examples land as they are ported; see the coverage page for the full plan.

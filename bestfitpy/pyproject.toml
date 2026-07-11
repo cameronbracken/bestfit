@@ -17,6 +17,8 @@ test = ["pytest"]
 
 [project.urls]
 Homepage = "https://github.com/cameronbracken/bestfit"
+Documentation = "https://cameronbracken.github.io/bestfit/"
+Repository = "https://github.com/cameronbracken/bestfit"
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"

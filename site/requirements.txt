@@ -1,0 +1,8 @@
+# Python dependencies for building the documentation site (site/).
+# bestfitpy itself is installed separately from the repo (pip install ./bestfitpy).
+quartodoc>=0.11
+griffe<2  # quartodoc 0.11 is incompatible with griffe 2.x parser options
+jupyter
+matplotlib>=3.7
+numpy>=1.24
+pandas>=2.0
