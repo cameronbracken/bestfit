@@ -10,6 +10,7 @@ import numpy as np
 
 from ._core import GeneralizedExtremeValue, gev_fit as _gev_fit
 from .distributions import Distribution, distribution_names
+from .mcmc import mcmc_sample
 from .stats import (
     box_cox,
     box_cox_inverse,
@@ -80,6 +81,7 @@ __all__ = [
     "yeo_johnson_inverse",
     "plotting_positions",
     "latin_hypercube",
+    "mcmc_sample",
 ]
 
 
