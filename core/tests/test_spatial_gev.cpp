@@ -32,31 +32,31 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/spatial_extremes/spatial_gev.hpp"
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/models/trend_functions/general_linear_function.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/models/spatial_extremes/spatial_gev.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/models/trend_functions/general_linear_function.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::spatial_extremes::CorrelationFunctionType;
-using bestfit::models::spatial_extremes::GaussianCopula;
-using bestfit::models::spatial_extremes::SpatialGEV;
-using bestfit::models::spatial_extremes::SpatialRegressionErrors;
-using bestfit::models::trend_functions::GeneralLinearFunction;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::models::spatial_extremes::CorrelationFunctionType;
+using corehydro::models::spatial_extremes::GaussianCopula;
+using corehydro::models::spatial_extremes::SpatialGEV;
+using corehydro::models::spatial_extremes::SpatialRegressionErrors;
+using corehydro::models::trend_functions::GeneralLinearFunction;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::sampling::MersenneTwister;
 
 using Grid = std::vector<std::vector<double>>;
 
 // Compile-time mirror of Model_InheritsFromModelBase / Model_ImplementsISimulatable.
-static_assert(std::is_base_of<bestfit::models::ModelBase, SpatialGEV>::value,
+static_assert(std::is_base_of<corehydro::models::ModelBase, SpatialGEV>::value,
               "SpatialGEV must derive from ModelBase");
 static_assert(
-    std::is_base_of<bestfit::models::ISimulatable<std::vector<double>>, SpatialGEV>::value,
+    std::is_base_of<corehydro::models::ISimulatable<std::vector<double>>, SpatialGEV>::value,
     "SpatialGEV must implement ISimulatable<std::vector<double>>");
 
 // ---- Test data helpers (mirror the C# private fixtures; data regenerated with the ported RNG) ----
@@ -388,7 +388,7 @@ void pointwise_data_log_likelihood_components_has_correct_properties() {
     auto comps = model.pointwise_data_log_likelihood_components(p);
     CHECK_EQ(comps[0].index(), 0);
     CHECK_TRUE(!std::isnan(comps[0].log_likelihood()));
-    CHECK_TRUE(comps[0].type() == bestfit::models::DataComponentType::Exact);
+    CHECK_TRUE(comps[0].type() == corehydro::models::DataComponentType::Exact);
 }
 
 void pointwise_prior_log_likelihood_returns_prior_components() {
@@ -416,7 +416,7 @@ void pointwise_prior_log_likelihood_emits_spatial_error_components() {
     CHECK_TRUE(static_cast<int>(comps.size()) > model.number_of_parameters());
     int spatial_error_count = 0;
     for (const auto& c : comps)
-        if (c.type() == bestfit::models::PriorComponentType::SpatialError) ++spatial_error_count;
+        if (c.type() == corehydro::models::PriorComponentType::SpatialError) ++spatial_error_count;
     CHECK_TRUE(spatial_error_count >= 2);  // location + scale errors enabled
 }
 
@@ -958,5 +958,5 @@ int main() {
     get_gev_at_ungauged_at_existing_site_matches_site_gev();
     // P4 fixed-parameter DataLogLikelihood oracle
     test_spatial_gev_p4_fixed_param_oracle();
-    return bftest::summary("test_spatial_gev");
+    return chtest::summary("test_spatial_gev");
 }

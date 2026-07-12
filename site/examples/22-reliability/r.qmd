@@ -10,7 +10,7 @@ Ported from
 [`reliability_analysis.py`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/examples/reliability_analysis.py)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 script drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library. The
+`corehydror`, whose compiled core is a validated C++ port of the same library. The
 Python version of this example uses the same core and prints the same numbers.
 
 This example runs a Monte Carlo reliability analysis of the classic
@@ -22,7 +22,7 @@ beta = -&Phi;<sup>-1</sup>(Pf) restates that probability on a standard-normal sc
 
 ## What you'll learn
 
-- How to model a log-normal resistance and a Normal load with `bestfitr`.
+- How to model a log-normal resistance and a Normal load with `corehydror`.
 - How to estimate a failure probability and reliability index by Monte Carlo simulation.
 - How the port's `LnNormal` family replaces the upstream base-e `LogNormal` workaround.
 
@@ -33,7 +33,7 @@ NuGet cache and loading the CoreCLR runtime before it can start. None of that
 exists here.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Define the random variables

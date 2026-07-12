@@ -1,5 +1,5 @@
-// Structural / deterministic-aggregation tests for bestfit::analyses::CompositeAnalysis and its
-// child-wrapper DTO bestfit::analyses::WeightedUnivariateAnalysis (X5).
+// Structural / deterministic-aggregation tests for corehydro::analyses::CompositeAnalysis and its
+// child-wrapper DTO corehydro::analyses::WeightedUnivariateAnalysis (X5).
 //
 // The composite has NO MCMC of its own: given fixed child posteriors the model-weight estimation
 // and the CompetingRisks/Mixture aggregation are fully deterministic. These tests transcribe the
@@ -18,37 +18,37 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/analyses/support/analysis_base.hpp"
-#include "bestfit/analyses/support/i_univariate_analysis.hpp"
-#include "bestfit/analyses/support/weighted_univariate_analysis.hpp"
-#include "bestfit/analyses/univariate/composite_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/data/goodness_of_fit.hpp"
-#include "bestfit/numerics/data/probability.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/mixture.hpp"
-#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
+#include "corehydro/analyses/support/analysis_base.hpp"
+#include "corehydro/analyses/support/i_univariate_analysis.hpp"
+#include "corehydro/analyses/support/weighted_univariate_analysis.hpp"
+#include "corehydro/analyses/univariate/composite_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/data/goodness_of_fit.hpp"
+#include "corehydro/numerics/data/probability.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/mixture.hpp"
+#include "corehydro/numerics/math/optimization/support/parameter_set.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::AnalysisBase;
-using bestfit::analyses::AverageMethod;
-using bestfit::analyses::CompositeAnalysis;
-using bestfit::analyses::CompositeType;
-using bestfit::analyses::IUnivariateAnalysis;
-using bestfit::analyses::WeightedUnivariateAnalysis;
-using bestfit::estimation::BayesianAnalysis;
-using bestfit::estimation::PointEstimateType;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::data::GoodnessOfFit;
-using bestfit::numerics::distributions::Mixture;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::math::optimization::ParameterSet;
-using bestfit::numerics::sampling::mcmc::MCMCResults;
-namespace prob = bestfit::numerics::data::probability;
+using corehydro::analyses::AnalysisBase;
+using corehydro::analyses::AverageMethod;
+using corehydro::analyses::CompositeAnalysis;
+using corehydro::analyses::CompositeType;
+using corehydro::analyses::IUnivariateAnalysis;
+using corehydro::analyses::WeightedUnivariateAnalysis;
+using corehydro::estimation::BayesianAnalysis;
+using corehydro::estimation::PointEstimateType;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::data::GoodnessOfFit;
+using corehydro::numerics::distributions::Mixture;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::math::optimization::ParameterSet;
+using corehydro::numerics::sampling::mcmc::MCMCResults;
+namespace prob = corehydro::numerics::data::probability;
 
 namespace {
 
@@ -80,7 +80,7 @@ MCMCResults build_synthetic_results(double mean, double sd, int sample_size) {
 // LnNormal draws from the injected posterior.
 class FakeChild : public AnalysisBase, public IUnivariateAnalysis {
    public:
-    using UAR = bestfit::numerics::distributions::UncertaintyAnalysisResults;
+    using UAR = corehydro::numerics::distributions::UncertaintyAnalysisResults;
 
     FakeChild(double mean, double sd, int output_length)
         : model_(std::make_unique<UnivariateDistributionModel>(UnivariateDistributionType::LnNormal,
@@ -98,7 +98,7 @@ class FakeChild : public AnalysisBase, public IUnivariateAnalysis {
     const UAR* analysis_results() const override { return results_ ? &*results_ : nullptr; }
 
     // IProbabilityOrdinates
-    bestfit::numerics::data::ProbabilityOrdinates& probability_ordinates() override {
+    corehydro::numerics::data::ProbabilityOrdinates& probability_ordinates() override {
         return ordinates_;
     }
 
@@ -141,7 +141,7 @@ class FakeChild : public AnalysisBase, public IUnivariateAnalysis {
    private:
     std::unique_ptr<UnivariateDistributionModel> model_;
     BayesianAnalysis bayesian_;
-    bestfit::numerics::data::ProbabilityOrdinates ordinates_;
+    corehydro::numerics::data::ProbabilityOrdinates ordinates_;
     std::optional<UAR> results_;
     std::vector<std::unique_ptr<UnivariateDistributionBase>> cache_;
 };
@@ -424,5 +424,5 @@ int main() {
     test_validate_empty_children();
     test_run_populates_results();
 
-    return bftest::summary("composite_analysis");
+    return chtest::summary("composite_analysis");
 }

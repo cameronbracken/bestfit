@@ -1,4 +1,4 @@
-// Standalone test for bestfit::models::MixtureModel (Phase 5, M10).
+// Standalone test for corehydro::models::MixtureModel (Phase 5, M10).
 //
 // Oracle for behavior is the C# source itself:
 //   - upstream/RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/MixtureModel.cs
@@ -26,28 +26,28 @@
 #include <utility>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/validation_result.hpp"
-#include "bestfit/models/univariate_distribution/mixture_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/mixture.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/validation_result.hpp"
+#include "corehydro/models/univariate_distribution/mixture_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/mixture.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::MixtureModel;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::distributions::Gumbel;
-using bestfit::numerics::distributions::Mixture;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::MixtureModel;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::distributions::Gumbel;
+using corehydro::numerics::distributions::Mixture;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -574,7 +574,7 @@ void test_expectation_maximization_returns_parameters() {
     MixtureModel model(std::move(df), types);
 
     std::vector<double> parameters;
-    bestfit::numerics::math::linalg::Matrix covariance(0, 0);
+    corehydro::numerics::math::linalg::Matrix covariance(0, 0);
     int iterations = 0;
     model.expectation_maximization(parameters, covariance, iterations);
 
@@ -591,7 +591,7 @@ void test_expectation_maximization_converges_within_max_iterations() {
 
     int max_iterations = 100;
     std::vector<double> parameters;
-    bestfit::numerics::math::linalg::Matrix covariance(0, 0);
+    corehydro::numerics::math::linalg::Matrix covariance(0, 0);
     int iterations = 0;
     model.expectation_maximization(parameters, covariance, iterations, max_iterations);
 
@@ -606,7 +606,7 @@ void test_expectation_maximization_returns_covariance() {
     MixtureModel model(std::move(df), types);
 
     std::vector<double> parameters;
-    bestfit::numerics::math::linalg::Matrix covariance(0, 0);
+    corehydro::numerics::math::linalg::Matrix covariance(0, 0);
     int iterations = 0;
     model.expectation_maximization(parameters, covariance, iterations);
 
@@ -622,7 +622,7 @@ void test_expectation_maximization_weights_sum_to_one() {
     MixtureModel model(std::move(df), types);
 
     std::vector<double> parameters;
-    bestfit::numerics::math::linalg::Matrix covariance(0, 0);
+    corehydro::numerics::math::linalg::Matrix covariance(0, 0);
     int iterations = 0;
     model.expectation_maximization(parameters, covariance, iterations);
 
@@ -1032,5 +1032,5 @@ int main() {
     // ISimulatable guards + seeded determinism.
     test_generate_random_values_guards_and_deterministic_seed();
 
-    return bftest::summary("mixture_model");
+    return chtest::summary("mixture_model");
 }

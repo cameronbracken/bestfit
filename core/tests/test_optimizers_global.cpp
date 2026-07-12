@@ -13,11 +13,11 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/math/optimization/mlsl.hpp"
+#include "corehydro/numerics/math/optimization/mlsl.hpp"
 #include "check.hpp"
 #include "optimization_test_functions.hpp"
 
-using bestfit::numerics::math::optimization::MLSL;
+using corehydro::numerics::math::optimization::MLSL;
 
 namespace {
 
@@ -300,5 +300,5 @@ int main() {
     mlsl_three_hump_camel();
     mlsl_eggholder();
     mlsl_tp2();
-    return bftest::summary("test_optimizers_global");
+    return chtest::summary("test_optimizers_global");
 }

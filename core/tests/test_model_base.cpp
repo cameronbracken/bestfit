@@ -1,4 +1,4 @@
-// Standalone test for bestfit::models::ModelBase (Phase 4, Task T5).
+// Standalone test for corehydro::models::ModelBase (Phase 4, Task T5).
 //
 // Oracle for behavior is the C# source itself (upstream/RMC-BestFit/src/RMC.BestFit/Models/
 // Support/{IModel,ModelBase}.cs @ fc28c0c) -- this is a structural/behavioral port of the
@@ -13,20 +13,20 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/support/data_component.hpp"
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/prior_component.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
+#include "corehydro/models/support/data_component.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/prior_component.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataComponent;
-using bestfit::models::ModelBase;
-using bestfit::models::ModelParameter;
-using bestfit::models::PriorComponent;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Uniform;
+using corehydro::models::DataComponent;
+using corehydro::models::ModelBase;
+using corehydro::models::ModelParameter;
+using corehydro::models::PriorComponent;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Uniform;
 
 namespace {
 
@@ -46,7 +46,7 @@ class StubNormalModel : public ModelBase {
         // No-op stub (T5 scope): SetDefaultParameters is exercised in the full Models phase.
     }
 
-    bestfit::models::ValidationResult validate() const override {
+    corehydro::models::ValidationResult validate() const override {
         // Trivially-valid stub (validate() became pure virtual on ModelBase in M8).
         return {};
     }
@@ -215,5 +215,5 @@ int main() {
     test_pointwise_prior_log_likelihood_wrong_length_is_empty();
     test_use_default_flat_priors_property();
 
-    return bftest::summary("model_base");
+    return chtest::summary("model_base");
 }

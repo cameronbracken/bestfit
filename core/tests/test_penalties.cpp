@@ -19,16 +19,16 @@
 //     AEP_Changed_FiresPropertyChanged, MSE_Changed_FiresPropertyChanged (INPC).
 //
 // The C# `Validate()` returns the anonymous tuple `(bool IsValid, string Message)`; the port
-// returns the shared bestfit::models::ValidationResult, so `msg == string.Empty` transcribes
+// returns the shared corehydro::models::ValidationResult, so `msg == string.Empty` transcribes
 // to `validation_messages.empty()` and `msg.Length > 0` to a non-empty message list.
 #include <cmath>
 
-#include "bestfit/models/support/parameter_penalty.hpp"
-#include "bestfit/models/support/quantile_penalty.hpp"
+#include "corehydro/models/support/parameter_penalty.hpp"
+#include "corehydro/models/support/quantile_penalty.hpp"
 #include "check.hpp"
 
-using bestfit::models::ParameterPenalty;
-using bestfit::models::QuantilePenalty;
+using corehydro::models::ParameterPenalty;
+using corehydro::models::QuantilePenalty;
 
 namespace {
 
@@ -685,5 +685,5 @@ int main() {
     qp_mean_value_log10_greater_than_pow_of_10_mean();
     qp_upper_value_greater_than_lower_value();
     qp_upper_value_lower_value_real_space_symmetric_around_mean();
-    return bftest::summary("test_penalties");
+    return chtest::summary("test_penalties");
 }

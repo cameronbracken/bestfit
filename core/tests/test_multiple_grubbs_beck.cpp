@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::data::MultipleGrubbsBeckTest.
+// Standalone tests for corehydro::numerics::data::MultipleGrubbsBeckTest.
 //
 // Oracle values are transcribed directly from the C# unit tests in
 // upstream/Numerics/Test_Numerics/Data/Statistics/Test_HypothesisTests.cs:
@@ -12,10 +12,10 @@
 // integer equality for the multiple Grubbs-Beck counts).
 #include <vector>
 
-#include "bestfit/numerics/data/multiple_grubbs_beck_test.hpp"
+#include "corehydro/numerics/data/multiple_grubbs_beck_test.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::MultipleGrubbsBeckTest;
+using corehydro::numerics::data::MultipleGrubbsBeckTest;
 
 namespace {
 
@@ -144,5 +144,5 @@ int main() {
     test_grubbs_beck();
     test_grubbs_beck_throws_on_nonpositive();
     test_multiple_grubbs_beck();
-    return bftest::summary("multiple_grubbs_beck");
+    return chtest::summary("multiple_grubbs_beck");
 }

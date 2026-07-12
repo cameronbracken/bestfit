@@ -17,19 +17,19 @@
 #include <limits>
 #include <vector>
 
-#include "bestfit/numerics/distributions/exponential.hpp"
-#include "bestfit/numerics/distributions/gamma_distribution.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/ln_normal.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/pearson_type_iii.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/distributions/exponential.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/ln_normal.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/log_pearson_type_iii.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/pearson_type_iii.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using namespace bestfit::numerics;
-using namespace bestfit::numerics::distributions;
+using namespace corehydro::numerics;
+using namespace corehydro::numerics::distributions;
 
 // Relative-tolerance check built on CHECK_NEAR (expected must be nonzero).
 #define CHECK_REL(actual, expected, rtol)                                   \
@@ -454,5 +454,5 @@ int main() {
     lp3_moment_methods();
     ln_normal_moment_round_trip();
     log_normal_moment_round_trip();
-    return bftest::summary("test_moment_machinery");
+    return chtest::summary("test_moment_machinery");
 }

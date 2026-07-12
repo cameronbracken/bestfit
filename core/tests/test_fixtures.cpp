@@ -22,94 +22,94 @@
 #include <variant>
 #include <vector>
 
-#include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
-#include "bestfit/analyses/time_series/ar_analysis.hpp"
-#include "bestfit/analyses/time_series/arima_analysis.hpp"
-#include "bestfit/analyses/time_series/arimax_analysis.hpp"
-#include "bestfit/analyses/time_series/ma_analysis.hpp"
-#include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
-#include "bestfit/analyses/univariate/competing_risk_analysis.hpp"
-#include "bestfit/analyses/univariate/mixture_analysis.hpp"
-#include "bestfit/analyses/univariate/point_process_analysis.hpp"
-#include "bestfit/analyses/support/analysis_runner.hpp"
-#include "bestfit/analyses/univariate/univariate_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/estimation/generalized_method_of_moments.hpp"
-#include "bestfit/estimation/maximum_a_posteriori.hpp"
-#include "bestfit/estimation/maximum_likelihood.hpp"
-#include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/model_spec.hpp"
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/data/box_cox.hpp"
-#include "bestfit/numerics/data/correlation.hpp"
-#include "bestfit/numerics/data/goodness_of_fit.hpp"
-#include "bestfit/numerics/data/histogram.hpp"
-#include "bestfit/numerics/data/interpolation/search.hpp"
-#include "bestfit/numerics/data/multiple_grubbs_beck_test.hpp"
-#include "bestfit/numerics/data/plotting_positions.hpp"
-#include "bestfit/numerics/data/yeo_johnson.hpp"
-#include "bestfit/numerics/sampling/latin_hypercube.hpp"
-#include "bestfit/numerics/distributions/base/i_estimation.hpp"
-#include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_factory.hpp"
-#include "bestfit/numerics/distributions/copulas/base/bivariate_copula_estimation.hpp"
-#include "bestfit/numerics/distributions/copulas/base/copula_factory.hpp"
-#include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
-#include "bestfit/numerics/distributions/empirical_distribution.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/distributions/kernel_density.hpp"
-#include "bestfit/numerics/distributions/competing_risks.hpp"
-#include "bestfit/numerics/distributions/mixture.hpp"
-#include "bestfit/numerics/distributions/multivariate/base/multivariate_distribution.hpp"
-#include "bestfit/numerics/distributions/multivariate/bivariate_empirical.hpp"
-#include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
-#include "bestfit/numerics/distributions/multivariate/multinomial.hpp"
-#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
-#include "bestfit/numerics/distributions/multivariate/multivariate_student_t.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/truncated_distribution.hpp"
-#include "bestfit/numerics/data/running_covariance_matrix.hpp"
-#include "bestfit/numerics/data/running_statistics.hpp"
-#include "bestfit/numerics/data/statistics.hpp"
-#include "bestfit/numerics/math/differentiation/numerical_derivative.hpp"
-#include "bestfit/numerics/math/fourier/fourier.hpp"
-#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/linalg/vector.hpp"
-#include "bestfit/numerics/math/optimization/differential_evolution.hpp"
-#include "bestfit/numerics/math/special/beta.hpp"
-#include "bestfit/numerics/math/special/bessel.hpp"
-#include "bestfit/numerics/math/special/erf.hpp"
-#include "bestfit/numerics/math/special/factorial.hpp"
-#include "bestfit/numerics/math/special/gamma.hpp"
-#include "bestfit/numerics/sampling/bootstrap/bootstrap.hpp"
-#include "bestfit/numerics/sampling/bootstrap/model_registry.hpp"
-#include "bestfit/numerics/sampling/mcmc/arwmh.hpp"
-#include "bestfit/numerics/sampling/mcmc/demcz.hpp"
-#include "bestfit/numerics/sampling/mcmc/demczs.hpp"
-#include "bestfit/numerics/sampling/mcmc/gibbs.hpp"
-#include "bestfit/numerics/sampling/mcmc/hmc.hpp"
-#include "bestfit/numerics/sampling/mcmc/model_registry.hpp"
-#include "bestfit/numerics/sampling/mcmc/nuts.hpp"
-#include "bestfit/numerics/sampling/mcmc/rwmh.hpp"
-#include "bestfit/numerics/sampling/mcmc/snis.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
-#include "bestfit/numerics/utilities/extension_methods.hpp"
+#include "corehydro/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "corehydro/analyses/time_series/ar_analysis.hpp"
+#include "corehydro/analyses/time_series/arima_analysis.hpp"
+#include "corehydro/analyses/time_series/arimax_analysis.hpp"
+#include "corehydro/analyses/time_series/ma_analysis.hpp"
+#include "corehydro/analyses/univariate/bulletin17c_analysis.hpp"
+#include "corehydro/analyses/univariate/competing_risk_analysis.hpp"
+#include "corehydro/analyses/univariate/mixture_analysis.hpp"
+#include "corehydro/analyses/univariate/point_process_analysis.hpp"
+#include "corehydro/analyses/support/analysis_runner.hpp"
+#include "corehydro/analyses/univariate/univariate_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/estimation/generalized_method_of_moments.hpp"
+#include "corehydro/estimation/maximum_a_posteriori.hpp"
+#include "corehydro/estimation/maximum_likelihood.hpp"
+#include "corehydro/estimation/optimization_method.hpp"
+#include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/model_spec.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/data/box_cox.hpp"
+#include "corehydro/numerics/data/correlation.hpp"
+#include "corehydro/numerics/data/goodness_of_fit.hpp"
+#include "corehydro/numerics/data/histogram.hpp"
+#include "corehydro/numerics/data/interpolation/search.hpp"
+#include "corehydro/numerics/data/multiple_grubbs_beck_test.hpp"
+#include "corehydro/numerics/data/plotting_positions.hpp"
+#include "corehydro/numerics/data/yeo_johnson.hpp"
+#include "corehydro/numerics/sampling/latin_hypercube.hpp"
+#include "corehydro/numerics/distributions/base/i_estimation.hpp"
+#include "corehydro/numerics/distributions/base/i_linear_moment_estimation.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_factory.hpp"
+#include "corehydro/numerics/distributions/copulas/base/bivariate_copula_estimation.hpp"
+#include "corehydro/numerics/distributions/copulas/base/copula_factory.hpp"
+#include "corehydro/numerics/distributions/copulas/clayton_copula.hpp"
+#include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/kernel_density.hpp"
+#include "corehydro/numerics/distributions/competing_risks.hpp"
+#include "corehydro/numerics/distributions/mixture.hpp"
+#include "corehydro/numerics/distributions/multivariate/base/multivariate_distribution.hpp"
+#include "corehydro/numerics/distributions/multivariate/bivariate_empirical.hpp"
+#include "corehydro/numerics/distributions/multivariate/dirichlet.hpp"
+#include "corehydro/numerics/distributions/multivariate/multinomial.hpp"
+#include "corehydro/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "corehydro/numerics/distributions/multivariate/multivariate_student_t.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/truncated_distribution.hpp"
+#include "corehydro/numerics/data/running_covariance_matrix.hpp"
+#include "corehydro/numerics/data/running_statistics.hpp"
+#include "corehydro/numerics/data/statistics.hpp"
+#include "corehydro/numerics/math/differentiation/numerical_derivative.hpp"
+#include "corehydro/numerics/math/fourier/fourier.hpp"
+#include "corehydro/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/lu_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/linalg/vector.hpp"
+#include "corehydro/numerics/math/optimization/differential_evolution.hpp"
+#include "corehydro/numerics/math/special/beta.hpp"
+#include "corehydro/numerics/math/special/bessel.hpp"
+#include "corehydro/numerics/math/special/erf.hpp"
+#include "corehydro/numerics/math/special/factorial.hpp"
+#include "corehydro/numerics/math/special/gamma.hpp"
+#include "corehydro/numerics/sampling/bootstrap/bootstrap.hpp"
+#include "corehydro/numerics/sampling/bootstrap/model_registry.hpp"
+#include "corehydro/numerics/sampling/mcmc/arwmh.hpp"
+#include "corehydro/numerics/sampling/mcmc/demcz.hpp"
+#include "corehydro/numerics/sampling/mcmc/demczs.hpp"
+#include "corehydro/numerics/sampling/mcmc/gibbs.hpp"
+#include "corehydro/numerics/sampling/mcmc/hmc.hpp"
+#include "corehydro/numerics/sampling/mcmc/model_registry.hpp"
+#include "corehydro/numerics/sampling/mcmc/nuts.hpp"
+#include "corehydro/numerics/sampling/mcmc/rwmh.hpp"
+#include "corehydro/numerics/sampling/mcmc/snis.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
-namespace dist = bestfit::numerics::distributions;
-namespace prob = bestfit::numerics::data::probability;
+namespace dist = corehydro::numerics::distributions;
+namespace prob = corehydro::numerics::data::probability;
 using dist::EstimationMethod;
 using dist::GeneralizedExtremeValue;
 
@@ -141,16 +141,16 @@ static void check_value(double actual, const json& as, const std::string& where)
         throw std::runtime_error("unknown comparison mode: " + mode);
     }
     if (ok)
-        bftest::report_pass();
+        chtest::report_pass();
     else
-        bftest::report_fail(__FILE__, __LINE__, where + ": value mismatch");
+        chtest::report_fail(__FILE__, __LINE__, where + ": value mismatch");
 }
 
 static void check_bool(bool actual, const json& as, const std::string& where) {
     if (actual == as["expected"].get<bool>())
-        bftest::report_pass();
+        chtest::report_pass();
     else
-        bftest::report_fail(__FILE__, __LINE__, where + ": bool mismatch");
+        chtest::report_fail(__FILE__, __LINE__, where + ": bool mismatch");
 }
 
 // --- GEV slice (bespoke) ---------------------------------------------------------------
@@ -220,16 +220,16 @@ static void run_gev(const json& spec) {
 
 // --- Special-function path ------------------------------------------------------------
 
-namespace sf = bestfit::numerics::math::special;
-namespace la = bestfit::numerics::math::linalg;
+namespace sf = corehydro::numerics::math::special;
+namespace la = corehydro::numerics::math::linalg;
 // Alias must not be named `stat` (collides with the MSVC/POSIX CRT symbol, like the
 // glibc `gamma` clash documented in .claude/CLAUDE.md).
-namespace bfdata = bestfit::numerics::data;
-namespace bfsamp = bestfit::numerics::sampling;
-namespace bfutil = bestfit::numerics::utilities;
-namespace bffourier = bestfit::numerics::math::fourier;
-namespace bfdiff = bestfit::numerics::math::differentiation;
-namespace bfopt = bestfit::numerics::math::optimization;
+namespace bfdata = corehydro::numerics::data;
+namespace bfsamp = corehydro::numerics::sampling;
+namespace bfutil = corehydro::numerics::utilities;
+namespace bffourier = corehydro::numerics::math::fourier;
+namespace bfdiff = corehydro::numerics::math::differentiation;
+namespace bfopt = corehydro::numerics::math::optimization;
 
 // Correlation fixture args are [x..., y...] concatenated and split at the midpoint
 // (equal-length samples) -- see fixtures/special_functions/correlation.json / README.md.
@@ -758,7 +758,7 @@ special_function_table() {
         // see fixtures/special_functions/mcmc_diagnostics.json)
         {"MCMCDiagnostics.minimum_sample_size", [](const std::vector<double>& a) {
             return static_cast<double>(
-                bestfit::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
+                corehydro::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
         }},
     };
     return t;
@@ -985,7 +985,7 @@ static void run_generic(const json& spec) {
 
 // --- goodness_of_fit path -------------------------------------------------------------
 
-namespace gof = bestfit::numerics::data;
+namespace gof = corehydro::numerics::data;
 
 static double dispatch_gof(const std::string& fn, const std::vector<double>& args,
                             const std::vector<double>& obs, const std::vector<double>& mod) {
@@ -1038,7 +1038,7 @@ static void run_goodness_of_fit(const json& spec) {
 
 static double dispatch_data_utility(const std::string& fn, const std::vector<double>& args,
                                     const std::vector<double>& data) {
-    namespace nd = bestfit::numerics::data;
+    namespace nd = corehydro::numerics::data;
     if (fn == "MGBT") return static_cast<double>(nd::MultipleGrubbsBeckTest::function(data));
     if (fn == "BoxCoxLambda") return nd::BoxCox::fit_lambda(data);
     if (fn == "BoxCoxTransform")
@@ -1052,9 +1052,9 @@ static double dispatch_data_utility(const std::string& fn, const std::vector<dou
     if (fn == "LHSRandom" || fn == "LHSMedian") {
         // args: [sample_size, dimension, seed, row, col]
         auto m = fn == "LHSRandom"
-            ? bestfit::numerics::sampling::LatinHypercube::random(
+            ? corehydro::numerics::sampling::LatinHypercube::random(
                   static_cast<int>(args[0]), static_cast<int>(args[1]), static_cast<int>(args[2]))
-            : bestfit::numerics::sampling::LatinHypercube::median(
+            : corehydro::numerics::sampling::LatinHypercube::median(
                   static_cast<int>(args[0]), static_cast<int>(args[1]), static_cast<int>(args[2]));
         return m[static_cast<std::size_t>(args[3])][static_cast<std::size_t>(args[4])];
     }
@@ -1267,7 +1267,7 @@ static void run_multivariate(const json& spec) {
 // method, mirroring dispatch_multivariate's per-target branches above. Each new
 // tau-capable copula (Task 8: AMH, Gumbel, Joe) adds one branch there.
 
-namespace cop = bestfit::numerics::distributions::copulas;
+namespace cop = corehydro::numerics::distributions::copulas;
 
 static void set_theta_from_tau_dispatch(cop::BivariateCopula& copula, const std::string& target,
                                         const std::vector<double>& x, const std::vector<double>& y) {
@@ -1408,7 +1408,7 @@ static void run_bivariate_copula(const json& spec) {
 // every assertion in the case (mirrors the "single stateful glue call; no seq machinery"
 // contract fixtures/README.md documents for this kind).
 
-namespace mcmc = bestfit::numerics::sampling::mcmc;
+namespace mcmc = corehydro::numerics::sampling::mcmc;
 
 // `proposal_sigma` sentinel strings -- see fixtures/README.md's mcmc_sampler schema.
 // "zeros": the literal `Matrix(D)` the C# Test_RWMH.cs test constructs (safe only when
@@ -1644,7 +1644,7 @@ static void run_bootstrap(const json& spec) {
 // std::visit branch). BayesianAnalysis (T12) adds `dic []`, `waic []`, `looic []`,
 // `posterior_mean [p]`, and the seeded `chain_value [chain,iter,param]` digest -- a disjoint
 // surface handled by a separate std::visit branch (it shares no methods with ML/MAP).
-namespace estimation = bestfit::estimation;
+namespace estimation = corehydro::estimation;
 
 // Shared optimizer-method parser for ML/MAP (`optimizer` knob) AND the GMM `optimizer` knob.
 // B11 extends it with the B7-un-gated BFGS/Powell/MultilevelSingleLinkage methods (with the
@@ -1687,7 +1687,7 @@ static estimation::SamplerType parse_sampler_type(const std::string& s) {
 // (models/model_spec.hpp) from the serialized `construct.model` object. The `Simulation`
 // target holds no estimator (std::monostate) -- just the cached seeded ISimulatable draw.
 struct EstimationCase {
-    std::unique_ptr<bestfit::models::ModelBase> model;
+    std::unique_ptr<corehydro::models::ModelBase> model;
     std::variant<std::monostate, std::unique_ptr<estimation::MaximumLikelihood>,
                  std::unique_ptr<estimation::MaximumAPosteriori>,
                  std::unique_ptr<estimation::BayesianAnalysis>,
@@ -1697,7 +1697,7 @@ struct EstimationCase {
     // GMM target only: the concrete B17C model the estimator references (NOT a ModelBase, so it
     // cannot live in `model`). Kept alive here so the estimator's IGMMModel& stays valid and the
     // quantile_variance arm can reach the model.
-    std::unique_ptr<bestfit::models::Bulletin17CDistribution> b17c;
+    std::unique_ptr<corehydro::models::Bulletin17CDistribution> b17c;
 };
 
 // Seeded ISimulatable draw, flattened to a 1-D vector so the `simulated_value [i]` digest works
@@ -1705,12 +1705,12 @@ struct EstimationCase {
 // pass through unchanged; BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), so its
 // draw is flattened ROW-MAJOR (i = row*2 + col) -- the same order the R/Python glue and the README
 // schema use. Throws if the model is neither.
-static std::vector<double> simulate_flat(bestfit::models::ModelBase* model, int sample_size,
+static std::vector<double> simulate_flat(corehydro::models::ModelBase* model, int sample_size,
                                          int seed) {
-    if (auto* s = dynamic_cast<bestfit::models::ISimulatable<std::vector<double>>*>(model))
+    if (auto* s = dynamic_cast<corehydro::models::ISimulatable<std::vector<double>>*>(model))
         return s->generate_random_values(sample_size, seed);
     if (auto* s = dynamic_cast<
-            bestfit::models::ISimulatable<std::vector<std::vector<double>>>*>(model)) {
+            corehydro::models::ISimulatable<std::vector<std::vector<double>>>*>(model)) {
         std::vector<std::vector<double>> mat = s->generate_random_values(sample_size, seed);
         std::vector<double> flat;
         for (const auto& row : mat)
@@ -1734,7 +1734,7 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
     // fitted model for the `simulated_value` digest (the DRY choice: `simulated_value` is already
     // dispatched from ec.simulated for every target, so riding the GMM case needs no new arm).
     if (target == "GeneralizedMethodOfMoments") {
-        auto b17c = bestfit::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
+        auto b17c = corehydro::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
         auto method = construct.contains("optimizer")
                           ? parse_optimization_method(construct["optimizer"].get<std::string>())
                           : estimation::OptimizationMethod::BFGS;
@@ -1761,7 +1761,7 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
 
     // One shared construction path for all three harnesses: serialize the spec back to JSON
     // and hand it to models/model_spec.hpp (see that header for the schema).
-    auto model = bestfit::models::spec::build_model_from_json(model_spec.dump(), data);
+    auto model = corehydro::models::spec::build_model_from_json(model_spec.dump(), data);
 
     if (target == "Simulation") {
         std::vector<double> draws = simulate_flat(model.get(), construct["sample_size"].get<int>(),
@@ -1776,7 +1776,7 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
         // pin the estimator's best parameters back into the model and cache one seeded draw --
         // the same shared `simulated_value` arm the Simulation/GMM targets use, letting one MLE
         // smoke file cover parameter + max_log_likelihood + a seeded draw for the new families.
-        auto cache_draw = [&](bestfit::models::ModelBase& fitted, const std::vector<double>& best) {
+        auto cache_draw = [&](corehydro::models::ModelBase& fitted, const std::vector<double>& best) {
             std::vector<double> draws;
             if (construct.contains("sample_size")) {
                 fitted.set_parameter_values(best);
@@ -1835,9 +1835,9 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
 // the original items never carry one). `number_of_low_outliers`/`low_outlier_threshold` read
 // the frame's current state (set by the spec's `mgbt_low_outliers` MGBT trigger, or the
 // explicit `low_outlier_threshold`).
-static double dispatch_model_data_frame(bestfit::models::ModelBase& model, const std::string& m,
+static double dispatch_model_data_frame(corehydro::models::ModelBase& model, const std::string& m,
                                         const json& a) {
-    auto* udm = dynamic_cast<bestfit::models::UnivariateDistributionModelBase*>(&model);
+    auto* udm = dynamic_cast<corehydro::models::UnivariateDistributionModelBase*>(&model);
     if (udm == nullptr || !udm->has_data_frame())
         throw std::runtime_error("model_estimation data-frame method on a model without a DataFrame");
     auto& df = udm->data_frame();
@@ -1940,10 +1940,10 @@ static void run_model_estimation(const json& spec) {
 // A10: the three finished analyses (UnivariateAnalysis / FittingAnalysis / Bulletin17CAnalysis)
 // become fixture-checkable through this stateful kind, mirroring model_estimation: one
 // build+run per case caches a flat result surface, then every assertion dispatches against it.
-// The construct fields map 1:1 onto the R/Python glue arguments (bf_analysis_*_ /
+// The construct fields map 1:1 onto the R/Python glue arguments (ch_analysis_*_ /
 // analysis_*), so all three harnesses build byte-identical analyses from the same spec.
 // A10 authors LOOSE, self-computed smoke oracles here; A11's emitter may tighten them.
-namespace an = bestfit::analyses;
+namespace an = corehydro::analyses;
 
 static an::UncertaintyMethod parse_uncertainty_method(const std::string& s) {
     if (s == "MultivariateNormal") return an::UncertaintyMethod::MultivariateNormal;
@@ -1995,7 +1995,7 @@ struct AnalysisResult {
 
     // --- X11 extended-analysis slice (the five new analyses + bootstrap + predictive checks).
     // Populated only by the run_extended_analysis targets; every other target leaves it empty. ---
-    bestfit::analyses::support::ExtendedAnalysisResult ext;
+    corehydro::analyses::support::ExtendedAnalysisResult ext;
 };
 
 // Applies the shared Bayesian MCMC knobs from a construct object (D5; mirrors the R/Python
@@ -2020,7 +2020,7 @@ static void apply_analysis_bayes_knobs(estimation::BayesianAnalysis& ba, const j
 }
 
 // Fills the UncertaintyAnalysisResults-shaped surface into `r` from an IUnivariateAnalysis-style
-// analysis (mixture / competing-risk / point-process; D5). Mirrors bf_analysis_univariate_run_.
+// analysis (mixture / competing-risk / point-process; D5). Mirrors ch_analysis_univariate_run_.
 template <typename AnalysisT>
 static void collect_univariate_family_results(AnalysisT& analysis, AnalysisResult& r) {
     const auto* results = analysis.analysis_results();
@@ -2042,7 +2042,7 @@ static void collect_univariate_family_results(AnalysisT& analysis, AnalysisResul
 // Builds + runs one univariate-family analysis (D5). Casts the ModelBase to the concrete model,
 // hands ownership to the analysis, applies ordinates + Bayesian knobs, and collects the surface.
 template <typename AnalysisT, typename ModelT>
-static AnalysisResult run_univariate_family_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+static AnalysisResult run_univariate_family_analysis(std::unique_ptr<corehydro::models::ModelBase> base,
                                                      const json& construct,
                                                      const std::vector<double>& ep) {
     auto* raw = dynamic_cast<ModelT*>(base.get());
@@ -2065,7 +2065,7 @@ static AnalysisResult run_univariate_family_analysis(std::unique_ptr<bestfit::mo
 // applies Bayesian knobs, and reads the forecast curves; the point-estimate parameters come from
 // the BayesianAnalysis posterior (the time-series analyses expose no distribution accessor).
 template <typename AnalysisT, typename ModelT>
-static AnalysisResult run_time_series_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+static AnalysisResult run_time_series_analysis(std::unique_ptr<corehydro::models::ModelBase> base,
                                                const json& construct) {
     auto* raw = dynamic_cast<ModelT*>(base.get());
     if (raw == nullptr) throw std::runtime_error("analysis requires a matching time_series model spec");
@@ -2103,10 +2103,10 @@ static AnalysisResult run_time_series_analysis(std::unique_ptr<bestfit::models::
 }
 
 // Builds a Normal (or any univariate) model, runs a BayesianAnalysis, and computes all three
-// diagnostics off that fit (D5). Mirrors bf_analysis_diagnostics_run_.
-static AnalysisResult run_diagnostics_analysis(std::unique_ptr<bestfit::models::ModelBase> base,
+// diagnostics off that fit (D5). Mirrors ch_analysis_diagnostics_run_.
+static AnalysisResult run_diagnostics_analysis(std::unique_ptr<corehydro::models::ModelBase> base,
                                                const json& construct) {
-    bestfit::models::ModelBase& model = *base;
+    corehydro::models::ModelBase& model = *base;
     estimation::BayesianAnalysis ba(model);
     ba.set_use_simulation_defaults(false);
     ba.set_use_advanced_simulation_defaults(false);
@@ -2164,7 +2164,7 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
             for (const auto& v : construct["exceedance_probabilities"]) ep.push_back(parse_num(v));
         return ep;
     };
-    auto apply_ordinates = [](bestfit::numerics::data::ProbabilityOrdinates& po,
+    auto apply_ordinates = [](corehydro::numerics::data::ProbabilityOrdinates& po,
                               const std::vector<double>& ep) {
         if (ep.empty()) return;
         po.clear();
@@ -2175,8 +2175,8 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
 
     if (target == "FittingAnalysis") {
         std::vector<double> data = resolve_dataset(construct["dataset"].get<std::string>());
-        auto df = std::make_unique<bestfit::models::DataFrame>();
-        df->set_exact_series(bestfit::models::ExactSeries(data));
+        auto df = std::make_unique<corehydro::models::DataFrame>();
+        df->set_exact_series(corehydro::models::ExactSeries(data));
         df->calculate_plotting_positions();
         an::FittingAnalysis analysis(std::move(df));
         analysis.run();
@@ -2202,7 +2202,7 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         "CoincidentFrequencyAnalysis", "RatingCurveAnalysis", "BootstrapAnalysis",
         "PriorPredictiveCheck",        "PosteriorPredictiveCheck"};
     if (kExtendedTargets.count(target) > 0) {
-        r.ext = bestfit::analyses::support::run_extended_analysis(target, construct.dump(),
+        r.ext = corehydro::analyses::support::run_extended_analysis(target, construct.dump(),
                                                                  datasets.dump());
         // Mirror the shared UncertaintyAnalysisResults surface into the flat fields so the base
         // accessors (parameter / mode_curve / aic / ...) read the extended result too.
@@ -2222,11 +2222,11 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
     std::vector<double> data = resolve_dataset(model_spec["dataset"].get<std::string>());
 
     if (target == "UnivariateAnalysis") {
-        auto base = bestfit::models::spec::build_model_from_json(model_spec.dump(), data);
-        auto* raw = dynamic_cast<bestfit::models::UnivariateDistributionModel*>(base.get());
+        auto base = corehydro::models::spec::build_model_from_json(model_spec.dump(), data);
+        auto* raw = dynamic_cast<corehydro::models::UnivariateDistributionModel*>(base.get());
         if (raw == nullptr) throw std::runtime_error("UnivariateAnalysis requires a univariate_distribution model");
         base.release();
-        std::unique_ptr<bestfit::models::UnivariateDistributionModel> model(raw);
+        std::unique_ptr<corehydro::models::UnivariateDistributionModel> model(raw);
         an::UnivariateAnalysis analysis(std::move(model));
         apply_ordinates(analysis.probability_ordinates(), ordinates());
         auto& ba = analysis.bayesian_analysis();
@@ -2272,45 +2272,45 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
     // --- D5: per-family + diagnostics analyses (build the model via the shared spec builder,
     // run the matching analysis, collect into the flat surface). ---
     if (target == "MixtureAnalysis") {
-        return run_univariate_family_analysis<an::MixtureAnalysis, bestfit::models::MixtureModel>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+        return run_univariate_family_analysis<an::MixtureAnalysis, corehydro::models::MixtureModel>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct,
             ordinates());
     }
     if (target == "CompetingRiskAnalysis") {
         return run_univariate_family_analysis<an::CompetingRiskAnalysis,
-                                              bestfit::models::CompetingRisksModel>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+                                              corehydro::models::CompetingRisksModel>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct,
             ordinates());
     }
     if (target == "PointProcessAnalysis") {
         return run_univariate_family_analysis<an::PointProcessAnalysis,
-                                              bestfit::models::PointProcessModel>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct,
+                                              corehydro::models::PointProcessModel>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct,
             ordinates());
     }
     if (target == "ARAnalysis") {
-        return run_time_series_analysis<an::ARAnalysis, bestfit::models::AutoRegressive>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+        return run_time_series_analysis<an::ARAnalysis, corehydro::models::AutoRegressive>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct);
     }
     if (target == "MAAnalysis") {
-        return run_time_series_analysis<an::MAAnalysis, bestfit::models::MovingAverage>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+        return run_time_series_analysis<an::MAAnalysis, corehydro::models::MovingAverage>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct);
     }
     if (target == "ARIMAAnalysis") {
-        return run_time_series_analysis<an::ARIMAAnalysis, bestfit::models::ARIMA>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+        return run_time_series_analysis<an::ARIMAAnalysis, corehydro::models::ARIMA>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct);
     }
     if (target == "ARIMAXAnalysis") {
-        return run_time_series_analysis<an::ARIMAXAnalysis, bestfit::models::ARIMAX>(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+        return run_time_series_analysis<an::ARIMAXAnalysis, corehydro::models::ARIMAX>(
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct);
     }
     if (target == "Diagnostics") {
         return run_diagnostics_analysis(
-            bestfit::models::spec::build_model_from_json(model_spec.dump(), data), construct);
+            corehydro::models::spec::build_model_from_json(model_spec.dump(), data), construct);
     }
 
     if (target == "Bulletin17CAnalysis") {
-        auto model = bestfit::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
+        auto model = corehydro::models::spec::build_bulletin17c_from_json(model_spec.dump(), data);
         an::Bulletin17CAnalysis analysis(std::move(model));
         analysis.set_uncertainty_method(
             parse_uncertainty_method(construct.value("uncertainty_method", std::string("MultivariateNormal"))));
@@ -2474,5 +2474,5 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "no fixtures found under %s\n", argv[1]);
         return 2;
     }
-    return bftest::summary("fixtures");
+    return chtest::summary("fixtures");
 }

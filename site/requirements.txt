@@ -1,5 +1,5 @@
 # Python dependencies for building the documentation site (site/).
-# bestfitpy itself is installed separately from the repo (pip install ./bestfitpy).
+# corehydropy itself is installed separately from the repo (pip install ./corehydropy).
 quartodoc>=0.11
 griffe<2  # quartodoc 0.11 is incompatible with griffe 2.x parser options
 jupyter

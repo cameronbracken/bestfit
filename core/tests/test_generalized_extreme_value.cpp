@@ -1,18 +1,18 @@
 // GEV distribution core, pinned to the oracle values in the upstream C# test
 // Test_GeneralizedExtremeValue.cs (themselves from Rao & Hamed, "Flood Frequency
 // Analysis", CRC Press 2000). Comparison modes/tolerances mirror the C# asserts.
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
 
 #include <cmath>
 #include <limits>
 
-#include "bestfit/numerics/math/special/gamma.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/math/special/gamma.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::kEuler;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-namespace sf = bestfit::numerics::math::special;  // not "gamma": clashes with glibc gamma()
+using corehydro::numerics::kEuler;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+namespace sf = corehydro::numerics::math::special;  // not "gamma": clashes with glibc gamma()
 
 static bool is_nan(double x) { return std::isnan(x); }
 constexpr double INF = std::numeric_limits<double>::infinity();
@@ -21,7 +21,7 @@ int main() {
     // --- Gamma sanity (leaf dependency) ---
     CHECK_NEAR(sf::function(1.0), 1.0, 1e-12);
     CHECK_NEAR(sf::function(5.0), 24.0, 1e-10);
-    CHECK_NEAR(sf::function(0.5), std::sqrt(bestfit::numerics::kPi), 1e-12);
+    CHECK_NEAR(sf::function(0.5), std::sqrt(corehydro::numerics::kPi), 1e-12);
 
     // --- Construction ---
     {
@@ -101,5 +101,5 @@ int main() {
         CHECK_NEAR(g.log_likelihood(s), expected, 1e-12);
     }
 
-    return bftest::summary("generalized_extreme_value");
+    return chtest::summary("generalized_extreme_value");
 }

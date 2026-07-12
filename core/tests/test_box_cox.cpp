@@ -21,10 +21,10 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/data/box_cox.hpp"
+#include "corehydro/numerics/data/box_cox.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::BoxCox;
+using corehydro::numerics::data::BoxCox;
 
 namespace {
 
@@ -149,5 +149,5 @@ int main() {
     test_transform_r();
     test_guards();
     test_log_jacobian();
-    return bftest::summary("box_cox");
+    return chtest::summary("box_cox");
 }

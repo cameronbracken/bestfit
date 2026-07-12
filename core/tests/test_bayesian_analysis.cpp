@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::estimation::BayesianAnalysis (Phase 4, Task T9).
+// Standalone tests for corehydro::estimation::BayesianAnalysis (Phase 4, Task T9).
 //
 // Oracle for behavior is the C# source itself (upstream/RMC-BestFit/src/RMC.BestFit/Estimation/
 // BayesianAnalysis.cs @ fc28c0c) -- see bayesian_analysis.hpp's header for the exact
@@ -27,16 +27,16 @@
 #include <stdexcept>
 #include <vector>
 
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "check.hpp"
 
-using bestfit::estimation::BayesianAnalysis;
-using bestfit::estimation::PointEstimateType;
-using bestfit::estimation::SamplerType;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::estimation::BayesianAnalysis;
+using corehydro::estimation::PointEstimateType;
+using corehydro::estimation::SamplerType;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -355,5 +355,5 @@ int main() {
     test_posterior_covariance_and_correlation_matrices();
     test_clear_results_resets_information_criteria_to_nan();
     test_information_criteria_deterministic_for_same_seed();
-    return bftest::summary("test_bayesian_analysis");
+    return chtest::summary("test_bayesian_analysis");
 }

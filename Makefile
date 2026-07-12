@@ -8,21 +8,21 @@ test-core:
 	cmake -S core -B core/build && cmake --build core/build && ctest --test-dir core/build
 
 test-r:
-	R CMD build bestfitr
-	R CMD INSTALL --preclean $$(ls -t bestfitr_*.tar.gz | head -1)
-	Rscript -e 'testthat::test_local("bestfitr")'
+	R CMD build corehydror
+	R CMD INSTALL --preclean $$(ls -t corehydror_*.tar.gz | head -1)
+	Rscript -e 'testthat::test_local("corehydror")'
 
 test-py:
-	python3 -m pip install --force-reinstall --no-deps ./bestfitpy
-	python3 -m pytest bestfitpy/tests -q
+	python3 -m pip install --force-reinstall --no-deps ./corehydropy
+	python3 -m pytest corehydropy/tests -q
 
 build-r:
-	R CMD build bestfitr
+	R CMD build corehydror
 
 build-py:
-	git worktree add -q /tmp/bf-buildpy HEAD
-	cd /tmp/bf-buildpy && python3 tools/materialize_core.py && python3 -m build bestfitpy -o $(CURDIR)/dist
-	git worktree remove --force /tmp/bf-buildpy
+	git worktree add -q /tmp/ch-buildpy HEAD
+	cd /tmp/ch-buildpy && python3 tools/materialize_core.py && python3 -m build corehydropy -o $(CURDIR)/dist
+	git worktree remove --force /tmp/ch-buildpy
 
 materialize:
 	python3 tools/materialize_core.py
@@ -31,14 +31,14 @@ oracles:
 	python3 tools/verify_oracles.py
 
 # Build the full documentation site into site/_site (Quarto + quartodoc + pkgdown).
-# Requires: quarto, an R install with pkgdown, and a Python env with bestfitpy +
-# site/requirements.txt installed (the dev venv at ~/venv/bestfitpy works).
+# Requires: quarto, an R install with pkgdown, and a Python env with corehydropy +
+# site/requirements.txt installed (the pixi env works: `pixi run docs`).
 docs:
 	cd site && quartodoc build
 	quarto render site
-	Rscript -e 'pkgdown::build_site("bestfitr", preview = FALSE)'
+	Rscript -e 'pkgdown::build_site("corehydror", preview = FALSE)'
 	mkdir -p site/_site/r
-	cp -R bestfitr/docs/. site/_site/r/
+	cp -R corehydror/docs/. site/_site/r/
 	touch site/_site/.nojekyll
 
 # Serve the ASSEMBLED site (quarto preview will not serve the pkgdown half at /r/).

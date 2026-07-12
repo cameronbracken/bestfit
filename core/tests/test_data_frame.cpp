@@ -1,6 +1,6 @@
 // Standalone tests for the DataFrame series collections and the DataFrame core (M4):
 // DataSeries / ExactSeries / IntervalSeries / ThresholdSeries / UncertainSeries and
-// bestfit::models::DataFrame.
+// corehydro::models::DataFrame.
 //
 // Oracles are the upstream C# test classes @ fc28c0c under
 // upstream/RMC-BestFit/src/RMC.BestFit.Tests/:
@@ -32,38 +32,38 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_collections/data_series.hpp"
-#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
-#include "bestfit/models/data_frame/data_collections/interval_series.hpp"
-#include "bestfit/models/data_frame/data_collections/threshold_series.hpp"
-#include "bestfit/models/data_frame/data_collections/uncertain_series.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/data_frame/data_types/exact_data.hpp"
-#include "bestfit/models/data_frame/data_types/interval_data.hpp"
-#include "bestfit/models/data_frame/data_types/threshold_data.hpp"
-#include "bestfit/models/data_frame/data_types/uncertain_data.hpp"
-#include "bestfit/numerics/data/interpolation/sort_order.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/triangular.hpp"
+#include "corehydro/models/data_frame/data_collections/data_series.hpp"
+#include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/data_frame/data_collections/interval_series.hpp"
+#include "corehydro/models/data_frame/data_collections/threshold_series.hpp"
+#include "corehydro/models/data_frame/data_collections/uncertain_series.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/data_frame/data_types/exact_data.hpp"
+#include "corehydro/models/data_frame/data_types/interval_data.hpp"
+#include "corehydro/models/data_frame/data_types/threshold_data.hpp"
+#include "corehydro/models/data_frame/data_types/uncertain_data.hpp"
+#include "corehydro/numerics/data/interpolation/sort_order.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/triangular.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::IntervalData;
-using bestfit::models::IntervalSeries;
-using bestfit::models::ThresholdData;
-using bestfit::models::ThresholdSeries;
-using bestfit::models::UncertainData;
-using bestfit::models::UncertainSeries;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::data::SortOrder;
-using bestfit::numerics::distributions::LogNormal;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Triangular;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::IntervalSeries;
+using corehydro::models::ThresholdData;
+using corehydro::models::ThresholdSeries;
+using corehydro::models::UncertainData;
+using corehydro::models::UncertainSeries;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::data::SortOrder;
+using corehydro::numerics::distributions::LogNormal;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Triangular;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -1554,5 +1554,5 @@ int main() {
     test_data_frame_scenario_systematic_with_historical();
     test_data_frame_scenario_paleoflood();
 
-    return bftest::summary("data_frame");
+    return chtest::summary("data_frame");
 }

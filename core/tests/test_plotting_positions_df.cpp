@@ -16,16 +16,16 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/numerics/data/plotting_positions.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/numerics/data/plotting_positions.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::IntervalData;
-using bestfit::models::ThresholdData;
-namespace pp = bestfit::numerics::data::plotting_positions;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::IntervalData;
+using corehydro::models::ThresholdData;
+namespace pp = corehydro::numerics::data::plotting_positions;
 
 // C# Test_PlottingPositions_B17C_Ex4: Bulletin 17C Example 4 -- 81 years of
 // systematic record, 4 historical flood intervals, 4 perception thresholds,
@@ -201,7 +201,7 @@ static void test_plotting_positions_b17c_ex7() {
 static void check_named_formula(double alpha, const std::vector<double>& reference_pp) {
     // Create random (bit-exact with the C# MersenneTwister stream)
     const int n = 30;
-    bestfit::numerics::distributions::Normal norm(100, 15);
+    corehydro::numerics::distributions::Normal norm(100, 15);
     std::vector<double> data = norm.generate_random_values(n, 12345);
     std::sort(data.begin(), data.end());
     std::reverse(data.begin(), data.end());
@@ -231,7 +231,7 @@ static void test_weibull() { check_named_formula(0.0, pp::weibull(30)); }
 // uncertain, and interval plotting position via PP' = 1 - exp(-lambda * PP).
 static void test_apply_langbein_conversion() {
     const int n = 30;
-    bestfit::numerics::distributions::Normal norm(100, 15);
+    corehydro::numerics::distributions::Normal norm(100, 15);
     std::vector<double> data = norm.generate_random_values(n, 12345);
     std::sort(data.begin(), data.end());
     std::reverse(data.begin(), data.end());
@@ -260,5 +260,5 @@ int main() {
     test_median();
     test_weibull();
     test_apply_langbein_conversion();
-    return bftest::summary("plotting_positions_df");
+    return chtest::summary("plotting_positions_df");
 }

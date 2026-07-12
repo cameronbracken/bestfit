@@ -21,26 +21,26 @@
 #include <utility>
 #include <vector>
 
-#include "bestfit/models/support/i_quantile_priors.hpp"
-#include "bestfit/models/support/i_univariate_model.hpp"
-#include "bestfit/models/support/quantile_prior.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
+#include "corehydro/models/support/i_quantile_priors.hpp"
+#include "corehydro/models/support/i_univariate_model.hpp"
+#include "corehydro/models/support/quantile_prior.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
 #include "check.hpp"
 
-using bestfit::models::IQuantilePriors;
-using bestfit::models::ISimulatable;
-using bestfit::models::IUnivariateModel;
-using bestfit::models::QuantilePrior;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::distributions::LogNormal;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Uniform;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::IQuantilePriors;
+using corehydro::models::ISimulatable;
+using corehydro::models::IUnivariateModel;
+using corehydro::models::QuantilePrior;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::distributions::LogNormal;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Uniform;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -399,10 +399,10 @@ class StubUnivariateModel final : public IUnivariateModel {
    public:
     // DataFrame does not exist until M4; the accessors are declared against the forward
     // declaration, so a stub that never returns is the only implementation possible here.
-    bestfit::models::DataFrame& data_frame() override {
+    corehydro::models::DataFrame& data_frame() override {
         throw std::logic_error("DataFrame arrives in M4");
     }
-    const bestfit::models::DataFrame& data_frame() const override {
+    const corehydro::models::DataFrame& data_frame() const override {
         throw std::logic_error("DataFrame arrives in M4");
     }
     const UnivariateDistributionBase* distribution() const override { return dist_.get(); }
@@ -554,5 +554,5 @@ int main() {
     test_iunivariate_model_stub_contract();
     test_iquantile_priors_stub_contract();
 
-    return bftest::summary("quantile_prior");
+    return chtest::summary("quantile_prior");
 }

@@ -1,4 +1,4 @@
-// Standalone test for bestfit::models::UnivariateDistributionModel (Phase 4 T6 + Phase 5 M8).
+// Standalone test for corehydro::models::UnivariateDistributionModel (Phase 4 T6 + Phase 5 M8).
 //
 // Oracle for behavior is the C# source itself:
 //   - upstream/RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
@@ -21,41 +21,41 @@
 #include <utility>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/support/data_component.hpp"
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/quantile_prior.hpp"
-#include "bestfit/models/support/validation_result.hpp"
-#include "bestfit/models/trend_functions/support/i_trend_model.hpp"
-#include "bestfit/models/trend_functions/support/trend_model_type.hpp"
-#include "bestfit/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/exponential.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/ln_normal.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/math/integration/integration.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/support/data_component.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/quantile_prior.hpp"
+#include "corehydro/models/support/validation_result.hpp"
+#include "corehydro/models/trend_functions/support/i_trend_model.hpp"
+#include "corehydro/models/trend_functions/support/trend_model_type.hpp"
+#include "corehydro/models/univariate_distribution/base/univariate_distribution_model_base.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/exponential.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/ln_normal.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/math/integration/integration.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataComponent;
-using bestfit::models::DataComponentType;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::IntervalData;
-using bestfit::models::ThresholdData;
-using bestfit::models::UncertainData;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-using bestfit::numerics::distributions::Gumbel;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::math::integration::Integration;
+using corehydro::models::DataComponent;
+using corehydro::models::DataComponentType;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::ThresholdData;
+using corehydro::models::UncertainData;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::distributions::Gumbel;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::math::integration::Integration;
 
 namespace {
 
@@ -161,7 +161,7 @@ void test_set_default_parameters_populates_bounds_and_uniform_priors() {
 
         // Prior must be a Uniform(lower_bound, upper_bound).
         const auto* uniform_prior =
-            dynamic_cast<const bestfit::numerics::distributions::Uniform*>(&param.prior_distribution());
+            dynamic_cast<const corehydro::numerics::distributions::Uniform*>(&param.prior_distribution());
         CHECK_TRUE(uniform_prior != nullptr);
         CHECK_NEAR(uniform_prior->min(), param.lower_bound(), 1e-12);
         CHECK_NEAR(uniform_prior->max(), param.upper_bound(), 1e-12);
@@ -171,7 +171,7 @@ void test_set_default_parameters_populates_bounds_and_uniform_priors() {
         // sigma (scale, constraint lower bound == DoubleMachineEpsilon) positive and
         // leaves mu (location) unflagged.
         CHECK_EQ(param.is_positive(),
-                 param.lower_bound() == bestfit::numerics::kDoubleMachineEpsilon);
+                 param.lower_bound() == corehydro::numerics::kDoubleMachineEpsilon);
     }
     CHECK_TRUE(!model.parameters()[0].is_positive());  // mu
     CHECK_TRUE(model.parameters()[1].is_positive());   // sigma
@@ -240,14 +240,14 @@ void test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component() {
     for (const auto& param : model.parameters()) p.push_back(param.value());
     double sigma = p[1];
 
-    std::vector<bestfit::models::PriorComponent> components =
+    std::vector<corehydro::models::PriorComponent> components =
         model.pointwise_prior_log_likelihood(p);
 
     // One component per parameter, PLUS the trailing Jeffreys Scale component.
     CHECK_EQ(components.size(), model.parameters().size() + 1);
 
     const auto& jeffreys_component = components.back();
-    CHECK_TRUE(jeffreys_component.type() == bestfit::models::PriorComponentType::JeffreysScalePrior);
+    CHECK_TRUE(jeffreys_component.type() == corehydro::models::PriorComponentType::JeffreysScalePrior);
     CHECK_NEAR(jeffreys_component.log_likelihood(), -std::log(sigma), 1e-12);
 
     // Self-consistency (per this method's header comment): the components must sum to
@@ -258,7 +258,7 @@ void test_pointwise_prior_log_likelihood_appends_jeffreys_scale_component() {
 
     // Disabling the toggle drops the Jeffreys component, leaving one-per-parameter.
     model.set_use_jeffreys_rule_for_scale(false);
-    std::vector<bestfit::models::PriorComponent> without_jeffreys =
+    std::vector<corehydro::models::PriorComponent> without_jeffreys =
         model.pointwise_prior_log_likelihood(p);
     CHECK_EQ(without_jeffreys.size(), model.parameters().size());
 }
@@ -467,9 +467,9 @@ void test_log_prior_with_uniform_prior_returns_finite() {
                                       UnivariateDistributionType::Normal);
 
     model.parameters()[0].set_prior_distribution(
-        std::make_unique<bestfit::numerics::distributions::Uniform>(-1e10, 1e10));
+        std::make_unique<corehydro::numerics::distributions::Uniform>(-1e10, 1e10));
     model.parameters()[1].set_prior_distribution(
-        std::make_unique<bestfit::numerics::distributions::Uniform>(0.001, 1e10));
+        std::make_unique<corehydro::numerics::distributions::Uniform>(0.001, 1e10));
 
     std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
     double log_prior = model.prior_log_likelihood(params);
@@ -485,7 +485,7 @@ void test_log_prior_with_informative_prior_returns_finite() {
 
     model.parameters()[0].set_prior_distribution(std::make_unique<Normal>(100.0, 10.0));
     model.parameters()[1].set_prior_distribution(
-        std::make_unique<bestfit::numerics::distributions::Exponential>(0.001, 15.0));
+        std::make_unique<corehydro::numerics::distributions::Exponential>(0.001, 15.0));
 
     std::vector<double> params = kInlineNormalTrueParams;  // mutable lvalue (M14 signature)
     double log_prior = model.prior_log_likelihood(params);
@@ -500,9 +500,9 @@ void test_log_prior_outside_prior_support_returns_negative_infinity() {
                                       UnivariateDistributionType::Normal);
 
     model.parameters()[0].set_prior_distribution(
-        std::make_unique<bestfit::numerics::distributions::Uniform>(0.0, 50.0));
+        std::make_unique<corehydro::numerics::distributions::Uniform>(0.0, 50.0));
     model.parameters()[1].set_prior_distribution(
-        std::make_unique<bestfit::numerics::distributions::Uniform>(1.0, 100.0));
+        std::make_unique<corehydro::numerics::distributions::Uniform>(1.0, 100.0));
 
     // mu = 100 is outside [0, 50]
     std::vector<double> params{100.0, 15.0};  // mutable lvalue (M14 signature)
@@ -926,7 +926,7 @@ void test_mixed_censored_data_invalid_parameters_placeholders() {
 // defaults, the trend parameter plumbing, and the simulation delegation stream.
 // ===========================================================================================
 
-using bestfit::models::trend_functions::TrendModelType;
+using corehydro::models::trend_functions::TrendModelType;
 
 // C# IsNonstationary_SetTrue_PopulatesTrendModels.
 void test_is_nonstationary_set_true_populates_trend_models() {
@@ -1231,7 +1231,7 @@ UnivariateDistributionModel create_normal_linear_mu() {
 // C# CallNonstationaryDataLogLikelihood: the same path BayesianAnalysis uses.
 double call_nonstationary_data_log_likelihood(const UnivariateDistributionModel& dist,
                                               const std::vector<double>& parameters) {
-    std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase> working =
+    std::unique_ptr<corehydro::numerics::distributions::UnivariateDistributionBase> working =
         dist.distribution()->clone();  // P1: const IUnivariateModel& yields the nullable pointer accessor
     return dist.nonstationary_data_log_likelihood(*working, parameters);
 }
@@ -1307,7 +1307,7 @@ void test_nonstationary_pointwise_length_and_sum_are_correct() {
     double sum = 0.0;
     for (double v : pointwise) sum += v;
 
-    std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase> working =
+    std::unique_ptr<corehydro::numerics::distributions::UnivariateDistributionBase> working =
         dist.distribution().clone();
     double total = dist.nonstationary_data_log_likelihood(*working, parameters);
 
@@ -1368,7 +1368,7 @@ void test_set_trend_model_replaces_trend_and_rebuilds_parameters() {
     CHECK_EQ(model.parameters().size(), static_cast<std::size_t>(3));  // linear mu + const sigma
 
     // Linear slope defaults (C# 669-675): value 0, symmetric +-tdelta1 bounds.
-    const bestfit::models::ModelParameter& slope = model.trend_models()[0]->parameters()[1];
+    const corehydro::models::ModelParameter& slope = model.trend_models()[0]->parameters()[1];
     CHECK_NEAR(slope.value(), 0.0, 1e-12);
     CHECK_NEAR(slope.lower_bound(), -slope.upper_bound(), 1e-12);
 
@@ -1474,13 +1474,13 @@ void test_set_default_quantile_priors_single_quantile_builds_one_lnnormal() {
 
     CHECK_EQ(model.quantile_priors().size(), static_cast<std::size_t>(1));
     CHECK_NEAR(model.quantile_priors()[0].alpha(), 0.1, 1e-15);
-    const auto* ln = dynamic_cast<const bestfit::numerics::distributions::LnNormal*>(
+    const auto* ln = dynamic_cast<const corehydro::numerics::distributions::LnNormal*>(
         &model.quantile_priors()[0].distribution());
     CHECK_TRUE(ln != nullptr);
 
     double mu = round_half_even_2(model.distribution().inverse_cdf(1.0 - 0.1));
     double sigma = round_half_even_2(mu * 0.15);
-    bestfit::numerics::distributions::LnNormal expected;
+    corehydro::numerics::distributions::LnNormal expected;
     expected.set_parameters({mu, sigma});
     std::vector<double> actual_params = model.quantile_priors()[0].distribution().get_parameters();
     std::vector<double> expected_params = expected.get_parameters();
@@ -1531,11 +1531,11 @@ void test_single_quantile_prior_term_in_prior_log_likelihood() {
         Normal(16500.0, 6000.0).inverse_cdf(1.0 - alpha));
     CHECK_NEAR(with_quantile - base, expected_term, 1e-9);
 
-    std::vector<bestfit::models::PriorComponent> components =
+    std::vector<corehydro::models::PriorComponent> components =
         model.pointwise_prior_log_likelihood(p);
     // parameters + Jeffreys + the quantile component.
     CHECK_EQ(components.size(), model.parameters().size() + 2);
-    CHECK_TRUE(components.back().type() == bestfit::models::PriorComponentType::QuantilePrior);
+    CHECK_TRUE(components.back().type() == corehydro::models::PriorComponentType::QuantilePrior);
     CHECK_NEAR(components.back().log_likelihood(), expected_term, 1e-9);
 }
 
@@ -1567,7 +1567,7 @@ void test_multi_quantile_prior_branch_throws_logic_error() {
 
 void test_base_class_quantile_prior_state_defaults() {
     UnivariateDistributionModel model = make_normal_model();
-    bestfit::models::UnivariateDistributionModelBase& base = model;
+    corehydro::models::UnivariateDistributionModelBase& base = model;
 
     // Defaults per the C# backing fields (lines 60-70).
     CHECK_TRUE(base.use_jeffreys_rule_for_scale());
@@ -1577,7 +1577,7 @@ void test_base_class_quantile_prior_state_defaults() {
 
     // The QuantilePriors setter replaces the list (and reprocesses; observable here via the
     // stored list -- _quantilePriorsTrue is protected in both languages).
-    std::vector<bestfit::models::QuantilePrior> priors;
+    std::vector<corehydro::models::QuantilePrior> priors;
     priors.emplace_back(0.01, std::make_unique<Normal>(75000.0, 15000.0));
     base.set_quantile_priors(std::move(priors));
     CHECK_EQ(base.quantile_priors().size(), static_cast<std::size_t>(1));
@@ -1691,5 +1691,5 @@ int main() {
     test_single_quantile_prior_term_in_prior_log_likelihood();
     test_multi_quantile_prior_branch_throws_logic_error();
 
-    return bftest::summary("univariate_distribution_model");
+    return chtest::summary("univariate_distribution_model");
 }

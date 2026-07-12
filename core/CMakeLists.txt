@@ -1,8 +1,8 @@
-# Dev-only build for the bestfit C++ core test suite.
+# Dev-only build for the corehydro C++ core test suite.
 # The shipped R/Python packages compile the vendored core via Makevars / scikit-build;
 # this file exists so contributors (and CI) can build and run the C++ tests directly.
 cmake_minimum_required(VERSION 3.15)
-project(bestfit_core LANGUAGES CXX)
+project(corehydro_core VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,12 +10,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
 
-add_library(bestfit_core INTERFACE)
-target_include_directories(bestfit_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_features(bestfit_core INTERFACE cxx_std_17)
+add_library(corehydro_core INTERFACE)
+target_include_directories(corehydro_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(corehydro_core INTERFACE cxx_std_17)
 # Namespaced alias so external consumers / a future repo split can add_subdirectory(core)
-# (or FetchContent) and link `bestfit::core` -- the header-only, dependency-free core.
-add_library(bestfit::core ALIAS bestfit_core)
+# (or FetchContent) and link `corehydro::core` -- the header-only, dependency-free core.
+add_library(corehydro::core ALIAS corehydro_core)
 
 set(BF_TESTS
   test_mersenne_twister
@@ -46,7 +46,7 @@ set(BF_TESTS
   test_trend_functions
   test_general_linear_function
   test_link_functions
-  test_bestfit_link_functions
+  test_corehydro_link_functions
   test_penalties
   test_moment_machinery
   test_optimizers_local
@@ -89,7 +89,7 @@ set(BF_TESTS
 
 # Sobol test takes the direction-number file as its sole argument.
 add_executable(test_sobol tests/test_sobol.cpp)
-target_link_libraries(test_sobol PRIVATE bestfit_core)
+target_link_libraries(test_sobol PRIVATE corehydro_core)
 target_include_directories(test_sobol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_options(test_sobol PRIVATE
   $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
@@ -99,7 +99,7 @@ add_test(NAME test_sobol
 
 foreach(t ${BF_TESTS})
   add_executable(${t} tests/${t}.cpp)
-  target_link_libraries(${t} PRIVATE bestfit_core)
+  target_link_libraries(${t} PRIVATE corehydro_core)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_compile_options(${t} PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
@@ -109,7 +109,7 @@ endforeach()
 
 # Generic fixture-driven runner: reads the canonical fixtures/ shared by all languages.
 add_executable(test_fixtures tests/test_fixtures.cpp)
-target_link_libraries(test_fixtures PRIVATE bestfit_core)
+target_link_libraries(test_fixtures PRIVATE corehydro_core)
 target_include_directories(test_fixtures PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 add_test(NAME test_fixtures
          COMMAND test_fixtures ${CMAKE_CURRENT_SOURCE_DIR}/../fixtures)

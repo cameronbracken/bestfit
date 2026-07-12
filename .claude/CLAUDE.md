@@ -1,11 +1,11 @@
-# CLAUDE.md — bestfit
+# CLAUDE.md — corehydro
 
-Context for Claude Code working in the `bestfit` repo. See `PLAN.md` (same dir) for the
+Context for Claude Code working in the `corehydro` repo. See `PLAN.md` (same dir) for the
 full approved architecture and phasing.
 
 ## What this is
 
-`bestfit` provides **R (`bestfitr`) and Python (`bestfitpy`) packages** for stochastic
+`corehydro` provides **R (`corehydror`) and Python (`corehydropy`) packages** for stochastic
 hydrology / flood-frequency / extreme-value analysis, built on a **single shared C++17 core**
 that is a faithful port of the USACE-RMC C# libraries **Numerics** and **RMC.BestFit**.
 
@@ -28,9 +28,9 @@ own forks live elsewhere on disk under different names.)
   numerical development happens here.
 - `fixtures/` — **canonical** language-neutral oracle fixtures (JSON). Single source of truth
   for expected values; see `fixtures/README.md` for the schema.
-- `bestfitr/`, `bestfitpy/` — the packages. Each vendors the core + fixtures as **subtree
+- `corehydror/`, `corehydropy/` — the packages. Each vendors the core + fixtures as **subtree
   symlinks** into `core/{include,data}` and `fixtures/` (NOT committed copies): e.g.
-  `bestfitr/src/bestfit_core/include -> ../../../core/include`. Editing a core header is live
+  `corehydror/src/corehydro_core/include -> ../../../core/include`. Editing a core header is live
   through the symlink; nothing to re-sync.
 - Builds dereference the symlinks into self-contained, symlink-free artifacts: `R CMD build`
   does it automatically for the R tarball; `tools/materialize_core.py` does it for Python (run in
@@ -43,7 +43,7 @@ own forks live elsewhere on disk under different names.)
 - An auto-scraper to harvest the C# test literals *en masse* is still planned for the bulk port;
   for now fixtures are curated by hand and confirmed by the dotnet gate.
 
-The univariate distribution layer lives under `core/include/bestfit/numerics/distributions/`:
+The univariate distribution layer lives under `core/include/corehydro/numerics/distributions/`:
 `base/` holds `UnivariateDistributionBase`, the type enum, the factory, and the `IEstimation` /
 `ILinearMomentEstimation` capability mixins; all 42 distributions derive from the base.
 `distributions/multivariate/` holds Dirichlet, Multinomial, BivariateEmpirical,
@@ -53,21 +53,21 @@ copulas (Clayton, AliMikhailHaq, Frank, Gumbel, Joe, Normal, StudentT), the shar
 `BivariateCopula`/`ArchimedeanCopula` base classes, `BivariateCopulaEstimation` (tau/MPL/IFM/MLE
 fits), the `IMaximumLikelihoodEstimation` mixin, and the copula factory.
 
-`core/include/bestfit/numerics/sampling/mcmc/` holds the MCMC subsystem: `mcmc_sampler.hpp` (the
+`core/include/corehydro/numerics/sampling/mcmc/` holds the MCMC subsystem: `mcmc_sampler.hpp` (the
 shared base -- seeding cascade, chain initialization incl. the MAP/DE/Hessian path, the serial
 `sample()` driver), all 8 concrete samplers (`rwmh.hpp`, `arwmh.hpp`, `demcz.hpp`, `demczs.hpp`,
-`hmc.hpp`, `nuts.hpp`, `gibbs.hpp`, `snis.hpp`), `model_registry.hpp` (the bestfit-addition model
+`hmc.hpp`, `nuts.hpp`, `gibbs.hpp`, `snis.hpp`), `model_registry.hpp` (the corehydro-addition model
 registry the fixtures build against), and the diagnostics/results support headers (Gelman-Rubin
-R-hat, ESS, `MCMCResults`/`MCMCDiagnostics`). `core/include/bestfit/numerics/sampling/bootstrap/`
+R-hat, ESS, `MCMCResults`/`MCMCDiagnostics`). `core/include/corehydro/numerics/sampling/bootstrap/`
 holds the regular (non-pivotal) `Bootstrap<TData>` port -- `Run`/`RunDoubleBootstrap`/
 `RunWithStudentizedBootstrap`, the five `GetConfidenceIntervals` methods, and its own model
 registry (the covariance-aware pivotal workflow is a documented omission, tracked as a separate
-severable follow-up -- see the file header). `core/include/bestfit/numerics/math/optimization/`
+severable follow-up -- see the file header). `core/include/corehydro/numerics/math/optimization/`
 holds `ParameterSet`, `Optimizer` (the shared base every optimizer -- currently
 DifferentialEvolution -- builds on), and
 `DifferentialEvolution` itself, the global optimizer the MCMC MAP-initialization path depends on.
 
-`core/include/bestfit/models/` holds the RMC.BestFit Models port (Phase 5). `models/data_frame/`
+`core/include/corehydro/models/` holds the RMC.BestFit Models port (Phase 5). `models/data_frame/`
 is the input-data container layer: `data_types/` (the `Data` base plus ExactData, IntervalData,
 UncertainData, ThresholdData), `data_collections/` (the generic `DataSeries` plus the four typed
 series), `data_frame.hpp` (`DataFrame` -- FullTimeSeries threshold expansion,
@@ -86,27 +86,27 @@ PriorComponent, ModelBase, QuantilePrior and its interfaces) plus `subscript_for
 spec builder all three runners and the oracle emitter drive. The MultipleGrubbsBeckTest
 low-outlier test lives at `numerics/data/multiple_grubbs_beck_test.hpp`.
 
-Phase 6 added the Bulletin17C GMM track. `core/include/bestfit/numerics/functions/` holds the
+Phase 6 added the Bulletin17C GMM track. `core/include/corehydro/numerics/functions/` holds the
 Numerics link-function layer: `i_link_function.hpp` (the `ILinkFunction` interface),
 `link_controller.hpp` (the null-means-identity controller), `link_function_factory.hpp` +
 `link_function_type.hpp` (the enum factory), and the seven standard links -- `identity_link.hpp`,
 `log_link.hpp`, `logit_link.hpp`, `probit_link.hpp`, `complementary_log_log_link.hpp`,
 `fisher_z_link.hpp`, and `yeo_johnson_link.hpp` (whose transform lives at
 `numerics/data/yeo_johnson.hpp`). The optimizer additions sit under
-`core/include/bestfit/numerics/math/optimization/` as real `Optimizer` subclasses beside
+`core/include/corehydro/numerics/math/optimization/` as real `Optimizer` subclasses beside
 `differential_evolution.hpp`/`nelder_mead.hpp`/`brent_search.hpp`: `bfgs.hpp`, `powell.hpp`, and
 `mlsl.hpp`, with `support/local_method.hpp` (the LocalMethod enum). These un-gate the three Phase
-4 MLE/MAP throws. `core/include/bestfit/models/link_functions/` holds the six BestFit links --
+4 MLE/MAP throws. `core/include/corehydro/models/link_functions/` holds the six BestFit links --
 `asinh_link.hpp`, `ses_link.hpp`, `log_ses_link.hpp`, `log_asinh_link.hpp`, `centered_link.hpp`,
 `yeo_johnson_link.hpp` -- plus `best_fit_link_function_factory.hpp`. The two penalties live at
 `models/support/parameter_penalty.hpp` and `models/support/quantile_penalty.hpp`. The GMM
-estimator is `core/include/bestfit/estimation/generalized_method_of_moments.hpp` with its delegate
+estimator is `core/include/corehydro/estimation/generalized_method_of_moments.hpp` with its delegate
 aliases in `estimation/gmm_delegates.hpp` and the `IGMMModel` interface at
 `models/support/i_gmm_model.hpp`. Bulletin17C is
 `models/univariate_distribution/bulletin17c_distribution.hpp` plus its moment heart
 `models/univariate_distribution/bulletin17c_moment_machinery.hpp`.
 
-Phase 7a added the four remaining ModelBase model families under `core/include/bestfit/models/`.
+Phase 7a added the four remaining ModelBase model families under `core/include/corehydro/models/`.
 `models/time_series/` holds `auto_regressive.hpp`, `moving_average.hpp`, `arima.hpp`, and
 `arimax.hpp`, plus `transform_type.hpp` (the None/Logarithmic/BoxCox/YeoJohnson `Transform` enum).
 All four models are `ModelBase + ISimulatable`; the AR/MA warm-up and the conditional-vs-all-t
@@ -136,7 +136,7 @@ the one authorized structural change (the P1 IUnivariateModel accessor resolutio
 const-pointer `distribution()`, the re-exposed `data_frame()` overrides, `is_nonstationary`/
 `validate`).
 
-Phase 8 added the user-facing Analyses layer under `core/include/bestfit/analyses/`, mirroring the
+Phase 8 added the user-facing Analyses layer under `core/include/corehydro/analyses/`, mirroring the
 C# `RMC.BestFit.Analyses` namespace across three subdirs. `analyses/support/` holds the shared base
 and interfaces: `analysis_base.hpp`, `i_analysis.hpp`, `i_bayesian_analysis.hpp`,
 `i_univariate_analysis.hpp`, `i_probability_ordinates.hpp`, plus `bootstrap_diagnostics.hpp` and
@@ -153,19 +153,19 @@ mode/mean/lower/upper curve container). The DataFrame bootstrap surface
 `models/data_frame/data_frame.hpp` -- the Phase-8 un-deferral of the surface Phase 5/6 had severed,
 consumed only by Bulletin17CAnalysis. `models/distribution_fitting/fitted_distribution.hpp` is the
 FittedDistribution DTO (introduced in A6). The user-facing R/Python analysis API lives at
-`bestfitr/R/analysis.R` + `bestfitr/src/analysis.cpp` (cpp11 `bf_analysis_*`) and
-`bestfitpy/src/bestfitpy/analysis.py` + `bestfitpy/src/bindings/analysis.cpp`, with the `analysis`
+`corehydror/R/analysis.R` + `corehydror/src/analysis.cpp` (cpp11 `ch_analysis_*`) and
+`corehydropy/src/corehydropy/analysis.py` + `corehydropy/src/bindings/analysis.cpp`, with the `analysis`
 fixture kind wired into all three runners -- exposing `univariate_analysis` / `fit_distributions` /
 `bulletin17c_analysis`.
 
 Phase 9a added the per-family analysis orchestrators and the essential Diagnostics layer.
-`core/include/bestfit/analyses/univariate/` gains `mixture_analysis.hpp`,
+`core/include/corehydro/analyses/univariate/` gains `mixture_analysis.hpp`,
 `point_process_analysis.hpp`, and `competing_risk_analysis.hpp` (Bayesian clones of
 `univariate_analysis.hpp`, wrapping MixtureModel/PointProcessModel/CompetingRisksModel).
-`core/include/bestfit/analyses/time_series/` holds `ar_analysis.hpp`, `ma_analysis.hpp`,
+`core/include/corehydro/analyses/time_series/` holds `ar_analysis.hpp`, `ma_analysis.hpp`,
 `arima_analysis.hpp`, and `arimax_analysis.hpp` (deriving `AnalysisBase` only, with the extra
 `ForecastingTimeSteps` field, building UncertaintyAnalysisResults from the model Predict ensemble).
-`core/include/bestfit/diagnostics/` holds the three Diagnostics classes:
+`core/include/corehydro/diagnostics/` holds the three Diagnostics classes:
 `leverage_diagnostics.hpp` (Cook's-distance + variance-influence decomposition at the MAP point via
 a numerical Hessian, plus the public `compute_numerical_hessian_public`/`compute_gen_var_public`
 statics), `influence_diagnostics.hpp` (the PSIS-LOO Pareto-k wrapper over the already-computed
@@ -178,7 +178,7 @@ posterior). Wiring these un-stubbed the 6 previously-throwing estimator diagnost
 `get_influence_diagnostics` x2 / `get_leverage_diagnostics`) -- the GMM un-stubs omit the two
 Model-is-Bulletin17CDistribution penalty branches (unreachable for any non-B17C IGMMModel, exactly
 as C# skips them). The user-facing R/Python surface widens the Phase-8 binding pattern
-(`bestfitr/src/analysis.cpp` + `R/analysis.R`, `bestfitpy/src/bindings/analysis.cpp` +
+(`corehydror/src/analysis.cpp` + `R/analysis.R`, `corehydropy/src/bindings/analysis.cpp` +
 `analysis.py`): the seven per-family analyses dispatch through the same one-run-function-per-analysis
 glue, and an `estimation_diagnostics` accessor exposes the leverage/influence/prior-influence DTOs
 off the fitted estimator. The ctest suites are
@@ -186,7 +186,7 @@ off the fitted estimator. The ctest suites are
 `test_leverage_diagnostics.cpp`, and `test_influence_diagnostics.cpp`.
 
 Phase 10 completed the port -- FULL PARITY. The five remaining analysis orchestrators landed under
-`core/include/bestfit/analyses/`: `spatial_extremes/` holds `spatial_gev_analysis.hpp` with its two
+`core/include/corehydro/analyses/`: `spatial_extremes/` holds `spatial_gev_analysis.hpp` with its two
 result DTOs `spatial_gev_site_results.hpp` and `spatial_gev_cross_validation_results.hpp`;
 `bivariate/` holds `bivariate_analysis.hpp` (the joint-marginals + copula frequency analysis) and
 `coincident_frequency_analysis.hpp` (the conditional-frequency law over a bivariate copula);
@@ -202,7 +202,7 @@ uncertainty dispatch arms in `analyses/univariate/bulletin17c_analysis.hpp` (the
 cases) are replaced by LinkedMultivariateNormal (its ~13 link-builder helpers +
 InfluenceStatistics; constructs MultivariateNormal not MVT, center-shift commented out as in C#) and
 the pivot / BiasCorrected bootstrap (reusing the A8 parametric-bootstrap fallback). The four
-predictive-check classes landed under `core/include/bestfit/diagnostics/` beside the Phase-9a
+predictive-check classes landed under `core/include/corehydro/diagnostics/` beside the Phase-9a
 leverage/influence/prior-influence diagnostics: `posterior_predictive_check.hpp`,
 `prior_predictive_check.hpp`, `predictive_check_results.hpp`, and `predictive_summary.hpp`. The
 Phase-1 follow-ups closed out: distribution `ParameterNames` on
@@ -211,8 +211,8 @@ Phase-1 follow-ups closed out: distribution `ParameterNames` on
 UserDefined MCMC seeding hook (`seed_population`/`seed_chain` on
 `numerics/sampling/mcmc/base/mcmc_sampler.hpp` + `estimation/bayesian_analysis.hpp`, wired into the
 MixtureAnalysis EM-seed path). All of this surface is bound in R and Python via the shared
-`analysis_runner.hpp` driven identically by the three harnesses, plus `bestfitr/src/analysis.cpp` +
-`R/analysis.R` and `bestfitpy/src/bindings/analysis.cpp` + `analysis.py`. The ctest suites are
+`analysis_runner.hpp` driven identically by the three harnesses, plus `corehydror/src/analysis.cpp` +
+`R/analysis.R` and `corehydropy/src/bindings/analysis.cpp` + `analysis.py`. The ctest suites are
 `core/tests/test_rating_curve_analysis.cpp`, `test_bivariate_analysis.cpp`,
 `test_coincident_frequency_analysis.cpp`, `test_spatial_gev_analysis.cpp`,
 `test_composite_analysis.cpp`, `test_bootstrap_analysis.cpp`, `test_predictive_checks.cpp`, and
@@ -223,12 +223,12 @@ MixtureAnalysis EM-seed path). All of this surface is bound in R and Python via 
 ```bash
 # C++ core
 cmake -S core -B core/build && cmake --build core/build && ctest --test-dir core/build
-# R  (regenerate registration only after editing bestfitr/src/*.cpp)
-Rscript -e 'cpp11::cpp_register("bestfitr")'; R CMD INSTALL bestfitr
-Rscript -e 'testthat::test_local("bestfitr")'
-# Python (dev venv at ~/venv/bestfitpy)
-~/venv/bestfitpy/bin/python -m pip install --force-reinstall --no-deps ./bestfitpy
-~/venv/bestfitpy/bin/python -m pytest bestfitpy/tests -q
+# R  (regenerate registration only after editing corehydror/src/*.cpp)
+Rscript -e 'cpp11::cpp_register("corehydror")'; R CMD INSTALL corehydror
+Rscript -e 'testthat::test_local("corehydror")'
+# Python (use the pixi env: `pixi run test-py`, or directly:)
+pixi run python -m pip install --force-reinstall --no-deps ./corehydropy
+pixi run python -m pytest corehydropy/tests -q
 # vendoring: the core + fixtures are subtree symlinks; builds dereference them (R CMD build for R,
 # tools/materialize_core.py for Python). No sync/drift guard needed. To get a symlink-free tree:
 python3 tools/materialize_core.py    # (CI/release only; rewrites the working tree)
@@ -238,19 +238,19 @@ python3 tools/verify_oracles.py
 make docs        # builds site/_site; serve with `make docs-serve` (NOT quarto preview)
 ```
 
-Toolchain present: clang++, cmake, R 4.6.1 (`/opt/homebrew/bin`), python3.14 + `~/venv/bestfitpy`,
+Toolchain present: clang++, cmake, R 4.6.1 (`/opt/homebrew/bin`), python3.14 via the pixi env (`.pixi/`),
 roxygen2/jsonlite/testthat/cpp11 installed, and **dotnet 10** (for the oracle gate; not in CI).
 After any core change that alters a class layout, rebuild R clean (`R CMD INSTALL --preclean
-bestfitr`) — stale `bestfitr/src/*.o` from a prior ABI can otherwise return garbage / abort R.
+corehydror`) — stale `corehydror/src/*.o` from a prior ABI can otherwise return garbage / abort R.
 
 ## Validation model (DRY)
 
 Oracle values live ONLY in `fixtures/*.json`. Three thin generic runners load the same JSON and
 apply every assertion: C++ `core/tests/test_fixtures.cpp` (nlohmann/json, vendored test-only under
-`core/tests/third_party/`), R `bestfitr/tests/testthat/test-fixtures.R` (jsonlite), Python
-`bestfitpy/tests/test_fixtures.py` (stdlib). The runners are **polymorphic**: non-GEV targets are
+`core/tests/third_party/`), R `corehydror/tests/testthat/test-fixtures.R` (jsonlite), Python
+`corehydropy/tests/test_fixtures.py` (stdlib). The runners are **polymorphic**: non-GEV targets are
 built through the factory and dispatched on `UnivariateDistributionBase` (+ capability casts) via
-the `bf_dist_*` (R) / `_core.dist_*` (Py) glue; GEV keeps a bespoke path for its standard-error
+the `ch_dist_*` (R) / `_core.dist_*` (Py) glue; GEV keeps a bespoke path for its standard-error
 methods. **Adding a distribution = new fixture file + a couple of dispatch entries per runner** —
 no new per-distribution glue. Don't hardcode oracle values in test files. The dotnet gate
 (`verify_oracles.py`) is the fourth, dev-only check that the fixtures still match the C# source.
@@ -260,15 +260,15 @@ no new per-distribution glue. Don't hardcode oracle values in test files. The do
 - **Structural mirroring:** C++ mirrors the C# file/class/method layout so upstream diffs map
   almost line-for-line. Each ported file carries a `// ported from: <path> @ <sha>` header.
 - **Portability (learned from CI):** never use `M_PI` (absent under strict `-std=c++17` on Linux
-  and on MSVC) — use `bestfit::numerics::kPi`. Don't name a namespace alias `gamma` (clashes with
+  and on MSVC) — use `corehydro::numerics::kPi`. Don't name a namespace alias `gamma` (clashes with
   glibc's libm `gamma()`) or `stat` (clashes with the MSVC/POSIX CRT `stat` symbol). Pass
   `-Wall/-Wextra` only to non-MSVC compilers in CMake.
 - **Self-contained core:** no external C++ deps (port Numerics' own linear algebra / RNG). Keeps
   the CRAN dependency surface empty and preserves oracle fidelity. Don't add Eigen to the core.
-- **CRAN:** `bestfitr` uses `License: file LICENSE` (R can't standardize the `0BSD` token).
-  Makevars: `CXX_STD = CXX17`, no `-O3/-march/-Werror`. cpp11 internal functions (`bf_gev_*`,
-  `bf_dist_*`) are unexported — tests reach them via `asNamespace("bestfitr")`. After editing any
-  `bestfitr/src/*.cpp`, re-run `cpp11::cpp_register("bestfitr")`.
+- **CRAN:** `corehydror` uses `License: file LICENSE` (R can't standardize the `0BSD` token).
+  Makevars: `CXX_STD = CXX17`, no `-O3/-march/-Werror`. cpp11 internal functions (`ch_gev_*`,
+  `ch_dist_*`) are unexported — tests reach them via `asNamespace("corehydror")`. After editing any
+  `corehydror/src/*.cpp`, re-run `cpp11::cpp_register("corehydror")`.
 - **Mutation:** the global "never mutate" rule is relaxed for these binding/model objects (they
   mirror the C# stateful API), matching the upstream design.
 
@@ -280,8 +280,8 @@ Pages source must be set to "GitHub Actions" in repo settings). Three build halv
 - `site/` -- the root **Quarto website** (landing page + examples + the quartodoc-generated
   Python reference under `site/reference/`, gitignored). Dual theme flatly/darkly with
   earth-tone accents in `site/styles/*.scss` (the palette hexes there are the single source
-  of truth; `bestfitr/_pkgdown.yml` `bslib.primary` mirrors them).
-- `bestfitr/_pkgdown.yml` -- the R reference, built by pkgdown into `bestfitr/docs/`
+  of truth; `corehydror/_pkgdown.yml` `bslib.primary` mirrors them).
+- `corehydror/_pkgdown.yml` -- the R reference, built by pkgdown into `corehydror/docs/`
   (gitignored) and copied to `/r/` of the assembled site.
 - Examples live at `site/examples/<nn>-<slug>/{python.ipynb, r.qmd}` -- Python examples are
   **Jupyter notebooks committed WITH outputs** (Quarto renders stored outputs, never
@@ -289,7 +289,7 @@ Pages source must be set to "GitHub Actions" in repo settings). Three build halv
   editing), R examples are Quarto with `freeze: auto` and **`site/_freeze/` committed**
   (render locally and commit the updated freeze after editing an executed chunk).
 
-Contracts: every new package export must be added to BOTH `bestfitr/_pkgdown.yml` (pkgdown
+Contracts: every new package export must be added to BOTH `corehydror/_pkgdown.yml` (pkgdown
 errors on missing reference-index entries) and the `quartodoc.sections` in
 `site/_quarto.yml`. `site/requirements.txt` pins the docs Python deps for CI (griffe<2 until
 quartodoc supports griffe 2.x; `pixi.toml` carries the same pin). Local build: `pixi run docs`
@@ -497,7 +497,7 @@ step remains, driven as a separate workflow run (per the standing "WORKFLOW RESU
 instruction). See `PLAN.md`.
 
 The docs-and-examples effort (branch `distribution-api`, July 2026) followed Phase 10. It added the
-public distribution API in both packages (R `distribution()`/`dist_*` verbs over a `bestfit_dist`
+public distribution API in both packages (R `distribution()`/`dist_*` verbs over a `corehydro_dist`
 classed list; Python `Distribution` class), the stats utilities (`mgbt_test`, `box_cox*`,
 `yeo_johnson*`, `plotting_positions`, `latin_hypercube`), and public `mcmc_sample()` (7 samplers over
 the uniform-constraints registry model; no custom priors). New oracle surface: `random_value`

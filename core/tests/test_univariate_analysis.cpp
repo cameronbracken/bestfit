@@ -1,4 +1,4 @@
-// Structural / behavioral tests for bestfit::analyses::UnivariateAnalysis (A5).
+// Structural / behavioral tests for corehydro::analyses::UnivariateAnalysis (A5).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/Univariate/UnivariateAnalysisTests.cs
@@ -13,20 +13,20 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/univariate/univariate_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
+#include "corehydro/analyses/univariate/univariate_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/math/optimization/support/parameter_set.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::UnivariateAnalysis;
-using bestfit::estimation::BayesianAnalysis;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::math::optimization::ParameterSet;
-using bestfit::numerics::sampling::mcmc::MCMCResults;
+using corehydro::analyses::UnivariateAnalysis;
+using corehydro::estimation::BayesianAnalysis;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::math::optimization::ParameterSet;
+using corehydro::numerics::sampling::mcmc::MCMCResults;
 
 namespace {
 
@@ -217,5 +217,5 @@ int main() {
     test_credible_band_widens();
     test_getters_after_injection();
 
-    return bftest::summary("univariate_analysis");
+    return chtest::summary("univariate_analysis");
 }

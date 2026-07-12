@@ -10,7 +10,7 @@ Ported from
 [`09_statistics.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/09_statistics.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 seeded results below reproduce the upstream outputs exactly. The Python version of
 this example uses the same core and prints the same numbers.
 
@@ -29,7 +29,7 @@ converts every array with `convert_to_dotnet_array`. Here the only setup is
 loading the package.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Descriptive statistics

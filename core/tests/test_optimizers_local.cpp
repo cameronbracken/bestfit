@@ -18,14 +18,14 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/math/optimization/bfgs.hpp"
-#include "bestfit/numerics/math/optimization/powell.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/math/optimization/bfgs.hpp"
+#include "corehydro/numerics/math/optimization/powell.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 #include "optimization_test_functions.hpp"
 
-using bestfit::numerics::math::optimization::BFGS;
-using bestfit::numerics::math::optimization::Powell;
+using corehydro::numerics::math::optimization::BFGS;
+using corehydro::numerics::math::optimization::Powell;
 
 namespace {
 
@@ -325,13 +325,13 @@ void powell_beale() {
 // Tools.SumProduct: dot product of two equal-length lists.
 void tools_sum_product() {
     // (1*4) + (2*5) + (3*6) = 32
-    CHECK_NEAR(bestfit::numerics::sum_product({1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}), 32.0, 1e-12);
+    CHECK_NEAR(corehydro::numerics::sum_product({1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}), 32.0, 1e-12);
     // Single element: (-2.5)*4 = -10
-    CHECK_NEAR(bestfit::numerics::sum_product({-2.5}, {4.0}), -10.0, 1e-12);
+    CHECK_NEAR(corehydro::numerics::sum_product({-2.5}, {4.0}), -10.0, 1e-12);
     // Empty first list -> NaN (C# returns double.NaN).
-    CHECK_TRUE(std::isnan(bestfit::numerics::sum_product({}, {})));
+    CHECK_TRUE(std::isnan(corehydro::numerics::sum_product({}, {})));
     // Mismatched lengths -> NaN (C# returns double.NaN).
-    CHECK_TRUE(std::isnan(bestfit::numerics::sum_product({1.0, 2.0}, {1.0})));
+    CHECK_TRUE(std::isnan(corehydro::numerics::sum_product({1.0, 2.0}, {1.0})));
 }
 
 // Tools.NormalizedDistance: Euclidean distance after min-max normalizing each dimension.
@@ -339,20 +339,20 @@ void tools_normalized_distance() {
     // Dimension 1: range 10, normalized delta (3-1)/10 = 0.2.
     // Dimension 2: range 4,  normalized delta (2-0)/4  = 0.5.
     // Distance = sqrt(0.2^2 + 0.5^2) = sqrt(0.29).
-    CHECK_NEAR(bestfit::numerics::normalized_distance({1.0, 0.0}, {3.0, 2.0}, {0.0, -2.0},
+    CHECK_NEAR(corehydro::numerics::normalized_distance({1.0, 0.0}, {3.0, 2.0}, {0.0, -2.0},
                                                       {10.0, 2.0}),
                std::sqrt(0.29), 1e-12);
     // Identical points -> 0.
-    CHECK_NEAR(bestfit::numerics::normalized_distance({0.5, 0.5}, {0.5, 0.5}, {0.0, 0.0},
+    CHECK_NEAR(corehydro::numerics::normalized_distance({0.5, 0.5}, {0.5, 0.5}, {0.0, 0.0},
                                                       {1.0, 1.0}),
                0.0, 1e-15);
     // Degenerate dimension (range <= 0) contributes nothing: only dim 2 counts,
     // delta (4-1)/10 = 0.3.
-    CHECK_NEAR(bestfit::numerics::normalized_distance({1.0, 1.0}, {2.0, 4.0}, {5.0, 0.0},
+    CHECK_NEAR(corehydro::numerics::normalized_distance({1.0, 1.0}, {2.0, 4.0}, {5.0, 0.0},
                                                       {5.0, 10.0}),
                0.3, 1e-12);
     // NaN range likewise contributes nothing -> all dims degenerate -> 0.
-    CHECK_NEAR(bestfit::numerics::normalized_distance({1.0}, {2.0}, {0.0}, {std::nan("")}),
+    CHECK_NEAR(corehydro::numerics::normalized_distance({1.0}, {2.0}, {0.0}, {std::nan("")}),
                0.0, 1e-15);
 }
 
@@ -380,5 +380,5 @@ int main() {
     // Supplement: Tools additions (B5)
     tools_sum_product();
     tools_normalized_distance();
-    return bftest::summary("test_optimizers_local");
+    return chtest::summary("test_optimizers_local");
 }

@@ -25,31 +25,31 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_types/data.hpp"
-#include "bestfit/models/data_frame/data_types/exact_data.hpp"
-#include "bestfit/models/data_frame/data_types/interval_data.hpp"
-#include "bestfit/models/data_frame/data_types/threshold_data.hpp"
-#include "bestfit/models/data_frame/data_types/uncertain_data.hpp"
-#include "bestfit/numerics/data/series_ordinate.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/triangular.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
+#include "corehydro/models/data_frame/data_types/data.hpp"
+#include "corehydro/models/data_frame/data_types/exact_data.hpp"
+#include "corehydro/models/data_frame/data_types/interval_data.hpp"
+#include "corehydro/models/data_frame/data_types/threshold_data.hpp"
+#include "corehydro/models/data_frame/data_types/uncertain_data.hpp"
+#include "corehydro/numerics/data/series_ordinate.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/triangular.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
 #include "check.hpp"
 
-using bestfit::models::ExactData;
-using bestfit::models::IntervalData;
-using bestfit::models::ThresholdData;
-using bestfit::models::UncertainData;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::data::SeriesOrdinate;
-using bestfit::numerics::distributions::LogNormal;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Triangular;
-using bestfit::numerics::distributions::Uniform;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::ExactData;
+using corehydro::models::IntervalData;
+using corehydro::models::ThresholdData;
+using corehydro::models::UncertainData;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::data::SeriesOrdinate;
+using corehydro::numerics::distributions::LogNormal;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Triangular;
+using corehydro::numerics::distributions::Uniform;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -1235,5 +1235,5 @@ int main() {
     test_uncertain_skewed_distribution();
     test_uncertain_negative_index();
 
-    return bftest::summary("data_types");
+    return chtest::summary("data_types");
 }

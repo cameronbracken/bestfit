@@ -10,13 +10,13 @@ Ported from
 [`00_getting_started.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/00_getting_started.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 numbers below reproduce the upstream outputs exactly. The Python version of this
 example uses the same core and prints the same numbers.
 
 ## What you'll learn
 
-- How to install `bestfitr` and check the installation.
+- How to install `corehydror` and check the installation.
 - How to create a distribution and compute basic statistics.
 - What of the upstream setup you can skip entirely (spoiler: all of it).
 
@@ -24,18 +24,18 @@ example uses the same core and prints the same numbers.
 
 The upstream notebook spends its first four steps on .NET plumbing: installing a
 .NET runtime, obtaining `Numerics.dll` from NuGet, loading the CoreCLR runtime, and
-resolving the DLL path. None of that exists here. `bestfitr` ships the ported
+resolving the DLL path. None of that exists here. `corehydror` ships the ported
 library as a regular compiled R package:
 
 ```r
-install.packages("bestfitr")
+install.packages("corehydror")
 ```
 
 There is no runtime to select, no DLL to resolve, and results are identical on
 macOS, Linux, and Windows.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Basic example: Normal distribution
@@ -64,7 +64,7 @@ cat(dist_cdf(distribution("Normal", c(0, 1)), 0), "~= 0.5\n")
 ## No interop plumbing
 
 The upstream notebook needs `System.Array[Double]` conversions for data and
-delegate wrappers to pass functions into the C# samplers. With `bestfitr`, plain
+delegate wrappers to pass functions into the C# samplers. With `corehydror`, plain
 numeric vectors work everywhere:
 
 ```{r}

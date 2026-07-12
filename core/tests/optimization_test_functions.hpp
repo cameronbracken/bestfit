@@ -4,8 +4,8 @@
 // header for Powell and MLSL). ALL 16 functions from the C# file are ported verbatim --
 // including FX (1-D, used by the upstream golden-section/Brent tests) and Bukin (unused by
 // the upstream BFGS/Powell/MLSL tests) -- so later optimizer tasks never have to touch this
-// file. Formulas are transcribed exactly; Math.PI -> bestfit::numerics::kPi and
-// Math.E -> bestfit::numerics::kE per the repo's no-M_PI portability rule.
+// file. Formulas are transcribed exactly; Math.PI -> corehydro::numerics::kPi and
+// Math.E -> corehydro::numerics::kE per the repo's no-M_PI portability rule.
 //
 // Signatures take `const std::vector<double>&` (the C# `double[]`), which converts
 // implicitly to the Optimizer base's mutable-reference Objective std::function.
@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/tools.hpp"
 
 namespace test_functions {
 
@@ -94,7 +94,7 @@ inline double rastrigin(const std::vector<double>& parms) {
     std::size_t n = parms.size();
     double F = A * static_cast<double>(n);
     for (std::size_t i = 0; i < n; i++)
-        F += parms[i] * parms[i] - A * std::cos(2 * bestfit::numerics::kPi * parms[i]);
+        F += parms[i] * parms[i] - A * std::cos(2 * corehydro::numerics::kPi * parms[i]);
     return F;
 }
 
@@ -103,9 +103,9 @@ inline double ackley(const std::vector<double>& parms) {
     double x = parms[0];
     double y = parms[1];
     double F = -20 * std::exp(-0.2 * std::sqrt(0.5 * (x * x + y * y))) -
-               std::exp(0.5 * (std::cos(2 * bestfit::numerics::kPi * x) +
-                               std::cos(2 * bestfit::numerics::kPi * y))) +
-               bestfit::numerics::kE + 20;
+               std::exp(0.5 * (std::cos(2 * corehydro::numerics::kPi * x) +
+                               std::cos(2 * corehydro::numerics::kPi * y))) +
+               corehydro::numerics::kE + 20;
     return F;
 }
 

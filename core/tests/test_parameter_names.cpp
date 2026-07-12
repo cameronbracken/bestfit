@@ -17,29 +17,29 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/prior_component.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/poisson.hpp"
-#include "bestfit/numerics/distributions/von_mises.hpp"
-#include "bestfit/numerics/distributions/weibull.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/prior_component.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/log_pearson_type_iii.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/poisson.hpp"
+#include "corehydro/numerics/distributions/von_mises.hpp"
+#include "corehydro/numerics/distributions/weibull.hpp"
 #include "check.hpp"
 
-using bestfit::models::PriorComponent;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-using bestfit::numerics::distributions::Gumbel;
-using bestfit::numerics::distributions::LogPearsonTypeIII;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Poisson;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::distributions::VonMises;
-using bestfit::numerics::distributions::Weibull;
+using corehydro::models::PriorComponent;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::distributions::Gumbel;
+using corehydro::numerics::distributions::LogPearsonTypeIII;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Poisson;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::distributions::VonMises;
+using corehydro::numerics::distributions::Weibull;
 
 namespace {
 
@@ -146,5 +146,5 @@ int main() {
     test_poisson_names();
     test_von_mises_uses_greek_mu();
     test_normal_model_distinct_owner_names_and_prior_components();
-    return bftest::summary("parameter_names");
+    return chtest::summary("parameter_names");
 }

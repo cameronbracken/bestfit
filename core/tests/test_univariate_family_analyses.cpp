@@ -1,5 +1,5 @@
 // Structural / behavioral tests for the univariate-FAMILY analyses (D1):
-//   bestfit::analyses::MixtureAnalysis, PointProcessAnalysis, CompetingRiskAnalysis.
+//   corehydro::analyses::MixtureAnalysis, PointProcessAnalysis, CompetingRiskAnalysis.
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/Univariate/MixtureAnalysisTests.cs
@@ -22,31 +22,31 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/univariate/competing_risk_analysis.hpp"
-#include "bestfit/analyses/univariate/mixture_analysis.hpp"
-#include "bestfit/analyses/univariate/point_process_analysis.hpp"
-#include "bestfit/analyses/support/i_univariate_analysis.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
-#include "bestfit/models/univariate_distribution/competing_risks_model.hpp"
-#include "bestfit/models/univariate_distribution/mixture_model.hpp"
-#include "bestfit/models/univariate_distribution/point_process_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/analyses/univariate/competing_risk_analysis.hpp"
+#include "corehydro/analyses/univariate/mixture_analysis.hpp"
+#include "corehydro/analyses/univariate/point_process_analysis.hpp"
+#include "corehydro/analyses/support/i_univariate_analysis.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/univariate_distribution/competing_risks_model.hpp"
+#include "corehydro/models/univariate_distribution/mixture_model.hpp"
+#include "corehydro/models/univariate_distribution/point_process_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::CompetingRiskAnalysis;
-using bestfit::analyses::IUnivariateAnalysis;
-using bestfit::analyses::MixtureAnalysis;
-using bestfit::analyses::PointProcessAnalysis;
-using bestfit::models::CompetingRisksModel;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::MixtureModel;
-using bestfit::models::PointProcessModel;
-using UDT = bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::analyses::CompetingRiskAnalysis;
+using corehydro::analyses::IUnivariateAnalysis;
+using corehydro::analyses::MixtureAnalysis;
+using corehydro::analyses::PointProcessAnalysis;
+using corehydro::models::CompetingRisksModel;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::MixtureModel;
+using corehydro::models::PointProcessModel;
+using UDT = corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -54,9 +54,9 @@ namespace {
 
 DataFrame bimodal_frame() {
     // A Normal(5500, 600) "snowmelt" component plus a Normal(20000, 3000) "rainfall" component.
-    std::vector<double> low = bestfit::numerics::distributions::Normal(5500.0, 600.0)
+    std::vector<double> low = corehydro::numerics::distributions::Normal(5500.0, 600.0)
                                   .generate_random_values(10, 12345);
-    std::vector<double> high = bestfit::numerics::distributions::Normal(20000.0, 3000.0)
+    std::vector<double> high = corehydro::numerics::distributions::Normal(20000.0, 3000.0)
                                    .generate_random_values(10, 67890);
     std::vector<double> all = low;
     all.insert(all.end(), high.begin(), high.end());
@@ -67,7 +67,7 @@ DataFrame bimodal_frame() {
 }
 
 DataFrame gumbel_frame(double location, double scale, int size) {
-    std::vector<double> v = bestfit::numerics::distributions::Gumbel(location, scale)
+    std::vector<double> v = corehydro::numerics::distributions::Gumbel(location, scale)
                                 .generate_random_values(size, 12345);
     DataFrame df;
     df.set_exact_series(ExactSeries(v));
@@ -402,5 +402,5 @@ int main() {
     test_cr_bayesian_defaults();
     test_cr_interface_accessible();
 
-    return bftest::summary("univariate_family_analyses");
+    return chtest::summary("univariate_family_analyses");
 }

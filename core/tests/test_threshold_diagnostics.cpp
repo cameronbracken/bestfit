@@ -18,14 +18,14 @@
 #include <cstddef>
 #include <vector>
 
-#include "bestfit/models/data_frame/threshold_diagnostics.hpp"
-#include "bestfit/numerics/distributions/exponential.hpp"
-#include "bestfit/numerics/distributions/generalized_pareto.hpp"
+#include "corehydro/models/data_frame/threshold_diagnostics.hpp"
+#include "corehydro/numerics/distributions/exponential.hpp"
+#include "corehydro/numerics/distributions/generalized_pareto.hpp"
 #include "check.hpp"
 
-using bestfit::models::MeanResidualLifeResult;
-using bestfit::models::ParameterStabilityResult;
-using bestfit::models::ThresholdDiagnostics;
+using corehydro::models::MeanResidualLifeResult;
+using corehydro::models::ParameterStabilityResult;
+using corehydro::models::ThresholdDiagnostics;
 
 namespace {
 
@@ -88,7 +88,7 @@ class DotNetRandom {
 // (C# `new Exponential(1.0)` is the scale-only ctor: location 0, scale 1.)
 std::vector<double> exponential_sample(int n, int seed) {
     DotNetRandom rng(seed);
-    bestfit::numerics::distributions::Exponential exp_dist(0.0, 1.0);
+    corehydro::numerics::distributions::Exponential exp_dist(0.0, 1.0);
     std::vector<double> data(static_cast<std::size_t>(n));
     for (int i = 0; i < n; i++)
         data[static_cast<std::size_t>(i)] = exp_dist.inverse_cdf(rng.next_double());
@@ -98,7 +98,7 @@ std::vector<double> exponential_sample(int n, int seed) {
 // GPD(xi, alpha, kappa) sample via inverse CDF, mirroring the C# arrange blocks.
 std::vector<double> gpd_sample(int n, int seed, double xi, double alpha, double kappa) {
     DotNetRandom rng(seed);
-    bestfit::numerics::distributions::GeneralizedPareto gpd(xi, alpha, kappa);
+    corehydro::numerics::distributions::GeneralizedPareto gpd(xi, alpha, kappa);
     std::vector<double> data(static_cast<std::size_t>(n));
     for (int i = 0; i < n; i++)
         data[static_cast<std::size_t>(i)] = gpd.inverse_cdf(rng.next_double());
@@ -375,5 +375,5 @@ int main() {
     test_mrl_lower_ci_less_than_upper_ci();
     test_parameter_stability_results_are_finite();
 
-    return bftest::summary("threshold_diagnostics");
+    return chtest::summary("threshold_diagnostics");
 }

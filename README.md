@@ -1,28 +1,36 @@
-# bestfit++
+# corehydro
 
-bestfit++ is a set of tools developed by the 
-[United States Army Corpos of Engineers Risk Management Center](https://github.com/USACE-RMC) (USACE-RMC)
-for stochastic and computational hydrology including distribution fitting, 
-timeseries modeling, uncertainty quantification, optimization, machine learning, and flood and precip 
-frequency estimation, and a whole lot more. Most features have both Bayesian and frequentist versions available. 
+corehydro is an (unofficial) C++ port of tools developed by the 
+[United States Army Corps of Engineers](https://www.usace.army.mil/) (USACE) 
+[Risk Management Center](https://github.com/USACE-RMC) (RMC) and 
+[Hydrologic Engineering Center](https://github.com/HydrologicEngineeringCenter) (HEC)
+for stochastic and computational hydrology including distribution fitting and sampling, 
+timeseries modeling, uncertainty quantification, optimization, machine learning, flood and precip 
+frequency estimation, and a whole lot more. 
 
-This repository contains a C++ port of two [USACE-RMC](https://github.com/USACE-RMC) libraries: [Numerics](https://github.com/USACE-RMC/Numerics) and
-[RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) (not incuding the the Windows GUI).
-The ported C++ code is designed to exactly reproduce the original C# code whenever possible 
-(up to compiler and platform differences). See the [Why?](#why) section for the motivation 
-behind this porting effort. 
+The motivation behind this porting effort is to increase awareness 
+and accessibility of these amazing software packages (see the [Why?](#why) section 
+for more info). Currently this project has ported pieces of the following libraries/packages:
+- [RMC-BestFit](https://github.com/USACE-RMC/RMC-BestFit) (statistical engine fully ported)
+- [Numerics](https://github.com/USACE-RMC/Numerics) (probability, sampling, and estimation layers)
+- [HEC-FDA](https://github.com/HydrologicEngineeringCenter/HEC-FDA) (planned, not started)
 
-R (`bestfitr`) and Python (`bestfitpy`) packages are also available with bindings to call the 
+See the [porting status page](https://cameronbracken.github.io/corehydro/status.html)
+for the details of what is currently implemented in the core library and in the packages. 
+
+## R and Python packages
+
+R (`corehydror`) and Python (`corehydropy`) packages are also available with bindings to call the 
 functions in the core library. Both packages call the same code and are expected to produce 
 identical results with the same random seed.
 
 ## Documentation
 
-- [Documentation site](https://cameronbracken.github.io/bestfit/) with worked examples
+- [Documentation site](https://cameronbracken.github.io/corehydro/) with worked examples
   in both languages (Jupyter notebooks for Python, Quarto for R), ported from the
   official [Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
-- [Python API reference](https://cameronbracken.github.io/bestfit/reference/)
-- [R API reference](https://cameronbracken.github.io/bestfit/r/)
+- [Python API reference](https://cameronbracken.github.io/corehydro/reference/)
+- [R API reference](https://cameronbracken.github.io/corehydro/r/)
 
 ## Development status
 Early development. All [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) features have 
@@ -43,13 +51,13 @@ R:
 
 ```r
 # install.packages("pak")
-pak::pak("cameronbracken/bestfit/bestfitr")
+pak::pak("cameronbracken/corehydro/corehydror")
 ```
 
 Python (3.10+):
 
 ```bash
-pip install "git+https://github.com/cameronbracken/bestfit.git#subdirectory=bestfitpy"
+pip install "git+https://github.com/cameronbracken/corehydro.git#subdirectory=corehydropy"
 ```
 
 ## Quick start
@@ -59,7 +67,7 @@ Fit a distribution and read a frequency curve. The two snippets return the same 
 R:
 
 ```r
-library(bestfitr)
+library(corehydror)
 
 peaks <- c(12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600,
            19200, 13800, 25600, 10500, 16900)
@@ -77,7 +85,7 @@ fit$lower_ci     # credible band
 Python:
 
 ```python
-import bestfitpy as bf
+import corehydropy as ch
 
 peaks = [
     12500,
@@ -97,9 +105,9 @@ peaks = [
     16900,
 ]
 
-bf.gev_fit(peaks, method="mle")
+ch.gev_fit(peaks, method="mle")
 
-fit = bf.univariate_analysis(peaks, "GeneralizedExtremeValue", seed=12345)
+fit = ch.univariate_analysis(peaks, "GeneralizedExtremeValue", seed=12345)
 fit["parameters"]
 fit["mean_curve"]
 fit["lower_ci"]
@@ -153,7 +161,7 @@ Both packages use the same implementation of the Mersenne Twister random number 
 univariate_analysis(peaks, "Normal", seed = 42)$parameters   # R
 ```
 ```python
-bf.univariate_analysis(peaks, "Normal", seed=42)["parameters"]  # same numbers
+ch.univariate_analysis(peaks, "Normal", seed=42)["parameters"]  # same numbers
 ```
 
 ## Layout
@@ -162,11 +170,11 @@ bf.univariate_analysis(peaks, "Normal", seed=42)["parameters"]  # same numbers
 |------|---------|
 | `core/` |  C++17 core library (headers, sources, tests) |
 | `fixtures/` | language-neutral oracle fixtures (JSON) validating both packages |
-| `bestfitr/` | R package (cpp11) |
-| `bestfitpy/` | Python package (scikit-build-core + pybind11) |
+| `corehydror/` | R package (cpp11) |
+| `corehydropy/` | Python package (scikit-build-core + pybind11) |
 | `tools/` | build and validation scripts |
 
-`bestfitr` and `bestfitpy` share the same code from `core/` and `fixtures/` using symlinks which are resolved at build time. See
+`corehydror` and `corehydropy` share the same code from `core/` and `fixtures/` using symlinks which are resolved at build time. See
 `.claude/CLAUDE.md`, `.claude/PLAN.md` and `docs/` for the port architecture and development workflow.
 
 ## Build from source
@@ -176,17 +184,17 @@ bf.univariate_analysis(peaks, "Normal", seed=42)["parameters"]  # same numbers
 cmake -S core -B core/build && cmake --build core/build && ctest --test-dir core/build
 
 # R package
-Rscript -e 'cpp11::cpp_register("bestfitr")'   # only after editing bestfitr/src/*.cpp
-R CMD INSTALL bestfitr
-Rscript -e 'testthat::test_local("bestfitr")'
+Rscript -e 'cpp11::cpp_register("corehydror")'   # only after editing corehydror/src/*.cpp
+R CMD INSTALL corehydror
+Rscript -e 'testthat::test_local("corehydror")'
 
 # Python package
-pip install ./bestfitpy
-pytest bestfitpy/tests
+pip install ./corehydropy
+pytest corehydropy/tests
 ```
 
 ## Why?
-The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assesment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers.
+The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assesment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers. The ported C++ code is designed to exactly reproduce the original C# code whenever possible, up to compiler and platform differences.
 
 ## AI Use Statement
 Anthropic's Claude was used to facilitate the porting process, Fable and Opus 4.8 for planning, Sonnet 5 and Haiku 4.5 for implementation.
@@ -195,4 +203,4 @@ Anthropic's Claude was used to facilitate the porting process, Fable and Opus 4.
 All credit for the implementation of these tools goes to [Haden Smith](https://github.com/HadenSmith) and the contributors to [Numerics](https://github.com/USACE-RMC/Numerics/graphs/contributors) and [RMC.BestFit](https://github.com/USACE-RMC/RMC.BestFit/graphs/contributors).
 
 ## License
-The C++ core and both packages are released under the [Zero-Clause BSD (0BSD) license](https://github.com/cameronbracken/bestfit/blob/main/LICENSE), matching the USACE-RMC libraries.
+The C++ core and both packages are released under the [Zero-Clause BSD (0BSD) license](https://github.com/cameronbracken/corehydro/blob/main/LICENSE), matching the USACE-RMC libraries.

@@ -28,14 +28,14 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/spatial_extremes/copula_models/spatial_regression_errors.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
+#include "corehydro/models/spatial_extremes/copula_models/spatial_regression_errors.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::spatial_extremes::CorrelationFunctionType;
-using bestfit::models::spatial_extremes::SpatialRegressionErrors;
+using corehydro::models::spatial_extremes::CorrelationFunctionType;
+using corehydro::models::spatial_extremes::SpatialRegressionErrors;
 
 using Coords = std::vector<std::vector<double>>;
 
@@ -528,5 +528,5 @@ int main() {
     idw_weighted_average_and_field_order();
     idw_colocated_recovers_error();
     kriging_and_idw_bad_coordinate_dimension_throws();
-    return bftest::summary("test_spatial_regression_errors");
+    return chtest::summary("test_spatial_regression_errors");
 }

@@ -1,4 +1,4 @@
-// Standalone C++-only ctest for bestfit::diagnostics::LeverageDiagnostics (Phase 9a, Task D3).
+// Standalone C++-only ctest for corehydro::diagnostics::LeverageDiagnostics (Phase 9a, Task D3).
 //
 // Oracle for behavior is the C# source itself
 // (upstream/RMC-BestFit/src/RMC.BestFit/Diagnostics/LeverageDiagnostics.cs @ fc28c0c) and its
@@ -21,22 +21,22 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/diagnostics/leverage_diagnostics.hpp"
-#include "bestfit/estimation/maximum_a_posteriori.hpp"
-#include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/support/data_component.hpp"
-#include "bestfit/models/support/prior_component.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/diagnostics/leverage_diagnostics.hpp"
+#include "corehydro/estimation/maximum_a_posteriori.hpp"
+#include "corehydro/estimation/optimization_method.hpp"
+#include "corehydro/models/support/data_component.hpp"
+#include "corehydro/models/support/prior_component.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "check.hpp"
 
-using bestfit::diagnostics::LeverageDiagnostics;
-using bestfit::estimation::MaximumAPosteriori;
-using bestfit::estimation::OptimizationMethod;
-using bestfit::models::DataComponentType;
-using bestfit::models::PriorComponentType;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::diagnostics::LeverageDiagnostics;
+using corehydro::estimation::MaximumAPosteriori;
+using corehydro::estimation::OptimizationMethod;
+using corehydro::models::DataComponentType;
+using corehydro::models::PriorComponentType;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 using ObservationLeverage = LeverageDiagnostics::ObservationLeverage;
 using PriorComponentLeverage = LeverageDiagnostics::PriorComponentLeverage;
@@ -273,5 +273,5 @@ int main() {
     test_count_reflects_observation_count();
     test_fitting_path_structural_invariants();
 
-    return bftest::summary("leverage_diagnostics");
+    return chtest::summary("leverage_diagnostics");
 }

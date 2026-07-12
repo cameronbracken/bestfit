@@ -1,4 +1,4 @@
-// Standalone C++-only ctest for the bestfit::diagnostics predictive-check layer (Phase 10,
+// Standalone C++-only ctest for the corehydro::diagnostics predictive-check layer (Phase 10,
 // Task X10): PredictiveSummary, PredictiveCheckResults, PriorPredictiveCheck,
 // PosteriorPredictiveCheck.
 //
@@ -28,22 +28,22 @@
 #include <limits>
 #include <vector>
 
-#include "bestfit/diagnostics/posterior_predictive_check.hpp"
-#include "bestfit/diagnostics/predictive_check_results.hpp"
-#include "bestfit/diagnostics/predictive_summary.hpp"
-#include "bestfit/diagnostics/prior_predictive_check.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
+#include "corehydro/diagnostics/posterior_predictive_check.hpp"
+#include "corehydro/diagnostics/predictive_check_results.hpp"
+#include "corehydro/diagnostics/predictive_summary.hpp"
+#include "corehydro/diagnostics/prior_predictive_check.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/math/optimization/support/parameter_set.hpp"
 #include "check.hpp"
 
-using bestfit::diagnostics::PosteriorPredictiveCheck;
-using bestfit::diagnostics::PredictiveCheckResults;
-using bestfit::diagnostics::PredictiveSummary;
-using bestfit::diagnostics::PriorPredictiveCheck;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using ParameterSet = bestfit::numerics::math::optimization::ParameterSet;
+using corehydro::diagnostics::PosteriorPredictiveCheck;
+using corehydro::diagnostics::PredictiveCheckResults;
+using corehydro::diagnostics::PredictiveSummary;
+using corehydro::diagnostics::PriorPredictiveCheck;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using ParameterSet = corehydro::numerics::math::optimization::ParameterSet;
 
 namespace {
 
@@ -681,5 +681,5 @@ int main() {
     test_prior_model_returns_same_instance();
     test_prior_number_of_draws_set_to_one_does_not_throw();
 
-    return bftest::summary("predictive_checks");
+    return chtest::summary("predictive_checks");
 }

@@ -1,14 +1,14 @@
 // GEV parameter estimation, pinned to the upstream C# oracles
 // (Test_GeneralizedExtremeValue.cs; Rao & Hamed, "Flood Frequency Analysis", 2000).
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
 
 #include <cmath>
 #include <vector>
 
 #include "check.hpp"
 
-using bestfit::numerics::distributions::EstimationMethod;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::distributions::EstimationMethod;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
 
 // Relative-error check matching the C# `Assert.IsLessThan(0.01, (x-true)/true)` pattern.
 #define CHECK_REL(actual, expected, tol) CHECK_NEAR(((actual) - (expected)) / (expected), 0.0, tol)
@@ -86,5 +86,5 @@ int main() {
         CHECK_REL(std::sqrt(qvar), 5142.0, 0.01);
     }
 
-    return bftest::summary("gev_estimation");
+    return chtest::summary("gev_estimation");
 }

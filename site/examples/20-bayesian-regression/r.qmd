@@ -11,7 +11,7 @@ Ported from
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 script drives the C# `Numerics.dll` through pythonnet, handing the `DEMCzs` sampler a
 list of hand-picked `Uniform` priors and a Python log-likelihood callback. That
-callback-likelihood pattern is deliberately not exposed by `bestfitr`, so this
+callback-likelihood pattern is deliberately not exposed by `corehydror`, so this
 version recasts the same regression through `arimax_analysis` (details below) and the
 reproduction is statistical rather than exact. The synthetic data, however, are
 bit-identical to the upstream script's, and the Python version of this example uses
@@ -41,7 +41,7 @@ well under the nominal 1.2, so any faithful posterior for `sigma` concentrates n
 0.9.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 
 n <- 80
 true_a <- 2.0

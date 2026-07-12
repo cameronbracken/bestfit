@@ -10,7 +10,7 @@ Ported from
 [`01_distributions.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/01_distributions.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 numbers below reproduce the upstream outputs exactly. The Python version of this
 example uses the same core and prints the same numbers.
 
@@ -34,7 +34,7 @@ from `Numerics.Distributions`. Here one `library()` call covers everything, and
 every family is constructed by name through `distribution()`.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 
 # Earth-tone palette used throughout
 olive <- "#6b7f3f"

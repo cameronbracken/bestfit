@@ -35,18 +35,18 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/models/spatial_extremes/spatial_correlation/basic_exponential.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/i_correlation_model.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/powered_exponential.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/spherical.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/basic_exponential.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/i_correlation_model.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/powered_exponential.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/spherical.hpp"
 #include "check.hpp"
 
-using bestfit::models::spatial_extremes::BasicExponential;
-using bestfit::models::spatial_extremes::CorrelationFunctionType;
-using bestfit::models::spatial_extremes::ICorrelationModel;
-using bestfit::models::spatial_extremes::PoweredExponential;
-using bestfit::models::spatial_extremes::Spherical;
+using corehydro::models::spatial_extremes::BasicExponential;
+using corehydro::models::spatial_extremes::CorrelationFunctionType;
+using corehydro::models::spatial_extremes::ICorrelationModel;
+using corehydro::models::spatial_extremes::PoweredExponential;
+using corehydro::models::spatial_extremes::Spherical;
 
 namespace {
 
@@ -736,5 +736,5 @@ int main() {
     // SpatialCorrelationTests.cs -- cross-kernel invariants
     all_kernels_output_is_in_unit_interval_over_sweep();
 
-    return bftest::summary("spatial_correlation");
+    return chtest::summary("spatial_correlation");
 }

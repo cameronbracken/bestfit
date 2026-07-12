@@ -6,8 +6,8 @@ on:
   pull_request:
     paths:
       - "site/**"
-      - "bestfitr/**"
-      - "bestfitpy/**"
+      - "corehydror/**"
+      - "corehydropy/**"
       - "core/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
@@ -36,9 +36,9 @@ jobs:
       - name: Materialize shared core (dereference symlinks)
         run: python tools/materialize_core.py
 
-      - name: Install bestfitpy and doc dependencies
+      - name: Install corehydropy and doc dependencies
         run: |
-          python -m pip install ./bestfitpy
+          python -m pip install ./corehydropy
           python -m pip install -r site/requirements.txt
 
       - uses: r-lib/actions/setup-r@v2
@@ -47,7 +47,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          working-directory: bestfitr
+          working-directory: corehydror
           extra-packages: any::pkgdown, local::.
           needs: website
 
@@ -61,12 +61,12 @@ jobs:
         run: quarto render site
 
       - name: Build pkgdown site
-        run: Rscript -e 'pkgdown::build_site("bestfitr", preview = FALSE, install = FALSE)'
+        run: Rscript -e 'pkgdown::build_site("corehydror", preview = FALSE, install = FALSE)'
 
       - name: Assemble final site
         run: |
           mkdir -p site/_site/r
-          cp -R bestfitr/docs/. site/_site/r/
+          cp -R corehydror/docs/. site/_site/r/
           touch site/_site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3

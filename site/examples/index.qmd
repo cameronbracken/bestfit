@@ -5,8 +5,8 @@ toc: false
 
 Worked examples ported from the USACE-RMC
 [Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
-repository (0BSD licensed). Each example exists in a Python version (`bestfitpy`,
-a Jupyter notebook you can download and run) and an R version (`bestfitr`, a
+repository (0BSD licensed). Each example exists in a Python version (`corehydropy`,
+a Jupyter notebook you can download and run) and an R version (`corehydror`, a
 Quarto document). The pair uses the same seeds and prints the same numbers: both
 packages run the same compiled core with a bit-exact Mersenne Twister.
 

@@ -1,0 +1,22 @@
+Package: corehydror
+Title: Bayesian Flood-Frequency and Extreme-Value Analysis
+Version: 0.1.0
+Authors@R:
+    person("Cam", "Bracken", email = "cameron.bracken@pm.me", role = c("aut", "cre"))
+Description: R bindings to a shared C++ port of the USACE-RMC Numerics and
+    RMC.BestFit libraries for flood-frequency and extreme-value analysis. This
+    early version exposes the Generalized Extreme Value distribution: density,
+    distribution and quantile functions, moments, parameter estimation
+    (method of moments, L-moments, maximum likelihood), and quantile uncertainty.
+License: file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+LinkingTo: cpp11
+SystemRequirements: C++17
+Suggests:
+    testthat (>= 3.0.0),
+    jsonlite
+Config/testthat/edition: 3
+URL: https://cameronbracken.github.io/corehydro/r/, https://github.com/cameronbracken/corehydro
+BugReports: https://github.com/cameronbracken/corehydro/issues
+Config/roxygen2/version: 8.0.0

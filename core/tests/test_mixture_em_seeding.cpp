@@ -23,32 +23,32 @@
 #include <stdexcept>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/univariate_distribution/mixture_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/multivariate/dirichlet.hpp"
-#include "bestfit/numerics/distributions/multivariate/multivariate_normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/optimization/support/parameter_set.hpp"
-#include "bestfit/numerics/sampling/mcmc/base/mcmc_sampler.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/univariate_distribution/mixture_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/multivariate/dirichlet.hpp"
+#include "corehydro/numerics/distributions/multivariate/multivariate_normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/optimization/support/parameter_set.hpp"
+#include "corehydro/numerics/sampling/mcmc/base/mcmc_sampler.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
-namespace mcmc = bestfit::numerics::sampling::mcmc;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::MixtureModel;
-using bestfit::numerics::distributions::Dirichlet;
-using bestfit::numerics::distributions::MultivariateNormal;
-using bestfit::numerics::distributions::Uniform;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::optimization::ParameterSet;
-using bestfit::numerics::sampling::MersenneTwister;
+namespace mcmc = corehydro::numerics::sampling::mcmc;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::MixtureModel;
+using corehydro::numerics::distributions::Dirichlet;
+using corehydro::numerics::distributions::MultivariateNormal;
+using corehydro::numerics::distributions::Uniform;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::optimization::ParameterSet;
+using corehydro::numerics::sampling::MersenneTwister;
 
 namespace {
 
@@ -238,5 +238,5 @@ int main() {
     test_seed_hook_survives_reset();
     test_unseeded_hook_is_empty();
     test_em_seed_determinism();
-    return bftest::summary("test_mixture_em_seeding");
+    return chtest::summary("test_mixture_em_seeding");
 }

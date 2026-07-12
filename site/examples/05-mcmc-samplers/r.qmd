@@ -10,7 +10,7 @@ Ported from
 [`05_mcmc_adaptive.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/05_mcmc_adaptive.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library. The
+`corehydror`, whose compiled core is a validated C++ port of the same library. The
 seeded data and every posterior summary printed below are bit-identical to the
 [Python version](python.ipynb) of this example, which runs the same core stream.
 Comparisons against the upstream notebook's printed posteriors are statistical
@@ -36,7 +36,7 @@ the chains, acceptance rates, posterior summaries, and diagnostics in one call.
 
 One honest difference to keep in mind throughout: the upstream notebook
 hand-picks its priors (`Uniform(50, 150)` for $\mu$ and `Uniform(5, 30)` for
-$\sigma$ in the Normal example). `bestfitr` does not expose custom priors;
+$\sigma$ in the Normal example). `corehydror` does not expose custom priors;
 `mcmc_sample()` always uses uniform priors spanning the family's parameter
 constraints, exactly the C# `GetParameterConstraints` bounds. With data this
 informative the posteriors are nearly the same, but bit-comparison against the
@@ -44,7 +44,7 @@ upstream outputs is impossible, so the reproduction check treats every upstream
 posterior value as a statistical comparison.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Adaptive Random Walk Metropolis-Hastings (ARWMH)

@@ -21,18 +21,18 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/trend_functions/general_linear_function.hpp"
-#include "bestfit/models/trend_functions/support/i_trend_model.hpp"
-#include "bestfit/models/trend_functions/support/trend_model_type.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "corehydro/models/trend_functions/general_linear_function.hpp"
+#include "corehydro/models/trend_functions/support/i_trend_model.hpp"
+#include "corehydro/models/trend_functions/support/trend_model_type.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
-using bestfit::models::trend_functions::GeneralLinearFunction;
-using bestfit::models::trend_functions::TrendModelType;
-using bestfit::numerics::distributions::Uniform;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::linalg::Matrix2D;
+using corehydro::models::trend_functions::GeneralLinearFunction;
+using corehydro::models::trend_functions::TrendModelType;
+using corehydro::numerics::distributions::Uniform;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::linalg::Matrix2D;
 
 namespace {
 
@@ -466,5 +466,5 @@ int main() {
     many_covariates();
     negative_covariates();
 
-    return bftest::summary("general_linear_function");
+    return chtest::summary("general_linear_function");
 }

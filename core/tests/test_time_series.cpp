@@ -9,12 +9,12 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/data/time_series/support/time_interval.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
+#include "corehydro/numerics/data/time_series/support/time_interval.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
 
 namespace {
 
@@ -113,5 +113,5 @@ int main() {
     test_summary_stats();
     test_summary_stats_nan();
     test_clone_deep_copy();
-    return bftest::summary("time_series");
+    return chtest::summary("time_series");
 }

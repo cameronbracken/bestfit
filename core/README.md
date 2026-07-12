@@ -1,7 +1,7 @@
-# bestfit core
+# corehydro core
 
-The canonical, header-only C++17 implementation shared by the `bestfitr` (R) and
-`bestfitpy` (Python) packages. No external dependencies. It is a faithful port of the
+The canonical, header-only C++17 implementation shared by the `corehydror` (R) and
+`corehydropy` (Python) packages. No external dependencies. It is a faithful port of the
 USACE-RMC `Numerics` and `RMC.BestFit` C# libraries, validated against them by the
 dotnet oracle gate.
 
@@ -10,10 +10,10 @@ dotnet oracle gate.
 CMake, in-tree or via `FetchContent`:
 
     add_subdirectory(core)          # or FetchContent_Declare + MakeAvailable
-    target_link_libraries(app PRIVATE bestfit::core)
+    target_link_libraries(app PRIVATE corehydro::core)
 
-`bestfit::core` is a header-only INTERFACE target that puts `core/include` on the
-include path and requires C++17. The version is in `include/bestfit/version.hpp`
+`corehydro::core` is a header-only INTERFACE target that puts `core/include` on the
+include path and requires C++17. The version is in `include/corehydro/version.hpp`
 (`BESTFIT_CORE_VERSION`).
 
 ## How the language packages use it

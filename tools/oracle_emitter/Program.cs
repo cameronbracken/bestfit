@@ -1522,7 +1522,7 @@ static double DispatchGmm(BestFitModels.Bulletin17CDistribution b17c, Generalize
 // --- Phase 5 model-spec construction (Task M14) ---------------------------------------------
 //
 // Builds the SAME `construct.model` spec the three runners hand to the shared C++ builder
-// (core/include/bestfit/models/model_spec.hpp; schema in fixtures/README.md's model_estimation
+// (core/include/corehydro/models/model_spec.hpp; schema in fixtures/README.md's model_estimation
 // section) against the REAL RMC.BestFit model classes, so one fixture file drives all four
 // harnesses. `type` dispatch, the `data_frame` inline arrays, `trends`, and `parameter_values`
 // mirror the C++ builder's semantics exactly. A spec without `type`/`data_frame`/`trends`
@@ -1748,7 +1748,7 @@ static (BestFitModels.UnivariateDistributionModelBase model, object? estimator, 
 // RatingCurve, BivariateDistribution -- derive from ModelBase/IModel, NOT
 // UnivariateDistributionModelBase, so they take a SEPARATE build + estimation path from the
 // Phase 4-6 univariate path above (BuildSpecModel / BuildEstimation stay byte-for-byte
-// unchanged). This mirrors core/include/bestfit/models/model_spec.hpp field-for-field: the
+// unchanged). This mirrors core/include/corehydro/models/model_spec.hpp field-for-field: the
 // `construct.model.type` string selects the family and the schema is fixtures/README.md's
 // model_estimation section. The three runners already build these families through their shared
 // model_spec.hpp path; this emitter path is the fourth (oracle) leg.

@@ -10,7 +10,7 @@ Ported from
 [`06_mcmc_diagnostics.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/06_mcmc_diagnostics.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library. The
+`corehydror`, whose compiled core is a validated C++ port of the same library. The
 seeded data and every posterior summary below are bit-identical to the Python
 version of this example, which runs the same core. Posterior numbers differ
 slightly from the upstream notebook because `mcmc_sample` uses the family's
@@ -54,7 +54,7 @@ None of that is needed here: `mcmc_sample` returns plain R matrices and the
 compiled core needs no interop workarounds.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 
 # Earth-tone palette used throughout
 colors <- c("#6b7f3f", "#b06a3b", "#5b7a8c", "#8c8c7a")
