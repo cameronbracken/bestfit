@@ -1,6 +1,5 @@
 ---
 title: "corehydro"
-subtitle: "Bayesian flood-frequency and extreme-value analysis in R and Python"
 toc: false
 ---
 
@@ -13,8 +12,9 @@ timeseries modeling, uncertainty quantification, optimization, machine learning,
 frequency estimation, and a whole lot more. 
 
 The motivation behind this porting effort is to increase awareness 
-and accessibility of these amazing software packages (see the [Why?](#why) section 
-for more info). Currently this project has ported pieces of the following libraries/packages:
+and accessibility of these amazing software packages which have been 
+released under open-source licenses. Currently this project has 
+ported pieces of the following libraries/packages:
 - [RMC-BestFit](https://github.com/USACE-RMC/RMC-BestFit) (statistical engine fully ported)
 - [Numerics](https://github.com/USACE-RMC/Numerics) (probability, sampling, and estimation layers)
 - [HEC-FDA](https://github.com/HydrologicEngineeringCenter/HEC-FDA) (planned, not started)
