@@ -291,13 +291,20 @@ Pages source must be set to "GitHub Actions" in repo settings). Three build halv
 
 Contracts: every new package export must be added to BOTH `bestfitr/_pkgdown.yml` (pkgdown
 errors on missing reference-index entries) and the `quartodoc.sections` in
-`site/_quarto.yml`. `site/requirements.txt` pins the docs Python deps (griffe<2 until
-quartodoc supports griffe 2.x). Local build: `make docs`; inspect with `make docs-serve`
-(`quarto preview` cannot serve the pkgdown `/r/` half). Local toolchain quirks: quarto +
-pandoc come from Positron (`/Applications/Positron.app/Contents/Resources/app/quarto/bin`);
-pkgdown needs `RSTUDIO_PANDOC=<that dir>/tools/aarch64`. Reproduction-check literals in the
-R examples compare with 1e-15 relative tolerance (R's decimal parser can land one ulp off a
-written literal); the bit-exactness guarantees themselves are enforced by the fixture suite.
+`site/_quarto.yml`. `site/requirements.txt` pins the docs Python deps for CI (griffe<2 until
+quartodoc supports griffe 2.x; `pixi.toml` carries the same pin). Local build: `pixi run docs`
+(or `make docs` with the tools on PATH); inspect with `pixi run docs-serve` (`quarto preview`
+cannot serve the pkgdown `/r/` half). Reproduction-check literals in the R examples compare
+with 1e-15 relative tolerance (R's decimal parser can land one ulp off a written literal);
+the bit-exactness guarantees themselves are enforced by the fixture suite.
+
+Local dev environment: `pixi.toml` provides the portable toolchain (python + docs deps,
+cmake, make, quarto, pandoc) with tasks that call the Makefile targets 1:1 (`pixi run
+test-core|test-r|test-py|build-r|build-py|materialize|oracles|docs|docs-serve`). R and
+dotnet are deliberately NOT pixi-managed: inside `pixi run` they fall through to the system
+installs (homebrew R with its existing dev library; dotnet 10), while pkgdown/knitr pick up
+pixi's pandoc from PATH (no RSTUDIO_PANDOC needed). `pixi.lock` is committed; `.pixi/` is
+ignored.
 
 ## Git & CI
 

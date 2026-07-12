@@ -50,3 +50,9 @@ bestfitr/docs/
 
 # R batch-mode plot artifacts
 Rplots.pdf
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# pixi environment
+.pixi/
