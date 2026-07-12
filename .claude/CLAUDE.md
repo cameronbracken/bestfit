@@ -488,3 +488,20 @@ deterministic structural invariants that reproduce bit-identically across all fo
 oracle_skip mask, NO loosened tolerance. Pending: FULL PARITY is reached; only the CI run and PR ship
 step remains, driven as a separate workflow run (per the standing "WORKFLOW RESUME is UNSAFE"
 instruction). See `PLAN.md`.
+
+The docs-and-examples effort (branch `distribution-api`, July 2026) followed Phase 10. It added the
+public distribution API in both packages (R `distribution()`/`dist_*` verbs over a `bestfit_dist`
+classed list; Python `Distribution` class), the stats utilities (`mgbt_test`, `box_cox*`,
+`yeo_johnson*`, `plotting_positions`, `latin_hypercube`), and public `mcmc_sample()` (7 samplers over
+the uniform-constraints registry model; no custom priors). New oracle surface: `random_value`
+(seeded-draw) cases in six univariate fixtures and the `data_utility` fixture kind
+(`fixtures/data/statistics_utilities.json`), both wired through all four runners and pinned by the
+dotnet gate (4109 reproduced / 0 failed). GEV parity fix: the class now declares
+IEstimation/ILinearMomentEstimation (matching C#), so the generic `dist_fit`/`dist_lmoments` path
+handles GEV. The documentation site (see "Documentation site" above) ships all 16 upstream
+Numerics-Python-Examples items as 11 ported/recast example pairs (Python notebooks + R Quarto twins,
+every page ending in an executable reproduction check) plus a coverage page for the 5 out-of-scope
+notebooks. Notable findings recorded in the examples: C# `LnNormal` is parameterized by REAL-space
+mean/sd; the 04 RWMH acceptance streams reproduce the real C# run bit-for-bit while the DE/MAP
+optimizer carries a ~2-ulp fitness drift (posterior tables match at displayed precision); Box-Cox/
+Yeo-Johnson fitted lambdas agree across R/Python only to ~1e-8 (Brent argmin ulp drift).
