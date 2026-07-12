@@ -220,6 +220,9 @@ def _dispatch_generic(target, params, method, args):
         return params[int(args[0])]
     if method == "linear_moment":
         return _core.dist_linear_moments(target, params)[int(args[0])]
+    if method == "random_value":
+        # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
+        return _core.dist_random(target, params, int(args[0]), int(args[1]))[int(args[2])]
     raise KeyError(f"unknown fixture method: {method}")
 
 
@@ -894,6 +897,30 @@ def _run_copula_case(target: str, construct: dict, assertions: list, datasets: d
             _check(actual, a)
 
 
+# data_utility [function, args, data]: MGBT count, Box-Cox / Yeo-Johnson lambda +
+# transform, plotting positions, Latin hypercube. Mirrors dispatch_data_utility in
+# core/tests/test_fixtures.cpp.
+def _dispatch_data_utility(fn, args, data):
+    if fn == "MGBT":
+        return float(_core.mgbt_test(data))
+    if fn == "BoxCoxLambda":
+        return _core.box_cox_lambda(data)
+    if fn == "BoxCoxTransform":
+        return _core.box_cox(data, args[0])[int(args[1])]
+    if fn == "YeoJohnsonLambda":
+        return _core.yeo_johnson_lambda(data)
+    if fn == "YeoJohnsonTransform":
+        return _core.yeo_johnson(data, args[0])[int(args[1])]
+    if fn == "PlottingPosition":
+        return _core.plotting_positions_alpha(int(args[0]), args[1])[int(args[2])]
+    if fn in ("LHSRandom", "LHSMedian"):
+        # args: [sample_size, dimension, seed, row, col]
+        gen = _core.latin_hypercube_median if fn == "LHSMedian" else _core.latin_hypercube
+        m = gen(int(args[0]), int(args[1]), int(args[2]))
+        return m[int(args[3])][int(args[4])]
+    raise KeyError(f"unknown data_utility function: {fn}")
+
+
 def _load_cases():
     out = []
     for fx in sorted(_fixtures_dir().rglob("*.json")):
@@ -911,10 +938,11 @@ def _load_cases():
             "bootstrap",
             "model_estimation",
             "analysis",
+            "data_utility",
         ):
             continue
         for case in spec["cases"]:
-            out.append((kind, spec["target"], spec.get("datasets", {}), case))
+            out.append((kind, spec.get("target", kind), spec.get("datasets", {}), case))
     return out
 
 
@@ -935,6 +963,14 @@ def test_fixture_case(kind, target, datasets, case):
 
     if kind == "bootstrap":
         _run_bootstrap_case(case["construct"], case["assertions"], datasets)
+        return
+
+    if kind == "data_utility":
+        args = [float(v) for v in case.get("args", [])]
+        data = list(datasets[case["dataset"]]) if "dataset" in case else []
+        actual = _dispatch_data_utility(case["function"], args, data)
+        for a in case["assertions"]:
+            _check(actual, a)
         return
 
     if kind == "mcmc_sampler":

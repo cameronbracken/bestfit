@@ -1,0 +1,75 @@
+---
+title: "bestfit"
+subtitle: "Bayesian flood-frequency and extreme-value analysis in R and Python"
+toc: false
+---
+
+`bestfit` provides an R package (`bestfitr`) and a Python package (`bestfitpy`) for
+stochastic hydrology, flood-frequency, and extreme-value analysis. Both are thin
+bindings over a single shared C++17 core that is a faithful port of the USACE Risk
+Management Center's [Numerics](https://github.com/USACE-RMC/Numerics) and
+[RMC-BestFit](https://www.rmc.usace.army.mil/Software/RMC-BestFit/) C# libraries.
+
+Because both packages run the same compiled code with a bit-exact Mersenne Twister,
+seeded results are identical across R and Python, and reproduce the upstream C#
+library bit-for-bit. Every ported value is validated against the real C# libraries
+by an oracle test suite of more than 4,000 reproduced values.
+
+## What's inside
+
+- All 42 univariate distributions of the Numerics library, with moments,
+  density/quantile functions, seeded random generation, and MOM / MLE / L-moment
+  fitting.
+- Bayesian estimation with eight MCMC samplers (RWMH, ARWMH, DEMCz, DEMCzs, HMC,
+  NUTS, Gibbs, SNIS) plus Gelman-Rubin and effective-sample-size diagnostics.
+- The full RMC-BestFit analysis layer: Bayesian frequency analysis, Bulletin 17C,
+  distribution ranking, mixtures, competing risks, point processes, time series,
+  spatial GEV, copulas, rating curves, and predictive checks.
+- Multivariate distributions, copulas, bootstrap uncertainty, and the supporting
+  statistics toolbox (Grubbs-Beck outlier tests, Box-Cox and Yeo-Johnson
+  transforms, plotting positions, Latin hypercube sampling).
+
+## Install
+
+::: {.panel-tabset}
+
+## Python
+
+```bash
+pip install bestfitpy
+```
+
+```python
+import bestfitpy as bf
+
+d = bf.Distribution("GeneralizedExtremeValue", [10849, 5745, 0.005])
+d.quantile(0.99)
+```
+
+## R
+
+```r
+install.packages("bestfitr")
+```
+
+```r
+library(bestfitr)
+
+d <- distribution("GeneralizedExtremeValue", c(10849, 5745, 0.005))
+dist_quantile(d, 0.99)
+```
+
+:::
+
+Both packages are pre-release; install from the
+[GitHub repository](https://github.com/cameronbracken/bestfit) until they land on
+PyPI and CRAN.
+
+## Learn more
+
+- [Worked examples](examples/index.qmd) ported from the official
+  [Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
+  repository, each shown in both Python and R and checked against the upstream C#
+  outputs.
+- [Python API reference](reference/index.qmd)
+- [R API reference](r/index.html)

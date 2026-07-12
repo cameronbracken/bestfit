@@ -93,6 +93,17 @@
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
       ]
+    },
+    {
+      "name": "seeded_random_draws",
+      "source": "curated via oracle_emitter --dump (GenerateRandomValues(sampleSize, seed))",
+      "construct": { "params": [10.0, 2.0] },
+      "assertions": [
+        { "method": "random_value", "args": [50, 123, 0], "expected": 10.919121525987626, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 1], "expected": 11.1719174756942, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 2], "expected": 5.805751355236284, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 49], "expected": 7.347981167906028, "mode": "rel", "tol": 1e-11 }
+      ]
     }
   ]
 }

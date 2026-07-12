@@ -40,3 +40,19 @@ AGENTS.md
 !.claude/CLAUDE.md
 !.claude/PLAN.md
 !upstream/CLAUDE.md
+
+# Documentation site build output (site/_freeze IS committed -- do not ignore it)
+site/_site/
+site/.quarto/
+site/reference/
+site/objects.json
+bestfitr/docs/
+
+# R batch-mode plot artifacts
+Rplots.pdf
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# pixi environment
+.pixi/

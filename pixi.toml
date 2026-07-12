@@ -1,0 +1,45 @@
+# Pixi development environment. Provides the portable toolchain (Python + docs stack,
+# cmake, make, quarto, pandoc); tasks shell out to the Makefile targets. R is deliberately
+# NOT managed here: the R tasks use the system R (with its existing cpp11/roxygen2/pkgdown
+# library), which still sees pixi's pandoc/quarto on PATH inside `pixi run`. The dotnet
+# oracle gate likewise uses the system dotnet.
+[workspace]
+authors = ["Cam Bracken <cameron.bracken@pm.me>"]
+channels = ["conda-forge"]
+name = "bestfit"
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+version = "0.1.0"
+
+[dependencies]
+python = ">=3.12,<3.15"
+pip = "*"
+pytest = "*"
+numpy = ">=1.24"
+pandas = ">=2.0"
+matplotlib = ">=3.7"
+jupyter = "*"
+nbformat = "*"
+nbclient = "*"
+quartodoc = ">=0.11"
+griffe = "<2"     # quartodoc 0.11 is incompatible with griffe 2.x parser options
+python-build = "*"
+cmake = ">=3.20"
+make = "*"
+quarto = ">=1.5"
+pandoc = "*"
+
+[tasks]
+# Test suites (see Makefile for the underlying commands)
+test-core = "make test-core"
+test-r = "make test-r"
+test-py = "make test-py"
+# Package builds
+build-r = "make build-r"
+build-py = "make build-py"
+# Dereference the vendored-core symlinks (CI/release only; rewrites the working tree)
+materialize = "make materialize"
+# Dev-only oracle reproduction gate (needs system dotnet + the upstream submodule)
+oracles = "make oracles"
+# Documentation site: build into site/_site, then serve it
+docs = "make docs"
+docs-serve = "make docs-serve"

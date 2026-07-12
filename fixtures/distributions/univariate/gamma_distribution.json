@@ -104,6 +104,17 @@
         { "method": "linear_moment", "args": [2], "expected": 0.1175059, "mode": "abs", "tol": 0.0001 },
         { "method": "linear_moment", "args": [3], "expected": 0.1268391, "mode": "abs", "tol": 0.0001 }
       ]
+    },
+    {
+      "name": "seeded_random_draws",
+      "source": "curated via oracle_emitter --dump (GenerateRandomValues(sampleSize, seed))",
+      "construct": { "params": [10.0, 2.0] },
+      "assertions": [
+        { "method": "random_value", "args": [50, 123, 0], "expected": 24.22702630960793, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 1], "expected": 25.012324302925894, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 2], "expected": 10.59559719594355, "mode": "rel", "tol": 1e-11 },
+        { "method": "random_value", "args": [50, 123, 49], "expected": 14.262927458637133, "mode": "rel", "tol": 1e-11 }
+      ]
     }
   ]
 }

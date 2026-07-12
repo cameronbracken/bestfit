@@ -42,6 +42,14 @@ is one copy in git. Builds dereference the symlink into the shipped tarball/sdis
 }
 ```
 
+Besides the moment/`pdf`/`log_pdf`/`cdf`/`quantile`/`param`/`linear_moment` methods, the
+generic dispatcher supports `random_value [sample_size, seed, index]`: element `index`
+(0-based) of the vector returned by `generate_random_values(sample_size, seed)`. Stateless
+(a fresh seeded Mersenne Twister per call), so it locks the seeded C# draw stream
+bit-for-bit across all four runners; see the `seeded_random_draws` cases in `normal.json`,
+`log_normal.json`, `ln_normal.json`, `gumbel.json`, `gamma_distribution.json`, and
+`weibull.json`.
+
 #### Composite `univariate_distribution` targets
 
 Five `univariate_distribution` targets are composites over other distributions and use a
@@ -1291,6 +1299,38 @@ exact structural invariants (`abs 1e-12..1e-15`, `equal`). The UnivariateAnalysi
 `thinning_interval = 1`: the sampler-default thin=20 exposes a real C#-vs-C++ divergence in the
 thinned population-sampler stream (documented in `docs/upstream-csharp-issues.md` as a tracked
 follow-up); thin=1 is the `bayes_normal`-proven bit-identical path.
+
+### `data_utility`
+
+Small data-statistics utilities (Phase 1 of the docs/examples effort): the Multiple
+Grubbs-Beck low-outlier test, Box-Cox / Yeo-Johnson transforms, plotting positions, and
+Latin hypercube sampling. Same flat shape as `goodness_of_fit`: one `function` per case,
+a single computed value checked against each assertion. Processed by all three runners
+and the dotnet gate (`--dump` supported).
+
+```jsonc
+{
+  "kind": "data_utility",
+  "datasets": { "positive_sample": [ ...numbers... ] },   // referenced by "dataset"
+  "cases": [
+    {
+      "name": "box_cox_transform_half",
+      "function": "BoxCoxTransform",     // see the function list below
+      "dataset": "positive_sample",      // optional; functions without data use args only
+      "args": [0.5, 0],
+      "assertions": [ { "expected": 35.363, "mode": "rel", "tol": 1e-11 } ]
+    }
+  ]
+}
+```
+
+Functions (`args` shapes): `MGBT []` (low-outlier count, compared as a number);
+`BoxCoxLambda []` / `YeoJohnsonLambda []` (MLE lambda on `dataset`; rel `1e-6` -- Brent
+argmin of a flat likelihood, port termination differs slightly from C#);
+`BoxCoxTransform [lambda, index]` / `YeoJohnsonTransform [lambda, index]` (transformed
+`dataset[index]`); `PlottingPosition [n, alpha, index]`; `LHSRandom` / `LHSMedian`
+`[sample_size, dimension, seed, row, col]` (element of the seeded Latin hypercube sample;
+stateless, locks the C# stream bit-for-bit).
 
 ### `special_function`
 

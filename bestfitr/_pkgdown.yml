@@ -1,0 +1,83 @@
+url: https://cameronbracken.github.io/bestfit/r
+
+template:
+  bootstrap: 5
+  bootswatch: flatly
+  light-switch: true
+  bslib:
+    primary: "#6b7f3f"
+    # flatly's navbar is ~72px tall (--bs-navbar-padding-y: 1rem), not the 56px
+    # pkgdown assumes; without this the fixed navbar overlaps the top of the
+    # home-page intro text.
+    pkgdown-nav-height: 72px
+
+navbar:
+  structure:
+    left: [reference]
+    right: [mainsite, search, github, lightswitch]
+  components:
+    mainsite:
+      text: bestfit home
+      href: https://cameronbracken.github.io/bestfit/
+
+home:
+  links:
+    - text: Worked examples (main site)
+      href: https://cameronbracken.github.io/bestfit/examples/
+    - text: Python package reference
+      href: https://cameronbracken.github.io/bestfit/reference/
+
+reference:
+  - title: Distributions
+    desc: >
+      The general univariate distribution interface: 38 families with density,
+      quantile, seeded random generation, and fitting.
+    contents:
+      - distribution
+      - dist
+      - dist_properties
+      - dist_fit
+      - distribution_names
+  - title: GEV convenience functions
+    contents:
+      - gev
+      - gev_fit
+      - gev_moments
+      - gev_quantile_se
+  - title: Frequency analysis
+    contents:
+      - univariate_analysis
+      - fit_distributions
+      - bulletin17c_analysis
+      - composite_analysis
+  - title: Model-family analyses
+    contents:
+      - mixture_analysis
+      - competing_risk_analysis
+      - point_process_analysis
+      - spatial_gev_analysis
+      - bivariate_analysis
+      - coincident_frequency_analysis
+      - rating_curve_analysis
+  - title: Time series
+    contents:
+      - ar_analysis
+      - ma_analysis
+      - arima_analysis
+      - arimax_analysis
+  - title: MCMC
+    contents:
+      - mcmc_sample
+  - title: Uncertainty and diagnostics
+    contents:
+      - bootstrap_analysis
+      - estimation_diagnostics
+      - prior_predictive_check
+      - posterior_predictive_check
+  - title: Statistics utilities
+    contents:
+      - mgbt_test
+      - box_cox
+      - yeo_johnson
+      - plotting_positions
+      - latin_hypercube

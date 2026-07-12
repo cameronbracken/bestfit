@@ -8,6 +8,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
@@ -186,6 +187,52 @@ inline std::unique_ptr<UnivariateDistributionBase> create_distribution(const std
     if (name == "VonMises") return create_distribution(UnivariateDistributionType::VonMises);
     if (name == "Weibull") return create_distribution(UnivariateDistributionType::Weibull);
     throw std::invalid_argument("unknown distribution name: " + name);
+}
+
+// bestfit addition (not in the C# factory): the factory-constructible type names, in the
+// order of the string overload above. Shared by the R and Python binding layers so the
+// public `distribution_names()` surface has a single source of truth.
+inline std::vector<std::string> distribution_names() {
+    return {
+        "Bernoulli",
+        "Beta",
+        "Binomial",
+        "Cauchy",
+        "Deterministic",
+        "Empirical",
+        "Exponential",
+        "GeneralizedBeta",
+        "GeneralizedExtremeValue",
+        "GeneralizedLogistic",
+        "GeneralizedPareto",
+        "Geometric",
+        "ChiSquared",
+        "GammaDistribution",
+        "Gumbel",
+        "InverseChiSquared",
+        "InverseGamma",
+        "KappaFour",
+        "LogPearsonTypeIII",
+        "LnNormal",
+        "LogNormal",
+        "Logistic",
+        "NoncentralT",
+        "Normal",
+        "Pareto",
+        "PearsonTypeIII",
+        "Pert",
+        "PertPercentile",
+        "PertPercentileZ",
+        "Poisson",
+        "Rayleigh",
+        "StudentT",
+        "Triangular",
+        "TruncatedNormal",
+        "Uniform",
+        "UniformDiscrete",
+        "VonMises",
+        "Weibull",
+    };
 }
 
 }  // namespace bestfit::numerics::distributions

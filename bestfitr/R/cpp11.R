@@ -64,6 +64,38 @@ bf_dist_linear_moments_ <- function(target, params) {
   .Call(`_bestfitr_bf_dist_linear_moments_`, target, params)
 }
 
+bf_dist_random_ <- function(target, params, sample_size, seed) {
+  .Call(`_bestfitr_bf_dist_random_`, target, params, sample_size, seed)
+}
+
+bf_dist_pdf_v_ <- function(target, params, xs) {
+  .Call(`_bestfitr_bf_dist_pdf_v_`, target, params, xs)
+}
+
+bf_dist_cdf_v_ <- function(target, params, xs) {
+  .Call(`_bestfitr_bf_dist_cdf_v_`, target, params, xs)
+}
+
+bf_dist_quantile_v_ <- function(target, params, probs) {
+  .Call(`_bestfitr_bf_dist_quantile_v_`, target, params, probs)
+}
+
+bf_dist_log_pdf_v_ <- function(target, params, xs) {
+  .Call(`_bestfitr_bf_dist_log_pdf_v_`, target, params, xs)
+}
+
+bf_dist_log_likelihood_ <- function(target, params, data) {
+  .Call(`_bestfitr_bf_dist_log_likelihood_`, target, params, data)
+}
+
+bf_dist_parameter_names_ <- function(target) {
+  .Call(`_bestfitr_bf_dist_parameter_names_`, target)
+}
+
+bf_dist_names_ <- function() {
+  .Call(`_bestfitr_bf_dist_names_`)
+}
+
 bf_trunc_moments_ <- function(base_target, base_params, lo, hi) {
   .Call(`_bestfitr_bf_trunc_moments_`, base_target, base_params, lo, hi)
 }
@@ -278,4 +310,44 @@ bf_sobol_generate_ <- function(dimension, n_steps, path) {
 
 bf_sobol_skip_to_ <- function(dimension, index, path) {
   .Call(`_bestfitr_bf_sobol_skip_to_`, dimension, index, path)
+}
+
+bf_mgbt_test_ <- function(x) {
+  .Call(`_bestfitr_bf_mgbt_test_`, x)
+}
+
+bf_box_cox_lambda_ <- function(values) {
+  .Call(`_bestfitr_bf_box_cox_lambda_`, values)
+}
+
+bf_box_cox_ <- function(values, lambda) {
+  .Call(`_bestfitr_bf_box_cox_`, values, lambda)
+}
+
+bf_box_cox_inverse_ <- function(values, lambda) {
+  .Call(`_bestfitr_bf_box_cox_inverse_`, values, lambda)
+}
+
+bf_yeo_johnson_lambda_ <- function(values) {
+  .Call(`_bestfitr_bf_yeo_johnson_lambda_`, values)
+}
+
+bf_yeo_johnson_ <- function(values, lambda) {
+  .Call(`_bestfitr_bf_yeo_johnson_`, values, lambda)
+}
+
+bf_yeo_johnson_inverse_ <- function(values, lambda) {
+  .Call(`_bestfitr_bf_yeo_johnson_inverse_`, values, lambda)
+}
+
+bf_plotting_positions_ <- function(n, method) {
+  .Call(`_bestfitr_bf_plotting_positions_`, n, method)
+}
+
+bf_plotting_positions_alpha_ <- function(n, alpha) {
+  .Call(`_bestfitr_bf_plotting_positions_alpha_`, n, alpha)
+}
+
+bf_latin_hypercube_ <- function(sample_size, dimension, seed, median) {
+  .Call(`_bestfitr_bf_latin_hypercube_`, sample_size, dimension, seed, median)
 }

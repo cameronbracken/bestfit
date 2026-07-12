@@ -1,0 +1,124 @@
+---
+title: "00. Getting started"
+---
+
+::: {.callout-note appearance="minimal" icon=false}
+Language: **R** (Quarto) - [Python version](python.ipynb)
+:::
+
+Ported from
+[`00_getting_started.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/00_getting_started.ipynb)
+in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
+notebook drives the C# `Numerics.dll` through pythonnet; this version uses
+`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+numbers below reproduce the upstream outputs exactly. The Python version of this
+example uses the same core and prints the same numbers.
+
+## What you'll learn
+
+- How to install `bestfitr` and check the installation.
+- How to create a distribution and compute basic statistics.
+- What of the upstream setup you can skip entirely (spoiler: all of it).
+
+## Install
+
+The upstream notebook spends its first four steps on .NET plumbing: installing a
+.NET runtime, obtaining `Numerics.dll` from NuGet, loading the CoreCLR runtime, and
+resolving the DLL path. None of that exists here. `bestfitr` ships the ported
+library as a regular compiled R package:
+
+```r
+install.packages("bestfitr")
+```
+
+There is no runtime to select, no DLL to resolve, and results are identical on
+macOS, Linux, and Windows.
+
+```{r}
+library(bestfitr)
+```
+
+## Basic example: Normal distribution
+
+Create a Normal distribution and compute basic statistics. The upstream code is
+`Normal(100, 15)` with property access (`dist.Mean`, `dist.StandardDeviation`, ...);
+here every family is constructed by name through `distribution()`, and the moments
+come back as one named vector.
+
+```{r}
+dist <- distribution("Normal", c(100, 15))
+m <- dist_moments(dist)
+
+cat("Mean:", m[["mean"]], "\n")
+cat("Standard Deviation:", m[["sd"]], "\n")
+cat("Variance:", m[["sd"]]^2, "\n")
+cat("Skewness:", m[["skewness"]], "\n")
+# Numerics reports Pearson kurtosis (raw fourth-moment form): 3.0 for a Normal.
+# The "excess kurtosis" convention is Pearson - 3.
+cat("Kurtosis:", m[["kurtosis"]], "\n")
+
+cat("\nSmall sanity check\n")
+cat(dist_cdf(distribution("Normal", c(0, 1)), 0), "~= 0.5\n")
+```
+
+## No interop plumbing
+
+The upstream notebook needs `System.Array[Double]` conversions for data and
+delegate wrappers to pass functions into the C# samplers. With `bestfitr`, plain
+numeric vectors work everywhere:
+
+```{r}
+data <- c(12.0, 15.5, 14.2, 16.8, 13.9)
+
+# Log-likelihood of the data under Normal(mean = 14, sd = 2), evaluated in the core
+ll <- dist_log_likelihood(distribution("Normal", c(14, 2)), data)
+cat(sprintf("log-likelihood: %.6f\n", ll))
+```
+
+## A first taste of seeded reproducibility
+
+The port keeps the C# Mersenne Twister bit-exact, so seeded draws match the
+upstream library (and the Python package) exactly. Later examples lean on this
+heavily.
+
+```{r}
+dist_random(dist, 5, seed = 123)
+```
+
+## Reproduction check
+
+Values printed by the upstream notebook (run against the real C# library), compared
+with this port. Everything here is deterministic, so the match is exact.
+
+| Quantity | Upstream C# | This port | Status |
+|----------|------------:|----------:|--------|
+| `Normal(100,15).Mean` | 100.0 | `m[["mean"]]` | exact |
+| `Normal(100,15).StandardDeviation` | 15.0 | `m[["sd"]]` | exact |
+| `Normal(100,15).Variance` | 225.0 | `m[["sd"]]^2` | exact |
+| `Normal(100,15).Skewness` | 0.0 | `m[["skewness"]]` | exact |
+| `Normal(100,15).Kurtosis` | 3.0 | `m[["kurtosis"]]` | exact |
+| `Normal(0,1).CDF(0)` | 0.5 | `dist_cdf(., 0)` | exact |
+
+The chunk below fails the render if any value drifts. The final check asserts the
+cross-language guarantee: the seeded draws above are the exact values the Python
+notebook prints.
+
+```{r}
+# Upstream reference values: notebook 00_getting_started.ipynb, cell 9 output.
+stopifnot(
+  m[["mean"]] == 100.0,
+  m[["sd"]] == 15.0,
+  m[["sd"]]^2 == 225.0,
+  m[["skewness"]] == 0.0,
+  m[["kurtosis"]] == 3.0,
+  dist_cdf(distribution("Normal", c(0, 1)), 0) == 0.5
+)
+
+# First seeded draw, identical across R, Python, and the C# library. The draw itself
+# is bit-exact (the fixture suite enforces that); the comparison here carries a
+# 1e-15 relative tolerance only because R's decimal parser can land one ulp away
+# from the written literal.
+draw1 <- dist_random(dist, 5, seed = 123)[1]
+stopifnot(abs(draw1 / 107.71408449723363 - 1) < 1e-15)
+cat("All reproduction checks passed.\n")
+```

@@ -1,0 +1,405 @@
+---
+title: "06. MCMC convergence diagnostics"
+---
+
+::: {.callout-note appearance="minimal" icon=false}
+Language: **R** (Quarto) - [Python version](python.ipynb)
+:::
+
+Ported from
+[`06_mcmc_diagnostics.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/06_mcmc_diagnostics.ipynb)
+in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
+notebook drives the C# `Numerics.dll` through pythonnet; this version uses
+`bestfitr`, whose compiled core is a validated C++ port of the same library. The
+seeded data and every posterior summary below are bit-identical to the Python
+version of this example, which runs the same core. Posterior numbers differ
+slightly from the upstream notebook because `mcmc_sample` uses the family's
+constraint-based uniform priors rather than the hand-picked priors upstream; the
+Reproduction check at the end says exactly what is compared and how.
+
+## What you'll learn
+
+- Running multiple chains and reading trace plots
+- The Gelman-Rubin statistic (R-hat) and effective sample size (ESS)
+- Autocorrelation and what it does to ESS
+- What bad convergence looks like, side by side with a healthy run
+- Handling multimodal posteriors with a mixture model
+- Sampler tuning guidelines
+
+## Why convergence matters
+
+MCMC samplers start from arbitrary initial values, explore parameter space
+stochastically, and only eventually settle into the target distribution. The
+theoretical justification is the ergodic theorem: under regularity conditions the
+time average of a function along the Markov chain converges to its expectation
+under the stationary distribution,
+
+$$
+\frac{1}{N}\sum_{t=1}^{N}f(\theta_t) \;\xrightarrow{\;a.s.\;}\; \mathbb{E}_\pi[f(\theta)] \quad \text{as } N \to \infty
+$$
+
+where $\pi$ is the target (posterior) distribution. The guarantee is asymptotic.
+For any finite run we need diagnostics to judge whether the chain has run long
+enough: have the chains reached the stationary distribution, how many effectively
+independent samples do we have, and was the warmup period sufficient? Only after
+those checks pass can we trust conclusions drawn from the samples.
+
+## Setup
+
+The upstream setup cell loads the CoreCLR runtime, resolves the DLL, imports
+sampler and diagnostic classes, and warns that the C# parallel chains fight
+Python's GIL (every upstream example must set `sampler.ParallelizeChains = False`).
+It also defines helper functions to copy samples out of the .NET chain objects.
+None of that is needed here: `mcmc_sample` returns plain R matrices and the
+compiled core needs no interop workarounds.
+
+```{r}
+library(bestfitr)
+
+# Earth-tone palette used throughout
+colors <- c("#6b7f3f", "#b06a3b", "#5b7a8c", "#8c8c7a")
+```
+
+## Multiple chains for convergence assessment
+
+Running multiple chains helps diagnose convergence and assess mixing:
+
+1. Assess convergence via the R-hat statistic
+2. Detect multimodal posteriors
+3. More robust inference
+
+As upstream, we draw 100 observations from a Normal(100, 15) with seed 1234 (the
+port keeps the C# Mersenne Twister bit-exact, so this is the same data set the
+upstream notebook fits) and sample the posterior of $\mu$ and $\sigma$ with a
+random walk Metropolis-Hastings (RWMH) sampler and 4 chains. One deliberate
+difference: the upstream notebook hand-picks Uniform(50, 150) and Uniform(5, 30)
+priors and a unit proposal matrix, while `mcmc_sample` always uses the family's
+constraint-based uniform priors (the C# `GetParameterConstraints` bounds), so the
+posterior summaries here match the upstream statistically rather than
+bit-for-bit.
+
+```{r}
+true_mu <- 100
+true_sigma <- 15
+data <- dist_random(distribution("Normal", c(true_mu, true_sigma)), 100, seed = 1234)
+
+res <- mcmc_sample(
+  data,
+  distribution = "Normal",
+  sampler = "RWMH",
+  iterations = 5000,
+  warmup = 1000,
+  chains = 4,
+  seed = 12345,
+  initialize = "MAP"
+)
+
+summary_df <- data.frame(
+  parameter = res$parameters,
+  posterior_mean = res$posterior_mean,
+  posterior_sd = res$posterior_sd,
+  lower_95_ci = res$posterior_lower_ci,
+  upper_95_ci = res$posterior_upper_ci,
+  rhat = res$rhat,
+  ess = res$ess
+)
+cat(length(res$chains), "chains x", nrow(res$chains[[1]]), "retained draws\n")
+print(summary_df, digits = 6, row.names = FALSE)
+```
+
+## R-hat (Gelman-Rubin statistic)
+
+R-hat compares within-chain and between-chain variance [[1]](#references).
+
+| R-hat | Interpretation | Action |
+|-------|----------------|--------|
+| < 1.01 | Excellent convergence | Proceed |
+| < 1.1 | Good convergence | Safe to use |
+| 1.1 to 1.2 | Marginal | Run longer |
+| >= 1.2 | Poor convergence | Investigate |
+
+$$
+\hat{R} = \sqrt{\frac{\hat{V}}{W}}, \qquad
+\hat{V} = \frac{n-1}{n}W + \frac{1}{n}B
+$$
+
+where $W$ is the mean within-chain variance and $B$ is the between-chain variance.
+$\hat{V}$ overestimates the target variance when chains have not converged, because
+$B$ captures the extra spread from chains sitting in different regions, while $W$
+underestimates it because each finite chain has explored only part of the space. At
+convergence the between-chain contribution vanishes and $\hat{R} \to 1$; values
+substantially above 1 mean the chains have not mixed [[2]](#references).
+
+Common causes of high R-hat: insufficient warmup, poor mixing, a multimodal
+posterior, bad initialization, or a sampler unsuited to the problem.
+
+```{r}
+for (j in seq_along(res$parameters)) {
+  verdict <- if (res$rhat[j] < 1.05) "converged" else "NOT converged"
+  cat(sprintf("R-hat %s: %.4f  (%s)\n", res$parameters[j], res$rhat[j], verdict))
+}
+
+plot_traces <- function(result, j, true_val, name) {
+  n <- nrow(result$chains[[1]])
+  ylim <- range(sapply(result$chains, \(ch) range(ch[, j])), true_val)
+  plot(NULL, xlim = c(1, n), ylim = ylim, xlab = "Iteration", ylab = name,
+       main = sprintf("Trace of %s (R-hat = %.4f)", name, result$rhat[j]))
+  for (i in seq_along(result$chains)) {
+    lines(result$chains[[i]][, j], col = adjustcolor(colors[i], alpha.f = 0.7), lwd = 0.5)
+  }
+  abline(h = true_val, col = "black", lty = 2)
+}
+
+op <- par(mfrow = c(2, 1), mar = c(4, 4, 2, 1))
+plot_traces(res, 1, true_mu, "mu")
+plot_traces(res, 2, true_sigma, "sigma")
+par(op)
+```
+
+## Effective sample size and autocorrelation
+
+The effective sample size (ESS) is the number of independent samples that would
+give the same variance for the sample mean [[3]](#references). Higher is better,
+and ESS is tied directly to autocorrelation:
+
+$$
+\text{ESS} = \frac{N}{1 + 2\sum_{k=1}^{K} \rho_k}
+$$
+
+where $\rho_k$ is the autocorrelation at lag $k$ and the sum is truncated when
+$\rho_k$ becomes negligible. With $M$ chains the core computes the truncated
+autocorrelation sum for each chain, averages across chains, and caps the result at
+the total number of draws.
+
+Guidelines for the smallest acceptable ESS depend on what you are estimating: about
+100 for a posterior mean, 200 for a posterior standard deviation, 400 for a 95%
+credible interval, and 1000 or more for tail probabilities. These are guidelines,
+not strict rules; for life-safety applications err on the side of more.
+
+| Lag-1 ACF | Interpretation | ESS impact |
+|-----------|----------------|------------|
+| < 0.1 | Excellent mixing | ESS close to N |
+| 0.1 to 0.3 | Good mixing | ESS about 0.5 N |
+| 0.3 to 0.6 | Moderate | ESS about 0.2 N |
+| > 0.6 | Poor mixing | ESS well below 0.1 N |
+
+The R-hat and ESS values come from the ported core (they are returned by
+`mcmc_sample`). The C# `MCMCDiagnostics` autocorrelation helper for arbitrary
+arrays is not exposed in the package API, so the chunk below computes the
+autocorrelation function with `stats::acf`.
+
+```{r}
+combined <- do.call(rbind, res$chains) # 20000 x 2 pooled draws
+n_total <- nrow(combined)
+
+ess_df <- data.frame(
+  Metric = c("Total samples", "ESS (mu)", "ESS efficiency (mu) %",
+             "ESS (sigma)", "ESS efficiency (sigma) %"),
+  Value = c(n_total, res$ess[1], 100 * res$ess[1] / n_total,
+            res$ess[2], 100 * res$ess[2] / n_total)
+)
+cat("Effective sample size\n")
+print(ess_df, digits = 4, row.names = FALSE)
+
+max_lag <- 60
+acf_mu <- acf(combined[, 1], lag.max = max_lag, plot = FALSE)
+acf_sigma <- acf(combined[, 2], lag.max = max_lag, plot = FALSE)
+
+op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+plot(0:max_lag, drop(acf_mu$acf), type = "h", lwd = 3, col = colors[1],
+     xlab = "Lag", ylab = "Autocorrelation",
+     main = sprintf("ACF for mu (ESS = %.0f)", res$ess[1]))
+abline(h = 0)
+plot(0:max_lag, drop(acf_sigma$acf), type = "h", lwd = 3, col = colors[2],
+     xlab = "Lag", ylab = "Autocorrelation",
+     main = sprintf("ACF for sigma (ESS = %.0f)", res$ess[2]))
+abline(h = 0)
+par(op)
+```
+
+## What bad convergence looks like
+
+The diagnostics only earn their keep when they catch a failure, so let us
+manufacture one. The same model is run again with only 200 iterations, 50 warmup,
+and randomized initialization (the upstream notebook's initialization choice), then
+compared with the healthy 5000-iteration run.
+
+```{r}
+short <- mcmc_sample(
+  data,
+  distribution = "Normal",
+  sampler = "RWMH",
+  iterations = 200,
+  warmup = 50,
+  chains = 4,
+  seed = 12345,
+  initialize = "Randomize"
+)
+
+compare <- data.frame(
+  Run = c("200 iterations, randomized init", "5000 iterations, MAP init"),
+  rhat_mu = c(short$rhat[1], res$rhat[1]),
+  rhat_sigma = c(short$rhat[2], res$rhat[2]),
+  ess_mu = c(short$ess[1], res$ess[1]),
+  ess_sigma = c(short$ess[2], res$ess[2])
+)
+print(compare, digits = 4, row.names = FALSE)
+
+plot_traces(short, 1, true_mu, "mu")
+title(sub = sprintf("Too-short run: chains disagree (R-hat = %.2f)", short$rhat[1]))
+```
+
+The short run fails the R-hat test decisively (1.59 for $\mu$ against the 1.1
+threshold) and the trace plot shows the four chains still wandering in from their
+random starting points. Note the trap in the ESS column: the short run reports an
+ESS larger than its 800 retained draws. The truncated autocorrelation estimator is
+simply unreliable on chains that have not converged, so an impossible-looking ESS
+is itself a red flag. Check R-hat first; ESS is only meaningful once R-hat passes.
+
+## Handling multimodal posteriors
+
+Some posteriors have multiple peaks. Population-based samplers such as DEMCz and
+DEMCzs are better at exploring them.
+
+The upstream notebook hand-rolls a five-parameter two-component Normal mixture
+log-likelihood in Python and passes it to the C# DEMCz sampler as a delegate.
+Custom log-likelihood delegates are not exposed in the package API, so this section
+recasts the same problem onto `mixture_analysis`, which fits the same
+two-component Normal mixture with the same DEMCz sampler through the ported
+MixtureModel. The bimodal data are built exactly as upstream: 40 seeded draws from
+Normal(80, 10) and 40 from Normal(120, 10), both with seed 789 (reusing the seed
+means the second sample is the first shifted by 40, an upstream quirk we keep for
+faithfulness).
+
+One honest caveat about the comparison: the upstream run itself did not separate
+the modes. Its posterior means collapsed to $\mu_1 \approx 99.4$,
+$\mu_2 \approx 99.6$ with weight 0.5, the classic label-switching average. The
+ported MixtureModel seeds the sampler with an expectation-maximization fit, so the
+run below recovers both modes; the comparison with upstream is therefore
+qualitative, not numeric.
+
+```{r}
+mode1 <- dist_random(distribution("Normal", c(80, 10)), 40, seed = 789)
+mode2 <- dist_random(distribution("Normal", c(120, 10)), 40, seed = 789)
+bimodal <- c(mode1, mode2)
+
+mix <- mixture_analysis(bimodal, c("Normal", "Normal"), sampler = "DEMCz",
+                        iterations = 3000, seed = 12345)
+
+p <- mix$parameters # w1, w2, mu1, sigma1, mu2, sigma2
+est <- data.frame(
+  Parameter = c("weight 1", "weight 2", "mu1", "sigma1", "mu2", "sigma2"),
+  Estimate = p,
+  True = c(0.5, 0.5, 80, 10, 120, 10)
+)
+print(est, digits = 4, row.names = FALSE)
+
+x_grid <- seq(40, 160, length.out = 400)
+pdf_fit <- p[1] * dist_pdf(distribution("Normal", c(p[3], p[4])), x_grid) +
+  p[2] * dist_pdf(distribution("Normal", c(p[5], p[6])), x_grid)
+
+hist(bimodal, breaks = 24, freq = FALSE, col = "#6b7f3f", border = "white",
+     xlab = "Value", main = "Bimodal data and fitted two-component Normal mixture")
+lines(x_grid, pdf_fit, col = "#b06a3b", lwd = 2)
+legend("topright", legend = c("Data", "Fitted mixture"),
+       fill = c("#6b7f3f", NA), border = NA, lty = c(NA, 1),
+       col = c(NA, "#b06a3b"), lwd = c(NA, 2), bty = "n")
+```
+
+## Tuning tips and best practices
+
+General guidelines:
+
+1. Burn-in: use 10 to 50% of total iterations
+2. Sample size: aim for at least 1000 effective samples
+3. Multiple chains: run 3 or 4 chains to assess convergence
+4. Thinning: usually not necessary with modern samplers
+
+Troubleshooting:
+
+- High R-hat (> 1.1)? Increase warmup, try a different sampler, check initialization.
+- Low ESS (< 100)? Increase iterations, increase thinning, or use an adaptive
+  sampler (ARWMH instead of RWMH).
+- Multimodal posterior? Use a population-based sampler (DEMCz, DEMCzs), check for
+  model identification issues, consider transforming parameters.
+
+Key takeaways:
+
+1. Always check convergence: use R-hat and visual inspection.
+2. ESS matters more than raw samples: account for autocorrelation.
+3. Different samplers suit different problems.
+4. Adaptive methods (ARWMH, DEMCz) reduce the tuning burden.
+5. Multiple chains catch problems early: run at least 3 or 4.
+
+## References
+
+[1] A. Gelman and D. B. Rubin, "Inference from iterative simulation using multiple
+sequences," *Statistical Science*, vol. 7, no. 4, pp. 457-472, 1992.
+
+[2] A. Vehtari, A. Gelman, D. Simpson, B. Carpenter, and P.-C. Burkner,
+"Rank-normalization, folding, and localization: An improved R-hat for assessing
+convergence of MCMC," *Bayesian Analysis*, vol. 16, no. 2, pp. 667-718, 2021.
+
+[3] C. J. Geyer, "Practical Markov chain Monte Carlo," *Statistical Science*,
+vol. 7, no. 4, pp. 473-483, 1992.
+
+## Reproduction check
+
+The seeded data are bit-exact against the C# library (same Mersenne Twister
+stream, enforced by the port's fixture suite) and against the Python twin. The
+posterior summaries cannot be compared bit-for-bit with the upstream notebook
+because `mcmc_sample` uses the family's constraint-based uniform priors while
+upstream hand-picks Uniform(50, 150) and Uniform(5, 30) plus a unit proposal
+matrix, so those rows are held to the statistical criteria the upstream numbers
+themselves satisfy. The mixture row is a recast (see above): upstream's own run
+collapsed to the label-switching average, so the check here is that the recast
+recovers the modes the data were generated from.
+
+| Quantity | Upstream C# | This port | Status |
+|----------|-------------|----------:|--------|
+| First seeded data value, Normal(100, 15), seed 1234 | not printed (same seeded call, cell 7) | 86.9153... | exact |
+| First seeded bimodal value, Normal(80, 10), seed 789 | not printed (same seeded call, cell 13) | 75.4161... | exact |
+| R-hat for mu and sigma, healthy run | 1.0001, 0.9999 (cell 9) | 1.0001, 1.0000 | statistical |
+| ESS, healthy run | 11074, 12844 of 14000 (cell 11) | 9677, 9515 of 20000 | statistical |
+| 95% CI covers true mu = 100, sigma = 15 | implied by cell 9 | yes | statistical |
+| Mixture means | 99.4, 99.6 (collapsed run, cell 13) | 79.7, 119.2 | statistical (recast) |
+| Posterior mean of mu | n/a | 100.63216080080565 | exact across R/Python |
+
+The chunk below fails the render if any of it drifts. The literal equalities are
+the cross-language identity checks: the Python notebook asserts the same numbers.
+
+```{r}
+# Upstream: 06_mcmc_diagnostics.ipynb; cells 7 (data), 9 (R-hat), 11 (ESS), 13 (mixture).
+
+# Exact: seeded draws, same C# Mersenne Twister stream, identical in Python. The
+# draws are bit-exact (the fixture suite enforces that); the comparisons carry a
+# 1e-15 relative tolerance only because R's decimal parser can land one ulp away
+# from the written literal.
+stopifnot(
+  abs(data[1] / 86.91533945543637 - 1) < 1e-15,
+  abs(bimodal[1] / 75.41606345888543 - 1) < 1e-15,
+  abs(bimodal[41] / 115.41606345888543 - 1) < 1e-15 # same seed reused upstream: shifted stream
+)
+
+# Exact across languages: the Python twin asserts this same posterior literal.
+stopifnot(abs(res$posterior_mean[1] / 100.63216080080565 - 1) < 1e-15)
+
+# Statistical vs upstream (priors and proposal differ, so bit comparison is
+# impossible): the healthy run must pass the same convergence bars upstream passes.
+stopifnot(
+  res$rhat[1] < 1.01, res$rhat[2] < 1.01,
+  res$ess[1] > 400, res$ess[2] > 400,
+  res$posterior_lower_ci[1] < true_mu, true_mu < res$posterior_upper_ci[1],
+  res$posterior_lower_ci[2] < true_sigma, true_sigma < res$posterior_upper_ci[2]
+)
+
+# The deliberately short run must fail the R-hat bar; that failure is its lesson.
+stopifnot(short$rhat[1] > 1.1)
+
+# Statistical (recast): the mixture recovers the two modes the data came from.
+stopifnot(
+  abs(p[3] - 80) < 5, abs(p[5] - 120) < 5,
+  p[1] > 0.3, p[1] < 0.7
+)
+cat("All reproduction checks passed.\n")
+```

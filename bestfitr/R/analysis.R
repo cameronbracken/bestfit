@@ -65,9 +65,8 @@ fit_distributions <- function(data) {
 #' the sandwich covariance. Wraps the shared C++ `Bulletin17CAnalysis`.
 #'
 #' @param data numeric vector of annual peak observations.
-#' @param uncertainty_method uncertainty-quantification method: `"MultivariateNormal"` (default) or
-#'   `"Bootstrap"`. The `"LinkedMultivariateNormal"` / `"BiasCorrectedBootstrap"` methods are
-#'   deferred and raise an error.
+#' @param uncertainty_method uncertainty-quantification method: `"MultivariateNormal"` (default),
+#'   `"Bootstrap"`, `"LinkedMultivariateNormal"`, or `"BiasCorrectedBootstrap"`.
 #' @param output_length number of parameter-set draws used for uncertainty quantification.
 #' @param seed PRNG seed for the uncertainty draw.
 #' @param confidence_level confidence level for the intervals (e.g. `0.90`).

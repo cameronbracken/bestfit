@@ -16,9 +16,8 @@ bulletin17c_analysis(
 \arguments{
 \item{data}{numeric vector of annual peak observations.}
 
-\item{uncertainty_method}{uncertainty-quantification method: \code{"MultivariateNormal"} (default) or
-\code{"Bootstrap"}. The \code{"LinkedMultivariateNormal"} / \code{"BiasCorrectedBootstrap"} methods are
-deferred and raise an error.}
+\item{uncertainty_method}{uncertainty-quantification method: \code{"MultivariateNormal"} (default),
+\code{"Bootstrap"}, \code{"LinkedMultivariateNormal"}, or \code{"BiasCorrectedBootstrap"}.}
 
 \item{output_length}{number of parameter-set draws used for uncertainty quantification.}
 

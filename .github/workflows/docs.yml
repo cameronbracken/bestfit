@@ -1,0 +1,85 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "site/**"
+      - "bestfitr/**"
+      - "bestfitpy/**"
+      - "core/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: site/requirements.txt
+
+      - name: Materialize shared core (dereference symlinks)
+        run: python tools/materialize_core.py
+
+      - name: Install bestfitpy and doc dependencies
+        run: |
+          python -m pip install ./bestfitpy
+          python -m pip install -r site/requirements.txt
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: bestfitr
+          extra-packages: any::pkgdown, local::.
+          needs: website
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Build Python API reference (quartodoc)
+        working-directory: site
+        run: quartodoc build
+
+      - name: Render Quarto site
+        run: quarto render site
+
+      - name: Build pkgdown site
+        run: Rscript -e 'pkgdown::build_site("bestfitr", preview = FALSE, install = FALSE)'
+
+      - name: Assemble final site
+        run: |
+          mkdir -p site/_site/r
+          cp -R bestfitr/docs/. site/_site/r/
+          touch site/_site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/_site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

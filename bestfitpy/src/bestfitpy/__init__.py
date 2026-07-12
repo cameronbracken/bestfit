@@ -9,6 +9,19 @@ from __future__ import annotations
 import numpy as np
 
 from ._core import GeneralizedExtremeValue, gev_fit as _gev_fit
+from .distributions import Distribution, distribution_names
+from .mcmc import mcmc_sample
+from .stats import (
+    box_cox,
+    box_cox_inverse,
+    box_cox_lambda,
+    latin_hypercube,
+    mgbt_test,
+    plotting_positions,
+    yeo_johnson,
+    yeo_johnson_inverse,
+    yeo_johnson_lambda,
+)
 from .analysis import (
     ar_analysis,
     arima_analysis,
@@ -33,6 +46,8 @@ from .analysis import (
 
 __all__ = [
     "GeneralizedExtremeValue",
+    "Distribution",
+    "distribution_names",
     "dgev",
     "pgev",
     "qgev",
@@ -57,29 +72,106 @@ __all__ = [
     "bootstrap_analysis",
     "prior_predictive_check",
     "posterior_predictive_check",
+    "mgbt_test",
+    "box_cox_lambda",
+    "box_cox",
+    "box_cox_inverse",
+    "yeo_johnson_lambda",
+    "yeo_johnson",
+    "yeo_johnson_inverse",
+    "plotting_positions",
+    "latin_hypercube",
+    "mcmc_sample",
 ]
 
 
 def dgev(x, location=0.0, scale=1.0, shape=0.0):
-    """GEV probability density at ``x`` (scalar or array-like)."""
+    """GEV probability density at ``x``.
+
+    Parameters
+    ----------
+    x : float or array_like
+        Evaluation points.
+    location : float, default 0.0
+        Location parameter.
+    scale : float, default 1.0
+        Scale parameter.
+    shape : float, default 0.0
+        Shape parameter.
+
+    Returns
+    -------
+    float or numpy.ndarray
+        Density at each point, matching the shape of ``x``.
+    """
     g = GeneralizedExtremeValue(location, scale, shape)
     return _apply(g.pdf, x)
 
 
 def pgev(q, location=0.0, scale=1.0, shape=0.0):
-    """GEV cumulative distribution at ``q`` (scalar or array-like)."""
+    """GEV cumulative distribution at ``q``.
+
+    Parameters
+    ----------
+    q : float or array_like
+        Evaluation points.
+    location : float, default 0.0
+        Location parameter.
+    scale : float, default 1.0
+        Scale parameter.
+    shape : float, default 0.0
+        Shape parameter.
+
+    Returns
+    -------
+    float or numpy.ndarray
+        Cumulative probability at each point, matching the shape of ``q``.
+    """
     g = GeneralizedExtremeValue(location, scale, shape)
     return _apply(g.cdf, q)
 
 
 def qgev(p, location=0.0, scale=1.0, shape=0.0):
-    """GEV quantile (inverse CDF) at probability ``p`` (scalar or array-like)."""
+    """GEV quantile (inverse CDF) at probability ``p``.
+
+    Parameters
+    ----------
+    p : float or array_like
+        Non-exceedance probabilities.
+    location : float, default 0.0
+        Location parameter.
+    scale : float, default 1.0
+        Scale parameter.
+    shape : float, default 0.0
+        Shape parameter.
+
+    Returns
+    -------
+    float or numpy.ndarray
+        Quantile at each probability, matching the shape of ``p``.
+    """
     g = GeneralizedExtremeValue(location, scale, shape)
     return _apply(g.quantile, p)
 
 
 def gev_moments(location, scale, shape):
-    """Return GEV moments as a dict; undefined moments are ``nan``."""
+    """GEV distribution moments and support.
+
+    Parameters
+    ----------
+    location : float
+        Location parameter.
+    scale : float
+        Scale parameter.
+    shape : float
+        Shape parameter.
+
+    Returns
+    -------
+    dict
+        Keys ``mean``, ``median``, ``sd``, ``skewness``, ``kurtosis``, ``minimum``,
+        ``maximum``. Undefined moments are ``nan``.
+    """
     g = GeneralizedExtremeValue(location, scale, shape)
     return {
         "mean": g.mean(),
@@ -93,9 +185,19 @@ def gev_moments(location, scale, shape):
 
 
 def gev_fit(x, method="mle"):
-    """Fit a GEV to sample ``x``; returns a dict of location, scale, shape.
+    """Fit a GEV distribution to sample ``x``.
 
-    ``method`` is one of ``"mle"``, ``"lmom"``, or ``"mom"``.
+    Parameters
+    ----------
+    x : array_like
+        Sample observations.
+    method : {"mle", "lmom", "mom"}, default "mle"
+        Estimation method: maximum likelihood, L-moments, or method of moments.
+
+    Returns
+    -------
+    dict
+        Keys ``location``, ``scale``, ``shape``.
     """
     loc, scale, shape = _gev_fit([float(v) for v in np.asarray(x).ravel()], method)
     return {"location": loc, "scale": scale, "shape": shape}

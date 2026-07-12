@@ -11,6 +11,7 @@ R bindings to a shared C++ port of the USACE-RMC Numerics and RMC.BestFit librar
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://cameronbracken.github.io/bestfit/r/}
   \item \url{https://github.com/cameronbracken/bestfit}
   \item Report bugs at \url{https://github.com/cameronbracken/bestfit/issues}
 }

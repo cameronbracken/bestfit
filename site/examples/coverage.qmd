@@ -1,0 +1,35 @@
+---
+title: "Upstream example coverage"
+toc: false
+---
+
+Disposition of every notebook and script in
+[Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
+with respect to this port. "Ported" examples reproduce the upstream results
+(exactly where seeded and deterministic). "Recast" examples cover the same
+statistical content through this package's public API, where the upstream code
+drove the C# classes directly in ways this API deliberately does not expose
+(notably custom prior lists and Python-callback likelihoods). "Out of scope"
+areas were never part of the C++ port, which targets the probability,
+estimation, and analysis layers of Numerics plus all of RMC-BestFit.
+
+| Upstream | Topic | Status | Notes |
+|----------|-------|--------|-------|
+| `00_getting_started` | Loading the library, first distribution | [Ported](00-getting-started/python.ipynb) | pythonnet/DLL plumbing replaced by a plain package install |
+| `01_distributions` | Distribution tour, sampling, Latin hypercube | [Ported](01-distributions/python.ipynb) | all 10 families and the seeded draws reproduce exactly |
+| `02_distribution_fitting` | MOM / MLE / L-moment fitting | [Ported](02-distribution-fitting/python.ipynb) | fitted parameters reproduce exactly |
+| `03_mcmc_basics` | RWMH fundamentals | [Recast](03-mcmc-basics/python.ipynb) | fixed-parameter model and hand-picked priors not expressible; recast to `mcmc_sample()` |
+| `04_mcmc_bayesian_inference` | Bayesian flood frequency | [Ported](04-bayesian-inference/python.ipynb) | same priors, seed, and serial chains as upstream; acceptance streams bit-exact vs C#, posterior tables reproduce at displayed precision (documented ulp drift in the MAP optimizer) |
+| `05_mcmc_adaptive` | Adaptive sampler comparison | [Recast](05-mcmc-samplers/python.ipynb) | PyMC benchmark sections dropped |
+| `06_mcmc_diagnostics` | R-hat, ESS, autocorrelation | [Recast](06-mcmc-diagnostics/python.ipynb) | diagnostics on arbitrary external chains not exposed |
+| `07_integration_and_root_finding` | Numerical integration, root finding | Out of scope | the Numerics `Mathematics.Integration` / `RootFinding` namespaces are not part of the port |
+| `08_optimization` | Local and global optimizers | Out of scope | only the optimizers the estimation layer needs are ported (BFGS, Nelder-Mead, Brent, Powell, DE, MLSL), and they are internal |
+| `09_statistics` | Statistical tests, transforms, outliers | [Ported (partial)](09-statistics/python.ipynb) | MGBT, Box-Cox/Yeo-Johnson, plotting positions, bootstrap covered; t/Mann-Whitney/KS tests and Jenks breaks are not ported |
+| `10_time_series` | TimeSeries container operations | Out of scope | the heavy Numerics `TimeSeries` container (interpolation, file I/O, USGS download) is a documented severance; AR/MA/ARIMA/ARIMAX *models* are ported |
+| `11_machine_learning` | K-Means, random forest, KNN, GMM | Out of scope | the `Numerics.MachineLearning` namespace is not part of the port |
+| `12_linear_models` | GLM regression | Out of scope | the `Numerics.MachineLearning` GLM layer is not part of the port |
+| `examples/bayesian_regression.py` | DEMCzs linear regression | [Recast](20-bayesian-regression/python.ipynb) | recast onto `arimax_analysis` with a linear trend |
+| `examples/flood_frequency_analysis.py` | Distribution ranking, design flows | [Ported](21-flood-frequency/python.ipynb) | fits and return-period tables reproduce exactly; ranking by log-likelihood/AIC instead of the unported KS test |
+| `examples/reliability_analysis.py` | Monte Carlo reliability | [Ported](22-reliability/python.ipynb) | uses the `LnNormal` family in place of C# `LogNormal.Base = e`; results reproduce exactly |
+
+: {tbl-colwidths="[22,26,14,38]"}

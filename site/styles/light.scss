@@ -1,0 +1,24 @@
+/*-- scss:defaults --*/
+
+// Earth-tone accents over flatly. The palette below is the single source of
+// truth for the site chrome AND the example plots (mirror these hexes in the
+// matplotlib/R palette setup chunks and in bestfitr/_pkgdown.yml bslib.primary).
+//
+//   primary (olive):    #6b7f3f
+//   accent  (clay):     #b06a3b
+//   info    (slate):    #5b7a8c
+//   sand    (bg tint):  #f7f5f0
+
+$primary: #6b7f3f;
+$link-color: #6b7f3f;
+$code-color: #b06a3b;
+
+/*-- scss:rules --*/
+
+.navbar {
+  background-color: $primary;
+}
+
+code {
+  background-color: #f2efe8;
+}

@@ -1,0 +1,114 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "bestfit"
+  site-url: https://cameronbracken.github.io/bestfit/
+  repo-url: https://github.com/cameronbracken/bestfit
+  navbar:
+    left:
+      - text: Examples
+        href: examples/index.qmd
+      - text: Python Reference
+        href: reference/index.qmd
+      - text: R Reference
+        href: r/index.html
+    right:
+      - icon: github
+        href: https://github.com/cameronbracken/bestfit
+  sidebar:
+    - title: Examples
+      style: docked
+      collapse-level: 1
+      contents:
+        - examples/index.qmd
+        - examples/coverage.qmd
+        - auto: "examples/*/*.ipynb"
+        - auto: "examples/*/*.qmd"
+  page-navigation: true
+  page-footer:
+    center: >-
+      bestfit is an independent open-source port of the USACE-RMC
+      [Numerics](https://github.com/USACE-RMC/Numerics) and
+      [RMC-BestFit](https://www.rmc.usace.army.mil/Software/RMC-BestFit/)
+      libraries. 0BSD licensed.
+
+format:
+  html:
+    theme:
+      light: [flatly, styles/light.scss]
+      dark: [darkly, styles/dark.scss]
+    toc: true
+    code-copy: true
+    fig-width: 7
+    fig-height: 4.5
+
+execute:
+  freeze: auto
+  warning: false
+
+quartodoc:
+  package: bestfitpy
+  dir: reference
+  title: Python API reference
+  sections:
+    - title: Distributions
+      desc: >-
+        The general univariate distribution interface: 38 families with
+        density, quantile, seeded random generation, and fitting.
+      contents:
+        - Distribution
+        - distribution_names
+    - title: GEV convenience functions
+      desc: >-
+        Direct density, distribution, quantile, moments, and fitting
+        functions for the Generalized Extreme Value distribution.
+      contents:
+        - dgev
+        - pgev
+        - qgev
+        - gev_moments
+        - gev_fit
+    - title: Frequency analysis
+      desc: The main flood-frequency analysis entry points.
+      contents:
+        - univariate_analysis
+        - fit_distributions
+        - bulletin17c_analysis
+        - composite_analysis
+    - title: Model-family analyses
+      contents:
+        - mixture_analysis
+        - competing_risk_analysis
+        - point_process_analysis
+        - spatial_gev_analysis
+        - bivariate_analysis
+        - coincident_frequency_analysis
+        - rating_curve_analysis
+    - title: Time series
+      contents:
+        - ar_analysis
+        - ma_analysis
+        - arima_analysis
+        - arimax_analysis
+    - title: MCMC
+      contents:
+        - mcmc_sample
+    - title: Uncertainty and diagnostics
+      contents:
+        - bootstrap_analysis
+        - estimation_diagnostics
+        - prior_predictive_check
+        - posterior_predictive_check
+    - title: Statistics utilities
+      contents:
+        - mgbt_test
+        - box_cox_lambda
+        - box_cox
+        - box_cox_inverse
+        - yeo_johnson_lambda
+        - yeo_johnson
+        - yeo_johnson_inverse
+        - plotting_positions
+        - latin_hypercube

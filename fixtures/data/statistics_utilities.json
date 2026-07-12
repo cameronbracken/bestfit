@@ -1,0 +1,338 @@
+{
+ "kind": "data_utility",
+ "source": "Numerics/Data/Statistics/{MultipleGrubbsBeckTest,BoxCox,YeoJohnson,PlottingPositions}.cs; Numerics/Sampling/LatinHypercube.cs",
+ "reference": "curated via oracle_emitter --dump; datasets are seeded LogNormal/Normal draws embedded as literals",
+ "datasets": {
+  "peaks_lo": [
+   1.0,
+   2.0,
+   192.67483017701767,
+   422.84449298466313,
+   2431.977180073492,
+   581.718176275042,
+   836.5620924270648,
+   10213.579055218486,
+   1979.6267638521595,
+   879.4647558111892,
+   10161.212946574928,
+   561.3767808649754,
+   1117.693021189232,
+   483.3608175995337,
+   1003.2387452019196,
+   208.66882217598783,
+   186.06220133119896,
+   791.1341151273356,
+   491.1673833999887,
+   84.46411803967396,
+   999.6609643810772,
+   1083.4930858915177,
+   1709.123077637146,
+   3633.8895010857327,
+   2676.2482714672337,
+   604.2289569309822,
+   705.496748616873,
+   731.4266047830725,
+   176.4497229410157,
+   1682.4853932016688,
+   525.5267852373346,
+   1671.7081044849933,
+   4667.970280050609,
+   1793.3098951287834,
+   400.5300564417855,
+   633.712289882781,
+   870.665868893467,
+   5446.820679031683,
+   5526.074251487905,
+   481.17160024342814,
+   104.50917724751024,
+   2179.947067491914
+  ],
+  "positive_sample": [
+   349.00456977304657,
+   180.1937739071215,
+   92.82077124364362,
+   1631.887512372829,
+   899.1574727362818,
+   370.3269121910115,
+   1989.6700259601632,
+   5300.627351821297,
+   793.0739421801353,
+   236.4278416105593,
+   958.8077052406677,
+   420.2228263747105,
+   76.48849246545772,
+   4270.577445444556,
+   964.2063997970807,
+   2948.431290853861,
+   6096.226218072385,
+   217.86302392967627,
+   3310.737503846966,
+   4097.215951230287,
+   2024.6630764006745,
+   1915.1564904955778,
+   241.7470067402009,
+   1053.028223948789,
+   4205.143061137446,
+   2484.6278762964353,
+   3418.302576442554,
+   1290.5426833264446,
+   325.9248681316324,
+   2074.010616302965
+  ],
+  "mixed_sign": [
+   -1.8286755458684436,
+   -2.9770408757251436,
+   -4.129419309474158,
+   0.8507608763981844,
+   -0.1846569680997336,
+   -1.7256589039884938,
+   1.1951242296846551,
+   2.897309092977067,
+   -0.40274527754545264,
+   -2.5052055300148455,
+   -0.07307393806101395,
+   -1.5060814421864424,
+   -4.465615594532031,
+   2.521946408216931,
+   -0.06331996107671016,
+   1.8783640463787006,
+   3.140244297524131,
+   -2.647265890689412,
+   2.0796989940441994,
+   2.4499554193527553,
+   1.2254110509746836,
+   1.1288170666012132,
+   -2.4665555782127124,
+   0.08976004634098868,
+   2.495123101230797,
+   1.5810454139309522,
+   2.1352420093882807,
+   0.4430894917817507,
+   -1.9475300060644554,
+   1.2672439003817981
+  ]
+ },
+ "cases": [
+  {
+   "name": "mgbt_peaks_lo",
+   "function": "MGBT",
+   "dataset": "peaks_lo",
+   "assertions": [
+    {
+     "expected": 2,
+     "mode": "equal"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit",
+   "function": "BoxCoxLambda",
+   "dataset": "positive_sample",
+   "assertions": [
+    {
+     "expected": 0.20828213486897196,
+     "mode": "rel",
+     "tol": 1e-06,
+     "note": "Brent argmin of a flat likelihood; port BrentSearch termination differs slightly from C# (see box_cox.hpp header)"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_transform_half",
+   "function": "BoxCoxTransform",
+   "dataset": "positive_sample",
+   "args": [
+    0.5,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": 35.36332799808104,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "box_cox_transform_neg",
+   "function": "BoxCoxTransform",
+   "dataset": "positive_sample",
+   "args": [
+    -0.3,
+    7
+   ],
+   "assertions": [
+    {
+     "expected": 3.0788961593174697,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit",
+   "function": "YeoJohnsonLambda",
+   "dataset": "mixed_sign",
+   "assertions": [
+    {
+     "expected": 1.24863081817444,
+     "mode": "rel",
+     "tol": 1e-06,
+     "note": "Brent argmin of a flat likelihood; port BrentSearch termination differs slightly from C# (see box_cox.hpp header)"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_transform_half",
+   "function": "YeoJohnsonTransform",
+   "dataset": "mixed_sign",
+   "args": [
+    0.5,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": -2.5049701087098413,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_transform_17",
+   "function": "YeoJohnsonTransform",
+   "dataset": "mixed_sign",
+   "args": [
+    1.7,
+    3
+   ],
+   "assertions": [
+    {
+     "expected": 1.0868873372705217,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "plotting_position_weibull_first",
+   "function": "PlottingPosition",
+   "args": [
+    10,
+    0.0,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": 0.09090909090909091,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "plotting_position_cunnane_last",
+   "function": "PlottingPosition",
+   "args": [
+    10,
+    0.4,
+    9
+   ],
+   "assertions": [
+    {
+     "expected": 0.9411764705882353,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "plotting_position_median_mid",
+   "function": "PlottingPosition",
+   "args": [
+    20,
+    0.3175,
+    5
+   ],
+   "assertions": [
+    {
+     "expected": 0.279032654063344,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "lhs_random_00",
+   "function": "LHSRandom",
+   "args": [
+    10,
+    3,
+    12345,
+    0,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": 0.722712648822926,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "lhs_random_92",
+   "function": "LHSRandom",
+   "args": [
+    10,
+    3,
+    12345,
+    9,
+    2
+   ],
+   "assertions": [
+    {
+     "expected": 0.03411747340578586,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "lhs_random_41",
+   "function": "LHSRandom",
+   "args": [
+    10,
+    3,
+    12345,
+    4,
+    1
+   ],
+   "assertions": [
+    {
+     "expected": 0.2146632795454934,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "lhs_median_00",
+   "function": "LHSMedian",
+   "args": [
+    10,
+    2,
+    99,
+    0,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": 0.45,
+     "mode": "rel",
+     "tol": 1e-11
+    }
+   ]
+  }
+ ]
+}

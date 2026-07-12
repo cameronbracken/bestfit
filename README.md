@@ -16,6 +16,14 @@ R (`bestfitr`) and Python (`bestfitpy`) packages are also available with binding
 functions in the core library. Both packages call the same code and are expected to produce 
 identical results with the same random seed.
 
+## Documentation
+
+- [Documentation site](https://cameronbracken.github.io/bestfit/) with worked examples
+  in both languages (Jupyter notebooks for Python, Quarto for R), ported from the
+  official [Numerics-Python-Examples](https://github.com/USACE-RMC/Numerics-Python-Examples)
+- [Python API reference](https://cameronbracken.github.io/bestfit/reference/)
+- [R API reference](https://cameronbracken.github.io/bestfit/r/)
+
 ## Development status
 Early development. All [RMC.BestFit](https://github.com/USACE-RMC/RMC-BestFit) features have 
 been ported but more testing and documentation are needed. 
