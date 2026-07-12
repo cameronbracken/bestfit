@@ -9,7 +9,7 @@ template:
     # flatly's navbar is ~72px tall (--bs-navbar-padding-y: 1rem), not the 56px
     # pkgdown assumes; without this the fixed navbar overlaps the top of the
     # home-page intro text.
-    pkgdown-nav-height: 72px
+    pkgdown-nav-height: 100px
 
 navbar:
   structure:
@@ -17,7 +17,7 @@ navbar:
     right: [mainsite, search, github, lightswitch]
   components:
     mainsite:
-      text: corehydro home
+      text: Documentation home
       href: https://cameronbracken.github.io/corehydro/
 
 home:

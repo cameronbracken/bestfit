@@ -4,16 +4,23 @@ subtitle: "Bayesian flood-frequency and extreme-value analysis in R and Python"
 toc: false
 ---
 
-`corehydro` provides an R package (`corehydror`) and a Python package (`corehydropy`) for
-stochastic hydrology, flood-frequency, and extreme-value analysis. Both are thin
-bindings over a single shared C++17 core that is a faithful port of the USACE Risk
-Management Center's [Numerics](https://github.com/USACE-RMC/Numerics) and
-[RMC-BestFit](https://www.rmc.usace.army.mil/Software/RMC-BestFit/) C# libraries.
+corehydro is an (unofficial) C++ port of tools developed by the 
+[United States Army Corps of Engineers](https://www.usace.army.mil/) (USACE) 
+[Risk Management Center](https://github.com/USACE-RMC) (RMC) and 
+[Hydrologic Engineering Center](https://github.com/HydrologicEngineeringCenter) (HEC)
+for stochastic and computational hydrology including distribution fitting and sampling, 
+timeseries modeling, uncertainty quantification, optimization, machine learning, flood and precip 
+frequency estimation, and a whole lot more. 
 
-Because both packages run the same compiled code with a bit-exact Mersenne Twister,
-seeded results are identical across R and Python, and reproduce the upstream C#
-library bit-for-bit. Every ported value is validated against the real C# libraries
-by an oracle test suite of more than 4,000 reproduced values.
+The motivation behind this porting effort is to increase awareness 
+and accessibility of these amazing software packages (see the [Why?](#why) section 
+for more info). Currently this project has ported pieces of the following libraries/packages:
+- [RMC-BestFit](https://github.com/USACE-RMC/RMC-BestFit) (statistical engine fully ported)
+- [Numerics](https://github.com/USACE-RMC/Numerics) (probability, sampling, and estimation layers)
+- [HEC-FDA](https://github.com/HydrologicEngineeringCenter/HEC-FDA) (planned, not started)
+
+See the [porting status page](https://cameronbracken.github.io/corehydro/status.html)
+for the details of what is currently implemented in the core library and in the packages.
 
 ## What's inside
 
@@ -31,12 +38,16 @@ by an oracle test suite of more than 4,000 reproduced values.
 
 ## Install
 
+Both packages are pre-release and install directly from GitHub. They compile the
+shared core from source, so a C++17 compiler is required (Xcode command-line tools
+on macOS, gcc/clang on Linux, Rtools on Windows for R).
+
 ::: {.panel-tabset}
 
 ## Python
 
 ```bash
-pip install corehydropy
+pip install "git+https://github.com/cameronbracken/corehydro.git#subdirectory=corehydropy"
 ```
 
 ```python
@@ -49,7 +60,8 @@ d.quantile(0.99)
 ## R
 
 ```r
-install.packages("corehydror")
+# install.packages("pak")
+pak::pak("cameronbracken/corehydro/corehydror")
 ```
 
 ```r
@@ -61,9 +73,8 @@ dist_quantile(d, 0.99)
 
 :::
 
-Both packages are pre-release; install from the
-[GitHub repository](https://github.com/cameronbracken/corehydro) until they land on
-PyPI and CRAN.
+Releases on PyPI and CRAN are planned; these instructions will switch to plain
+`pip install` / `install.packages()` when they land.
 
 ## Learn more
 

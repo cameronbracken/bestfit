@@ -3,12 +3,11 @@ title: "Porting status"
 toc: true
 ---
 
-What is currently implemented, by upstream library, at two levels: the shared C++ core
-(the faithful port itself) and the user-facing R/Python packages (`corehydror` /
+What is currently implemented, by source library for both the shared C++ core library 
+(the faithful port itself) and the R/Python packages (`corehydror` /
 `corehydropy`). "Internal" means the core carries a validated port that the packages use
 under the hood (or expose only through the analysis functions) but that has no public
-wrapper of its own yet. Every "Ported" row is validated by the oracle fixture suite,
-which replays 4,100+ values against the real C# libraries.
+wrapper of its own yet. Every "Ported" row is validated by test suites which have also been ported and compared to the original C# libraries.
 
 Status as of v0.1.0.
 
@@ -27,11 +26,11 @@ general-purpose math, machine learning, and data-container layers are out of sco
 | `Sampling` (Latin hypercube, Sobol) | Ported | Public / Internal | `latin_hypercube()` public; Sobol internal |
 | `Sampling.Bootstrap` | Ported (non-pivotal) | Public | `bootstrap_analysis()`; the covariance-aware pivotal workflow is a documented omission |
 | `Data.Statistics` | Partial | Public / Internal | MGBT, Box-Cox, Yeo-Johnson, plotting positions public; descriptive stats / correlation / goodness-of-fit internal; t / Mann-Whitney / KS tests, single Grubbs-Beck, and Jenks breaks not ported |
-| `Data` (TimeSeries container) | Not ported | -- | a thin adapter exists for the time-series models; the 2,300-line container (interpolation, file I/O, USGS download) is a documented severance |
+| `Data` (TimeSeries container) | Not ported | -- | a thin adapter exists for the time-series models; The additional functionality (interpolation, file I/O, USGS download) may be implemented later |
 | `Mathematics` (linear algebra, special functions, root finding) | Ported (as needed) | Internal | everything the distribution / estimation layers require |
 | `Mathematics.Optimization` | Partial | Internal | DE, Nelder-Mead, Brent, BFGS, Powell, MLSL ported (the estimators' needs); PSO, SCE-UA, simulated annealing, augmented Lagrange, multi-start not ported |
 | `Mathematics.Integration` | Not ported | -- | except the Genz MVNDST integrator inside MultivariateNormal |
-| `MachineLearning` (K-Means, random forest, KNN, decision trees, GMM, GLM) | Not ported | -- | out of scope |
+| `MachineLearning` (K-Means, random forest, KNN, decision trees, GMM, GLM) | Not ported | -- | Planned for future release |
 | `Functions` (link functions) | Ported | Internal | the seven standard links, used by the GMM / Bulletin 17C track |
 | `Random Numbers` (Mersenne Twister) | Ported (bit-exact) | Internal | the foundation of cross-language reproducibility |
 
@@ -49,8 +48,8 @@ fully ported; only its WPF desktop shell is out of scope.
 | `Models` (data frame, censored data, trends, all model families) | Ported | Public | flood frequency, Bulletin 17C, mixtures, competing risks, point process, AR/MA/ARIMA/ARIMAX, spatial GEV, rating curves, bivariate |
 | `Analyses` (all orchestrators) | Ported | Public | the 19 analysis functions in each package |
 | `Diagnostics` (leverage, influence, prior influence, predictive checks) | Ported | Public | `estimation_diagnostics()`, `prior_predictive_check()`, `posterior_predictive_check()` |
-| Report generation | Not ported | -- | presentation-only text output; permanent skip |
-| Batch runner / GUI | Not ported | -- | the WPF desktop application is not a porting target |
+| Report generation | Not ported | -- | Not a planned porting target  |
+| Batch runner / GUI | Not ported | -- | Not a planned porting target |
 
 : {tbl-colwidths="[30,14,14,42]"}
 
@@ -58,7 +57,8 @@ fully ported; only its WPF desktop shell is out of scope.
 
 [HEC-FDA](https://github.com/HydrologicEngineeringCenter/HEC-FDA) (flood damage and risk
 assessment) is planned as the next upstream source, extending corehydro beyond RMC
-libraries to the Hydrologic Engineering Center. Nothing is ported yet.
+libraries to the Hydrologic Engineering Center. Porting is underway in a 
+[separate repo](https://github.com/cameronbracken/hecfda/) and will be merged eventually.
 
 | Area | C++ core | Packages | Notes |
 |------|----------|----------|-------|
