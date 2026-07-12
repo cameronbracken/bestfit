@@ -20,5 +20,16 @@ here.
 | # | Example | Python | R |
 |---|---------|--------|---|
 | 00 | Getting started | [Python](00-getting-started/python.ipynb) | [R](00-getting-started/r.qmd) |
+| 01 | Probability distributions | [Python](01-distributions/python.ipynb) | [R](01-distributions/r.qmd) |
+| 02 | Distribution fitting | [Python](02-distribution-fitting/python.ipynb) | [R](02-distribution-fitting/r.qmd) |
+| 03 | MCMC basics | [Python](03-mcmc-basics/python.ipynb) | [R](03-mcmc-basics/r.qmd) |
+| 04 | Bayesian inference | [Python](04-bayesian-inference/python.ipynb) | [R](04-bayesian-inference/r.qmd) |
+| 05 | Adaptive MCMC samplers | [Python](05-mcmc-samplers/python.ipynb) | [R](05-mcmc-samplers/r.qmd) |
+| 06 | MCMC diagnostics | [Python](06-mcmc-diagnostics/python.ipynb) | [R](06-mcmc-diagnostics/r.qmd) |
+| 09 | Statistics toolbox | [Python](09-statistics/python.ipynb) | [R](09-statistics/r.qmd) |
+| 20 | Bayesian regression | [Python](20-bayesian-regression/python.ipynb) | [R](20-bayesian-regression/r.qmd) |
+| 21 | Flood frequency analysis | [Python](21-flood-frequency/python.ipynb) | [R](21-flood-frequency/r.qmd) |
+| 22 | Reliability analysis | [Python](22-reliability/python.ipynb) | [R](22-reliability/r.qmd) |
 
-More examples land as they are ported; see the coverage page for the full plan.
+Numbers 00-09 mirror the upstream notebooks; 20-22 are the upstream's three
+standalone scripts.

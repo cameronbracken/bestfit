@@ -47,3 +47,6 @@ site/.quarto/
 site/reference/
 site/objects.json
 bestfitr/docs/
+
+# R batch-mode plot artifacts
+Rplots.pdf

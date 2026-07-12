@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "bestfit/numerics/data/statistics.hpp"
+#include "bestfit/numerics/distributions/base/i_estimation.hpp"
+#include "bestfit/numerics/distributions/base/i_linear_moment_estimation.hpp"
 #include "bestfit/numerics/distributions/base/i_maximum_likelihood_estimation.hpp"
 #include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "bestfit/numerics/math/linalg/matrix.hpp"
@@ -26,7 +28,13 @@ namespace bestfit::numerics::distributions {
 // kept so the GEV bindings/fixtures continue to resolve "mom"/"lmom"/"mle" unchanged).
 enum class EstimationMethod { MethodOfMoments, MethodOfLinearMoments, MaximumLikelihood };
 
+// Mirrors the C# class declaration: `GeneralizedExtremeValue : UnivariateDistributionBase,
+// IEstimation, IMaximumLikelihoodEstimation, ILinearMomentEstimation, ...` -- the IEstimation
+// and ILinearMomentEstimation mixins postdate the Phase-0 GEV port and were retrofitted so the
+// factory-dispatched public API (dist_fit / dist_lmoments) treats GEV like every other family.
 class GeneralizedExtremeValue : public UnivariateDistributionBase,
+                                public IEstimation,
+                                public ILinearMomentEstimation,
                                 public IMaximumLikelihoodEstimation {
    public:
     GeneralizedExtremeValue() { set_parameters(100.0, 10.0, 0.0); }
@@ -67,6 +75,21 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase,
     }
 
     // --- Estimation ---
+    // IEstimation override (the shared enum); forwards to the legacy GEV-specific enum path.
+    void estimate(const std::vector<double>& sample, ParameterEstimationMethod method) override {
+        switch (method) {
+            case ParameterEstimationMethod::MethodOfMoments:
+                estimate(sample, EstimationMethod::MethodOfMoments);
+                break;
+            case ParameterEstimationMethod::MethodOfLinearMoments:
+                estimate(sample, EstimationMethod::MethodOfLinearMoments);
+                break;
+            default:
+                estimate(sample, EstimationMethod::MaximumLikelihood);
+                break;
+        }
+    }
+
     void estimate(const std::vector<double>& sample, EstimationMethod method) {
         if (method == EstimationMethod::MethodOfMoments) {
             set_parameters(direct_method_of_moments(data::product_moments(sample)));
@@ -125,7 +148,8 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase,
         return {x, a, k};
     }
 
-    std::vector<double> parameters_from_linear_moments(const std::vector<double>& moments) const {
+    std::vector<double> parameters_from_linear_moments(
+        const std::vector<double>& moments) const override {
         namespace g = math::special;
         double L1 = moments[0], L2 = moments[1], T3 = moments[2];
         double kappa;
@@ -144,7 +168,8 @@ class GeneralizedExtremeValue : public UnivariateDistributionBase,
         return {xi, alpha, kappa};
     }
 
-    std::vector<double> linear_moments_from_parameters(const std::vector<double>& parameters) const {
+    std::vector<double> linear_moments_from_parameters(
+        const std::vector<double>& parameters) const override {
         namespace g = math::special;
         double xi = parameters[0], alpha = parameters[1], kappa = parameters[2];
         if (kappa <= -1.0) throw std::out_of_range("L-moments require kappa > -1");
