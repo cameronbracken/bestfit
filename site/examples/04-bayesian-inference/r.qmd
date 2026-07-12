@@ -10,7 +10,7 @@ Ported from
 [`04_mcmc_bayesian_inference.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/04_mcmc_bayesian_inference.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 seeded MCMC results below reproduce the upstream outputs at every digit the
 upstream displays (see the reproduction check at the end for the honest fine
 print). The Python version of this example uses the same core and prints the same
@@ -37,7 +37,7 @@ chain driver always runs chains serially (exactly the upstream's
 construction.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Example: flood frequency analysis
@@ -230,7 +230,7 @@ cat("Posterior predictive summary\n")
 print(ppc_summary)
 ```
 
-`bestfitr` also ships a turnkey version. `posterior_predictive_check()` fits the
+`corehydror` also ships a turnkey version. `posterior_predictive_check()` fits the
 model by MCMC (DEMCz by default), draws replicate datasets, and returns Bayesian
 p-values for five test statistics. Values near 0.5 mean the observed statistic sits
 in the middle of the predictive distribution; values near 0 or 1 flag misfit.

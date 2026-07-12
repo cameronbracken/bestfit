@@ -1,4 +1,4 @@
-// Standalone test for bestfit::models::PointProcessModel (Phase 5, M12).
+// Standalone test for corehydro::models::PointProcessModel (Phase 5, M12).
 //
 // Oracle for behavior is the C# source itself:
 //   - upstream/RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
@@ -51,34 +51,34 @@
 #include <utility>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/prior_component.hpp"
-#include "bestfit/models/support/validation_result.hpp"
-#include "bestfit/models/univariate_distribution/point_process_model.hpp"
-#include "bestfit/numerics/data/time_series/support/time_block_window.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_base.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/competing_risks.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/prior_component.hpp"
+#include "corehydro/models/support/validation_result.hpp"
+#include "corehydro/models/univariate_distribution/point_process_model.hpp"
+#include "corehydro/numerics/data/time_series/support/time_block_window.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/competing_risks.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::IntervalData;
-using bestfit::models::PointProcessModel;
-using bestfit::models::PriorComponentType;
-using bestfit::models::ThresholdData;
-using bestfit::models::UncertainData;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::data::TimeBlockWindow;
-using bestfit::numerics::distributions::CompetingRisks;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::PointProcessModel;
+using corehydro::models::PriorComponentType;
+using corehydro::models::ThresholdData;
+using corehydro::models::UncertainData;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::data::TimeBlockWindow;
+using corehydro::numerics::distributions::CompetingRisks;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -1263,5 +1263,5 @@ int main() {
     // ISimulatable guards + seeded determinism.
     test_generate_random_values_guards_and_deterministic_seed();
 
-    return bftest::summary("point_process_model");
+    return chtest::summary("point_process_model");
 }

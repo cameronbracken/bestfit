@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::estimation::NumericalDiff (Phase 4, Task T3).
+// Standalone tests for corehydro::estimation::NumericalDiff (Phase 4, Task T3).
 //
 // No C# oracle literal exists for NumericalDiff (upstream it's exercised only via the
 // MLE/MAP estimator tests, which aren't ported yet). Instead this suite checks
@@ -14,12 +14,12 @@
 #include <functional>
 #include <vector>
 
-#include "bestfit/estimation/numerical_diff.hpp"
-#include "bestfit/estimation/optimization_method.hpp"
+#include "corehydro/estimation/numerical_diff.hpp"
+#include "corehydro/estimation/optimization_method.hpp"
 #include "check.hpp"
 
-using bestfit::estimation::NumericalDiff;
-using bestfit::estimation::OptimizationMethod;
+using corehydro::estimation::NumericalDiff;
+using corehydro::estimation::OptimizationMethod;
 
 namespace {
 
@@ -160,5 +160,5 @@ int main() {
     test_pointwise_gradients_linear_rows();
     test_pointwise_gradients_flat_spot_is_finite();
 
-    return bftest::summary("numerical_diff");
+    return chtest::summary("numerical_diff");
 }

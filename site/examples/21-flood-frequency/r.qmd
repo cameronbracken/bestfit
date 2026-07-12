@@ -11,7 +11,7 @@ Ported from
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 file is a standalone script, not a notebook: it drives the C# `Numerics.dll` through
 pythonnet, prints two tables to the terminal, and pops up a figure. This version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 deterministic fits and tables below are the values that script prints. The Python
 version of this example uses the same core and prints the same numbers.
 
@@ -29,7 +29,7 @@ CoreCLR runtime, resolving `Numerics.dll` from the NuGet cache, and converting a
 to `System.Array[Double]`. None of that exists here.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## The data

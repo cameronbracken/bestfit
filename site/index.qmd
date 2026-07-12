@@ -1,10 +1,10 @@
 ---
-title: "bestfit"
+title: "corehydro"
 subtitle: "Bayesian flood-frequency and extreme-value analysis in R and Python"
 toc: false
 ---
 
-`bestfit` provides an R package (`bestfitr`) and a Python package (`bestfitpy`) for
+`corehydro` provides an R package (`corehydror`) and a Python package (`corehydropy`) for
 stochastic hydrology, flood-frequency, and extreme-value analysis. Both are thin
 bindings over a single shared C++17 core that is a faithful port of the USACE Risk
 Management Center's [Numerics](https://github.com/USACE-RMC/Numerics) and
@@ -36,24 +36,24 @@ by an oracle test suite of more than 4,000 reproduced values.
 ## Python
 
 ```bash
-pip install bestfitpy
+pip install corehydropy
 ```
 
 ```python
-import bestfitpy as bf
+import corehydropy as ch
 
-d = bf.Distribution("GeneralizedExtremeValue", [10849, 5745, 0.005])
+d = ch.Distribution("GeneralizedExtremeValue", [10849, 5745, 0.005])
 d.quantile(0.99)
 ```
 
 ## R
 
 ```r
-install.packages("bestfitr")
+install.packages("corehydror")
 ```
 
 ```r
-library(bestfitr)
+library(corehydror)
 
 d <- distribution("GeneralizedExtremeValue", c(10849, 5745, 0.005))
 dist_quantile(d, 0.99)
@@ -62,7 +62,7 @@ dist_quantile(d, 0.99)
 :::
 
 Both packages are pre-release; install from the
-[GitHub repository](https://github.com/cameronbracken/bestfit) until they land on
+[GitHub repository](https://github.com/cameronbracken/corehydro) until they land on
 PyPI and CRAN.
 
 ## Learn more

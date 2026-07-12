@@ -58,40 +58,40 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/estimation/generalized_method_of_moments.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/data_frame/data_types/interval_data.hpp"
-#include "bestfit/models/data_frame/data_types/threshold_data.hpp"
-#include "bestfit/models/data_frame/data_types/uncertain_data.hpp"
-#include "bestfit/models/link_functions/asinh_link.hpp"
-#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/log_pearson_type_iii.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/pearson_type_iii.hpp"
-#include "bestfit/numerics/functions/i_link_function.hpp"
-#include "bestfit/numerics/functions/link_controller.hpp"
-#include "bestfit/numerics/functions/log_link.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/estimation/generalized_method_of_moments.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/data_frame/data_types/interval_data.hpp"
+#include "corehydro/models/data_frame/data_types/threshold_data.hpp"
+#include "corehydro/models/data_frame/data_types/uncertain_data.hpp"
+#include "corehydro/models/link_functions/asinh_link.hpp"
+#include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/log_pearson_type_iii.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/pearson_type_iii.hpp"
+#include "corehydro/numerics/functions/i_link_function.hpp"
+#include "corehydro/numerics/functions/link_controller.hpp"
+#include "corehydro/numerics/functions/log_link.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
-using bestfit::estimation::GeneralizedMethodOfMoments;
-using bestfit::models::Bulletin17CDistribution;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::IntervalData;
-using bestfit::models::ThresholdData;
-using bestfit::models::UncertainData;
-using bestfit::models::link_functions::ASinHLink;
-using bestfit::numerics::distributions::LogNormal;
-using bestfit::numerics::distributions::LogPearsonTypeIII;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::PearsonTypeIII;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::functions::ILinkFunction;
-using bestfit::numerics::functions::LinkController;
-using bestfit::numerics::functions::LogLink;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::estimation::GeneralizedMethodOfMoments;
+using corehydro::models::Bulletin17CDistribution;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::IntervalData;
+using corehydro::models::ThresholdData;
+using corehydro::models::UncertainData;
+using corehydro::models::link_functions::ASinHLink;
+using corehydro::numerics::distributions::LogNormal;
+using corehydro::numerics::distributions::LogPearsonTypeIII;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::PearsonTypeIII;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::functions::ILinkFunction;
+using corehydro::numerics::functions::LinkController;
+using corehydro::numerics::functions::LogLink;
+using corehydro::numerics::sampling::MersenneTwister;
 
 namespace {
 
@@ -147,7 +147,7 @@ void test_constructor_with_distribution_instance() {
     Bulletin17CDistribution model(create_flood_data_frame(), prototype.clone());
 
     CHECK_TRUE(model.distribution() !=
-               static_cast<const bestfit::numerics::distributions::UnivariateDistributionBase*>(
+               static_cast<const corehydro::numerics::distributions::UnivariateDistributionBase*>(
                    &prototype));
     CHECK_TRUE(model.distribution()->type() == prototype.type());
 }
@@ -156,7 +156,7 @@ void test_constructor_with_distribution_instance() {
 void test_constructor_null_distribution_throws() {
     CHECK_THROWS(Bulletin17CDistribution(
         create_flood_data_frame(),
-        std::unique_ptr<bestfit::numerics::distributions::UnivariateDistributionBase>{}));
+        std::unique_ptr<corehydro::numerics::distributions::UnivariateDistributionBase>{}));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -301,9 +301,9 @@ void test_clone_returns_separate_instance_with_matching_state() {
     Bulletin17CDistribution original(create_flood_data_frame(),
                                      UnivariateDistributionType::LogPearsonTypeIII);
 
-    std::unique_ptr<bestfit::models::IGMMModel> clone = original.clone();
+    std::unique_ptr<corehydro::models::IGMMModel> clone = original.clone();
     CHECK_TRUE(clone != nullptr);
-    CHECK_TRUE(clone.get() != static_cast<bestfit::models::IGMMModel*>(&original));
+    CHECK_TRUE(clone.get() != static_cast<corehydro::models::IGMMModel*>(&original));
 
     auto* cloned = dynamic_cast<Bulletin17CDistribution*>(clone.get());
     CHECK_TRUE(cloned != nullptr);
@@ -371,7 +371,7 @@ void test_gmm_model_constructor_wiring() {
     CHECK_EQ(gmm.number_of_parameters(), 2);
     CHECK_EQ(gmm.number_of_moment_conditions(), 2);
     CHECK_EQ(gmm.sample_size(), kFixtureSize);
-    CHECK_TRUE(gmm.model() == static_cast<bestfit::models::IGMMModel*>(&model));
+    CHECK_TRUE(gmm.model() == static_cast<corehydro::models::IGMMModel*>(&model));
     CHECK_TRUE(gmm.identification_status() ==
                GeneralizedMethodOfMoments::GMMIdentificationStatus::JustIdentified);
     // Initial values / bounds come from the model's parameters.
@@ -380,7 +380,7 @@ void test_gmm_model_constructor_wiring() {
     CHECK_NEAR(gmm.lower_bounds()[0], model.parameters()[0].lower_bound(), 0.0);
     CHECK_NEAR(gmm.upper_bounds()[1], model.parameters()[1].upper_bound(), 0.0);
     // B10: the delegate now runs the real MomentConditions and returns finite results.
-    bestfit::estimation::MomentConditionResult mc = gmm.moment_condition_function()({100.0, 15.0});
+    corehydro::estimation::MomentConditionResult mc = gmm.moment_condition_function()({100.0, 15.0});
     CHECK_EQ(mc.G.length(), 2);
     CHECK_EQ(mc.S.number_of_rows(), 2);
     CHECK_EQ(mc.S.number_of_columns(), 2);
@@ -622,7 +622,7 @@ void test_pointwise_column_means_match_g_lp3() {
     std::vector<double> p;
     for (const auto& mp : model.parameters()) p.push_back(mp.value());
 
-    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    corehydro::estimation::MomentConditionResult mc = model.moment_conditions(p);
     // "PointwiseMomentConditions delegate must be exposed by Bulletin17CDistribution."
     CHECK_TRUE(static_cast<bool>(model.pointwise_moment_conditions()));
     auto pointwise = model.pointwise_moment_conditions()(p);
@@ -653,7 +653,7 @@ void test_pointwise_column_means_match_g_normal() {
     std::vector<double> p;
     for (const auto& mp : model.parameters()) p.push_back(mp.value());
 
-    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    corehydro::estimation::MomentConditionResult mc = model.moment_conditions(p);
     CHECK_TRUE(static_cast<bool>(model.pointwise_moment_conditions()));
     auto pointwise = model.pointwise_moment_conditions()(p);
 
@@ -755,7 +755,7 @@ void test_moment_conditions_exact_data_hand_computed() {
     df.exact_series().add(ExactData(2003, 14.0));
 
     Bulletin17CDistribution model(std::move(df), UnivariateDistributionType::Normal);
-    bestfit::estimation::MomentConditionResult mc = model.moment_conditions({11.0, 2.0});
+    corehydro::estimation::MomentConditionResult mc = model.moment_conditions({11.0, 2.0});
 
     CHECK_EQ(mc.G.length(), 2);
     CHECK_NEAR(mc.G[0], 0.0, 1e-12);
@@ -814,7 +814,7 @@ void test_pointwise_column_means_match_g_mixed_frame() {
     std::vector<double> p;
     for (const auto& mp : model.parameters()) p.push_back(mp.value());
 
-    bestfit::estimation::MomentConditionResult mc = model.moment_conditions(p);
+    corehydro::estimation::MomentConditionResult mc = model.moment_conditions(p);
     auto pointwise = model.pointwise_moment_conditions()(p);
 
     // Row count: 20 exact + 1 interval + 1 uncertain + 49 below + 2 above = 73.
@@ -969,5 +969,5 @@ int main() {
     test_quantile_variance_matches_finite_difference();
     test_gmm_estimate_end_to_end_smoke();
 
-    return bftest::summary("bulletin17c");
+    return chtest::summary("bulletin17c");
 }

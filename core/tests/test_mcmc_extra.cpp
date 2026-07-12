@@ -38,21 +38,21 @@
 #include <optional>
 #include <vector>
 
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/sampling/mcmc/hmc.hpp"
-#include "bestfit/numerics/sampling/mcmc/snis.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
-#include "bestfit/numerics/sampling/mcmc/support/mcmc_results.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/sampling/mcmc/hmc.hpp"
+#include "corehydro/numerics/sampling/mcmc/snis.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
+#include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-namespace mcmc = bestfit::numerics::sampling::mcmc;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::Uniform;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::sampling::MersenneTwister;
+namespace mcmc = corehydro::numerics::sampling::mcmc;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Uniform;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::sampling::MersenneTwister;
 
 namespace {
 
@@ -205,7 +205,7 @@ double standard_normal(MersenneTwister& rng) {
     double u1 = rng.next_double();
     double u2 = rng.next_double();
     if (u1 < 1e-300) u1 = 1e-300;
-    return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * bestfit::numerics::kPi * u2);
+    return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * corehydro::numerics::kPi * u2);
 }
 
 // BuildResults: builds a minimal MCMCResults via the (map, parameterSets, alpha) ctor.
@@ -428,5 +428,5 @@ int main() {
     test_recompute_widens_ci_when_alpha_decreases();
     test_recompute_preserves_mean_and_median();
     test_recompute_on_empty_results_does_not_throw();
-    return bftest::summary("test_mcmc_extra");
+    return chtest::summary("test_mcmc_extra");
 }

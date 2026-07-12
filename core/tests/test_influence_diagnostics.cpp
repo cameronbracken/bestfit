@@ -1,5 +1,5 @@
-// Standalone C++-only ctest for bestfit::diagnostics::InfluenceDiagnostics and
-// bestfit::diagnostics::PriorInfluenceDiagnostics (Phase 9a, Task D4).
+// Standalone C++-only ctest for corehydro::diagnostics::InfluenceDiagnostics and
+// corehydro::diagnostics::PriorInfluenceDiagnostics (Phase 9a, Task D4).
 //
 // Oracle for behavior is the C# source itself
 // (upstream/RMC-BestFit/src/RMC.BestFit/Diagnostics/{InfluenceDiagnostics,
@@ -30,18 +30,18 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/diagnostics/influence_diagnostics.hpp"
-#include "bestfit/diagnostics/prior_influence_diagnostics.hpp"
-#include "bestfit/models/support/data_component.hpp"
-#include "bestfit/models/support/prior_component.hpp"
+#include "corehydro/diagnostics/influence_diagnostics.hpp"
+#include "corehydro/diagnostics/prior_influence_diagnostics.hpp"
+#include "corehydro/models/support/data_component.hpp"
+#include "corehydro/models/support/prior_component.hpp"
 #include "check.hpp"
 
-using bestfit::diagnostics::InfluenceDiagnostics;
-using bestfit::diagnostics::ParetoKCategory;
-using bestfit::diagnostics::PriorInfluenceDiagnostics;
-using bestfit::models::DataComponent;
-using bestfit::models::DataComponentType;
-using bestfit::models::PriorComponentType;
+using corehydro::diagnostics::InfluenceDiagnostics;
+using corehydro::diagnostics::ParetoKCategory;
+using corehydro::diagnostics::PriorInfluenceDiagnostics;
+using corehydro::models::DataComponent;
+using corehydro::models::DataComponentType;
+using corehydro::models::PriorComponentType;
 
 using ObservationInfluence = InfluenceDiagnostics::ObservationInfluence;
 using PriorComponentSummary = PriorInfluenceDiagnostics::PriorComponentSummary;
@@ -445,5 +445,5 @@ int main() {
     test_prior_component_summary_cv_computed();
     test_prior_component_summary_cv_zero_mean();
 
-    return bftest::summary("influence_diagnostics");
+    return chtest::summary("influence_diagnostics");
 }

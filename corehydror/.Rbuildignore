@@ -1,0 +1,9 @@
+^.*\.o$
+^.*\.so$
+^src/corehydror\.so$
+^\.\.Rcheck$
+^.*\.Rproj$
+^\.Rproj\.user$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

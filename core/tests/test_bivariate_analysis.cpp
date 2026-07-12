@@ -1,4 +1,4 @@
-// Structural / behavioral tests for bestfit::analyses::BivariateAnalysis (X3).
+// Structural / behavioral tests for corehydro::analyses::BivariateAnalysis (X3).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/Bivariate/BivariateAnalysisTests.cs
@@ -25,35 +25,35 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/bivariate/bivariate_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/bivariate_distribution/bivariate_distribution.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/copulas/base/copula_type.hpp"
-#include "bestfit/numerics/distributions/copulas/clayton_copula.hpp"
-#include "bestfit/numerics/distributions/copulas/frank_copula.hpp"
-#include "bestfit/numerics/distributions/copulas/gumbel_copula.hpp"
-#include "bestfit/numerics/distributions/copulas/normal_copula.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/analyses/bivariate/bivariate_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/bivariate_distribution/bivariate_distribution.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/copulas/base/copula_type.hpp"
+#include "corehydro/numerics/distributions/copulas/clayton_copula.hpp"
+#include "corehydro/numerics/distributions/copulas/frank_copula.hpp"
+#include "corehydro/numerics/distributions/copulas/gumbel_copula.hpp"
+#include "corehydro/numerics/distributions/copulas/normal_copula.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::BivariateAnalysis;
-using bestfit::estimation::BayesianAnalysis;
-using bestfit::models::BivariateDistribution;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::Gumbel;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::distributions::copulas::ClaytonCopula;
-using bestfit::numerics::distributions::copulas::CopulaType;
-using bestfit::numerics::distributions::copulas::FrankCopula;
-using bestfit::numerics::distributions::copulas::GumbelCopula;
-using bestfit::numerics::distributions::copulas::NormalCopula;
+using corehydro::analyses::BivariateAnalysis;
+using corehydro::estimation::BayesianAnalysis;
+using corehydro::models::BivariateDistribution;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::Gumbel;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::distributions::copulas::ClaytonCopula;
+using corehydro::numerics::distributions::copulas::CopulaType;
+using corehydro::numerics::distributions::copulas::FrankCopula;
+using corehydro::numerics::distributions::copulas::GumbelCopula;
+using corehydro::numerics::distributions::copulas::NormalCopula;
 
 namespace {
 
@@ -192,7 +192,7 @@ void test_before_estimation_state() {
 
 // ---- BayesianAnalysis_PointEstimator_CanBeSet (Mean / MAP) ----
 void test_point_estimator_can_be_set() {
-    using bestfit::estimation::PointEstimateType;
+    using corehydro::estimation::PointEstimateType;
     Fixture f = make_test_analysis();
     f.analysis->bayesian_analysis().set_point_estimator(PointEstimateType::PosteriorMean);
     CHECK_TRUE(f.analysis->bayesian_analysis().point_estimator() == PointEstimateType::PosteriorMean);
@@ -259,5 +259,5 @@ int main() {
     test_clear_frequency_results_safe_on_fresh();
     test_different_marginal_types();
 
-    return bftest::summary("bivariate_analysis");
+    return chtest::summary("bivariate_analysis");
 }

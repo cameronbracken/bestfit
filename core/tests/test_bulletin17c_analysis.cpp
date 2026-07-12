@@ -1,4 +1,4 @@
-// Structural / behavioral tests for bestfit::analyses::Bulletin17CAnalysis (A7): the
+// Structural / behavioral tests for corehydro::analyses::Bulletin17CAnalysis (A7): the
 // point-estimate GMM fit + the DEFAULT MultivariateNormal uncertainty-quantification path.
 //
 // These transcribe the STRUCTURAL C# tests from
@@ -35,24 +35,24 @@
 #include <tuple>
 #include <vector>
 
-#include "bestfit/analyses/support/bootstrap_diagnostics.hpp"
-#include "bestfit/analyses/support/cohn_confidence_interval_result.hpp"
-#include "bestfit/analyses/univariate/bulletin17c_analysis.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
-#include "bestfit/models/link_functions/asinh_link.hpp"
-#include "bestfit/models/link_functions/log_asinh_link.hpp"
-#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/student_t.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
+#include "corehydro/analyses/support/bootstrap_diagnostics.hpp"
+#include "corehydro/analyses/support/cohn_confidence_interval_result.hpp"
+#include "corehydro/analyses/univariate/bulletin17c_analysis.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/link_functions/asinh_link.hpp"
+#include "corehydro/models/link_functions/log_asinh_link.hpp"
+#include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/student_t.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
 // Friend accessor for the private A8 acceleration_constants() method (C# private; not called on
 // the shipped Bootstrap path -- see the header). Declared a friend in the analysis header so the
 // C++-only determinism ctest can reach it without widening the public API.
-namespace bestfit::analyses {
+namespace corehydro::analyses {
 struct Bulletin17CAnalysisTestAccess {
     static std::vector<double> acceleration_constants(Bulletin17CAnalysis& a,
                                                       const std::vector<double>& theta_hats) {
@@ -81,15 +81,15 @@ struct Bulletin17CAnalysisTestAccess {
     }
     static std::pair<std::vector<std::vector<double>>, std::vector<double>> build_quadrature_grid(
         Bulletin17CAnalysis& a, const std::vector<double>& mean,
-        const bestfit::numerics::math::linalg::Matrix& covariance, int dimension,
+        const corehydro::numerics::math::linalg::Matrix& covariance, int dimension,
         int n_nodes_per_dim) {
         return a.build_quadrature_grid(mean, covariance, dimension, n_nodes_per_dim);
     }
 
     // X8 LinkedMVN link-builder helpers (private static; reached here for the C++-only oracle
     // ctests transcribed from the C# reflection tests).
-    using ASinHLink = bestfit::models::link_functions::ASinHLink;
-    using LogASinHLink = bestfit::models::link_functions::LogASinHLink;
+    using ASinHLink = corehydro::models::link_functions::ASinHLink;
+    using LogASinHLink = corehydro::models::link_functions::LogASinHLink;
     static ASinHLink create_location_link(double c, double se, double weds) {
         return Bulletin17CAnalysis::create_location_link(c, se, weds);
     }
@@ -115,24 +115,24 @@ struct Bulletin17CAnalysisTestAccess {
         return Bulletin17CAnalysis::standardized_magnitude(est, se);
     }
 };
-}  // namespace bestfit::analyses
+}  // namespace corehydro::analyses
 
-using bestfit::analyses::BootstrapDiagnostics;
-using bestfit::analyses::Bulletin17CAnalysis;
-using bestfit::analyses::Bulletin17CAnalysisTestAccess;
-using bestfit::analyses::UncertaintyMethod;
-using bestfit::models::Bulletin17CDistribution;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using PET = bestfit::estimation::PointEstimateType;
-using UDT = bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::analyses::BootstrapDiagnostics;
+using corehydro::analyses::Bulletin17CAnalysis;
+using corehydro::analyses::Bulletin17CAnalysisTestAccess;
+using corehydro::analyses::UncertaintyMethod;
+using corehydro::models::Bulletin17CDistribution;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using PET = corehydro::estimation::PointEstimateType;
+using UDT = corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
 // Deterministic flood-like fixture, mirroring the C# inline LogNormal(8,0.4) draws. The ported
 // Mersenne Twister is bit-exact, so these 50 values match the C# InlineFloodData exactly.
 std::vector<double> flood_data() {
-    return bestfit::numerics::distributions::LogNormal(8.0, 0.4).generate_random_values(50, 12345);
+    return corehydro::numerics::distributions::LogNormal(8.0, 0.4).generate_random_values(50, 12345);
 }
 
 std::unique_ptr<Bulletin17CDistribution> make_lp3_model() {
@@ -486,8 +486,8 @@ void test_run_bootstrap_structural() {
 
 // ============================ A9: Cohn-style delta-method confidence intervals ============================
 
-using bestfit::analyses::CohnConfidenceIntervalResult;
-using bestfit::numerics::math::linalg::Matrix;
+using corehydro::analyses::CohnConfidenceIntervalResult;
+using corehydro::numerics::math::linalg::Matrix;
 using TA = Bulletin17CAnalysisTestAccess;
 
 // ---- ClampForCovariance: sigma floor 1e-10, |gamma| clamp to 1.5, 0.063 floor sign-preserving ----
@@ -565,7 +565,7 @@ void test_cohn_adjusted_student_t_ci() {
         auto [lo, hi, b1, nu] = TA::cohn_adjusted_student_t_ci(100.0, var_q, cov_q_se, var_se, cl);
         CHECK_EQ(b1, 0.0);
         CHECK_NEAR(nu, 5.0, 1e-15);
-        double t = bestfit::numerics::distributions::StudentT(5.0).inverse_cdf((1.0 + cl) / 2.0);
+        double t = corehydro::numerics::distributions::StudentT(5.0).inverse_cdf((1.0 + cl) / 2.0);
         double se_q = std::sqrt(var_q);
         CHECK_NEAR(hi, 100.0 + se_q * t, 1e-9);   // beta1 == 0 -> symmetric interval
         CHECK_NEAR(lo, 100.0 - se_q * t, 1e-9);
@@ -902,5 +902,5 @@ int main() {
     test_pearson_scale_link_relative_se();
     test_smooth_step_and_standardized_magnitude();
 
-    return bftest::summary("bulletin17c_analysis");
+    return chtest::summary("bulletin17c_analysis");
 }

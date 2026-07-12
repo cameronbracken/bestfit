@@ -1,5 +1,5 @@
 // Structural / behavioral tests for the TimeSeries analyses (D2):
-//   bestfit::analyses::ARAnalysis, MAAnalysis, ARIMAAnalysis, ARIMAXAnalysis.
+//   corehydro::analyses::ARAnalysis, MAAnalysis, ARIMAAnalysis, ARIMAXAnalysis.
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/TimeSeriesAnalysis/ARAnalysisTests.cs
@@ -26,29 +26,29 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/time_series/ar_analysis.hpp"
-#include "bestfit/analyses/time_series/arima_analysis.hpp"
-#include "bestfit/analyses/time_series/arimax_analysis.hpp"
-#include "bestfit/analyses/time_series/ma_analysis.hpp"
-#include "bestfit/models/time_series/arima.hpp"
-#include "bestfit/models/time_series/arimax.hpp"
-#include "bestfit/models/time_series/auto_regressive.hpp"
-#include "bestfit/models/time_series/moving_average.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/analyses/time_series/ar_analysis.hpp"
+#include "corehydro/analyses/time_series/arima_analysis.hpp"
+#include "corehydro/analyses/time_series/arimax_analysis.hpp"
+#include "corehydro/analyses/time_series/ma_analysis.hpp"
+#include "corehydro/models/time_series/arima.hpp"
+#include "corehydro/models/time_series/arimax.hpp"
+#include "corehydro/models/time_series/auto_regressive.hpp"
+#include "corehydro/models/time_series/moving_average.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::ARAnalysis;
-using bestfit::analyses::ARIMAAnalysis;
-using bestfit::analyses::ARIMAXAnalysis;
-using bestfit::analyses::MAAnalysis;
-using bestfit::models::ARIMA;
-using bestfit::models::ARIMAX;
-using bestfit::models::AutoRegressive;
-using bestfit::models::MovingAverage;
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::analyses::ARAnalysis;
+using corehydro::analyses::ARIMAAnalysis;
+using corehydro::analyses::ARIMAXAnalysis;
+using corehydro::analyses::MAAnalysis;
+using corehydro::models::ARIMA;
+using corehydro::models::ARIMAX;
+using corehydro::models::AutoRegressive;
+using corehydro::models::MovingAverage;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
+using corehydro::numerics::sampling::MersenneTwister;
 
 namespace {
 
@@ -409,5 +409,5 @@ int main() {
     test_arimax_model_orders();
     test_arimax_bayesian_config();
 
-    return bftest::summary("time_series_analyses");
+    return chtest::summary("time_series_analyses");
 }

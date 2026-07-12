@@ -1,8 +1,8 @@
 # Oracle fixtures
 
 Language-neutral validation data — the **single source of truth** for the expected
-values that the C++ core, the R package (`bestfitr`), and the Python package
-(`bestfitpy`) all check against. Each language has a thin generic *runner* that loads
+values that the C++ core, the R package (`corehydror`), and the Python package
+(`corehydropy`) all check against. Each language has a thin generic *runner* that loads
 these JSON files and applies every assertion; no oracle values are duplicated in any
 test file. This is what makes "validate identically" structural rather than aspirational.
 
@@ -15,7 +15,7 @@ expected value still reproduces to its stated tolerance. A scripted extractor to
 the C# test literals *en masse* is planned for the bulk distribution port.
 
 Each package vendors this directory as a subtree symlink
-(`bestfitr/inst/fixtures`, `bestfitpy/src/bestfitpy/fixtures` -> `fixtures/`), so there
+(`corehydror/inst/fixtures`, `corehydropy/src/corehydropy/fixtures` -> `fixtures/`), so there
 is one copy in git. Builds dereference the symlink into the shipped tarball/sdist
 (`R CMD build` for R; `tools/materialize_core.py` for Python).
 
@@ -55,8 +55,8 @@ bit-for-bit across all four runners; see the `seeded_random_draws` cases in `nor
 Five `univariate_distribution` targets are composites over other distributions and use a
 structured `construct` instead of flat `"params"`/`"fit"`. Each of the four runners (C++
 `build_composite` in `core/tests/test_fixtures.cpp`, R `build_composite_data`/
-`dispatch_composite` in `bestfitr/tests/testthat/test-fixtures.R`, Python `_build_composite`/
-`_dispatch_composite` in `bestfitpy/tests/test_fixtures.py`, and the emitter's `BuildComposite`
+`dispatch_composite` in `corehydror/tests/testthat/test-fixtures.R`, Python `_build_composite`/
+`_dispatch_composite` in `corehydropy/tests/test_fixtures.py`, and the emitter's `BuildComposite`
 in `tools/oracle_emitter/Program.cs`) implements the same schema:
 
 - `TruncatedDistribution`: `{"base": {"target": ..., "params": [...]}, "bounds": [lo, hi]}`.
@@ -77,7 +77,7 @@ in `tools/oracle_emitter/Program.cs`) implements the same schema:
     `Independent`/`PerfectlyPositive` are closed-form; `PerfectlyNegative`/`CorrelationMatrix`
     route through a Product-of-Conditional-Marginals (HPCM) engine that lazily builds a
     `MultivariateNormal` purely to hold/validate a covariance matrix (see
-    `core/include/bestfit/numerics/data/probability.hpp`'s header comment and
+    `core/include/corehydro/numerics/data/probability.hpp`'s header comment and
     `docs/upstream-csharp-issues.md` for why this path is fully deterministic, unlike
     `MultivariateNormal.CDF()`'s own seeded Genz-Bretz integrator for dimension >= 3).
   - `correlation` (optional, default `[]`): a square matrix, one row per component. Only
@@ -176,7 +176,7 @@ seeded MVNUNI stream, so a run of consecutive same-method assertions in a seeded
 evaluated against ONE persistent instance, in listed order, not dispatched one call at a time
 (which would silently reset the seed between assertions) -- each fixture runner groups consecutive
 same-method assertions in a seeded case and batches them (see `_run_mvn_case` in
-`bestfitpy/tests/test_fixtures.py`, `run_mvn_case` in `bestfitr/tests/testthat/test-fixtures.R`).
+`corehydropy/tests/test_fixtures.py`, `run_mvn_case` in `corehydror/tests/testthat/test-fixtures.R`).
 Assertions for other methods (or in a case with no `"seed"`) fall through to the stateless
 per-assertion dispatch, unchanged. MultivariateStudentT is ALWAYS stateless -- its CDF (dim >= 2)
 is a deterministic K=200 stratified chi-squared(v) mixture over MultivariateNormal's CDF, not a
@@ -218,7 +218,7 @@ correctly with no batching -- see `seeded_sampling` in
 Every copula shares `BivariateCopula`'s uniform parameter API (`theta`/`get_copula_parameters`/
 `pdf`/`cdf`/...), so -- unlike `multivariate_distribution`, whose targets share no common surface
 -- all four runners dispatch through one fully generic path keyed by the factory
-(`copula_factory.hpp`, a bestfit addition with no upstream counterpart, documented in its header);
+(`copula_factory.hpp`, a corehydro addition with no upstream counterpart, documented in its header);
 adding a new copula target is a new header + a factory case + a fixture file, with **zero** runner
 changes (the one exception, the `"tau"` fit method, is explained below).
 
@@ -331,11 +331,11 @@ apply non-default settings, call `sample()` **once**, then post-process an `MCMC
 0.1`, i.e. 90% credible intervals). Every assertion in the case reads that single cached run --
 this kind is inherently **stateful** (unlike `multivariate_distribution`'s/`bivariate_copula`'s
 per-assertion dispatch): each of the four runners makes exactly one glue call per case (C++ caches
-`(sampler, results)` locally; R's `bf_mcmc_run_`/Python's `_core.mcmc_run` each return one big
+`(sampler, results)` locally; R's `ch_mcmc_run_`/Python's `_core.mcmc_run` each return one big
 struct/dict that every assertion for the case reads from, with no "seq machinery" -- there is
 nothing to batch, since there is only ever one run).
 
-**Model registry** (`core/include/bestfit/numerics/sampling/mcmc/model_registry.hpp`): a **bestfit
+**Model registry** (`core/include/corehydro/numerics/sampling/mcmc/model_registry.hpp`): a **corehydro
 addition** with no upstream C# counterpart -- the C# equivalent is inline model-construction code
 that lives only inside the individual `Test_*.cs` files, not in the library. `construct.model` is
 `{"name": <registry key>, "family": <univariate distribution type name>, "dataset": <dataset
@@ -729,7 +729,7 @@ the model via the model registry (below), configure `replicates`/`seed`/`max_ret
 or `RunWithStudentizedBootstrap()` **once** per `construct.run`, then call
 `GetConfidenceIntervals(ci_method, alpha)` **once**. Every assertion in the case reads that single
 cached `(Bootstrap, BootstrapResults)` pair -- each of the four runners makes exactly one glue call
-per case (C++ caches the pair locally; R's `bf_bootstrap_run_`/Python's `_core.bootstrap_run` each
+per case (C++ caches the pair locally; R's `ch_bootstrap_run_`/Python's `_core.bootstrap_run` each
 return one big list/dict every assertion for the case reads from).
 
 **Scope note:** this kind (and the underlying `Bootstrap<TData>` port) covers only the REGULAR
@@ -744,8 +744,8 @@ has no fixture case: `Test_DoubleBootstrap` itself asserts only bracket inequali
 the true quantile"), not a fixed numeric literal, so it is not useful oracle-fixture material under
 this repo's curated-literal convention.
 
-**Model registry** (`core/include/bestfit/numerics/sampling/bootstrap/model_registry.hpp`): a
-**bestfit addition** with no upstream C# counterpart -- the C# equivalent is inline construction
+**Model registry** (`core/include/corehydro/numerics/sampling/bootstrap/model_registry.hpp`): a
+**corehydro addition** with no upstream C# counterpart -- the C# equivalent is inline construction
 code living only inside `Test_Bootstrap.cs`'s private `CreateNormalBootstrap()` helper and
 `Test_BCaCI()`, not in the library. The registry is **closed**; today it has one entry:
 
@@ -883,8 +883,8 @@ machinery (`set_default_parameters`, itself driven by
 there is no separate closed-name mapping to maintain.
 
 **The `construct.model` schema (M13).** All three harnesses hand the (re-serialized) spec to ONE
-shared C++ builder, `bestfit::models::spec::build_model_from_json` in
-`core/include/bestfit/models/model_spec.hpp` (a bestfit addition; it parses with the dependency-free
+shared C++ builder, `corehydro::models::spec::build_model_from_json` in
+`core/include/corehydro/models/model_spec.hpp` (a corehydro addition; it parses with the dependency-free
 mini reader `models/json_lite.hpp`). The C++ runner serializes with nlohmann `dump()`, R with
 `jsonlite::toJSON(auto_unbox = TRUE, digits = I(17))`, Python with `json.dumps()` -- all three
 round-trip doubles exactly, so the three harnesses construct byte-identical models. Only the
@@ -1044,11 +1044,11 @@ lambda rather than duplicating the switch per class -- see `dispatch_estimation`
 **not** necessarily the fitted dataset's own length, and all three harnesses read it live from
 each assertion's `args[0]` at dispatch time rather than caching a precomputed value alongside
 `parameter`/`max_log_likelihood`/`aic`/`covariance`/`standard_error`/`correlation`. C++'s
-`dispatch_estimation` calls `est->get_bic(a[0].get<int>())` directly; R's `bf_estimation_bic_` and
+`dispatch_estimation` calls `est->get_bic(a[0].get<int>())` directly; R's `ch_estimation_bic_` and
 Python's `estimation_bic` each rebuild the model/estimator and call `get_bic(n)` live (safe because
 `estimate()` is deterministic -- NelderMead/Brent have no randomness, and
 DifferentialEvolution's default `prng_seed` is fixed -- so the rebuilt fit exactly reproduces the
-one `estimation_run`/`bf_estimation_run_` already computed). A future fixture asserting `bic`
+one `estimation_run`/`ch_estimation_run_` already computed). A future fixture asserting `bic`
 with `n != len(dataset)` must pass identically across all three harnesses.
 
 **`BayesianAnalysis` (Task T12):**
@@ -1064,8 +1064,8 @@ with `n != len(dataset)` must pass identically across all three harnesses.
 These four (plus `chain_value`) are `BayesianAnalysis`-only surface with no ML/MAP equivalent,
 dispatched in a separate branch of the same `std::visit` (see `dispatch_estimation`) rather than
 joining the ML/MAP method list, since the two surfaces are disjoint. R/Python each expose
-`BayesianAnalysis` through a SEPARATE registered function (`bf_estimation_bayes_run_` / R,
-`estimation_bayes_run` / Python) rather than folding it into `bf_estimation_run_`/`estimation_run`,
+`BayesianAnalysis` through a SEPARATE registered function (`ch_estimation_bayes_run_` / R,
+`estimation_bayes_run` / Python) rather than folding it into `ch_estimation_run_`/`estimation_run`,
 because its construct shape (`sampler` + numeric knobs) doesn't fit the ML/MAP
 `{target, model_json, dataset, optimizer}` signature.
 
@@ -1079,7 +1079,7 @@ and dispatches assertions against it:
   `short_exact`/`chain_value` digest precedent: the point is cross-language bit-identity of the
   seeded Mersenne Twister stream, so the same literals pass in C++, R, and Python.
 
-R/Python expose it through a third registered function (`bf_model_simulate_` / R,
+R/Python expose it through a third registered function (`ch_model_simulate_` / R,
 `model_simulate` / Python); C++'s `EstimationCase` holds `std::monostate` in place of an estimator
 and the cached `simulated` vector. Simulation draws come from the model's CURRENT parameters
 (there is no fit), so seeded cases should pin them explicitly via `parameter_values` (or trend
@@ -1108,7 +1108,7 @@ case, caching the full surface. Assertion methods:
   fitted parameters and the fitted covariance. `args[0]` is the annual EXCEEDANCE probability
   (AEP); the C# `QuantileVariance` takes a NON-exceedance probability, so the harness passes
   `1 - aep`. Like `bic [n]`, the AEP is per-assertion, so R/Python rebuild the deterministic fit
-  live (`bf_estimation_gmm_qvar_` / `estimation_gmm_qvar`).
+  live (`ch_estimation_gmm_qvar_` / `estimation_gmm_qvar`).
 - `simulated_value [i]` -- the shared seeded-draw arm: after the fit, the estimator's best
   parameters are pinned into the B17C parent and a seeded `generate_random_values(sample_size,
   seed)` stream is drawn (the same `short_exact` digest semantics as `Simulation`).
@@ -1116,7 +1116,7 @@ case, caching the full surface. Assertion methods:
 The GMM surface is disjoint enough from ML/MAP (adds `j_stat`/`j_stat_pval`/`quantile_variance`,
 drops `max_log_likelihood`/`aic`/`bic`) that it joins the estimator `std::variant` on its own
 `std::visit` arm, and R/Python expose it through a SEPARATE registered function
-(`bf_estimation_gmm_run_` / `estimation_gmm_run`) -- the same split pattern `BayesianAnalysis`
+(`ch_estimation_gmm_run_` / `estimation_gmm_run`) -- the same split pattern `BayesianAnalysis`
 uses, since its construct shape (`strategy` + `max_gmm_iterations`, and a `bulletin17c` model)
 doesn't fit the ML/MAP signature.
 
@@ -1133,7 +1133,7 @@ plotting-position and MGBT ctest oracles through the PUBLIC model path:
   the spec's `mgbt_low_outliers` MGBT trigger or the explicit `low_outlier_threshold`.
 
 C++/the emitter dispatch these straight off the cached model's frame; R
-(`bf_model_data_frame_`) and Python (`model_data_frame`) lazily build the frame surface once per
+(`ch_model_data_frame_`) and Python (`model_data_frame`) lazily build the frame surface once per
 case through the shared spec builder and memoize it (a rebuild is byte-identical -- the frame
 surface is a pure function of the construct, never of the fit -- the `bic` lazy-rebuild
 precedent).
@@ -1233,7 +1233,7 @@ The Phase 8 user-facing Analyses layer (A10): `UnivariateAnalysis` (Bayesian fre
 `FittingAnalysis` (multi-distribution GoF ranking), and `Bulletin17CAnalysis` (B17C flood-frequency
 + Cohn-style CIs). Stateful like `model_estimation`: one build+run per case caches a flat result
 surface, then every assertion dispatches against it. The `construct` fields map 1:1 onto the R/Python
-glue arguments (`bf_analysis_*_` / `_core.analysis_*`), so all three harnesses build byte-identical
+glue arguments (`ch_analysis_*_` / `_core.analysis_*`), so all three harnesses build byte-identical
 analyses from the same spec.
 
 ```jsonc
@@ -1250,7 +1250,7 @@ analyses from the same spec.
         // FittingAnalysis: only `dataset` (a datasets key -> exact-only frame).
         "dataset": "peaks",
         // UnivariateAnalysis / Bulletin17CAnalysis: a `model` spec built by the SHARED spec
-        // builder (bestfit/models/model_spec.hpp) -- the same schema model_estimation uses.
+        // builder (corehydro/models/model_spec.hpp) -- the same schema model_estimation uses.
         "model": { "family": "Normal", "dataset": "peaks" },        // univariate_distribution
         // "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
         // -- UnivariateAnalysis MCMC knobs (all optional; forwarded to the held BayesianAnalysis):
@@ -1354,7 +1354,7 @@ skip files with this kind; only the C++ runner and the dotnet oracle gate proces
 }
 ```
 
-The dispatch key maps to a free function: `"Erf.function"` → `bestfit::numerics::math::special::erf::function(x)`.
+The dispatch key maps to a free function: `"Erf.function"` → `corehydro::numerics::math::special::erf::function(x)`.
 Each case has a flat `args` array (not nested in `construct`); the single assertion method is always `"value"`.
 
 Most files dispatch every case through that one file-level `target`. A file may instead group

@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::estimation::GeneralizedMethodOfMoments (Phase 6, Task B8).
+// Standalone tests for corehydro::estimation::GeneralizedMethodOfMoments (Phase 6, Task B8).
 //
 // PART 1 transcribes BOTH structural upstream test files, values and tolerances unaltered:
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/ModelEstimation/GeneralizedMethodOfMomentsTests.cs
@@ -44,28 +44,28 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/estimation/generalized_method_of_moments.hpp"
-#include "bestfit/estimation/gmm_delegates.hpp"
-#include "bestfit/estimation/numerical_diff.hpp"
-#include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/numerics/distributions/chi_squared.hpp"
-#include "bestfit/numerics/math/linalg/eigenvalue_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/linalg/matrix_regularization.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/estimation/generalized_method_of_moments.hpp"
+#include "corehydro/estimation/gmm_delegates.hpp"
+#include "corehydro/estimation/numerical_diff.hpp"
+#include "corehydro/estimation/optimization_method.hpp"
+#include "corehydro/numerics/distributions/chi_squared.hpp"
+#include "corehydro/numerics/math/linalg/eigenvalue_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/linalg/matrix_regularization.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using bestfit::estimation::GeneralizedMethodOfMoments;
-using bestfit::estimation::MomentConditionResult;
-using bestfit::estimation::NumericalDiff;
-using bestfit::estimation::OptimizationMethod;
-using bestfit::numerics::distributions::ChiSquared;
-using bestfit::numerics::math::linalg::EigenValueDecomposition;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::linalg::Matrix2D;
-using bestfit::numerics::math::linalg::MatrixRegularization;
-using bestfit::numerics::math::linalg::Vector;
-using OptimizationStatus = bestfit::numerics::math::optimization::OptimizationStatus;
+using corehydro::estimation::GeneralizedMethodOfMoments;
+using corehydro::estimation::MomentConditionResult;
+using corehydro::estimation::NumericalDiff;
+using corehydro::estimation::OptimizationMethod;
+using corehydro::numerics::distributions::ChiSquared;
+using corehydro::numerics::math::linalg::EigenValueDecomposition;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::linalg::Matrix2D;
+using corehydro::numerics::math::linalg::MatrixRegularization;
+using corehydro::numerics::math::linalg::Vector;
+using OptimizationStatus = corehydro::numerics::math::optimization::OptimizationStatus;
 using GMMIdentificationStatus = GeneralizedMethodOfMoments::GMMIdentificationStatus;
 using GMMEstimationStrategy = GeneralizedMethodOfMoments::GMMEstimationStrategy;
 
@@ -832,8 +832,8 @@ void test_matrix_regularization_regularize() {
 }
 
 void test_tools_distance() {
-    CHECK_NEAR(bestfit::numerics::distance({1.0, 2.0}, {4.0, 6.0}), 5.0, 1e-15);
-    CHECK_NEAR(bestfit::numerics::distance({1.0}, {1.0}), 0.0, 1e-15);
+    CHECK_NEAR(corehydro::numerics::distance({1.0, 2.0}, {4.0, 6.0}), 5.0, 1e-15);
+    CHECK_NEAR(corehydro::numerics::distance({1.0}, {1.0}), 0.0, 1e-15);
 }
 
 }  // namespace
@@ -897,5 +897,5 @@ int main() {
     test_matrix_regularization_regularize();
     test_tools_distance();
 
-    return bftest::summary("gmm");
+    return chtest::summary("gmm");
 }

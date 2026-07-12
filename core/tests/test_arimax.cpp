@@ -43,27 +43,27 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/models/time_series/arimax.hpp"
-#include "bestfit/models/time_series/transform_type.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/models/time_series/arimax.hpp"
+#include "corehydro/models/time_series/transform_type.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::ARIMAX;
-using bestfit::models::Transform;
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::models::ARIMAX;
+using corehydro::models::Transform;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
+using corehydro::numerics::sampling::MersenneTwister;
 
 // Compile-time mirror of Model_InheritsFromModelBase / Model_ImplementsISimulatable.
-static_assert(std::is_base_of<bestfit::models::ModelBase, ARIMAX>::value,
+static_assert(std::is_base_of<corehydro::models::ModelBase, ARIMAX>::value,
               "ARIMAX must derive from ModelBase");
-static_assert(std::is_base_of<bestfit::models::ISimulatable<std::vector<double>>, ARIMAX>::value,
+static_assert(std::is_base_of<corehydro::models::ISimulatable<std::vector<double>>, ARIMAX>::value,
               "ARIMAX must implement ISimulatable<std::vector<double>>");
 
 // ---- Test-data helpers (mirror the C# private fixtures; data regenerated with the ported RNG) ----
@@ -89,7 +89,7 @@ TimeSeries make_monthly_series() {
     TimeSeries ts(TimeInterval::OneMonth, 0, 239);
     MersenneTwister rng(54321);
     for (int i = 0; i < ts.count(); ++i) {
-        double seasonal = 50.0 * std::sin(2.0 * bestfit::numerics::kPi * i / 12.0);
+        double seasonal = 50.0 * std::sin(2.0 * corehydro::numerics::kPi * i / 12.0);
         double trend = 0.5 * i;
         double noise = rng.next_double() * 20.0 - 10.0;
         ts[i].set_value(500.0 + seasonal + trend + noise);
@@ -120,7 +120,7 @@ TimeSeries make_tiny_series() {
     return ts;
 }
 
-bool messages_contain(const bestfit::models::ValidationResult& r, const std::string& needle) {
+bool messages_contain(const corehydro::models::ValidationResult& r, const std::string& needle) {
     for (const auto& m : r.validation_messages)
         if (m.find(needle) != std::string::npos) return true;
     return false;
@@ -354,7 +354,7 @@ void test_arimax_log_likelihood() {
     // Components all Exact.
     auto comps = m.pointwise_data_log_likelihood_components(p);
     for (const auto& c : comps)
-        CHECK_TRUE(c.type() == bestfit::models::DataComponentType::Exact);
+        CHECK_TRUE(c.type() == corehydro::models::DataComponentType::Exact);
 }
 
 // ============================ Predict ============================
@@ -578,5 +578,5 @@ int main() {
 
     test_arimax_p4_fixed_param_oracles();
 
-    return bftest::summary("arimax");
+    return chtest::summary("arimax");
 }

@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::BootstrapAnalysis + the IBootstrappable capability.
+// Standalone tests for corehydro::numerics::BootstrapAnalysis + the IBootstrappable capability.
 //
 // Transcribed VERBATIM (oracle values unaltered) from
 //   upstream/Numerics/Test_Numerics/Distributions/Univariate/Test_BootstrapAnalysis.cs @ a2c4dbf
@@ -17,22 +17,22 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/numerics/data/statistics.hpp"
-#include "bestfit/numerics/distributions/base/parameter_estimation_method.hpp"
-#include "bestfit/numerics/distributions/chi_squared.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uncertainty_analysis/bootstrap_analysis.hpp"
-#include "bestfit/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
-#include "bestfit/numerics/utilities/extension_methods.hpp"
+#include "corehydro/numerics/data/statistics.hpp"
+#include "corehydro/numerics/distributions/base/parameter_estimation_method.hpp"
+#include "corehydro/numerics/distributions/chi_squared.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uncertainty_analysis/bootstrap_analysis.hpp"
+#include "corehydro/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::BootstrapAnalysis;
-using bestfit::numerics::distributions::ChiSquared;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::ParameterEstimationMethod;
-using bestfit::numerics::distributions::UncertaintyAnalysisResults;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::BootstrapAnalysis;
+using corehydro::numerics::distributions::ChiSquared;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::ParameterEstimationMethod;
+using corehydro::numerics::distributions::UncertaintyAnalysisResults;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
 
 namespace {
 
@@ -53,9 +53,9 @@ std::vector<std::array<double, 2>> monte_carlo_ci(const Normal& dist, int sample
     double originalMean = dist.mean();
     double originalStdDev = dist.standard_deviation();
 
-    bestfit::numerics::sampling::MersenneTwister r(12345);
-    auto rndMean = bestfit::numerics::utilities::next_doubles(r, realizations);
-    auto rndStdDev = bestfit::numerics::utilities::next_doubles(r, realizations);
+    corehydro::numerics::sampling::MersenneTwister r(12345);
+    auto rndMean = corehydro::numerics::utilities::next_doubles(r, realizations);
+    auto rndStdDev = corehydro::numerics::utilities::next_doubles(r, realizations);
 
     std::vector<Normal> mc(static_cast<std::size_t>(realizations));
     for (int idx = 0; idx < realizations; ++idx) {
@@ -75,7 +75,7 @@ std::vector<std::array<double, 2>> monte_carlo_ci(const Normal& dist, int sample
                 mc[static_cast<std::size_t>(idx)].inverse_cdf(quantiles[i]);
         for (int j = 0; j < 2; ++j)
             out[i][static_cast<std::size_t>(j)] =
-                bestfit::numerics::data::percentile(xValues, percentiles[static_cast<std::size_t>(j)]);
+                corehydro::numerics::data::percentile(xValues, percentiles[static_cast<std::size_t>(j)]);
     }
     return out;
 }
@@ -221,5 +221,5 @@ int main() {
     test_bca_ci();
     test_uar_equivalence();
     test_guards();
-    return bftest::summary("bootstrap_analysis");
+    return chtest::summary("bootstrap_analysis");
 }

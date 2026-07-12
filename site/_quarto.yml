@@ -3,20 +3,22 @@ project:
   output-dir: _site
 
 website:
-  title: "bestfit"
-  site-url: https://cameronbracken.github.io/bestfit/
-  repo-url: https://github.com/cameronbracken/bestfit
+  title: "corehydro"
+  site-url: https://cameronbracken.github.io/corehydro/
+  repo-url: https://github.com/cameronbracken/corehydro
   navbar:
     left:
       - text: Examples
         href: examples/index.qmd
+      - text: Porting Status
+        href: status.qmd
       - text: Python Reference
         href: reference/index.qmd
       - text: R Reference
         href: r/index.html
     right:
       - icon: github
-        href: https://github.com/cameronbracken/bestfit
+        href: https://github.com/cameronbracken/corehydro
   sidebar:
     - title: Examples
       style: docked
@@ -29,7 +31,7 @@ website:
   page-navigation: true
   page-footer:
     center: >-
-      bestfit is an independent open-source port of the USACE-RMC
+      corehydro is an independent open-source port of the USACE-RMC
       [Numerics](https://github.com/USACE-RMC/Numerics) and
       [RMC-BestFit](https://www.rmc.usace.army.mil/Software/RMC-BestFit/)
       libraries. 0BSD licensed.
@@ -49,7 +51,7 @@ execute:
   warning: false
 
 quartodoc:
-  package: bestfitpy
+  package: corehydropy
   dir: reference
   title: Python API reference
   sections:

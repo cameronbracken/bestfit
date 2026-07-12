@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::distributions::UncertaintyAnalysisResults.
+// Standalone tests for corehydro::numerics::distributions::UncertaintyAnalysisResults.
 //
 // Oracle for behavior is the C# source itself (upstream/Numerics/Numerics/Distributions/
 // Univariate/Uncertainty Analysis/UncertaintyAnalysisResults.cs @ a2c4dbf) and the equivalence
@@ -13,14 +13,14 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/data/statistics.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
+#include "corehydro/numerics/data/statistics.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UncertaintyAnalysisResults;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UncertaintyAnalysisResults;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
 
 namespace {
 
@@ -78,8 +78,8 @@ void test_confidence_intervals_match_side_computed_percentiles() {
         std::vector<double> vals;
         for (const auto* d : s.ptrs) vals.push_back(d->inverse_cdf(kProbabilities[i]));
         std::sort(vals.begin(), vals.end());
-        double expLo = bestfit::numerics::data::percentile(vals, lowerCI, true);
-        double expHi = bestfit::numerics::data::percentile(vals, upperCI, true);
+        double expLo = corehydro::numerics::data::percentile(vals, lowerCI, true);
+        double expHi = corehydro::numerics::data::percentile(vals, upperCI, true);
         CHECK_NEAR(r.confidence_intervals[i][0], expLo, 1e-8);
         CHECK_NEAR(r.confidence_intervals[i][1], expHi, 1e-8);
         // Lower bound never above upper bound.
@@ -177,5 +177,5 @@ int main() {
     test_no_record_leaves_parameter_sets_empty();
     test_guards_throw();
 
-    return bftest::summary("uncertainty_analysis_results");
+    return chtest::summary("uncertainty_analysis_results");
 }

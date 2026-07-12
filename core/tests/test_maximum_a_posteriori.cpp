@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::estimation::MaximumAPosteriori (Phase 4, Task T8).
+// Standalone tests for corehydro::estimation::MaximumAPosteriori (Phase 4, Task T8).
 //
 // Oracle for behavior is the C# source itself (upstream/RMC-BestFit/src/RMC.BestFit/Estimation/
 // MaximumAPosteriori.cs @ fc28c0c) -- see maximum_a_posteriori.hpp's header for the exact
@@ -28,20 +28,20 @@
 #include <stdexcept>
 #include <vector>
 
-#include "bestfit/estimation/maximum_a_posteriori.hpp"
-#include "bestfit/estimation/optimization_method.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/data/goodness_of_fit.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "corehydro/estimation/maximum_a_posteriori.hpp"
+#include "corehydro/estimation/optimization_method.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/data/goodness_of_fit.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/math/linalg/cholesky_decomposition.hpp"
 #include "check.hpp"
 
-using bestfit::estimation::MaximumAPosteriori;
-using bestfit::estimation::OptimizationMethod;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::data::GoodnessOfFit;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::math::linalg::CholeskyDecomposition;
+using corehydro::estimation::MaximumAPosteriori;
+using corehydro::estimation::OptimizationMethod;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::data::GoodnessOfFit;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::math::linalg::CholeskyDecomposition;
 
 namespace {
 
@@ -58,7 +58,7 @@ void test_estimate_succeeds_with_nelder_mead() {
 
     CHECK_TRUE(ok);
     CHECK_TRUE(map.is_estimated());
-    CHECK_TRUE(map.status() == bestfit::numerics::math::optimization::OptimizationStatus::Success);
+    CHECK_TRUE(map.status() == corehydro::numerics::math::optimization::OptimizationStatus::Success);
 }
 
 // Sign convention: maximum_log_likelihood() is the log-POSTERIOR (data + prior), i.e.
@@ -188,7 +188,7 @@ void test_ungated_optimization_methods_estimate_and_match_anchor() {
         CHECK_TRUE(map.estimate());
         CHECK_TRUE(map.is_estimated());
         CHECK_TRUE(map.status() ==
-                   bestfit::numerics::math::optimization::OptimizationStatus::Success);
+                   corehydro::numerics::math::optimization::OptimizationStatus::Success);
         CHECK_TRUE(map.total_function_evaluations() > 0);
 
         const auto& best = map.best_parameter_set().values;
@@ -302,7 +302,7 @@ void test_set_optimizer_method_and_clear_results_reset_state() {
 
     map.clear_results();
     CHECK_TRUE(!map.is_estimated());
-    CHECK_TRUE(map.status() == bestfit::numerics::math::optimization::OptimizationStatus::None);
+    CHECK_TRUE(map.status() == corehydro::numerics::math::optimization::OptimizationStatus::None);
 
     CHECK_TRUE(map.estimate());
     CHECK_TRUE(map.is_estimated());
@@ -336,5 +336,5 @@ int main() {
     test_cooks_distance_shape_and_nonnegative();
     test_set_optimizer_method_and_clear_results_reset_state();
 
-    return bftest::summary("maximum_a_posteriori");
+    return chtest::summary("maximum_a_posteriori");
 }

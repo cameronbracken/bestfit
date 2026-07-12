@@ -33,21 +33,21 @@
 #include <limits>
 #include <vector>
 
-#include "bestfit/models/spatial_extremes/copula_models/cached_multivariate_normal.hpp"
-#include "bestfit/models/spatial_extremes/copula_models/gaussian_copula.hpp"
-#include "bestfit/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/models/spatial_extremes/copula_models/cached_multivariate_normal.hpp"
+#include "corehydro/models/spatial_extremes/copula_models/gaussian_copula.hpp"
+#include "corehydro/models/spatial_extremes/spatial_correlation/correlation_function_type.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::spatial_extremes::CachedMultivariateNormal;
-using bestfit::models::spatial_extremes::CorrelationFunctionType;
-using bestfit::models::spatial_extremes::GaussianCopula;
+using corehydro::models::spatial_extremes::CachedMultivariateNormal;
+using corehydro::models::spatial_extremes::CorrelationFunctionType;
+using corehydro::models::spatial_extremes::GaussianCopula;
 
 using Cov = std::vector<std::vector<double>>;
 
-const double kTwoPi = 2.0 * bestfit::numerics::kPi;
+const double kTwoPi = 2.0 * corehydro::numerics::kPi;
 
 // ---- Test data helpers (mirror the C# private helpers) ----
 
@@ -272,7 +272,7 @@ void mvn_cache_repeated_log_pdf_uses_cache() {
 void mvn_univariate_works_correctly() {
     CachedMultivariateNormal mvn({0.0}, Cov{{4.0}});
     double log_pdf = mvn.log_pdf({0.0});
-    double expected = -0.5 * std::log(8 * bestfit::numerics::kPi);
+    double expected = -0.5 * std::log(8 * corehydro::numerics::kPi);
     CHECK_NEAR(log_pdf, expected, 1e-10);
 }
 
@@ -578,5 +578,5 @@ int main() {
     gc_colocated_sites_high_correlation();
     gc_large_range_strong_spatial_correlation();
     gc_small_range_weak_spatial_correlation();
-    return bftest::summary("test_cached_mvn_gaussian_copula");
+    return chtest::summary("test_cached_mvn_gaussian_copula");
 }

@@ -10,7 +10,7 @@ Ported from
 [`02_distribution_fitting.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/02_distribution_fitting.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library, so the
+`corehydror`, whose compiled core is a validated C++ port of the same library, so the
 numbers below reproduce the upstream outputs exactly. The Python version of this
 example uses the same core and prints the same numbers.
 
@@ -28,7 +28,7 @@ The upstream setup cell loads the CoreCLR runtime, resolves `Numerics.dll`, and
 imports the .NET types. Here the setup is one library call.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 ```
 
 ## Helper function

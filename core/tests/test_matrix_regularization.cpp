@@ -1,5 +1,5 @@
 // Standalone (non-fixture) tests for
-// bestfit::numerics::math::linalg::MatrixRegularization::make_symmetric_positive_definite.
+// corehydro::numerics::math::linalg::MatrixRegularization::make_symmetric_positive_definite.
 //
 // There is no curated C# oracle literal for this method (see the task brief and the
 // provenance header in matrix_regularization.hpp), so these tests assert the
@@ -9,14 +9,14 @@
 #include <cmath>
 #include <exception>
 
-#include "bestfit/numerics/math/linalg/cholesky_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/linalg/matrix_regularization.hpp"
+#include "corehydro/numerics/math/linalg/cholesky_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/linalg/matrix_regularization.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::math::linalg::CholeskyDecomposition;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::linalg::MatrixRegularization;
+using corehydro::numerics::math::linalg::CholeskyDecomposition;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::linalg::MatrixRegularization;
 
 namespace {
 
@@ -95,5 +95,5 @@ int main() {
     test_near_singular_input_becomes_cholesky_factorizable();
     test_zero_matrix_becomes_cholesky_factorizable();
     test_non_symmetric_input_returns_exactly_symmetric_result();
-    return bftest::summary("test_matrix_regularization");
+    return chtest::summary("test_matrix_regularization");
 }

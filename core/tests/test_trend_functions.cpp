@@ -17,37 +17,37 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/trend_functions/constant_trend.hpp"
-#include "bestfit/models/trend_functions/cubic_trend.hpp"
-#include "bestfit/models/trend_functions/exponential_trend.hpp"
-#include "bestfit/models/trend_functions/linear_trend.hpp"
-#include "bestfit/models/trend_functions/logistic_trend.hpp"
-#include "bestfit/models/trend_functions/power_trend.hpp"
-#include "bestfit/models/trend_functions/quadratic_trend.hpp"
-#include "bestfit/models/trend_functions/reciprocal_trend.hpp"
-#include "bestfit/models/trend_functions/sinusoidal_trend.hpp"
-#include "bestfit/models/trend_functions/step_function.hpp"
-#include "bestfit/models/trend_functions/support/i_trend_model.hpp"
-#include "bestfit/models/trend_functions/support/trend_model_base.hpp"
-#include "bestfit/models/trend_functions/support/trend_model_type.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/models/trend_functions/constant_trend.hpp"
+#include "corehydro/models/trend_functions/cubic_trend.hpp"
+#include "corehydro/models/trend_functions/exponential_trend.hpp"
+#include "corehydro/models/trend_functions/linear_trend.hpp"
+#include "corehydro/models/trend_functions/logistic_trend.hpp"
+#include "corehydro/models/trend_functions/power_trend.hpp"
+#include "corehydro/models/trend_functions/quadratic_trend.hpp"
+#include "corehydro/models/trend_functions/reciprocal_trend.hpp"
+#include "corehydro/models/trend_functions/sinusoidal_trend.hpp"
+#include "corehydro/models/trend_functions/step_function.hpp"
+#include "corehydro/models/trend_functions/support/i_trend_model.hpp"
+#include "corehydro/models/trend_functions/support/trend_model_base.hpp"
+#include "corehydro/models/trend_functions/support/trend_model_type.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using bestfit::models::trend_functions::ConstantTrend;
-using bestfit::models::trend_functions::CubicTrend;
-using bestfit::models::trend_functions::ExponentialTrend;
-using bestfit::models::trend_functions::LinearTrend;
-using bestfit::models::trend_functions::LogisticTrend;
-using bestfit::models::trend_functions::PowerTrend;
-using bestfit::models::trend_functions::QuadraticTrend;
-using bestfit::models::trend_functions::ReciprocalTrend;
-using bestfit::models::trend_functions::SinusoidalTrend;
-using bestfit::models::trend_functions::StepFunction;
-using bestfit::models::trend_functions::TrendModelType;
-using bestfit::numerics::kE;
-using bestfit::numerics::kPi;
-using bestfit::numerics::distributions::Uniform;
+using corehydro::models::trend_functions::ConstantTrend;
+using corehydro::models::trend_functions::CubicTrend;
+using corehydro::models::trend_functions::ExponentialTrend;
+using corehydro::models::trend_functions::LinearTrend;
+using corehydro::models::trend_functions::LogisticTrend;
+using corehydro::models::trend_functions::PowerTrend;
+using corehydro::models::trend_functions::QuadraticTrend;
+using corehydro::models::trend_functions::ReciprocalTrend;
+using corehydro::models::trend_functions::SinusoidalTrend;
+using corehydro::models::trend_functions::StepFunction;
+using corehydro::models::trend_functions::TrendModelType;
+using corehydro::numerics::kE;
+using corehydro::numerics::kPi;
+using corehydro::numerics::distributions::Uniform;
 
 namespace {
 
@@ -2311,5 +2311,5 @@ int main() {
     step_climate_shift_scenario();
     step_dam_construction_scenario();
 
-    return bftest::summary("trend_functions");
+    return chtest::summary("trend_functions");
 }

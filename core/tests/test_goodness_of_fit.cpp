@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::data::GoodnessOfFit.
+// Standalone tests for corehydro::numerics::data::GoodnessOfFit.
 //
 // Oracle values are taken directly from the C# unit tests in
 // upstream/Numerics/Test_Numerics/Data/Statistics/Test_GoodnessOfFit.cs
@@ -13,12 +13,12 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/data/goodness_of_fit.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/data/goodness_of_fit.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::GoodnessOfFit;
-using bestfit::numerics::distributions::Normal;
+using corehydro::numerics::data::GoodnessOfFit;
+using corehydro::numerics::distributions::Normal;
 
 namespace {
 
@@ -321,5 +321,5 @@ int main() {
     test_anderson_darling();
     test_chi_squared();
 
-    return bftest::summary("goodness_of_fit");
+    return chtest::summary("goodness_of_fit");
 }

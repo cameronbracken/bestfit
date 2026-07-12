@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::data::ProbabilityOrdinates.
+// Standalone tests for corehydro::numerics::data::ProbabilityOrdinates.
 //
 // Oracle for behavior is the C# source itself (upstream/Numerics/Numerics/Data/Paired Data/
 // ProbabilityOrdinate.cs @ a2c4dbf) -- the 25 default exceedance probabilities, the Validate
@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/numerics/data/probability_ordinates.hpp"
+#include "corehydro/numerics/data/probability_ordinates.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::ProbabilityOrdinates;
+using corehydro::numerics::data::ProbabilityOrdinates;
 
 namespace {
 
@@ -190,5 +190,5 @@ int main() {
     test_parse_skips_unparsable_and_empty_tokens();
     test_from_delimited_string_clears_first();
 
-    return bftest::summary("probability_ordinates");
+    return chtest::summary("probability_ordinates");
 }

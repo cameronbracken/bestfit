@@ -7,8 +7,8 @@ build/
 *.out
 
 # R
-bestfitr/src/*.o
-bestfitr/src/*.so
+corehydror/src/*.o
+corehydror/src/*.so
 *.Rcheck/
 *.tar.gz
 
@@ -46,7 +46,7 @@ site/_site/
 site/.quarto/
 site/reference/
 site/objects.json
-bestfitr/docs/
+corehydror/docs/
 
 # R batch-mode plot artifacts
 Rplots.pdf

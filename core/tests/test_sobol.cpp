@@ -2,7 +2,7 @@
 // Oracle values are the published expected output verified against R's randtoolbox::sobol()
 // in the upstream C# test (dimension 2, first 10 points).
 // The path to the new-joe-kuo-6.21201 file is taken from argv[1] (set by CMake).
-#include "bestfit/numerics/sampling/sobol.hpp"
+#include "corehydro/numerics/sampling/sobol.hpp"
 
 #include <cstdlib>
 #include <string>
@@ -10,7 +10,7 @@
 
 #include "check.hpp"
 
-using bestfit::numerics::sampling::SobolSequence;
+using corehydro::numerics::sampling::SobolSequence;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -78,5 +78,5 @@ int main(int argc, char* argv[]) {
         CHECK_NEAR(jumped[1], fifth[1], 0.0);
     }
 
-    return bftest::summary("sobol");
+    return chtest::summary("sobol");
 }

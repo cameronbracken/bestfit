@@ -1,14 +1,14 @@
 // Pins the C++ MT19937 port to the canonical mt19937ar reference stream.
 // Oracle values are the published reference outputs of mt19937ar.c (Matsumoto &
 // Nishimura), which the upstream C# MersenneTwister reproduces by construction.
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 
 #include <cstdint>
 #include <vector>
 
 #include "check.hpp"
 
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::numerics::sampling::MersenneTwister;
 
 int main() {
     // --- init_by_array({0x123,0x234,0x345,0x456}): canonical first 10 outputs ---
@@ -38,5 +38,5 @@ int main() {
         CHECK_NEAR(b.next_double(), expected, 0.0);
     }
 
-    return bftest::summary("mersenne_twister");
+    return chtest::summary("mersenne_twister");
 }

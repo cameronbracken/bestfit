@@ -1,3 +1,0 @@
-# Windows build (Rtools). Mirrors src/Makevars.
-CXX_STD = CXX17
-PKG_CPPFLAGS = -I./bestfit_core/include

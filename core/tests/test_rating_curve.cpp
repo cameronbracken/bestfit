@@ -35,23 +35,23 @@
 #include <type_traits>
 #include <vector>
 
-#include "bestfit/models/rating_curve/rating_curve.hpp"
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
+#include "corehydro/models/rating_curve/rating_curve.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::RatingCurve;
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
+using corehydro::models::RatingCurve;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
 
 // Compile-time mirror of the C# `RatingCurve : ModelBase, ISimulatable<double[]>` declaration.
-static_assert(std::is_base_of<bestfit::models::ModelBase, RatingCurve>::value,
+static_assert(std::is_base_of<corehydro::models::ModelBase, RatingCurve>::value,
               "RatingCurve must derive from ModelBase");
 static_assert(
-    std::is_base_of<bestfit::models::ISimulatable<std::vector<double>>, RatingCurve>::value,
+    std::is_base_of<corehydro::models::ISimulatable<std::vector<double>>, RatingCurve>::value,
     "RatingCurve must implement ISimulatable<std::vector<double>>");
 
 // ---- Test-data helpers (mirror the C# private fixtures). ----
@@ -71,7 +71,7 @@ TimeSeries make_series(long start, const std::vector<double>& values) {
     return TimeSeries(TimeInterval::OneDay, start, values);
 }
 
-bool messages_contain(const bestfit::models::ValidationResult& r, const std::string& needle) {
+bool messages_contain(const corehydro::models::ValidationResult& r, const std::string& needle) {
     for (const auto& m : r.validation_messages)
         if (m.find(needle) != std::string::npos) return true;
     return false;
@@ -551,5 +551,5 @@ int main() {
     test_generation();
     test_rating_curve_p4_fixed_param_oracles();
 
-    return bftest::summary("rating_curve");
+    return chtest::summary("rating_curve");
 }

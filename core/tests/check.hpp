@@ -1,4 +1,4 @@
-// Minimal dependency-free test harness for the bestfit C++ core (Phase 0).
+// Minimal dependency-free test harness for the corehydro C++ core (Phase 0).
 // Will be superseded by the fixture-driven doctest runner; kept tiny on purpose.
 #pragma once
 #include <cmath>
@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-namespace bftest {
+namespace chtest {
 
 inline int& failures() {
     static int n = 0;
@@ -34,16 +34,16 @@ inline int summary(const char* suite) {
     return 1;
 }
 
-}  // namespace bftest
+}  // namespace chtest
 
 #define CHECK_EQ(actual, expected)                                                       \
     do {                                                                                 \
         auto _a = (actual);                                                              \
         auto _e = (expected);                                                            \
         if (_a == _e) {                                                                  \
-            ::bftest::report_pass();                                                     \
+            ::chtest::report_pass();                                                     \
         } else {                                                                         \
-            ::bftest::report_fail(__FILE__, __LINE__,                                    \
+            ::chtest::report_fail(__FILE__, __LINE__,                                    \
                                   std::string(#actual) + " != " + #expected);           \
         }                                                                                \
     } while (0)
@@ -52,9 +52,9 @@ inline int summary(const char* suite) {
 #define CHECK_TRUE(cond)                                                                 \
     do {                                                                                 \
         if (cond) {                                                                      \
-            ::bftest::report_pass();                                                     \
+            ::chtest::report_pass();                                                     \
         } else {                                                                         \
-            ::bftest::report_fail(__FILE__, __LINE__, std::string(#cond) + " was false"); \
+            ::chtest::report_fail(__FILE__, __LINE__, std::string(#cond) + " was false"); \
         }                                                                                \
     } while (0)
 
@@ -72,9 +72,9 @@ inline int summary(const char* suite) {
             _threw = true;                                                                 \
         }                                                                                  \
         if (_threw) {                                                                      \
-            ::bftest::report_pass();                                                       \
+            ::chtest::report_pass();                                                       \
         } else {                                                                           \
-            ::bftest::report_fail(__FILE__, __LINE__, std::string(#expr) + " did not throw"); \
+            ::chtest::report_fail(__FILE__, __LINE__, std::string(#expr) + " did not throw"); \
         }                                                                                  \
     } while (0)
 
@@ -85,11 +85,11 @@ inline int summary(const char* suite) {
         double _e = (expected);                                                          \
         double _t = (tol);                                                               \
         if (std::fabs(_a - _e) <= _t) {                                                  \
-            ::bftest::report_pass();                                                     \
+            ::chtest::report_pass();                                                     \
         } else {                                                                         \
             char _b[256];                                                                \
             std::snprintf(_b, sizeof(_b), "%s: |%.17g - %.17g| = %.3g > %.3g",           \
                           #actual, _a, _e, std::fabs(_a - _e), _t);                      \
-            ::bftest::report_fail(__FILE__, __LINE__, _b);                               \
+            ::chtest::report_fail(__FILE__, __LINE__, _b);                               \
         }                                                                                \
     } while (0)

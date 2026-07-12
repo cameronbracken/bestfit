@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::numerics::sampling::StratificationOptions and Stratify::XValues.
+// Standalone tests for corehydro::numerics::sampling::StratificationOptions and Stratify::XValues.
 //
 // Oracle values are taken directly from the C# unit tests in
 // upstream/Numerics/Test_Numerics/Sampling/Test_Stratification.cs
@@ -7,12 +7,12 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/sampling/stratification_options.hpp"
-#include "bestfit/numerics/sampling/stratify.hpp"
+#include "corehydro/numerics/sampling/stratification_options.hpp"
+#include "corehydro/numerics/sampling/stratify.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::sampling::Stratify;
-using bestfit::numerics::sampling::StratificationOptions;
+using corehydro::numerics::sampling::Stratify;
+using corehydro::numerics::sampling::StratificationOptions;
 
 namespace {
 
@@ -123,5 +123,5 @@ int main() {
     test_invalid_options();
     test_probability_options_guard();
 
-    return bftest::summary("stratification");
+    return chtest::summary("stratification");
 }

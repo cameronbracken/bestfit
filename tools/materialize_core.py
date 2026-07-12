@@ -27,14 +27,14 @@ FIXTURES = ROOT / "fixtures"
 
 # (source dir, destination dir) pairs. Mirrors the 8 vendored destinations.
 PAIRS: list[tuple[Path, Path]] = [
-    (CORE / "include", ROOT / "bestfitr" / "src" / "bestfit_core" / "include"),
-    (CORE / "data", ROOT / "bestfitr" / "src" / "bestfit_core" / "data"),
-    (CORE / "data", ROOT / "bestfitr" / "inst" / "extdata"),
-    (FIXTURES, ROOT / "bestfitr" / "inst" / "fixtures"),
-    (CORE / "include", ROOT / "bestfitpy" / "src" / "bestfit_core" / "include"),
-    (CORE / "data", ROOT / "bestfitpy" / "src" / "bestfit_core" / "data"),
-    (CORE / "data", ROOT / "bestfitpy" / "src" / "bestfitpy" / "data"),
-    (FIXTURES, ROOT / "bestfitpy" / "src" / "bestfitpy" / "fixtures"),
+    (CORE / "include", ROOT / "corehydror" / "src" / "corehydro_core" / "include"),
+    (CORE / "data", ROOT / "corehydror" / "src" / "corehydro_core" / "data"),
+    (CORE / "data", ROOT / "corehydror" / "inst" / "extdata"),
+    (FIXTURES, ROOT / "corehydror" / "inst" / "fixtures"),
+    (CORE / "include", ROOT / "corehydropy" / "src" / "corehydro_core" / "include"),
+    (CORE / "data", ROOT / "corehydropy" / "src" / "corehydro_core" / "data"),
+    (CORE / "data", ROOT / "corehydropy" / "src" / "corehydropy" / "data"),
+    (FIXTURES, ROOT / "corehydropy" / "src" / "corehydropy" / "fixtures"),
 ]
 
 

@@ -25,33 +25,33 @@
 #include <utility>
 #include <vector>
 
-#include "bestfit/numerics/data/yeo_johnson.hpp"
-#include "bestfit/numerics/functions/complementary_log_log_link.hpp"
-#include "bestfit/numerics/functions/fisher_z_link.hpp"
-#include "bestfit/numerics/functions/i_link_function.hpp"
-#include "bestfit/numerics/functions/identity_link.hpp"
-#include "bestfit/numerics/functions/link_controller.hpp"
-#include "bestfit/numerics/functions/link_function_factory.hpp"
-#include "bestfit/numerics/functions/link_function_type.hpp"
-#include "bestfit/numerics/functions/log_link.hpp"
-#include "bestfit/numerics/functions/logit_link.hpp"
-#include "bestfit/numerics/functions/probit_link.hpp"
-#include "bestfit/numerics/functions/yeo_johnson_link.hpp"
-#include "bestfit/numerics/tools.hpp"
+#include "corehydro/numerics/data/yeo_johnson.hpp"
+#include "corehydro/numerics/functions/complementary_log_log_link.hpp"
+#include "corehydro/numerics/functions/fisher_z_link.hpp"
+#include "corehydro/numerics/functions/i_link_function.hpp"
+#include "corehydro/numerics/functions/identity_link.hpp"
+#include "corehydro/numerics/functions/link_controller.hpp"
+#include "corehydro/numerics/functions/link_function_factory.hpp"
+#include "corehydro/numerics/functions/link_function_type.hpp"
+#include "corehydro/numerics/functions/log_link.hpp"
+#include "corehydro/numerics/functions/logit_link.hpp"
+#include "corehydro/numerics/functions/probit_link.hpp"
+#include "corehydro/numerics/functions/yeo_johnson_link.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::YeoJohnson;
-using bestfit::numerics::functions::ComplementaryLogLogLink;
-using bestfit::numerics::functions::FisherZLink;
-using bestfit::numerics::functions::IdentityLink;
-using bestfit::numerics::functions::ILinkFunction;
-using bestfit::numerics::functions::LinkController;
-using bestfit::numerics::functions::LinkFunctionFactory;
-using bestfit::numerics::functions::LinkFunctionType;
-using bestfit::numerics::functions::LogitLink;
-using bestfit::numerics::functions::LogLink;
-using bestfit::numerics::functions::ProbitLink;
-using bestfit::numerics::functions::YeoJohnsonLink;
+using corehydro::numerics::data::YeoJohnson;
+using corehydro::numerics::functions::ComplementaryLogLogLink;
+using corehydro::numerics::functions::FisherZLink;
+using corehydro::numerics::functions::IdentityLink;
+using corehydro::numerics::functions::ILinkFunction;
+using corehydro::numerics::functions::LinkController;
+using corehydro::numerics::functions::LinkFunctionFactory;
+using corehydro::numerics::functions::LinkFunctionType;
+using corehydro::numerics::functions::LogitLink;
+using corehydro::numerics::functions::LogLink;
+using corehydro::numerics::functions::ProbitLink;
+using corehydro::numerics::functions::YeoJohnsonLink;
 
 namespace {
 
@@ -107,7 +107,7 @@ void test_log_link_link_known_values() {
 void test_log_link_inverse_link_known_values() {
     LogLink link;
     CHECK_NEAR(link.inverse_link(0.0), 1.0, 1e-12);
-    CHECK_NEAR(link.inverse_link(1.0), bestfit::numerics::kE, 1e-12);
+    CHECK_NEAR(link.inverse_link(1.0), corehydro::numerics::kE, 1e-12);
     CHECK_NEAR(link.inverse_link(2.0), std::exp(2.0), 1e-12);
     CHECK_NEAR(link.inverse_link(-1.0), std::exp(-1.0), 1e-12);
 }
@@ -244,7 +244,7 @@ void test_probit_link_derivative_consistency() {
 void test_cloglog_link_known_values() {
     ComplementaryLogLogLink link;
     // h(1-1/e) = log(-log(1/e)) = log(1) = 0
-    double x0 = 1.0 - 1.0 / bestfit::numerics::kE;
+    double x0 = 1.0 - 1.0 / corehydro::numerics::kE;
     CHECK_NEAR(link.link(x0), 0.0, 1e-10);
     // h(0.5) = log(log(2))
     CHECK_NEAR(link.link(0.5), std::log(std::log(2.0)), 1e-10);
@@ -252,7 +252,7 @@ void test_cloglog_link_known_values() {
 
 void test_cloglog_inverse_link_known_values() {
     ComplementaryLogLogLink link;
-    CHECK_NEAR(link.inverse_link(0.0), 1.0 - 1.0 / bestfit::numerics::kE, 1e-10);
+    CHECK_NEAR(link.inverse_link(0.0), 1.0 - 1.0 / corehydro::numerics::kE, 1e-10);
     CHECK_NEAR(link.inverse_link(10.0), 1.0, 1e-4);
     CHECK_NEAR(link.inverse_link(-10.0), 0.0, 1e-4);
 }
@@ -485,8 +485,8 @@ void test_fisherz_inverse_link_large_eta_approaches_bounds() {
     FisherZLink link;
     double upper = link.inverse_link(10.0);
     double lower = link.inverse_link(-10.0);
-    CHECK_TRUE(bestfit::numerics::is_finite(upper));
-    CHECK_TRUE(bestfit::numerics::is_finite(lower));
+    CHECK_TRUE(corehydro::numerics::is_finite(upper));
+    CHECK_TRUE(corehydro::numerics::is_finite(lower));
     CHECK_TRUE(upper < 1.0);
     CHECK_TRUE(upper > 0.99999999);
     CHECK_TRUE(lower > -1.0);
@@ -560,7 +560,7 @@ void test_yj_constructor_values_non_finite_value_throws() {
 
 void test_yj_constructor_values_produces_finite_lambda() {
     YeoJohnsonLink link(std::vector<double>{-2.0, -1.0, -0.25, 0.0, 0.5, 1.0, 3.0});
-    CHECK_TRUE(bestfit::numerics::is_finite(link.lambda()));
+    CHECK_TRUE(corehydro::numerics::is_finite(link.lambda()));
 }
 
 void test_yj_link_lambda_one_is_identity() {
@@ -667,7 +667,7 @@ void test_yeo_johnson_log_likelihood_lambda_one() {
     // formula reduces to -n/2*LogSqrt2PI - n/2*log(sigmaSq) - sse/(2*sigmaSq).
     std::vector<double> values = {1.0, 2.0, 3.0, 4.0};
     // mu = 2.5, sse = 5, sigmaSq = 1.25.
-    double expected = -2.0 * bestfit::numerics::kLogSqrt2PI - 2.0 * std::log(1.25) - 2.0;
+    double expected = -2.0 * corehydro::numerics::kLogSqrt2PI - 2.0 * std::log(1.25) - 2.0;
     CHECK_NEAR(YeoJohnson::log_likelihood(values, 1.0), expected, 1e-12);
 }
 
@@ -685,7 +685,7 @@ void test_yeo_johnson_fit_lambda_throws_for_degenerate_input() {
 void test_yeo_johnson_fit_lambda_maximizes_log_likelihood() {
     std::vector<double> values = {-2.0, -1.0, -0.25, 0.0, 0.5, 1.0, 3.0};
     double lambda = YeoJohnson::fit_lambda(values);
-    CHECK_TRUE(bestfit::numerics::is_finite(lambda));
+    CHECK_TRUE(corehydro::numerics::is_finite(lambda));
     CHECK_TRUE(lambda >= -5.0 && lambda <= 5.0);
     // Local-maximum property of the MLE.
     double ll = YeoJohnson::log_likelihood(values, lambda);
@@ -812,5 +812,5 @@ int main() {
     test_yeo_johnson_fit_lambda_maximizes_log_likelihood();
     // Supplements
     test_supplement_all_links_round_trip_and_derivative();
-    return bftest::summary("test_link_functions");
+    return chtest::summary("test_link_functions");
 }

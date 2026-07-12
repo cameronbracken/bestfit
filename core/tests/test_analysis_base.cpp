@@ -1,4 +1,4 @@
-// Standalone contract test for bestfit::analyses::AnalysisBase and the four analysis interface
+// Standalone contract test for corehydro::analyses::AnalysisBase and the four analysis interface
 // mixins (IAnalysis, IBayesianAnalysis, IUnivariateAnalysis, IProbabilityOrdinates).
 //
 // There is NO upstream test file for these types (they are exercised indirectly by the analysis
@@ -13,32 +13,32 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/analyses/support/analysis_base.hpp"
-#include "bestfit/analyses/support/i_analysis.hpp"
-#include "bestfit/analyses/support/i_bayesian_analysis.hpp"
-#include "bestfit/analyses/support/i_probability_ordinates.hpp"
-#include "bestfit/analyses/support/i_univariate_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/analyses/support/analysis_base.hpp"
+#include "corehydro/analyses/support/i_analysis.hpp"
+#include "corehydro/analyses/support/i_bayesian_analysis.hpp"
+#include "corehydro/analyses/support/i_probability_ordinates.hpp"
+#include "corehydro/analyses/support/i_univariate_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::AnalysisBase;
-using bestfit::analyses::IAnalysis;
-using bestfit::analyses::IBayesianAnalysis;
-using bestfit::analyses::IProbabilityOrdinates;
-using bestfit::analyses::IUnivariateAnalysis;
-using bestfit::estimation::BayesianAnalysis;
-using bestfit::estimation::PointEstimateType;
-using bestfit::estimation::SamplerType;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::data::ProbabilityOrdinates;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UncertaintyAnalysisResults;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::analyses::AnalysisBase;
+using corehydro::analyses::IAnalysis;
+using corehydro::analyses::IBayesianAnalysis;
+using corehydro::analyses::IProbabilityOrdinates;
+using corehydro::analyses::IUnivariateAnalysis;
+using corehydro::estimation::BayesianAnalysis;
+using corehydro::estimation::PointEstimateType;
+using corehydro::estimation::SamplerType;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::data::ProbabilityOrdinates;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UncertaintyAnalysisResults;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -178,5 +178,5 @@ int main() {
     test_iunivariate_pointer_dispatch();
     test_shared_virtual_ianalysis_base_is_unambiguous();
 
-    return bftest::summary("analysis_base");
+    return chtest::summary("analysis_base");
 }

@@ -1,4 +1,4 @@
-// Standalone tests for bestfit::models::DataComponent, PriorComponent, and ModelParameter.
+// Standalone tests for corehydro::models::DataComponent, PriorComponent, and ModelParameter.
 //
 // Oracle for behavior is the C# source itself (upstream/RMC-BestFit/src/RMC.BestFit/Models/
 // Support/{DataComponent,PriorComponent,ModelParameter}.cs @ fc28c0c) -- these are structural/
@@ -8,20 +8,20 @@
 #include <memory>
 #include <string>
 
-#include "bestfit/models/support/data_component.hpp"
-#include "bestfit/models/support/model_parameter.hpp"
-#include "bestfit/models/support/prior_component.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/models/support/data_component.hpp"
+#include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/prior_component.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataComponent;
-using bestfit::models::DataComponentType;
-using bestfit::models::ModelParameter;
-using bestfit::models::PriorComponent;
-using bestfit::models::PriorComponentType;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::DataComponent;
+using corehydro::models::DataComponentType;
+using corehydro::models::ModelParameter;
+using corehydro::models::PriorComponent;
+using corehydro::models::PriorComponentType;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -234,5 +234,5 @@ int main() {
     test_model_parameter_clone_independence();
     test_model_parameter_copy_ctor_independence();
 
-    return bftest::summary("model_parameter");
+    return chtest::summary("model_parameter");
 }

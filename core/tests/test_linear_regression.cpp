@@ -20,14 +20,14 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/data/regression/linear_regression.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/linalg/vector.hpp"
+#include "corehydro/numerics/data/regression/linear_regression.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/linalg/vector.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::data::regression::LinearRegression;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::linalg::Vector;
+using corehydro::numerics::data::regression::LinearRegression;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::linalg::Vector;
 
 namespace {
 
@@ -397,5 +397,5 @@ int main() {
     test_prediction_intervals();
     test_prediction_intervals_multi();
     test_constructor_guards();
-    return bftest::summary("linear_regression");
+    return chtest::summary("linear_regression");
 }

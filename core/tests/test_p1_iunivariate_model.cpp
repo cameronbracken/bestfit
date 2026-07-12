@@ -19,20 +19,20 @@
 #include <limits>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/support/i_univariate_model.hpp"
-#include "bestfit/models/support/validation_result.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/data/statistics.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/support/i_univariate_model.hpp"
+#include "corehydro/models/support/validation_result.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/data/statistics.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::IUnivariateModel;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::models::ValidationResult;
-using bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::IUnivariateModel;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::models::ValidationResult;
+using corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -104,26 +104,26 @@ void test_maximum_sample1() {
         173,   172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179,
         185,   117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182,
         164,   183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174};
-    CHECK_NEAR(bestfit::numerics::data::maximum(sample1), 337.0, 1e-10);
+    CHECK_NEAR(corehydro::numerics::data::maximum(sample1), 337.0, 1e-10);
 }
 
 // Unsorted small vector -> its max.
 void test_maximum_unsorted() {
-    CHECK_NEAR(bestfit::numerics::data::maximum({3.0, -7.5, 12.25, 0.0, 12.24, -100.0}), 12.25,
+    CHECK_NEAR(corehydro::numerics::data::maximum({3.0, -7.5, 12.25, 0.0, 12.24, -100.0}), 12.25,
                1e-9);
-    CHECK_NEAR(bestfit::numerics::data::maximum({-5.0, -1.0, -9.0}), -1.0, 1e-9);
+    CHECK_NEAR(corehydro::numerics::data::maximum({-5.0, -1.0, -9.0}), -1.0, 1e-9);
 }
 
 // Empty input -> NaN (C# data.Count == 0 guard).
 void test_maximum_empty_is_nan() {
-    CHECK_TRUE(std::isnan(bestfit::numerics::data::maximum({})));
+    CHECK_TRUE(std::isnan(corehydro::numerics::data::maximum({})));
 }
 
 // Any NaN element short-circuits -> NaN (C# double.IsNaN(data[i]) guard).
 void test_maximum_nan_propagates() {
     const double nan = std::numeric_limits<double>::quiet_NaN();
-    CHECK_TRUE(std::isnan(bestfit::numerics::data::maximum({1.0, 2.0, nan, 4.0})));
-    CHECK_TRUE(std::isnan(bestfit::numerics::data::maximum({nan})));
+    CHECK_TRUE(std::isnan(corehydro::numerics::data::maximum({1.0, 2.0, nan, 4.0})));
+    CHECK_TRUE(std::isnan(corehydro::numerics::data::maximum({nan})));
 }
 
 }  // namespace
@@ -135,5 +135,5 @@ int main() {
     test_maximum_unsorted();
     test_maximum_empty_is_nan();
     test_maximum_nan_propagates();
-    return bftest::summary("p1_iunivariate_model");
+    return chtest::summary("p1_iunivariate_model");
 }

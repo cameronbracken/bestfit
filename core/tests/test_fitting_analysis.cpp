@@ -1,5 +1,5 @@
-// Structural / behavioral tests for bestfit::analyses::FittingAnalysis + the
-// bestfit::models::FittedDistribution DTO (A6).
+// Structural / behavioral tests for corehydro::analyses::FittingAnalysis + the
+// corehydro::models::FittedDistribution DTO (A6).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/DistributionFitting/FittingAnalysisTests.cs
@@ -31,20 +31,20 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/distribution_fitting/fitting_analysis.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/data_frame/data_collections/exact_series.hpp"
-#include "bestfit/models/distribution_fitting/fitted_distribution.hpp"
-#include "bestfit/numerics/data/probability_ordinates.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/analyses/distribution_fitting/fitting_analysis.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/distribution_fitting/fitted_distribution.hpp"
+#include "corehydro/numerics/data/probability_ordinates.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::FittingAnalysis;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::FittedDistribution;
-using bestfit::numerics::data::ProbabilityOrdinates;
-using UDT = bestfit::numerics::distributions::UnivariateDistributionType;
+using corehydro::analyses::FittingAnalysis;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::FittedDistribution;
+using corehydro::numerics::data::ProbabilityOrdinates;
+using UDT = corehydro::numerics::distributions::UnivariateDistributionType;
 
 namespace {
 
@@ -191,5 +191,5 @@ int main() {
     test_run_structural();
     test_validate_valid();
 
-    return bftest::summary("fitting_analysis");
+    return chtest::summary("fitting_analysis");
 }

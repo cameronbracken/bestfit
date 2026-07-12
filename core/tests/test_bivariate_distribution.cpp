@@ -40,36 +40,36 @@
 #include <type_traits>
 #include <vector>
 
-#include "bestfit/models/bivariate_distribution/bivariate_distribution.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/support/i_univariate_model.hpp"
-#include "bestfit/models/univariate_distribution/bulletin17c_distribution.hpp"
-#include "bestfit/models/univariate_distribution/mixture_model.hpp"
-#include "bestfit/models/univariate_distribution/point_process_model.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/copulas/base/copula_type.hpp"
-#include "bestfit/numerics/distributions/copulas/normal_copula.hpp"
-#include "bestfit/numerics/distributions/copulas/student_t_copula.hpp"
-#include "bestfit/numerics/distributions/gumbel.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/models/bivariate_distribution/bivariate_distribution.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/support/i_univariate_model.hpp"
+#include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
+#include "corehydro/models/univariate_distribution/mixture_model.hpp"
+#include "corehydro/models/univariate_distribution/point_process_model.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/copulas/base/copula_type.hpp"
+#include "corehydro/numerics/distributions/copulas/normal_copula.hpp"
+#include "corehydro/numerics/distributions/copulas/student_t_copula.hpp"
+#include "corehydro/numerics/distributions/gumbel.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::models::BivariateDistribution;
-using bestfit::models::Bulletin17CDistribution;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::IUnivariateModel;
-using bestfit::models::MixtureModel;
-using bestfit::models::PointProcessModel;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::Gumbel;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionBase;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::distributions::copulas::CopulaType;
-using bestfit::numerics::distributions::copulas::NormalCopula;
-using bestfit::numerics::distributions::copulas::StudentTCopula;
+using corehydro::models::BivariateDistribution;
+using corehydro::models::Bulletin17CDistribution;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::IUnivariateModel;
+using corehydro::models::MixtureModel;
+using corehydro::models::PointProcessModel;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::Gumbel;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionBase;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::distributions::copulas::CopulaType;
+using corehydro::numerics::distributions::copulas::NormalCopula;
+using corehydro::numerics::distributions::copulas::StudentTCopula;
 
 namespace {
 
@@ -92,7 +92,7 @@ static_assert(std::is_convertible_v<MixtureModel*, IUnivariateModel*>,
               "MixtureModel must implement IUnivariateModel");
 
 // BivariateDistribution IS a ModelBase and IS an ISimulatable (structural type check).
-static_assert(std::is_convertible_v<BivariateDistribution*, bestfit::models::ModelBase*>,
+static_assert(std::is_convertible_v<BivariateDistribution*, corehydro::models::ModelBase*>,
               "BivariateDistribution must derive ModelBase");
 
 // C# SampleX / SampleY (interface + StudentT tests, 20 values each).
@@ -515,5 +515,5 @@ int main() {
 
     test_bivariate_p4_fixed_param_oracle();
 
-    return bftest::summary("bivariate_distribution");
+    return chtest::summary("bivariate_distribution");
 }

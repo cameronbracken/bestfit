@@ -152,7 +152,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   is guarded against `log(0)`/`log(negative)` producing `-Inf`/`NaN`; Bilinear is not, despite
   Bilinear internally reusing Linear instances for its search machinery.
 - **Port handling:** mirrored faithfully (`Linear::base_interpolate`/`extrapolate` use
-  `bestfit::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
+  `corehydro::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
   at both call sites.
 - **Suggested C# fix:** have `Bilinear` call `Tools.Log10` for consistency, unless the lack of
   clamping there is intentional (e.g. grids are assumed always positive).
@@ -215,7 +215,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   (int)Math.Pow(Count, 0.25))` always evaluates to `1` for any `Count >= 2` (`Math.Pow(2, 0.25)`
   already truncates to `>= 1`, and `Math.Min` caps at `1`), so the "correlated" hunt-vs-bisection
   search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
-  the formula suggests. Ported verbatim (see `core/include/bestfit/numerics/data/interpolation/interpolater.hpp`).
+  the formula suggests. Ported verbatim (see `core/include/corehydro/numerics/data/interpolation/interpolater.hpp`).
 
 ## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false
 
@@ -285,7 +285,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Port handling:** `joe_copula.hpp` (Task 8) does NOT add a `set_theta_from_tau` method, matching
   the C# source exactly; `joe_copula.json` has no `"tau"` fixture case, and the three
   `set_theta_from_tau_dispatch` glue functions (`core/tests/test_fixtures.cpp`,
-  `bestfitr/src/copula.cpp`, `bestfitpy/src/bindings/copula.cpp`) plus the oracle emitter's
+  `corehydror/src/copula.cpp`, `corehydropy/src/bindings/copula.cpp`) plus the oracle emitter's
   `SetThetaFromTauDispatch` have no `"Joe"` branch (each has a NOTE comment explaining the
   omission).
 - **Suggested C# fix:** add `JoeCopula.SetThetaFromTau`, e.g. `Theta = Brent.Solve(t => { ... } -
@@ -323,7 +323,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   and would need to worry about the C# `MultivariateNormal._MVNUNI` clock-seeded default (the
   concern Task 6's carry-forward note flagged for MultivariateStudentT/MultivariateNormal's own
   `dimension >= 3` `CDF()`, a genuinely different code path). Governed here by "the actual C#
-  source over any brief or plan text" (this repo's standing rule): `core/include/bestfit/numerics/
+  source over any brief or plan text" (this repo's standing rule): `core/include/corehydro/numerics/
   data/probability.hpp` ports `JointProbabilityHPCM`/`UnionPCM`, not `JointProbabilityMVN`/
   `UnionMVN`, which remain unported (no reachable caller).
 - **Port handling:** mirrored faithfully; documented at length in `probability.hpp`'s header
@@ -678,7 +678,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   through both this method and a column-by-column reconstruction using `new
   MersenneTwister(random.Next())` per column, which reproduce identically.
 - **Port handling:** transcribed exactly -- `extension_methods.hpp`'s `next_doubles(rng, n, dim)`
-  overload constructs one `bestfit::numerics::sampling::MersenneTwister sub(random.next())` per
+  overload constructs one `corehydro::numerics::sampling::MersenneTwister sub(random.next())` per
   column and fills that column from `sub`, in dimension order (see the header's file comment).
   This pattern is load-bearing for `SNIS::sample()`, which calls
   `_masterPRNG.NextDoubles(Iterations, NumberOfParameters)` once up front; `fixtures/special_
@@ -824,7 +824,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   against a 1-parameter family) and flood-frequency-irrelevant in practice (GEV/LP3/etc. all have
   two or more parameters).
 - **Evidence:** static inspection during Tasks T12/T13 while porting the Jeffreys 1/scale prior
-  (`UnivariateDistributionModel::prior_log_likelihood`, `core/include/bestfit/models/
+  (`UnivariateDistributionModel::prior_log_likelihood`, `core/include/corehydro/models/
   univariate_distribution_model.hpp`); not independently reproduced against the real C# library
   (no fixture exercises a 1-parameter family under MAP/Bayesian).
 - **Port handling:** **intentional divergence** -- the C++ port's `scale_parameter_index()`
@@ -1044,7 +1044,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 ## CONSISTENCY — TimeSeries DateTime index vs. the port's integer index is fit-invariant (models never do calendar arithmetic)
 
 - **Where:** `Numerics/Data/TimeSeries/TimeSeries.cs` (the `DateTime`-keyed index) vs. the thin
-  C++ adapter `core/include/bestfit/numerics/data/time_series/time_series.hpp` (a `long` day-count
+  C++ adapter `core/include/corehydro/numerics/data/time_series/time_series.hpp` (a `long` day-count
   index) @ a2c4dbf.
 - **What:** the C# `TimeSeries` is keyed by `DateTime`; the ported adapter uses an integer index.
   Every TimeSeries/RatingCurve model consumer touches the index only as a sequence position or an
@@ -1085,10 +1085,10 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Where:** `RMC.BestFit/Diagnostics/PriorInfluenceDiagnostics.cs`,
   `ComputeFromPosterior` (the `Dictionary<string, List<double>>` keyed by `PriorComponent.Name`)
   @ fc28c0c; the divergence originates in the ported
-  `core/include/bestfit/models/univariate_distribution/univariate_distribution_model.hpp` (~130,
+  `core/include/corehydro/models/univariate_distribution/univariate_distribution_model.hpp` (~130,
   the standing Phase-4 decision to NOT port `Distribution.ParameterNames`, so `ModelParameter`
   `owner_name()`/`name()` stay empty) and surfaces through the faithful C++ port
-  `core/include/bestfit/diagnostics/prior_influence_diagnostics.hpp`.
+  `core/include/corehydro/diagnostics/prior_influence_diagnostics.hpp`.
 - **What:** `PriorInfluenceDiagnostics` collects prior-component log-likelihoods into a dictionary
   keyed by each component's NAME. For a Normal `UnivariateDistributionModel` the two parameter
   priors are labelled `"Parameter Prior: " + paramName`. In C# `paramName` resolves to the
@@ -1218,7 +1218,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 - **Where:** `RMC.BestFit/Analyses/Bulletin17CAnalysis.cs` @ fc28c0c, `ParseUncertaintyMethod`'s
   `LinkedMultivariateNormal` and `BiasCorrectedBootstrap` arms (ported at
-  `core/include/bestfit/analyses/univariate/bulletin17c_analysis.hpp`, the two formerly-throwing
+  `core/include/corehydro/analyses/univariate/bulletin17c_analysis.hpp`, the two formerly-throwing
   dispatch cases replaced by X8/X9), and the two fixture cases
   `fixtures/analyses/bulletin17c_analysis_smoke.json`: `lp3_linked_multivariate_normal` and
   `lp3_bias_corrected_bootstrap`.

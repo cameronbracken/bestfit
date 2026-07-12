@@ -38,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.config.os }}
     defaults:
       run:
-        working-directory: bestfitr
+        working-directory: corehydror
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
@@ -62,10 +62,10 @@ jobs:
         with:
           extra-packages: any::rcmdcheck
           needs: check
-          working-directory: bestfitr
+          working-directory: corehydror
       - uses: r-lib/actions/check-r-package@v2
         with:
-          working-directory: bestfitr
+          working-directory: corehydror
           upload-snapshots: true
           build_args: 'character()'
 
@@ -87,8 +87,8 @@ jobs:
       - name: Materialize shared core (dereference symlinks)
         run: python tools/materialize_core.py
       - name: Build and install
-        run: python -m pip install ./bestfitpy
+        run: python -m pip install ./corehydropy
       - name: Install test deps
         run: python -m pip install pytest numpy
       - name: Test
-        run: python -m pytest bestfitpy/tests -q
+        run: python -m pytest corehydropy/tests -q

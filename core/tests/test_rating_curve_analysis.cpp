@@ -1,4 +1,4 @@
-// Structural / behavioral tests for bestfit::analyses::RatingCurveAnalysis (X3).
+// Structural / behavioral tests for corehydro::analyses::RatingCurveAnalysis (X3).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/RatingCurve/RatingCurveAnalysisTests.cs
@@ -27,15 +27,15 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/rating_curve/rating_curve_analysis.hpp"
-#include "bestfit/models/rating_curve/rating_curve.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
+#include "corehydro/analyses/rating_curve/rating_curve_analysis.hpp"
+#include "corehydro/models/rating_curve/rating_curve.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::RatingCurveAnalysis;
-using bestfit::models::RatingCurve;
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
+using corehydro::analyses::RatingCurveAnalysis;
+using corehydro::models::RatingCurve;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
 
 namespace {
 
@@ -311,5 +311,5 @@ int main() {
     test_bayesian_analysis_can_be_configured();
     test_run_invalid_configuration_throws();
 
-    return bftest::summary("rating_curve_analysis");
+    return chtest::summary("rating_curve_analysis");
 }

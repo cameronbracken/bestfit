@@ -7,16 +7,16 @@
 #include <cmath>
 #include <vector>
 
-#include "bestfit/numerics/math/linalg/lu_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/matrix.hpp"
-#include "bestfit/numerics/math/linalg/singular_value_decomposition.hpp"
-#include "bestfit/numerics/math/linalg/vector.hpp"
+#include "corehydro/numerics/math/linalg/lu_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/matrix.hpp"
+#include "corehydro/numerics/math/linalg/singular_value_decomposition.hpp"
+#include "corehydro/numerics/math/linalg/vector.hpp"
 #include "check.hpp"
 
-using bestfit::numerics::math::linalg::LUDecomposition;
-using bestfit::numerics::math::linalg::Matrix;
-using bestfit::numerics::math::linalg::SingularValueDecomposition;
-using bestfit::numerics::math::linalg::Vector;
+using corehydro::numerics::math::linalg::LUDecomposition;
+using corehydro::numerics::math::linalg::Matrix;
+using corehydro::numerics::math::linalg::SingularValueDecomposition;
+using corehydro::numerics::math::linalg::Vector;
 
 namespace {
 
@@ -171,5 +171,5 @@ int main() {
     test_decompose();
     test_log_determinant();
     test_log_pseudo_determinant();
-    return bftest::summary("singular_value_decomposition");
+    return chtest::summary("singular_value_decomposition");
 }

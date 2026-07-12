@@ -23,34 +23,34 @@
 #include <set>
 #include <vector>
 
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/numerics/distributions/gamma_distribution.hpp"
-#include "bestfit/numerics/distributions/generalized_beta.hpp"
-#include "bestfit/numerics/distributions/ln_normal.hpp"
-#include "bestfit/numerics/distributions/log_normal.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
-#include "bestfit/numerics/distributions/pert.hpp"
-#include "bestfit/numerics/distributions/student_t.hpp"
-#include "bestfit/numerics/distributions/triangular.hpp"
-#include "bestfit/numerics/distributions/truncated_normal.hpp"
-#include "bestfit/numerics/distributions/uniform.hpp"
-#include "bestfit/numerics/distributions/binomial.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
-#include "bestfit/numerics/utilities/extension_methods.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
+#include "corehydro/numerics/distributions/generalized_beta.hpp"
+#include "corehydro/numerics/distributions/ln_normal.hpp"
+#include "corehydro/numerics/distributions/log_normal.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/pert.hpp"
+#include "corehydro/numerics/distributions/student_t.hpp"
+#include "corehydro/numerics/distributions/triangular.hpp"
+#include "corehydro/numerics/distributions/truncated_normal.hpp"
+#include "corehydro/numerics/distributions/uniform.hpp"
+#include "corehydro/numerics/distributions/binomial.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 
-using bestfit::models::DataFrame;
-using bestfit::models::ExactData;
-using bestfit::models::ExactSeries;
-using bestfit::models::IntervalData;
-using bestfit::models::IntervalSeries;
-using bestfit::models::ThresholdData;
-using bestfit::models::ThresholdSeries;
-using bestfit::models::UncertainData;
-using bestfit::models::UncertainSeries;
-using bestfit::numerics::sampling::MersenneTwister;
-using bestfit::numerics::utilities::next_integers;
-namespace dist = bestfit::numerics::distributions;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactData;
+using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::IntervalSeries;
+using corehydro::models::ThresholdData;
+using corehydro::models::ThresholdSeries;
+using corehydro::models::UncertainData;
+using corehydro::models::UncertainSeries;
+using corehydro::numerics::sampling::MersenneTwister;
+using corehydro::numerics::utilities::next_integers;
+namespace dist = corehydro::numerics::distributions;
 
 namespace {
 
@@ -426,5 +426,5 @@ int main() {
     test_bootstrap_threshold_historical_nabove_in_range();
     test_bootstrap_seeded_determinism();
 
-    return bftest::summary("data_frame_bootstrap");
+    return chtest::summary("data_frame_bootstrap");
 }

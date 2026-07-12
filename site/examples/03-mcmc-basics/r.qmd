@@ -10,7 +10,7 @@ Ported from
 [`03_mcmc_basics.ipynb`](https://github.com/USACE-RMC/Numerics-Python-Examples/blob/main/notebooks/03_mcmc_basics.ipynb)
 in the USACE-RMC Numerics-Python-Examples repository (0BSD licensed). The upstream
 notebook drives the C# `Numerics.dll` through pythonnet; this version uses
-`bestfitr`, whose compiled core is a validated C++ port of the same library. The
+`corehydror`, whose compiled core is a validated C++ port of the same library. The
 seeded data draws below reproduce the upstream values exactly. The posterior numbers
 are close to the upstream's but deliberately not identical, because this port builds
 its priors differently (explained below). The Python version of this example uses
@@ -91,7 +91,7 @@ The upstream setup loads the CoreCLR runtime, resolves the DLL, and builds .NET
 everywhere.
 
 ```{r}
-library(bestfitr)
+library(corehydror)
 
 # Earth-tone palette used throughout, one color per chain
 pal <- c("#6b7f3f", "#b06a3b", "#5b7a8c", "#8c8c7a")

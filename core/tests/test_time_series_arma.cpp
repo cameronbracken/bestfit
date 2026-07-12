@@ -45,34 +45,34 @@
 #include <string>
 #include <vector>
 
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/support/simulatable.hpp"
-#include "bestfit/models/time_series/auto_regressive.hpp"
-#include "bestfit/models/time_series/moving_average.hpp"
-#include "bestfit/models/time_series/transform_type.hpp"
-#include "bestfit/numerics/data/time_series/time_series.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/support/simulatable.hpp"
+#include "corehydro/models/time_series/auto_regressive.hpp"
+#include "corehydro/models/time_series/moving_average.hpp"
+#include "corehydro/models/time_series/transform_type.hpp"
+#include "corehydro/numerics/data/time_series/time_series.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
 namespace {
 
-using bestfit::models::AutoRegressive;
-using bestfit::models::MovingAverage;
-using bestfit::models::Transform;
-using bestfit::numerics::data::TimeInterval;
-using bestfit::numerics::data::TimeSeries;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::models::AutoRegressive;
+using corehydro::models::MovingAverage;
+using corehydro::models::Transform;
+using corehydro::numerics::data::TimeInterval;
+using corehydro::numerics::data::TimeSeries;
+using corehydro::numerics::sampling::MersenneTwister;
 
 // Compile-time mirror of Model_InheritsFromModelBase / Model_ImplementsISimulatable.
-static_assert(std::is_base_of<bestfit::models::ModelBase, AutoRegressive>::value,
+static_assert(std::is_base_of<corehydro::models::ModelBase, AutoRegressive>::value,
               "AutoRegressive must derive from ModelBase");
 static_assert(
-    std::is_base_of<bestfit::models::ISimulatable<std::vector<double>>, AutoRegressive>::value,
+    std::is_base_of<corehydro::models::ISimulatable<std::vector<double>>, AutoRegressive>::value,
     "AutoRegressive must implement ISimulatable<std::vector<double>>");
-static_assert(std::is_base_of<bestfit::models::ModelBase, MovingAverage>::value,
+static_assert(std::is_base_of<corehydro::models::ModelBase, MovingAverage>::value,
               "MovingAverage must derive from ModelBase");
 static_assert(
-    std::is_base_of<bestfit::models::ISimulatable<std::vector<double>>, MovingAverage>::value,
+    std::is_base_of<corehydro::models::ISimulatable<std::vector<double>>, MovingAverage>::value,
     "MovingAverage must implement ISimulatable<std::vector<double>>");
 
 // ---- Test-data helpers (mirror the C# private fixtures; data regenerated with the ported RNG) ----
@@ -121,7 +121,7 @@ TimeSeries make_tiny_series() {
     return ts;
 }
 
-bool messages_contain(const bestfit::models::ValidationResult& r, const std::string& needle) {
+bool messages_contain(const corehydro::models::ValidationResult& r, const std::string& needle) {
     for (const auto& m : r.validation_messages)
         if (m.find(needle) != std::string::npos) return true;
     return false;
@@ -260,7 +260,7 @@ void test_ar_log_likelihood() {
     // Components all Exact.
     auto comps = ar1.pointwise_data_log_likelihood_components(p1);
     for (const auto& c : comps)
-        CHECK_TRUE(c.type() == bestfit::models::DataComponentType::Exact);
+        CHECK_TRUE(c.type() == corehydro::models::DataComponentType::Exact);
 }
 
 void test_ar_predict() {
@@ -585,7 +585,7 @@ void test_ma_log_likelihood() {
 
     auto comps = ma1.pointwise_data_log_likelihood_components(p1);
     for (const auto& c : comps)
-        CHECK_TRUE(c.type() == bestfit::models::DataComponentType::Exact);
+        CHECK_TRUE(c.type() == corehydro::models::DataComponentType::Exact);
 }
 
 void test_ma_predict() {
@@ -830,5 +830,5 @@ int main() {
 
     test_ar_ma_p4_fixed_param_oracles();
 
-    return bftest::summary("time_series_arma");
+    return chtest::summary("time_series_arma");
 }

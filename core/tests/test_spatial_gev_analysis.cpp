@@ -1,4 +1,4 @@
-// Structural / behavioral tests for bestfit::analyses::SpatialGEVAnalysis (X4).
+// Structural / behavioral tests for corehydro::analyses::SpatialGEVAnalysis (X4).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/SpatialExtremes/SpatialGEVAnalysisTests.cs @ fc28c0c
@@ -29,23 +29,23 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/spatial_extremes/spatial_gev_analysis.hpp"
-#include "bestfit/analyses/support/analysis_base.hpp"
-#include "bestfit/analyses/support/i_bayesian_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/support/model_base.hpp"
-#include "bestfit/models/trend_functions/general_linear_function.hpp"
-#include "bestfit/numerics/distributions/generalized_extreme_value.hpp"
-#include "bestfit/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/analyses/spatial_extremes/spatial_gev_analysis.hpp"
+#include "corehydro/analyses/support/analysis_base.hpp"
+#include "corehydro/analyses/support/i_bayesian_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/support/model_base.hpp"
+#include "corehydro/models/trend_functions/general_linear_function.hpp"
+#include "corehydro/numerics/distributions/generalized_extreme_value.hpp"
+#include "corehydro/numerics/sampling/mersenne_twister.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::AnalysisBase;
-using bestfit::analyses::IBayesianAnalysis;
-using bestfit::analyses::SpatialGEVAnalysis;
-using bestfit::models::spatial_extremes::SpatialGEV;
-using bestfit::models::trend_functions::GeneralLinearFunction;
-using bestfit::numerics::distributions::GeneralizedExtremeValue;
-using bestfit::numerics::sampling::MersenneTwister;
+using corehydro::analyses::AnalysisBase;
+using corehydro::analyses::IBayesianAnalysis;
+using corehydro::analyses::SpatialGEVAnalysis;
+using corehydro::models::spatial_extremes::SpatialGEV;
+using corehydro::models::trend_functions::GeneralLinearFunction;
+using corehydro::numerics::distributions::GeneralizedExtremeValue;
+using corehydro::numerics::sampling::MersenneTwister;
 
 using Grid = std::vector<std::vector<double>>;
 
@@ -118,8 +118,8 @@ void test_null_model_throws() {
 // ---- Constructor_BayesianAnalysis_HasCorrectModel (C# 192) ----
 void test_bayesian_has_correct_model() {
     SpatialGEVAnalysis analysis(make_test_spatial_gev());
-    const bestfit::models::ModelBase* model_ptr =
-        static_cast<const bestfit::models::ModelBase*>(&analysis.spatial_gev());
+    const corehydro::models::ModelBase* model_ptr =
+        static_cast<const corehydro::models::ModelBase*>(&analysis.spatial_gev());
     CHECK_TRUE(&analysis.bayesian_analysis().model() == model_ptr);
 }
 
@@ -228,5 +228,5 @@ int main() {
     test_cross_validation_results_null();
     test_spatial_gev_surface();
 
-    return bftest::summary("spatial_gev_analysis");
+    return chtest::summary("spatial_gev_analysis");
 }

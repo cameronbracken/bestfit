@@ -1,5 +1,5 @@
 // Structural + deterministic-math tests for
-// bestfit::analyses::bivariate::CoincidentFrequencyAnalysis (X6).
+// corehydro::analyses::bivariate::CoincidentFrequencyAnalysis (X6).
 //
 // These transcribe the STRUCTURAL C# tests from
 //   RMC.BestFit.Tests/Bivariate/CoincidentFrequencyAnalysisTests.cs @ fc28c0c
@@ -52,29 +52,29 @@
 #include <memory>
 #include <vector>
 
-#include "bestfit/analyses/bivariate/bivariate_analysis.hpp"
-#include "bestfit/analyses/bivariate/coincident_frequency_analysis.hpp"
-#include "bestfit/estimation/bayesian_analysis.hpp"
-#include "bestfit/models/bivariate_distribution/bivariate_distribution.hpp"
-#include "bestfit/models/data_frame/data_frame.hpp"
-#include "bestfit/models/univariate_distribution/univariate_distribution_model.hpp"
-#include "bestfit/numerics/distributions/base/univariate_distribution_type.hpp"
-#include "bestfit/numerics/distributions/copulas/base/copula_type.hpp"
-#include "bestfit/numerics/distributions/copulas/normal_copula.hpp"
-#include "bestfit/numerics/distributions/normal.hpp"
+#include "corehydro/analyses/bivariate/bivariate_analysis.hpp"
+#include "corehydro/analyses/bivariate/coincident_frequency_analysis.hpp"
+#include "corehydro/estimation/bayesian_analysis.hpp"
+#include "corehydro/models/bivariate_distribution/bivariate_distribution.hpp"
+#include "corehydro/models/data_frame/data_frame.hpp"
+#include "corehydro/models/univariate_distribution/univariate_distribution_model.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
+#include "corehydro/numerics/distributions/copulas/base/copula_type.hpp"
+#include "corehydro/numerics/distributions/copulas/normal_copula.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "check.hpp"
 
-using bestfit::analyses::BivariateAnalysis;
-using bestfit::analyses::bivariate::CoincidentFrequencyAnalysis;
-using bestfit::estimation::PointEstimateType;
-using bestfit::models::BivariateDistribution;
-using bestfit::models::DataFrame;
-using bestfit::models::ExactSeries;
-using bestfit::models::UnivariateDistributionModel;
-using bestfit::numerics::distributions::Normal;
-using bestfit::numerics::distributions::UnivariateDistributionType;
-using bestfit::numerics::distributions::copulas::CopulaType;
-using bestfit::numerics::distributions::copulas::NormalCopula;
+using corehydro::analyses::BivariateAnalysis;
+using corehydro::analyses::bivariate::CoincidentFrequencyAnalysis;
+using corehydro::estimation::PointEstimateType;
+using corehydro::models::BivariateDistribution;
+using corehydro::models::DataFrame;
+using corehydro::models::ExactSeries;
+using corehydro::models::UnivariateDistributionModel;
+using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::distributions::copulas::CopulaType;
+using corehydro::numerics::distributions::copulas::NormalCopula;
 
 namespace {
 
@@ -238,7 +238,7 @@ void test_run_unestimated_throws() {
 // Validate (detail gates -- need an estimated upstream to pass the not-estimated early return)
 // ---------------------------------------------------------------------------
 
-bool has_message(const bestfit::models::ValidationResult& v, const char* needle) {
+bool has_message(const corehydro::models::ValidationResult& v, const char* needle) {
     for (const auto& m : v.validation_messages)
         if (m.find(needle) != std::string::npos) return true;
     return false;
@@ -492,5 +492,5 @@ int main() {
     test_run_point_estimate_only();
     test_run_posterior_loop_structure();
 
-    return bftest::summary("coincident_frequency_analysis");
+    return chtest::summary("coincident_frequency_analysis");
 }
