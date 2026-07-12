@@ -6,6 +6,10 @@ template:
   light-switch: true
   bslib:
     primary: "#6b7f3f"
+    # flatly's navbar is ~72px tall (--bs-navbar-padding-y: 1rem), not the 56px
+    # pkgdown assumes; without this the fixed navbar overlaps the top of the
+    # home-page intro text.
+    pkgdown-nav-height: 72px
 
 navbar:
   structure:
