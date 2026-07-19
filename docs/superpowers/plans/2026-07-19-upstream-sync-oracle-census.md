@@ -164,6 +164,72 @@ current corpus":
   `perfectly_negative` cases (min/max rule, 2- and 3-normal) but the changed behavior
   (`CorrelationMatrix` no longer zeroed) is a public-property-only change with no effect on the
   pinned CDF/PDF oracle values, so no flip is expected there regardless of coverage.
+- Numerics #13 BoxCox/YeoJohnson `FitLambda` hardening (`CanFitLambda` pre-checks, Brent objective
+  clamping, candidate rejection at non-finite/|lambda|>5, YeoJohnson lambda==2 tolerance band) --
+  `fixtures/data/statistics_utilities.json` (`kind: data_utility`) has exactly the fixture surface
+  for this: `box_cox_lambda_fit`/`box_cox_transform_half`/`box_cox_transform_neg` over the
+  `positive_sample` dataset (30 points, range ~76-6096, no degenerate/constant values) and
+  `yeo_johnson_lambda_fit`/`yeo_johnson_transform_half`/`yeo_johnson_transform_17` over
+  `mixed_sign` (30 points, range ~-4.5 to 3.1). None flipped. Checked directly: neither dataset is
+  degenerate (so `CanFitLambda`'s new NaN short-circuit can't trigger), the two direct-`Transform`
+  cases (`_half` at lambda=0.5, `_neg`/`_17` at lambda=-0.3/1.7) never approach the new lambda==2
+  tolerance band, and no case's args or data are positioned to hit a non-finite Brent objective or
+  the new |lambda|>5 rejection. **Genuine gap**, not "unaffected" -- every guard this item adds is
+  a rejection/clamp path for a degenerate or extreme input, and every current case is a
+  well-behaved, ordinary sample. T2 needs new cases (a constant/near-constant sample for
+  `CanFitLambda`, and a lambda near 2 for the YeoJohnson tolerance band) to observe this item at
+  all.
+- Numerics #14 distribution validation wave (assign-before-validate setter ordering +
+  NaN/Inf rejection: Gumbel/Logistic/InverseChiSquared/Binomial/Deterministic/NoncentralT/
+  ChiSquared/KernelDensity) -- checked all 8 named fixtures directly. Six already carry an
+  explicit invalid-parameter case asserting `parameters_valid: false`: `gumbel.json`
+  (`invalid_nan_location`, `invalid_inf_location`), `logistic.json` (same two names),
+  `inverse_chi_squared.json` (`invalid_params` at dof=0,sigma=0), `binomial.json`
+  (`binomial_invalid_params` at p=-1), `noncentral_t.json` (`nct_invalid_params_nu_too_small`,
+  `nct_invalid_params_lambda_inf`), `chi_squared.json` (`invalid_params_dof0`) -- none flipped.
+  `deterministic.json` and `kernel_density.json` have **no** invalid-parameter case at all (both
+  only construct valid params). Two distinct findings, not one:
+  1. For the six with coverage, the surface-level "does `parameters_valid` reject NaN/Inf"
+     semantic already returned `false` pre-bump and still does -- plausibly already-correct
+     (a live re-check of current field values, independent of the setter-ordering bug), not a
+     coverage gap in the usual sense.
+  2. The actual **assign-before-validate ordering** bug this item describes only manifests on a
+     two-step sequence (construct valid -> `SetParameters` with bad values -> read back the
+     *previous* state to see whether it leaked/corrupted before the throw). Every fixture case
+     in this corpus is single-shot construct-then-assert; none does a construct-then-reset
+     sequence. So this half of item #14 is **untestable by the current harness shape for any of
+     the 8 distributions**, not merely uncovered by these particular fixtures -- a structural gap
+     for whichever task (T3) owns this item, not a one-line fixture addition.
+  `deterministic.json`/`kernel_density.json` additionally lack even the surface-level NaN/Inf
+  case -- an ordinary coverage gap on top of the structural one.
+- Numerics #15 `UnivariateDistributionFactory` switch completeness / throws-on-unknown /
+  `KernelDensity` case presence (distinct from the `TryCreateDistribution` new-API item noted
+  below) -- confirmed via `git diff a2c4dbf 2a0357a --
+  Numerics/Distributions/Univariate/Base/UnivariateDistributionFactory.cs` in the submodule: the
+  old if/else chain had no branch at all for `Deterministic`, `Empirical`, `KernelDensity`,
+  `VonMises`, `CompetingRisks`, `Mixture`, or `UserDefined`, and silently fell through to
+  `return new Deterministic()` for any of them (or for a genuinely undefined enum value); the new
+  switch has an explicit case for every one of those (including `KernelDensity` at line 74-75 and
+  `VonMises` at line 112-113), throws `NotSupportedException` for the three composite/user types,
+  and `ArgumentOutOfRangeException` for anything undefined. This is a real, substantial behavior
+  change -- and yet produced zero census failures, for a specific, checkable reason:
+  `tools/oracle_emitter/Program.cs` `Build()` (and its `BuildComponent()` sibling) special-cases
+  exactly the types the old factory silently mishandled. `KernelDensity`/`Empirical` are built via
+  the bespoke `BuildComposite()` path (never call `UnivariateDistributionFactory.CreateDistribution`
+  at all), and `VonMises` is explicitly bypassed with `target == "VonMises" ? new VonMises() :
+  UnivariateDistributionFactory.CreateDistribution(type)` -- with the comment "VonMises is in the
+  C# enum but not in the upstream factory yet -- construct directly," i.e. a workaround for
+  precisely the bug `docs/upstream-csharp-issues.md` documents ("BUG -- UnivariateDistributionFactory
+  has no case for VonMises (falls through to Deterministic)"). Every OTHER plain distribution
+  (Gumbel, Normal, StudentT, etc.) already had an explicit if/else branch pre-bump, so the
+  switch-refactor changes nothing observable for them. **Net finding: the fix is real and landed,
+  but corehydro's own pre-existing compensating workaround for the VonMises half of it hides it
+  from the census, and the emitter's composite-path shape hides the KernelDensity/Empirical/
+  throws-on-unknown halves structurally (they never call the flat factory in the first place).**
+  T7 should both verify the C++ factory already has (or add) the `KernelDensity` case per this
+  repo's own item-15 note, and decide whether to retire the VonMises `Build()`/`BuildComponent()`
+  workaround now that upstream's factory handles it -- retiring it is the only way to get this fix
+  under census coverage, since no fixture asserts factory-throw behavior directly.
 - BestFit #2 Bulletin17CAnalysis bootstrap UQ rework -- `bulletin17c_analysis_smoke.json` has a
   `lp3_bias_corrected_bootstrap` case; it did not flip. Per the design, this rework only becomes
   visible when a replicate is discarded/retried/warm-started or the Mahalanobis gate rejects
@@ -175,6 +241,20 @@ current corpus":
   failure to exercise the new fallback.
 - BestFit #4 Bulletin17CDistribution `CloneWithDataFrame` / ROS trigger change -- no dedicated
   clone-path fixture exists yet. Gap.
+- BestFit #5 BootstrapDiagnostics discard bookkeeping (`AttemptedReplicates`/`RetainedReplicates`/
+  `TransformFailures`/GMM `OptimizationStatus` counters/`OptimizerFallbacks`;
+  `ValidReplicates`/`FailureRate`/`AverageRetries` redefinition) -- **genuine gap, the cleanest of
+  the four omitted items**: a direct search of the whole `fixtures/` tree and of
+  `tools/oracle_emitter/Program.cs` for any of `AttemptedReplicates`, `RetainedReplicates`,
+  `TransformFailures`, `OptimizerFallbacks`, `BootstrapDiagnostics`, `ValidReplicates`,
+  `FailureRate`, or `AverageRetries` returns zero hits in either place. No fixture (not even the
+  three `bulletin17c_analysis_smoke.json` UQ cases, `lp3_multivariate_normal`/
+  `lp3_linked_multivariate_normal`/`lp3_bias_corrected_bootstrap`) asserts any bootstrap-diagnostic
+  field at all -- only `confidence_level`/`exceedance_probability`/`point_estimate`/`lower_ci`/
+  `upper_ci`/`parameter`. The emitter has no code path that would even read a
+  `BootstrapDiagnostics` object today. T19 needs new fixture cases (and, since nothing dumps this
+  DTO yet, likely new emitter/dispatch glue) from scratch to observe this item at all -- there is
+  no re-pin here, only net-new coverage.
 - BestFit #6 ThresholdData source-vs-effective count split -- `mle_censored.json`'s
   `normal_censored_data_frame` has a threshold series but only `parameter`/`plotting_position`
   assertions are checked, not a repeated-`ProcessThresholdSeries`-idempotency probe. The
