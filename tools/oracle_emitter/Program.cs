@@ -22,10 +22,16 @@ using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
 using Numerics.Sampling.MCMC;
 // Task T12: the real RMC.BestFit estimation path (subset-compiled -- see OracleEmitter.csproj).
-// `RMC.BestFit` holds ExactSeries; `RMC.BestFit.Models` holds DataFrame + the UnivariateDistribution
-// model; `RMC.BestFit.Estimation` holds MaximumLikelihood / MaximumAPosteriori / BayesianAnalysis /
-// OptimizationMethod. None of these names clash with Numerics (verified), so plain usings are safe.
-using RMC.BestFit;
+// `RMC.BestFit.Models` holds the DataFrame series/data types (ExactSeries/ExactData/etc.) AND
+// DataFrame + the UnivariateDistribution model; `RMC.BestFit.Estimation` holds MaximumLikelihood /
+// MaximumAPosteriori / BayesianAnalysis / OptimizationMethod. v2.0.0 moved the DataFrame series
+// classes out of the bare `RMC.BestFit` namespace and into `RMC.BestFit.Models` (upstream commit
+// range fc28c0c..c2e6192, `namespace RMC.BestFit` -> `namespace RMC.BestFit.Models` across
+// Models/DataFrame/**); a plain `using RMC.BestFit;` no longer resolves the unqualified series/data
+// type names used below, so it's replaced by a plain `using RMC.BestFit.Models;` (verified: still no
+// clash with Numerics). The `BestFitModels` alias is kept for the explicitly-qualified
+// `BestFitModels.DataFrame` call sites already in this file.
+using RMC.BestFit.Models;
 using RMC.BestFit.Estimation;
 using BestFitModels = RMC.BestFit.Models;
 // Task A11: the real RMC.BestFit user-facing Analyses layer (subset-compiled -- see
@@ -99,12 +105,16 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
         var pArr = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
         var emp = new EmpiricalDistribution(xArr, pArr);
         // Optional p_transform: "None" or "NormalZ" (default NormalZ)
+        // Fully qualified: v2.0.0 moved the RMC.BestFit DataFrame series/data types into the
+        // `RMC.BestFit.Models` namespace (see the `using RMC.BestFit.Models;` note above), which
+        // now also owns a `Transform` enum (the TimeSeries None/Logarithmic/BoxCox/YeoJohnson
+        // transform) that collides with this `Numerics.Data.Transform` (None/Logarithmic/NormalZ).
         if (construct.TryGetProperty("p_transform", out var pt))
         {
             emp.ProbabilityTransform = pt.GetString() switch
             {
-                "None"    => Transform.None,
-                "NormalZ" => Transform.NormalZ,
+                "None"    => Numerics.Data.Transform.None,
+                "NormalZ" => Numerics.Data.Transform.NormalZ,
                 var s     => throw new Exception($"unknown p_transform: {s}")
             };
         }
@@ -773,15 +783,15 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
             var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
             for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
         }
-        Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
+        Numerics.Data.Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
             ? t.GetString() switch
             {
-                "None" => Transform.None,
-                "Logarithmic" => Transform.Logarithmic,
-                "NormalZ" => Transform.NormalZ,
+                "None" => Numerics.Data.Transform.None,
+                "Logarithmic" => Numerics.Data.Transform.Logarithmic,
+                "NormalZ" => Numerics.Data.Transform.NormalZ,
                 var s => throw new Exception($"unknown transform: {s}")
             }
-            : Transform.None;
+            : Numerics.Data.Transform.None;
         return new BivariateEmpirical(x1, x2, p, ParseT("x1_transform"), ParseT("x2_transform"),
                                        ParseT("p_transform"));
     }
