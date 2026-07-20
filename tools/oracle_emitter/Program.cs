@@ -3369,7 +3369,12 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 "MGBT" => () => MultipleGrubbsBeckTest.Function(duData),
                 "BoxCoxLambda" => () => { BoxCox.FitLambda(duData, out double lam); return lam; },
                 "BoxCoxTransform" => () => BoxCox.Transform(duData, duArgs[0])[(int)duArgs[1]],
-                "YeoJohnsonLambda" => () => YeoJohnson.FitLambda(duData),
+                // Use the (values, out lambda) overload, matching Test_YeoJohnson.cs's
+                // Test_FitLambda_InvalidSamples_ReturnsNaN and BoxCoxLambda above -- the
+                // single-arg YeoJohnson.FitLambda(values) overload instead THROWS
+                // ArgumentException for < 2 points, which is a different C# method (not
+                // what the CanFitLambda-hardened NaN semantics being pinned here exercise).
+                "YeoJohnsonLambda" => () => { YeoJohnson.FitLambda(duData, out double yjLam); return yjLam; },
                 "YeoJohnsonTransform" => () => YeoJohnson.Transform(duData, duArgs[0])[(int)duArgs[1]],
                 "PlottingPosition" => () => PlottingPositions.Function((int)duArgs[0], duArgs[1])[(int)duArgs[2]],
                 // args: [sample_size, dimension, seed, row, col]

@@ -1217,8 +1217,10 @@ static void run_data_utility(const json& spec) {
             for (const auto& v : c["args"]) args.push_back(parse_num(v));
         std::vector<double> data;
         if (c.contains("dataset"))
-            for (const auto& v : datasets[c["dataset"].get<std::string>()])
-                data.push_back(v.get<double>());
+            // parse_num (not v.get<double>()) so a "nan"/"inf"/"-inf" string literal inside
+            // a dataset (the v2.1.4 FitLambda invalid-sample cases) parses instead of
+            // throwing a JSON type_error.
+            for (const auto& v : datasets[c["dataset"].get<std::string>()]) data.push_back(parse_num(v));
         double actual = dispatch_data_utility(fn, args, data);
         for (const auto& as : c["assertions"]) {
             std::string where = "data_utility/" + name;

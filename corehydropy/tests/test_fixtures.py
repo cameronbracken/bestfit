@@ -967,7 +967,10 @@ def test_fixture_case(kind, target, datasets, case):
 
     if kind == "data_utility":
         args = [float(v) for v in case.get("args", [])]
-        data = list(datasets[case["dataset"]]) if "dataset" in case else []
+        # _num (not a raw list()) so a "nan"/"inf"/"-inf" string literal inside a dataset
+        # (the v2.1.4 FitLambda invalid-sample cases) parses instead of reaching pybind11
+        # as an unconvertible str.
+        data = [_num(v) for v in datasets[case["dataset"]]] if "dataset" in case else []
         actual = _dispatch_data_utility(case["function"], args, data)
         for a in case["assertions"]:
             _check(actual, a)

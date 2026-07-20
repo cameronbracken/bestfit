@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/YeoJohnsonLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/YeoJohnsonLink.cs @ 2a0357a
 //
 // Yeo-Johnson power-transformation link function, defined on the full real line. Useful
 // for skew or shape parameters that do not have a closed-form variance-stabilizing
@@ -9,6 +9,12 @@
 // (a C++ std::vector cannot be null).
 // C# ArgumentOutOfRangeException -> std::out_of_range; ArgumentException ->
 // std::invalid_argument.
+//
+// v2.1.4 (upstream-sync Task 2, 2a0357a): YeoJohnson::fit_lambda no longer throws for a
+// degenerate sample -- it returns NaN (see yeo_johnson.hpp's CanFitLambda hardening), so
+// the values constructor below now explicitly checks the fitted lambda for NaN and throws
+// std::invalid_argument (C# ArgumentException) before validate_lambda, mirroring the C#
+// values constructor's own explicit NaN check.
 #pragma once
 #include <stdexcept>
 #include <vector>
@@ -35,7 +41,12 @@ class YeoJohnsonLink : public ILinkFunction {
             if (!corehydro::numerics::is_finite(values[i]))
                 throw std::invalid_argument("Every representative value must be finite.");
 
-        lambda_ = validate_lambda(data::YeoJohnson::fit_lambda(values));
+        double lambda = data::YeoJohnson::fit_lambda(values);
+        if (!corehydro::numerics::is_finite(lambda))
+            throw std::invalid_argument(
+                "Yeo-Johnson lambda fitting failed for the supplied representative values.");
+
+        lambda_ = validate_lambda(lambda);
     }
 
     // Gets the Yeo-Johnson transformation parameter.
