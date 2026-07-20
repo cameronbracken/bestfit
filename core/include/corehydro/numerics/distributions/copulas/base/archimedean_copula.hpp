@@ -1,5 +1,5 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/Base/IArchimedeanCopula.cs @ a2c4dbf
-//           +  Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/IArchimedeanCopula.cs @ 2a0357a
+//           +  Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs @ 2a0357a
 //
 // Abstract base for every Archimedean copula (Clayton, AMH, Frank, Gumbel, Joe). Folds
 // IArchimedeanCopula's members directly into the base, matching the IBivariateCopula/
@@ -40,22 +40,30 @@ class ArchimedeanCopula : public BivariateCopula {
         set_theta(parameters[0]);
     }
 
-    // NOTE (upstream bug, transcribed verbatim): the C# ArchimedeanCopula.ValidateParameter
-    // final branch does `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is
-    // valid");` instead of `return null;` -- i.e. it constructs and returns a NON-NULL
-    // exception object even when theta IS in range. Because BivariateCopula.Theta's setter
-    // is `_parametersValid = ValidateParameter(value, false) is null;`, this means
-    // `ParametersValid` is unconditionally FALSE for every Archimedean-derived copula
-    // (Clayton, AMH, Frank, Gumbel, Joe) regardless of whether theta is actually valid.
-    // Confirmed against the real C# library (`new ClaytonCopula(2.0).ParametersValid ==
-    // false`) and against NormalCopula/StudentTCopula, whose ValidateParameter correctly
-    // `return null;` in the equivalent branch. This does NOT affect PDF/CDF/InverseCDF or
-    // any fit (the branch below never throws for a valid theta) -- only the ParametersValid
-    // getter is wrong. See docs/upstream-csharp-issues.md for the full writeup; ported
-    // bug-for-bug per the "observable behavior governs" rule (the bug is a wrong return
-    // value, not a crash/UB, so there is no fidelity reason to deviate).
+    // NOTE (upstream bug, RESOLVED in Numerics v2.1.4 / 2a0357a -- see
+    // docs/upstream-csharp-issues.md): the C# ArchimedeanCopula.ValidateParameter final branch
+    // used to do `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is
+    // valid");` instead of `return null;` -- i.e. it constructed and returned a NON-NULL
+    // exception object even when theta WAS in range. Because BivariateCopula.Theta's setter is
+    // `_parametersValid = ValidateParameter(value, false) is null;`, this left `ParametersValid`
+    // unconditionally FALSE for every Archimedean-derived copula that does not override this
+    // method (Clayton, Gumbel, Joe -- AMH and Frank each carry their own always-correct
+    // override, see amh_copula.hpp/frank_copula.hpp). v2.1.4 fixed the final branch to
+    // `return null;`, flipping ParametersValid from false to true for every in-range
+    // Clayton/Gumbel/Joe instance (Task 8; see fixtures/distributions/copulas/*.json's
+    // `parameters_valid` cases). This never affected PDF/CDF/InverseCDF or any fit (the branch
+    // below never threw for a valid theta either before or after the fix) -- only the
+    // ParametersValid getter's return value changed.
+    //
+    // v2.1.4 also added a NaN/Inf check ahead of the range check (mirrored below): theta must
+    // be finite before it is compared against theta_minimum()/theta_maximum() at all.
     std::optional<std::string> validate_parameter(double parameter,
                                                     bool throw_exception) const override {
+        if (std::isnan(parameter) || std::isinf(parameter)) {
+            std::string msg = "The dependency parameter must be finite.";
+            if (throw_exception) throw std::out_of_range(msg);
+            return msg;
+        }
         if (parameter < theta_minimum()) {
             std::string msg = "The dependency parameter theta (theta) must be greater than or "
                                "equal to " +
@@ -70,7 +78,7 @@ class ArchimedeanCopula : public BivariateCopula {
             if (throw_exception) throw std::out_of_range(msg);
             return msg;
         }
-        return std::string("Parameter is valid");
+        return std::nullopt;
     }
 
     // The Genest et al. (1986) copula density: c(u,v) = -psi''(C(u,v)) psi'(u) psi'(v) /

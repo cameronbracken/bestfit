@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/JoeCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/JoeCopula.cs @ 2a0357a
 //
 // The Joe copula. theta in [1, +inf). No PDF/CDF override -- both resolve through
 // ArchimedeanCopula's generic Genest-1986 forms built from the generator functions below.
@@ -7,8 +7,11 @@
 // C(v|u) = p for v via a second, distinct Brent root-find over [0, 1] (mirroring
 // GumbelCopula's InverseCDF override, not the generic ArchimedeanCopula::inverse_cdf).
 // Like ClaytonCopula/GumbelCopula (and unlike AMH/Frank), JoeCopula does NOT override
-// ValidateParameter, so it inherits ArchimedeanCopula's "always-false ParametersValid" bug
-// verbatim (see clayton_copula.hpp / docs/upstream-csharp-issues.md).
+// ValidateParameter, so it inherits ArchimedeanCopula's validate_parameter directly --
+// including the v2.1.4 fix that makes ParametersValid report true for an in-range theta
+// (previously always false; see clayton_copula.hpp / archimedean_copula.hpp /
+// docs/upstream-csharp-issues.md). Clone() deep-copies attached marginals via
+// BivariateCopula::clone_marginal (v2.1.4, Task 8).
 //
 // DEVIATION FROM THE PHASE 2 PLAN TEXT (C# source governs -- see .claude/CLAUDE.md):
 // JoeCopula.cs has NO SetThetaFromTau method (grep across the whole "Bivariate Copulas"
@@ -109,7 +112,8 @@ class JoeCopula : public ArchimedeanCopula {
     double lower_tail_dependence() const override { return 0.0; }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<JoeCopula>(theta(), marginal_distribution_x, marginal_distribution_y);
+        return std::make_unique<JoeCopula>(theta(), clone_marginal(marginal_distribution_x),
+                                            clone_marginal(marginal_distribution_y));
     }
 
     math::linalg::Matrix2D parameter_constraints(const std::vector<double>&,

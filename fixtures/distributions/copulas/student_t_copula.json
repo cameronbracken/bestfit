@@ -161,6 +161,21 @@
       ]
     },
     {
+      "name": "parameters_valid_nonfinite_theta_nan",
+      "note": "New in Task 8 (Numerics v2.1.4 / 2a0357a): ValidateParameters gained a NaN/Inf check on rho ahead of the range check (the degrees-of-freedom NaN/Inf check already existed pre-v2.1.4). StudentTCopula never had the ArchimedeanCopula sentinel bug (it does not derive from ArchimedeanCopula), so this case is purely about the new rho finiteness guard, not a sentinel flip.",
+      "construct": {"theta": "nan", "df": 5.0},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": false, "mode": "bool"}
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_inf",
+      "construct": {"theta": "inf", "df": 5.0},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": false, "mode": "bool"}
+      ]
+    },
+    {
       "name": "dof_clamp",
       "construct": {"theta": 0.5, "df": 1.0},
       "assertions": [

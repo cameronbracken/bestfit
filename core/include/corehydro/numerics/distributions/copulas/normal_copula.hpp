@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/NormalCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/NormalCopula.cs @ 2a0357a
 //
 // The Gaussian (Normal) elliptical copula. theta = rho in [-1, +1]; extends BivariateCopula
 // DIRECTLY (not ArchimedeanCopula -- the Normal copula has no Archimedean generator).
@@ -11,9 +11,11 @@
 // (a defining property of the Gaussian copula, unlike the Student's t copula).
 //
 // Unlike ArchimedeanCopula's ValidateParameter (see archimedean_copula.hpp's header for the
-// upstream ParametersValid bug it reproduces), NormalCopula.ValidateParameter in the C#
-// source returns `null` (not a non-null "Parameter is valid" sentinel) in its in-range
-// branch -- ported here as std::nullopt, so ParametersValid behaves correctly.
+// upstream ParametersValid bug it reproduced, RESOLVED in v2.1.4), NormalCopula.ValidateParameter
+// in the C# source returns `null` (not a non-null "Parameter is valid" sentinel) in its
+// in-range branch -- ported here as std::nullopt, so ParametersValid always behaved correctly
+// for this copula. v2.1.4 added a NaN/Inf check ahead of the range check here (mirrored below).
+// Clone() deep-copies attached marginals via BivariateCopula::clone_marginal (v2.1.4, Task 8).
 #pragma once
 #include <array>
 #include <cmath>
@@ -54,10 +56,15 @@ class NormalCopula : public BivariateCopula {
     double theta_maximum() const override { return 1.0; }
 
     // Correct override (returns nullopt when in range) -- does NOT reproduce
-    // ArchimedeanCopula's ParametersValid bug (see that file's header and
+    // ArchimedeanCopula's (now-resolved) ParametersValid bug (see that file's header and
     // docs/upstream-csharp-issues.md).
     std::optional<std::string> validate_parameter(double parameter,
                                                     bool throw_exception) const override {
+        if (std::isnan(parameter) || std::isinf(parameter)) {
+            std::string msg = "The correlation parameter must be finite.";
+            if (throw_exception) throw std::out_of_range(msg);
+            return msg;
+        }
         if (parameter < theta_minimum()) {
             std::string msg =
                 "The correlation parameter rho (rho) must be greater than " +
@@ -123,7 +130,8 @@ class NormalCopula : public BivariateCopula {
     double lower_tail_dependence() const override { return 0.0; }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<NormalCopula>(theta(), marginal_distribution_x, marginal_distribution_y);
+        return std::make_unique<NormalCopula>(theta(), clone_marginal(marginal_distribution_x),
+                                               clone_marginal(marginal_distribution_y));
     }
 };
 

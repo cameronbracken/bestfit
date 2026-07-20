@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/StudentTCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/StudentTCopula.cs @ 2a0357a
 //
 // The bivariate Student's t elliptical copula. Extends BivariateCopula DIRECTLY (not
 // ArchimedeanCopula -- the t-copula has no Archimedean generator, same as NormalCopula).
@@ -26,7 +26,10 @@
 //
 // Like NormalCopula (and unlike the Archimedean copulas), both ValidateParameter-family
 // methods return std::nullopt (C# `null`) in their in-range branches -- StudentTCopula does
-// NOT reproduce ArchimedeanCopula's ParametersValid bug (see archimedean_copula.hpp).
+// NOT reproduce ArchimedeanCopula's (now-resolved) ParametersValid bug (see
+// archimedean_copula.hpp). v2.1.4 added a NaN/Inf check on rho ahead of the range check in
+// validate_parameters (mirrored below); the degrees-of-freedom NaN/Inf check already existed.
+// Clone() deep-copies attached marginals via BivariateCopula::clone_marginal (v2.1.4, Task 8).
 //
 // Fidelity note (not exercised by the fixture): `set_copula_parameters`'s clamp uses
 // `std::max(2.0 + 1e-10, parameters[1])`, a direct transcription of the C#
@@ -116,6 +119,11 @@ class StudentTCopula : public BivariateCopula {
     // interface (see file header).
     std::optional<std::string> validate_parameters(double rho, double degrees_of_freedom,
                                                      bool throw_exception) const {
+        if (std::isnan(rho) || std::isinf(rho)) {
+            std::string msg = "The correlation parameter must be finite.";
+            if (throw_exception) throw std::out_of_range(msg);
+            return msg;
+        }
         if (rho < theta_minimum()) {
             std::string msg = "The correlation parameter rho (rho) must be greater than " +
                                std::to_string(theta_minimum()) + ".";
@@ -248,8 +256,8 @@ class StudentTCopula : public BivariateCopula {
     double lower_tail_dependence() const override { return upper_tail_dependence(); }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<StudentTCopula>(theta(), nu_, marginal_distribution_x,
-                                                 marginal_distribution_y);
+        return std::make_unique<StudentTCopula>(theta(), nu_, clone_marginal(marginal_distribution_x),
+                                                 clone_marginal(marginal_distribution_y));
     }
 
    private:

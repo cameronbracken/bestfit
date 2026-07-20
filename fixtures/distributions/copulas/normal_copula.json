@@ -164,6 +164,36 @@
       ]
     },
     {
+      "name": "parameters_valid_valid_theta",
+      "note": "Test_ParametersValid (Numerics v2.1.4 / 2a0357a): NormalCopula's own ValidateParameter override already returned null in range (it does not derive from ArchimedeanCopula and never had the sentinel bug -- see normal_copula.hpp), but it had no NaN/Inf guard before v2.1.4, so a NaN theta would have incorrectly reported ParametersValid = true. The Clone()-independence half of the same regression (marginal identity + post-clone mutation) does not fit this declarative shape -- see core/tests/test_copula_clone.cpp.",
+      "construct": {"theta": 0.5},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": true, "mode": "bool"}
+      ]
+    },
+    {
+      "name": "parameters_valid_invalid_range",
+      "construct": {"theta": 1.5},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": false, "mode": "bool"}
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_nan",
+      "note": "v2.1.4 added a NaN/Inf check ahead of the range check in NormalCopula.ValidateParameter -- before this fix, a NaN theta compared false against both bounds and fell through to the (already-correct) null in-range branch, so ParametersValid was incorrectly true for a NaN theta.",
+      "construct": {"theta": "nan"},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": false, "mode": "bool"}
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_inf",
+      "construct": {"theta": "inf"},
+      "assertions": [
+        {"method": "parameters_valid", "args": [], "expected": false, "mode": "bool"}
+      ]
+    },
+    {
       "name": "seeded_sampling",
       "note": "GenerateRandomValues first-N (u,v) draws (no marginals set here -- reduced-variate copula space); stateless (seeds its own LatinHypercube draw from `seed`).",
       "construct": {"theta": 0.5},

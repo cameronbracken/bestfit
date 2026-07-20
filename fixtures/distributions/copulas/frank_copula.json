@@ -789,6 +789,65 @@
       ]
     },
     {
+      "name": "parameters_valid_valid_theta_positive",
+      "note": "Test_ParametersValid (Numerics v2.1.4 / 2a0357a): Frank's own ValidateParameter override already returned null in range (unlike Clayton/Gumbel/Joe, which inherit ArchimedeanCopula's now-fixed sentinel bug -- see frank_copula.hpp), and theta is unbounded, so there is no invalid-but-finite case to add here (unlike Clayton/AMH/Gumbel/Joe/Normal). It had no NaN/Inf guard before v2.1.4, so a NaN/Inf theta would have incorrectly reported ParametersValid = true. The Clone()-independence half of the same regression (marginal identity + post-clone mutation) does not fit this declarative shape -- see core/tests/test_copula_clone.cpp.",
+      "construct": {
+        "theta": 4.2
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": true,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_valid_theta_negative",
+      "construct": {
+        "theta": -7.5
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": true,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_nan",
+      "note": "v2.1.4 added a NaN/Inf check ahead of the range check in FrankCopula.ValidateParameter -- before this fix, a NaN theta compared false against both (infinite) bounds and fell through to the (already-correct) null in-range branch, so ParametersValid was incorrectly true for a NaN theta.",
+      "construct": {
+        "theta": "nan"
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": false,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_inf",
+      "note": "Unlike Clayton/Gumbel/Joe (whose theta_maximum is already +inf, so an infinite theta was already rejected -- or, pre-fix, accepted then sentinel-invalidated -- by the plain range check), Frank's theta range is fully unbounded on BOTH sides, so an infinite theta previously satisfied the range check outright (neither < -inf nor > +inf) and fell through to the correct null branch, incorrectly reporting ParametersValid = true; the v2.1.4 NaN/Inf-first check is the only thing that rejects it.",
+      "construct": {
+        "theta": "inf"
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": false,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
       "name": "seeded_sampling",
       "note": "GenerateRandomValues first-N (u,v) draws (no marginals set here -- reduced-variate copula space); stateless (seeds its own LatinHypercube draw from `seed`).",
       "construct": {

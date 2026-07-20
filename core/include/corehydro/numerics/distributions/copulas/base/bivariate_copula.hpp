@@ -1,5 +1,5 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/Base/IBivariateCopula.cs @ a2c4dbf
-//           +  Numerics/Distributions/Bivariate Copulas/Base/BivariateCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/IBivariateCopula.cs @ 2a0357a
+//           +  Numerics/Distributions/Bivariate Copulas/Base/BivariateCopula.cs @ 2a0357a
 //
 // Abstract base for every bivariate copula. Folds IBivariateCopula's members directly into
 // the base -- the Phase 1/2 pattern (interfaces fold into the abstract base rather than
@@ -15,16 +15,25 @@
 // Marginal distributions: `marginal_distribution_x`/`marginal_distribution_y` are
 // std::shared_ptr<UnivariateDistributionBase>, a DELIBERATE DEVIATION from the rest of the
 // C++ core (UnivariateDistributionBase is normally owned via unique_ptr, e.g. the
-// univariate factory). Every concrete copula's `Clone()` (see clayton_copula.hpp) passes
-// MarginalDistributionX/Y straight through to the new instance -- i.e. a C# copula clone
-// SHARES the marginal reference, it does not deep-copy it. BivariateCopulaEstimation's MPL
-// and IFM fits rely on this sharing: the per-evaluation `copula.Clone()` inside their inner
-// loop must alias the SAME marginal object the caller holds (see
-// bivariate_copula_estimation.hpp). MLE's own objective explicitly clones a *fresh*
-// UnivariateDistributionBase per evaluation when it wants an independent copy, which
-// shared_ptr supports just as well as unique_ptr would. A unique_ptr member could not
-// reproduce the aliasing clone() needs without deep-copying on every
-// BivariateCopula::clone() call, silently diverging from the C# copy semantics.
+// univariate factory).
+//
+// Clone() deep-copies marginals (Task 8 / Numerics v2.1.4 2a0357a): every concrete copula's
+// `Clone()` (see clayton_copula.hpp) now routes MarginalDistributionX/Y through the new
+// protected static `clone_marginal` below before assigning them to the new instance, mirroring
+// the C# `BivariateCopula.CloneMarginal`. Distributions memoize internal state lazily, so two
+// clones sharing a marginal instance are not safe to use concurrently (e.g. one clone per
+// thread in a Monte Carlo framework or a parallel likelihood evaluation) -- deep-copying closes
+// that hazard. This does NOT change BivariateCopulaEstimation's MPL/IFM fits (see
+// bivariate_copula_estimation.hpp): their per-evaluation `copula.clone()` only ever READS the
+// clone's marginals (`pseudo_log_likelihood` doesn't touch marginals at all; `ifm_log_likelihood`
+// only calls `->cdf(...)` on them) before the clone is discarded at the end of that one
+// evaluation, so a deep copy and a shared alias produce identical results there -- the extra
+// clone allocation is the only cost. MLE's own objective explicitly clones a *fresh*
+// UnivariateDistributionBase per evaluation regardless (see `detail::mle`), unaffected either
+// way. A unique_ptr member could not reproduce this without always deep-copying on every
+// BivariateCopula::clone() call, which is now exactly the desired behavior anyway -- shared_ptr
+// is kept for its lower churn on the existing binding/glue call sites, not because clone()
+// still needs aliasing.
 #pragma once
 #include <array>
 #include <cmath>
@@ -188,6 +197,20 @@ class BivariateCopula {
 
     double theta_ = 0.0;
     bool parameters_valid_ = true;
+
+    // Deep-copies an attached marginal for Clone() (ported from the new C# protected static
+    // `BivariateCopula.CloneMarginal`, Numerics v2.1.4 / 2a0357a). C#'s version only clones
+    // when the marginal `is UnivariateDistributionBase` (its field is the wider
+    // `IUnivariateDistribution` interface) and returns any other implementation by reference.
+    // Every marginal in THIS port is already declared std::shared_ptr<UnivariateDistributionBase>
+    // (see the file header), so that runtime type test is unconditionally true here -- every
+    // non-null marginal is always cloned. A null (unattached) marginal passes through
+    // unchanged, mirroring the C# null branch.
+    static std::shared_ptr<UnivariateDistributionBase> clone_marginal(
+        const std::shared_ptr<UnivariateDistributionBase>& marginal) {
+        if (!marginal) return marginal;
+        return std::shared_ptr<UnivariateDistributionBase>(marginal->clone());
+    }
 
    private:
     static void check_sample_lengths(const std::vector<double>& x, const std::vector<double>& y) {

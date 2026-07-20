@@ -222,51 +222,62 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
   the formula suggests. Ported verbatim (see `core/include/corehydro/numerics/data/interpolation/interpolater.hpp`).
 
-## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false
+## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs`,
   `ValidateParameter(double parameter, bool throwException)`.
 - **What:** The base `BivariateCopula.Theta` setter is `_parametersValid = ValidateParameter(value,
   false) is null;` (see `BivariateCopula.cs`) -- the C# convention used correctly by
   `NormalCopula`/`StudentTCopula`, whose `ValidateParameter` `return null;` when the parameter is in
-  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead does
+  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead did
   `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is valid");` -- a non-null
-  exception object, even though the message says the parameter IS valid. Because `is null` is
-  therefore always false, `ParametersValid` is unconditionally `false` for any Archimedean copula
-  that does NOT override `ValidateParameter` itself. **UPDATE (Task 8):** this affects Clayton,
-  Gumbel, and Joe, but NOT AliMikhailHaq (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each
-  have their own `ValidateParameter` override that is textually identical to
-  `ArchimedeanCopula`'s except the final branch correctly `return null;`, so `AMHCopula`/
-  `FrankCopula` instances get a correctly-working `ParametersValid`. (An earlier version of this
-  entry said the bug affected "every Archimedean-derived copula (Clayton, AliMikhailHaq, Frank,
-  Gumbel, Joe)" -- that blanket claim was wrong for AMH/Frank; corrected here after reading all
-  five concrete `.cs` files directly.) This does not affect `PDF`/`CDF`/`InverseCDF` or any fit for
-  any copula -- the "valid" branch never throws -- only the `ParametersValid` getter is wrong, and
-  only for Clayton/Gumbel/Joe.
-- **Evidence (reproduced against the real C# library):** `new ClaytonCopula(2.0).ParametersValid`
-  returns `false` even though `theta_minimum = -1`, `theta_maximum = +inf`, and `2.0` is well
-  within range; `ValidateParameter(2.0, false).Message` is `"Parameter is valid (Parameter
-  'Theta')"` -- a non-null object. `new NormalCopula(0.5).ParametersValid` correctly returns `true`
-  for the equivalent in-range case, confirming the divergence is specific to
-  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas. `AMHCopula.cs`/
-  `FrankCopula.cs` source inspection (Task 8) confirms their own overrides return `null` in range,
-  so `new AMHCopula(0.5).ParametersValid`/`new FrankCopula(5.0).ParametersValid` are expected `true`
-  (not independently re-verified against the built library for this entry, since PDF/CDF/fit
-  fidelity was the Task 8 verification priority, but the source override is unambiguous).
-- **Port handling:** mirrored faithfully. `archimedean_copula.hpp`'s `validate_parameter` still
-  returns a non-nullopt "Parameter is valid" message in the final branch (affecting
-  `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it), but
-  `amh_copula.hpp`/`frank_copula.hpp` (Task 8) each add their own correct override (`return
-  std::nullopt;` in range), matching their C# counterparts. Documented in-header at
-  `bivariate_copula.hpp`, `archimedean_copula.hpp`, and each of the five concrete copula headers.
-  No fixture asserts `parameters_valid` on any Archimedean copula since the value is not
-  independently informative once the bug (and which copulas it does/doesn't affect) is known.
-- **Suggested C# fix:** change `ArchimedeanCopula.ValidateParameter`'s final branch to `return
-  null;`, matching `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`, and delete the
-  now-redundant overrides on `AMHCopula`/`FrankCopula`. This would flip `ParametersValid` from
-  `false` to `true` for every existing in-range Clayton/Gumbel/Joe instance -- audit any downstream
-  code (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the
-  (always-false, for those three types) value before shipping the fix.
+  exception object, even though the message says the parameter IS valid. Because `is null` was
+  therefore always false, `ParametersValid` was unconditionally `false` for any Archimedean copula
+  that does NOT override `ValidateParameter` itself: Clayton, Gumbel, and Joe, but NOT AliMikhailHaq
+  (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each have their own `ValidateParameter`
+  override that is textually identical to `ArchimedeanCopula`'s except the final branch correctly
+  `return null;`, so `AMHCopula`/`FrankCopula` instances got a correctly-working `ParametersValid`
+  even before the fix. (An earlier version of this entry said the bug affected "every
+  Archimedean-derived copula (Clayton, AliMikhailHaq, Frank, Gumbel, Joe)" -- that blanket claim was
+  wrong for AMH/Frank; corrected here after reading all five concrete `.cs` files directly.) This
+  never affected `PDF`/`CDF`/`InverseCDF` or any fit for any copula -- the "valid" branch never
+  threw -- only the `ParametersValid` getter was wrong, and only for Clayton/Gumbel/Joe.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed the final branch to `return null;`,
+  flipping `ParametersValid` from `false` to `true` for every in-range Clayton/Gumbel/Joe instance,
+  and additionally added a NaN/Inf-first check ahead of the range check in
+  `ArchimedeanCopula.ValidateParameter` (and in `AMHCopula`/`FrankCopula`/`NormalCopula`/
+  `StudentTCopula.ValidateParameters`, none of which had ever had the sentinel bug but also lacked
+  a finite-parameter guard before v2.1.4). The same commit added `BivariateCopula.CloneMarginal`
+  (a new protected static helper) and routed every concrete `Clone()` through it so cloned copulas
+  deep-copy their marginals instead of aliasing them. Ported in the upstream-sync Task 8: the
+  sentinel fix and NaN/Inf guard in `archimedean_copula.hpp` (plus per-family NaN/Inf guards in
+  `amh_copula.hpp`/`frank_copula.hpp`/`normal_copula.hpp`/`student_t_copula.hpp`), and
+  `clone_marginal` in `bivariate_copula.hpp` called from all seven concrete `Clone()` overrides. See
+  `fixtures/distributions/copulas/*.json`'s new `parameters_valid_*` cases (re-pinned from an
+  implicit `false` to `true` for Clayton/Gumbel/Joe's valid-theta case, confirmed reproducible
+  against the real C# library by `verify_oracles.py`) and `core/tests/test_copula_clone.cpp` (the
+  Clone()-identity/deep-copy half, which does not fit the declarative fixture shape -- see that
+  file's header).
+- **Evidence (reproduced against the real C# library):** pre-fix, `new
+  ClaytonCopula(2.0).ParametersValid` returned `false` even though `theta_minimum = -1`,
+  `theta_maximum = +inf`, and `2.0` is well within range; `ValidateParameter(2.0,
+  false).Message` was `"Parameter is valid (Parameter 'Theta')"` -- a non-null object. `new
+  NormalCopula(0.5).ParametersValid` correctly returned `true` for the equivalent in-range case,
+  confirming the divergence was specific to `ArchimedeanCopula.ValidateParameter`, not a design
+  choice shared by all copulas. Post-fix (v2.1.4 / Task 8), `new ClaytonCopula(2.0).ParametersValid`
+  returns `true`, confirmed reproducible via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully. `archimedean_copula.hpp`'s
+  `validate_parameter` returned a non-nullopt "Parameter is valid" message in the final branch
+  (affecting `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it),
+  while `amh_copula.hpp`/`frank_copula.hpp` each carried their own correct override (`return
+  std::nullopt;` in range), matching their C# counterparts. No fixture asserted `parameters_valid`
+  on any Archimedean copula, since the value was not independently informative once the bug (and
+  which copulas it did/didn't affect) was known.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** change
+  `ArchimedeanCopula.ValidateParameter`'s final branch to `return null;`, matching
+  `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`. Upstream did not delete the
+  now-redundant `AMHCopula`/`FrankCopula` overrides (they remain, textually equivalent to the fixed
+  base), which is harmless.
 
 ---
 

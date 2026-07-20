@@ -345,6 +345,30 @@ above, the one target chosen to cover the back-transform branch (all seven copul
 `generate_random_values` implementation in `bivariate_copula.hpp`, so one marginals-attached
 companion case is sufficient to lock that branch; it does not need repeating per target).
 
+**`parameters_valid` coverage (Task 8 / Numerics v2.1.4):** every copula target now carries
+`parameters_valid_*` cases -- a valid-theta case (`true`), an invalid-but-finite-range case where
+one exists (`false`; Frank's theta is fully unbounded, so it has no such case), and non-finite-theta
+cases (`"nan"`/`"inf"`, both `false`). These are net-new, not re-pins of a previously-passing value:
+no fixture asserted `parameters_valid` on any Archimedean copula before Task 8, since the value was
+uninformative while the upstream `ArchimedeanCopula.ValidateParameter` sentinel bug held
+`ParametersValid` permanently `false` for Clayton/Gumbel/Joe regardless of theta (see
+`archimedean_copula.hpp` and `docs/upstream-csharp-issues.md`, RESOLVED entry). v2.1.4 fixed that
+sentinel (flipping the valid-theta case from `false` to `true` for those three families) and added a
+NaN/Inf-first check to every family's parameter validation (AMH/Frank/Normal/StudentT already
+returned the correct sentinel but had no finite-parameter guard, so their `nan`/`inf` cases are a
+genuine behavior change too, not just a sentinel-fix confirmation). `StudentTCopula`'s
+`parameters_valid_nonfinite_theta_*` cases hold `df` fixed at a valid value to isolate the new rho
+guard from its pre-existing (already-correct) degrees-of-freedom finiteness check.
+
+**Clone() deep-copy (Task 8 / Numerics v2.1.4):** every copula's `Clone()` now deep-copies attached
+marginal distributions via the new protected static `BivariateCopula.CloneMarginal` (previously
+`Clone()` passed `MarginalDistributionX`/`Y` straight through, aliasing the same marginal instance).
+This is NOT exercised by the declarative fixture shape above -- verifying it needs an identity
+comparison (`AreNotSame`) across two independently-constructed objects, which no single-assertion
+`{method, args, expected}` case can express -- so it is instead pinned as a C++-only ctest,
+`core/tests/test_copula_clone.cpp`, generic over all seven copula types via `copula_factory.hpp`
+(mirrors the `test_mixture.cpp` "C++-only ctest" precedent from Task 6).
+
 ### `mcmc_sampler`
 
 ```jsonc
