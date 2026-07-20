@@ -250,6 +250,9 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
             throw new Exception("distribution has no L-moments");
         // args: [sample_size, seed, index] -- one draw from the seeded MT stream.
         case "random_value": return d.GenerateRandomValues(a[0].GetInt32(), a[1].GetInt32())[a[2].GetInt32()];
+        // Static GammaDistribution utility, not tied to `d`'s own parameters -- args:
+        // [skewness, probability].
+        case "partial_kp": return GammaDistribution.PartialKp(a[0].GetDouble(), a[1].GetDouble());
         // GEV bespoke standard-error methods -- validated in Phase 0, not re-checked here.
         case "quantile_gradient":
         case "parameter_covariance":

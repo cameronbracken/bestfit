@@ -64,6 +64,10 @@ ch_dist_linear_moments_ <- function(target, params) {
   .Call(`_corehydror_ch_dist_linear_moments_`, target, params)
 }
 
+ch_dist_gamma_partial_kp_ <- function(skewness, probability) {
+  .Call(`_corehydror_ch_dist_gamma_partial_kp_`, skewness, probability)
+}
+
 ch_dist_random_ <- function(target, params, sample_size, seed) {
   .Call(`_corehydror_ch_dist_random_`, target, params, sample_size, seed)
 }

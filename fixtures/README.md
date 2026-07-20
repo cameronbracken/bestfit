@@ -48,7 +48,11 @@ generic dispatcher supports `random_value [sample_size, seed, index]`: element `
 (a fresh seeded Mersenne Twister per call), so it locks the seeded C# draw stream
 bit-for-bit across all four runners; see the `seeded_random_draws` cases in `normal.json`,
 `log_normal.json`, `ln_normal.json`, `gumbel.json`, `gamma_distribution.json`, and
-`weibull.json`.
+`weibull.json`. It also supports `partial_kp [skewness, probability]` -- a direct call to
+the static `GammaDistribution.PartialKp` utility, independent of the case's own
+`construct` (which just needs to build *some* valid distribution instance for the dispatch
+plumbing; only `gamma_distribution.json` uses it, to pin the v2.1.4 near-zero-skew
+derivative-limit fix).
 
 #### Composite `univariate_distribution` targets
 

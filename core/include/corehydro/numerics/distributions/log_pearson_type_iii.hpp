@@ -1,9 +1,13 @@
-// ported from: Numerics/Distributions/Univariate/LogPearsonTypeIII.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/LogPearsonTypeIII.cs @ 2a0357a
 //
 // Log-Pearson Type III distribution parameterized by mean µ, standard deviation σ,
 // and skew γ of the log-transformed (base-10) data. Wraps PearsonTypeIII in log10
 // space. Mirrors the C# source method-for-method. Standard USACE flood-frequency
-// distribution (Bulletin 17C).
+// distribution (Bulletin 17C). v2.1.4 (2a0357a) signs L-skewness by the skew
+// (`T3 *= Math.Sign(gamma)`), adds the T3==0/gamma==0 exact limits, and refines the
+// alpha>=100 Stirling correction in both L-moment directions (retiring the earlier
+// intentional divergence that had only the forward method's branch, see
+// docs/upstream-csharp-issues.md).
 #pragma once
 #include <string>
 #include <cmath>
@@ -330,11 +334,16 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
 
     // ParametersFromLinearMoments: rational-function approximation (Hosking).
     // Mirrors C# ParametersFromLinearMoments exactly (same code as PearsonTypeIII).
+    // v2.1.4 adds the T3==0 exact Normal limit and refines the alpha>=100 Stirling
+    // correction (now an `inverseAlpha`-based expansion, matching C# bit-for-bit).
     std::vector<double> parameters_from_linear_moments(
         const std::vector<double>& moments) const override {
         double L1 = moments[0];
         double L2 = moments[1];
         double T3 = moments[2];
+        if (T3 == 0.0) {
+            return {L1, L2 * std::sqrt(kPi), 0.0};
+        }
         double alpha_val = kNaN;
         double z;
         if (std::fabs(T3) > 0.0 && std::fabs(T3) < 1.0 / 3.0) {
@@ -351,35 +360,46 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
                            * (T3 >= 0.0 ? 1.0 : -1.0);
         double sigma_val;
         if (alpha_val < 100.0) {
-            sigma_val = L2 * std::pow(kPi, 0.5) * std::pow(alpha_val, 0.5)
+            sigma_val = L2 * std::sqrt(kPi) * std::sqrt(alpha_val)
                         * sf::function(alpha_val) / sf::function(alpha_val + 0.5);
         } else {
-            sigma_val = std::sqrt(kPi) * L2
-                        / (1.0 - 1.0 / (8.0 * alpha_val)
-                           + 1.0 / (128.0 * alpha_val * alpha_val));
+            double inverse_alpha = 1.0 / alpha_val;
+            double correction = 1.0 - inverse_alpha / 8.0
+                                + inverse_alpha * inverse_alpha / 128.0;
+            sigma_val = std::sqrt(kPi) * L2 / correction;
         }
         return {mu_val, sigma_val, gamma_val};
     }
 
     // LinearMomentsFromParameters: rational-function approximation (Hosking).
-    // Returns L-moments of log(X) (the underlying PT3). Mirrors C# exactly.
+    // Returns L-moments of log(X) (the underlying PT3). Mirrors C# exactly. v2.1.4
+    // adds the gamma==0 exact Normal limit, simplifies L1 to exactly mu (was
+    // xi + alpha*beta, algebraically identical but ulp-different), refines the
+    // alpha>=100 Stirling correction, and signs T3 by Sign(gamma) (SIGNED
+    // L-skewness) -- this retires the earlier intentional divergence documented in
+    // docs/upstream-csharp-issues.md ("LogPearsonTypeIII.LinearMomentsFromParameters
+    // overflows for small skew"): upstream now carries the matching alpha>=100
+    // branch itself.
     std::vector<double> linear_moments_from_parameters(
         const std::vector<double>& parameters) const override {
         double mu_val    = parameters[0];
         double sigma_val = parameters[1];
         double gamma_val = parameters[2];
-        double xi_val    = mu_val - 2.0 * sigma_val / gamma_val;
+        if (gamma_val == 0.0) {
+            return {mu_val, sigma_val / std::sqrt(kPi), 0.0, 0.12260172};
+        }
         double alpha_val = 4.0 / (gamma_val * gamma_val);
         double beta_val  = 0.5 * sigma_val * gamma_val;
-        double L1 = xi_val + alpha_val * beta_val;
+        double L1 = mu_val;
         double L2;
         if (alpha_val < 100.0) {
-            L2 = std::fabs(std::pow(kPi, -0.5) * beta_val
-                           * sf::function(alpha_val + 0.5) / sf::function(alpha_val));
+            L2 = std::fabs(beta_val * sf::function(alpha_val + 0.5)
+                           / (std::sqrt(kPi) * sf::function(alpha_val)));
         } else {
-            L2 = std::sqrt(kPi) * std::fabs(beta_val)
-                 / (1.0 - 1.0 / (8.0 * alpha_val)
-                    + 1.0 / (128.0 * alpha_val * alpha_val));
+            double inverse_alpha = 1.0 / alpha_val;
+            double correction = 1.0 - inverse_alpha / 8.0
+                                + inverse_alpha * inverse_alpha / 128.0;
+            L2 = sigma_val / std::sqrt(kPi) * correction;
         }
         // Approximations accurate to 1e-6 (mirrors C# exactly)
         constexpr double A0 = 0.32573501,  A1 = 0.1686915,   A2 = 0.078327243, A3 = -0.0029120539;
@@ -409,6 +429,8 @@ class LogPearsonTypeIII : public UnivariateDistributionBase,
                  / (1.0 + H1 * alpha_val + H2 * alpha_val * alpha_val
                     + H3 * alpha_val * alpha_val * alpha_val);
         }
+        T3 *= (gamma_val > 0.0) - (gamma_val < 0.0);  // Math.Sign(gamma)
+
         return {L1, L2, T3, T4};
     }
 

@@ -118,6 +118,13 @@ extern "C" SEXP _corehydror_ch_dist_linear_moments_(SEXP target, SEXP params) {
   END_CPP11
 }
 // dist.cpp
+double ch_dist_gamma_partial_kp_(double skewness, double probability);
+extern "C" SEXP _corehydror_ch_dist_gamma_partial_kp_(SEXP skewness, SEXP probability) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(ch_dist_gamma_partial_kp_(cpp11::as_cpp<cpp11::decay_t<double>>(skewness), cpp11::as_cpp<cpp11::decay_t<double>>(probability)));
+  END_CPP11
+}
+// dist.cpp
 doubles ch_dist_random_(std::string target, doubles params, int sample_size, int seed);
 extern "C" SEXP _corehydror_ch_dist_random_(SEXP target, SEXP params, SEXP sample_size, SEXP seed) {
   BEGIN_CPP11
@@ -647,6 +654,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_corehydror_ch_dist_cdf_",                   (DL_FUNC) &_corehydror_ch_dist_cdf_,                    3},
     {"_corehydror_ch_dist_cdf_v_",                 (DL_FUNC) &_corehydror_ch_dist_cdf_v_,                  3},
     {"_corehydror_ch_dist_fit_",                   (DL_FUNC) &_corehydror_ch_dist_fit_,                    3},
+    {"_corehydror_ch_dist_gamma_partial_kp_",      (DL_FUNC) &_corehydror_ch_dist_gamma_partial_kp_,       2},
     {"_corehydror_ch_dist_linear_moments_",        (DL_FUNC) &_corehydror_ch_dist_linear_moments_,         2},
     {"_corehydror_ch_dist_log_likelihood_",        (DL_FUNC) &_corehydror_ch_dist_log_likelihood_,         3},
     {"_corehydror_ch_dist_log_pdf_v_",             (DL_FUNC) &_corehydror_ch_dist_log_pdf_v_,              3},

@@ -16,6 +16,7 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "corehydro/numerics/distributions/competing_risks.hpp"
 #include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
 #include "corehydro/numerics/distributions/kernel_density.hpp"
 #include "corehydro/numerics/distributions/mixture.hpp"
 #include "corehydro/numerics/distributions/truncated_distribution.hpp"
@@ -75,6 +76,12 @@ void register_distributions(py::module_& m) {
         auto* lm = dynamic_cast<dist::ILinearMomentEstimation*>(d.get());
         if (lm == nullptr) throw py::value_error("distribution '" + t + "' has no L-moments");
         return lm->linear_moments_from_parameters(d->get_parameters());
+    });
+    // GammaDistribution::partial_kp is a static utility (not tied to any distribution
+    // instance's own parameters) used by the fixture runner to pin the v2.1.4
+    // near-zero-skew derivative-limit fix; not otherwise part of the public API.
+    m.def("dist_gamma_partial_kp", [](double skewness, double probability) {
+        return dist::GammaDistribution::partial_kp(skewness, probability);
     });
 
     // --- Public-API additions (consumed by corehydropy.distributions) --------------------

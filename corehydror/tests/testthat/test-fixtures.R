@@ -72,6 +72,8 @@ dispatch_generic <- function(target, p, method, args) {
     # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
     random_value = ns$ch_dist_random_(target, p, as.integer(args[[1]]),
       as.integer(args[[2]]))[[as.integer(args[[3]]) + 1L]],
+    # Static GammaDistribution utility, not tied to `p` -- args: [skewness, probability].
+    partial_kp = ns$ch_dist_gamma_partial_kp_(as.double(args[[1]]), as.double(args[[2]])),
     stop(sprintf("unknown fixture method: %s", method))
   )
 }

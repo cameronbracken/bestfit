@@ -14,6 +14,7 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "corehydro/numerics/distributions/competing_risks.hpp"
 #include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
 #include "corehydro/numerics/distributions/kernel_density.hpp"
 #include "corehydro/numerics/distributions/mixture.hpp"
 #include "corehydro/numerics/distributions/truncated_distribution.hpp"
@@ -80,6 +81,14 @@ doubles ch_dist_linear_moments_(std::string target, doubles params) {
     auto* lm = dynamic_cast<dist::ILinearMomentEstimation*>(d.get());
     if (lm == nullptr) stop("distribution '%s' has no L-moments", target.c_str());
     return writable::doubles(lm->linear_moments_from_parameters(d->get_parameters()));
+}
+
+// GammaDistribution::partial_kp is a static utility (not tied to any distribution
+// instance's own parameters) used by the fixture runner to pin the v2.1.4
+// near-zero-skew derivative-limit fix; not otherwise part of the public API.
+[[cpp11::register]]
+double ch_dist_gamma_partial_kp_(double skewness, double probability) {
+    return dist::GammaDistribution::partial_kp(skewness, probability);
 }
 
 // --- Public-API additions (consumed by R/distribution.R) ----------------------------

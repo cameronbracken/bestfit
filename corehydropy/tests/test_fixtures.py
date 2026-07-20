@@ -249,6 +249,9 @@ def _dispatch_generic(target, params, method, args):
     if method == "random_value":
         # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
         return _core.dist_random(target, params, int(args[0]), int(args[1]))[int(args[2])]
+    if method == "partial_kp":
+        # Static GammaDistribution utility, not tied to `params` -- args: [skewness, probability].
+        return _core.dist_gamma_partial_kp(float(args[0]), float(args[1]))
     raise KeyError(f"unknown fixture method: {method}")
 
 

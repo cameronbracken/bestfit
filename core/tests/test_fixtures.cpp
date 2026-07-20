@@ -1124,6 +1124,11 @@ static double dispatch_generic(dist::UnivariateDistributionBase& d, const std::s
         if (lm == nullptr) throw std::runtime_error("distribution has no L-moments");
         return lm->linear_moments_from_parameters(d.get_parameters())[a[0].get<int>()];
     }
+    // Static GammaDistribution utility, not tied to `d`'s own parameters -- args:
+    // [skewness, probability]. Only meaningful for target "GammaDistribution", but the
+    // call itself doesn't touch `d` at all (mirrors the emitter's Dispatch "partial_kp").
+    if (m == "partial_kp")
+        return dist::GammaDistribution::partial_kp(a[0].get<double>(), a[1].get<double>());
     throw std::runtime_error("unknown fixture method: " + m);
 }
 

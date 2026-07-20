@@ -4,7 +4,8 @@
   "source": "Numerics/Test_Numerics/Distributions/Univariate/Test_PearsonTypeIII.cs",
   "datasets": {
     "harricana": [122.0, 244.0, 214.0, 173.0, 229.0, 156.0, 212.0, 263.0, 146.0, 183.0, 161.0, 205.0, 135.0, 331.0, 225.0, 174.0, 98.8, 149.0, 238.0, 262.0, 132.0, 235.0, 216.0, 240.0, 230.0, 192.0, 195.0, 172.0, 173.0, 172.0, 153.0, 142.0, 317.0, 161.0, 201.0, 204.0, 194.0, 164.0, 183.0, 161.0, 167.0, 179.0, 185.0, 117.0, 192.0, 337.0, 125.0, 166.0, 99.1, 202.0, 230.0, 158.0, 262.0, 154.0, 164.0, 182.0, 164.0, 183.0, 171.0, 250.0, 184.0, 205.0, 237.0, 177.0, 239.0, 187.0, 180.0, 173.0, 174.0],
-    "lmom_sample": [1953.0, 1939.0, 1677.0, 1692.0, 2051.0, 2371.0, 2022.0, 1521.0, 1448.0, 1825.0, 1363.0, 1760.0, 1672.0, 1603.0, 1244.0, 1521.0, 1783.0, 1560.0, 1357.0, 1673.0, 1625.0, 1425.0, 1688.0, 1577.0, 1736.0, 1640.0, 1584.0, 1293.0, 1277.0, 1742.0, 1491.0]
+    "lmom_sample": [1953.0, 1939.0, 1677.0, 1692.0, 2051.0, 2371.0, 2022.0, 1521.0, 1448.0, 1825.0, 1363.0, 1760.0, 1672.0, 1603.0, 1244.0, 1521.0, 1783.0, 1560.0, 1357.0, 1673.0, 1625.0, 1425.0, 1688.0, 1577.0, 1736.0, 1640.0, 1584.0, 1293.0, 1277.0, 1742.0, 1491.0],
+    "arithmetic_1to8": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
   },
   "cases": [
     {
@@ -106,12 +107,59 @@
     },
     {
       "name": "lmom_forward_negative_skew",
+      "comment": "v2.1.4 signs L-skewness by Sign(gamma) -- T3 is now negative for this negative-skew case (was bug-compatibly positive pre-2.1.4; see docs/upstream-csharp-issues.md).",
       "construct": { "params": [191.31739, 47.01925, -0.61897] },
       "assertions": [
         { "method": "linear_moment", "args": [0], "expected": 191.31739,            "mode": "abs", "tol": 1e-9 },
-        { "method": "linear_moment", "args": [1], "expected": 26.212177497578356,   "mode": "abs", "tol": 1e-7 },
-        { "method": "linear_moment", "args": [2], "expected": 0.10127700839455282,  "mode": "abs", "tol": 1e-7 },
+        { "method": "linear_moment", "args": [1], "expected": 26.212177497578359,   "mode": "abs", "tol": 1e-9 },
+        { "method": "linear_moment", "args": [2], "expected": -0.10127700839455282, "mode": "abs", "tol": 1e-9 },
         { "method": "linear_moment", "args": [3], "expected": 0.12571672816473162,  "mode": "abs", "tol": 1e-7 }
+      ]
+    },
+    {
+      "name": "lmom_forward_zero_skew",
+      "comment": "v2.1.4 gamma==0 exact Normal limit: [mu, sigma/sqrt(pi), 0, 0.12260172].",
+      "construct": { "params": [10.0, 2.0, 0.0] },
+      "assertions": [
+        { "method": "linear_moment", "args": [0], "expected": 10.0,                 "mode": "abs", "tol": 1e-14 },
+        { "method": "linear_moment", "args": [1], "expected": 1.1283791670955126,   "mode": "abs", "tol": 1e-14 },
+        { "method": "linear_moment", "args": [2], "expected": 0.0,                  "mode": "abs", "tol": 0.0 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12260172,           "mode": "abs", "tol": 1e-14 }
+      ]
+    },
+    {
+      "name": "lmom_forward_signed_small_skew_positive",
+      "comment": "Mirrors Test_LinearMoments_SignedSmallAndZeroSkew (positive branch); alpha=4/gamma^2=400 exercises the new alpha>=100 Stirling branch.",
+      "construct": { "params": [10.0, 2.0, 0.1] },
+      "assertions": [
+        { "method": "linear_moment", "args": [0], "expected": 10.0,                  "mode": "abs", "tol": 1e-14 },
+        { "method": "linear_moment", "args": [1], "expected": 1.1280266037024342,    "mode": "abs", "tol": 1e-13 },
+        { "method": "linear_moment", "args": [2], "expected": 0.016288820701197349,  "mode": "abs", "tol": 1e-13 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12267996090847449,   "mode": "abs", "tol": 1e-13 }
+      ]
+    },
+    {
+      "name": "lmom_forward_signed_small_skew_negative",
+      "comment": "Mirrors Test_LinearMoments_SignedSmallAndZeroSkew (negative branch): same L1/L2/T4 as the positive-skew twin, T3 opposite sign.",
+      "construct": { "params": [10.0, 2.0, -0.1] },
+      "assertions": [
+        { "method": "linear_moment", "args": [0], "expected": 10.0,                  "mode": "abs", "tol": 1e-14 },
+        { "method": "linear_moment", "args": [1], "expected": 1.1280266037024342,    "mode": "abs", "tol": 1e-13 },
+        { "method": "linear_moment", "args": [2], "expected": -0.016288820701197349, "mode": "abs", "tol": 1e-13 },
+        { "method": "linear_moment", "args": [3], "expected": 0.12267996090847449,   "mode": "abs", "tol": 1e-13 }
+      ]
+    },
+    {
+      "name": "lmom_reverse_zero_skew_fit",
+      "comment": "arithmetic_1to8 is exactly evenly spaced, so its sample L-skewness (T3) reproduces bit-exact 0.0, hitting ParametersFromLinearMoments' new T3==0 early-return branch through a real fit (not just the forward direction).",
+      "construct": { "fit": { "method": "lmom", "dataset": "arithmetic_1to8" } },
+      "assertions": [
+        { "method": "param", "args": [0], "expected": 4.5,                 "mode": "abs", "tol": 1e-13 },
+        { "method": "param", "args": [1], "expected": 2.658680776358274,   "mode": "abs", "tol": 1e-12 },
+        { "method": "param", "args": [2], "expected": 0.0,                 "mode": "abs", "tol": 0.0 },
+        { "method": "linear_moment", "args": [0], "expected": 4.5,         "mode": "abs", "tol": 1e-13 },
+        { "method": "linear_moment", "args": [1], "expected": 1.5,         "mode": "abs", "tol": 1e-12 },
+        { "method": "linear_moment", "args": [2], "expected": 0.0,         "mode": "abs", "tol": 0.0 }
       ]
     },
     {
