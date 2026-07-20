@@ -1116,7 +1116,7 @@
     },
     {
       "name": "cdf_permuted_rank_deficient_collapse_a",
-      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (1st call): X3 perfectly correlated with X1 (corr20=1), X2 independent of both (corr01=corr21=0) -- a rank-deficient covariance whose redundant dimension sorts to the THIRD position. Collapses to the independent product StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only.",
+      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (1st call): X3 perfectly correlated with X1 (corr20=1), X2 independent of both (corr01=corr21=0) -- a rank-deficient covariance whose redundant dimension sorts to the THIRD position. Collapses to the independent product StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only. NOTE (Task 9 fix round): this case reaches the COVSRT degenerate-diagonal ('else') branch but the greedy JMIN pivot sort lands the redundant dimension ADJACENT to its correlated partner (j == i-1), so it exercises only the direct rescale, never the inner l-loop permutation (verified by fire-count instrumentation during the cdf_rank_deficient_inner_permutation construction below) -- it does not, by itself, cover the packed-index/swap-offset arithmetic in that inner loop.",
       "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
       "assertions": [
         { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.2, -0.4, 0.7], [0, 0, 0], [0.0, 1.0, 0.0], 25000, 1e-10, 0.0], "expected": 0.19960030183383579, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(0.2) * Normal.StandardCDF(-0.4)" }
@@ -1124,10 +1124,19 @@
     },
     {
       "name": "cdf_permuted_rank_deficient_collapse_b",
-      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (2nd call): the SAME redundancy permuted to the SECOND position (X2 perfectly correlated with X1, corr10=1; X3 independent of both) -- the point of 'permuted': exercises the fixed COVSRT loop at a different sorted index than the 1st call, same analytical collapse StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only.",
+      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (2nd call): the SAME redundancy permuted to the SECOND position (X2 perfectly correlated with X1, corr10=1; X3 independent of both) -- the point of 'permuted': exercises the fixed COVSRT loop at a different sorted index than the 1st call, same analytical collapse StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only. NOTE (Task 9 fix round): like collapse_a above, this case's greedy JMIN pivot sort also lands the redundant dimension adjacent to its partner (j == i-1) -- it reaches the degenerate branch but never the inner l-loop permutation either. Neither collapse_a nor collapse_b exercises the packed-index (l*(l+1)/2+j+1), swap-offset (IJ-k+m-1), or IJ-decrement (IJ-k-1) arithmetic; see cdf_rank_deficient_inner_permutation below for the case that does.",
       "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
       "assertions": [
         { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.7, 0.2, -0.4], [0, 0, 0], [1.0, 0.0, 0.0], 25000, 1e-10, 0.0], "expected": 0.19960030183383579, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(0.2) * Normal.StandardCDF(-0.4)" }
+      ]
+    },
+    {
+      "name": "cdf_rank_deficient_inner_permutation",
+      "note": "Task 9 fix round (COVSRT inner-permutation coverage): X2 perfectly correlated with X0 (corr20=1), X1 correlated 0.6 with both (corr10=corr21=0.6, forced consistent since X2=X0). Unlike the two collapse_* cases above, the bounds here (upper = [0.1, 2.0, -1.5]) make X2 the narrowest/most-probable-looking marginal, so the greedy JMIN pivot sort picks X2 first; X0 (its perfectly-correlated partner) is then excluded from the next pivot round (conditional variance collapses to ~0), forcing the genuinely-independent-of-that-collapse X1 into the MIDDLE sorted slot and pushing X0's degenerate diagonal to the LAST slot, two positions from its partner. This is the first fixture case where the COVSRT degenerate-diagonal 'else' branch's inner l-loop actually fires (packed index l*(l+1)/2+j+1, swap offset IJ-k+m-1, IJ decremented by k+1) rather than only reaching the branch -- fire count verified >= 1 (exactly 1) during construction via temporary counter instrumentation on the inner-permutation increment site, reverted before commit; INFORM == 0 (converged, not budget-starved). No covariance-matrix/mean values are load-bearing here (identity construct, mirrors the sibling cases) -- the redundancy and pivot ordering are supplied entirely through the mvndst CORREL/LOWER/UPPER arguments.",
+      "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [3, [0.0, 0.0, 0.0], [0.1, 2.0, -1.5], [0, 0, 0], [0.6, 1.0, 0.6], 25000, 1e-10, 0.0], "expected": 0, "mode": "equal" },
+        { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.1, 2.0, -1.5], [0, 0, 0], [0.6, 1.0, 0.6], 25000, 1e-10, 0.0], "expected": 0.06680322793416447, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump" }
       ]
     },
     {
