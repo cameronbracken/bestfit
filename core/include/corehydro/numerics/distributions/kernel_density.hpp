@@ -20,8 +20,11 @@
 // Moments are the sample product-moments (mean/sd/skewness/kurtosis of the sample
 // data), exactly as in the C# source (Statistics.ProductMoments).
 // CDF/InverseCDF are built via a 1000-bin midpoint-rule integration over
-// [Minimum, Maximum], normalized, and interpolated in NormalZ probability space
-// using EmpiricalDistribution, mirroring C# CreateCDF + OrderedPairedData.
+// [Minimum, Maximum], normalized, and interpolated in NormalZ probability space using
+// EmpiricalDistribution's RAW/trusted construction path (create_raw_table(), not the normal
+// checked public constructor -- see create_cdf()'s own comment and empirical_distribution.hpp's
+// friend declaration), mirroring C# CreateCDF, which builds a raw OrderedPairedData directly
+// and never goes through EmpiricalDistribution/ValidateData at all.
 // XTransform=None and ProbabilityTransform=NormalZ are the C# defaults, which are
 // the defaults of EmpiricalDistribution (EmpiricalTransform::NormalZ).
 // The Triangular kernel uses Triangular(-1,0,1).pdf(u) and the Uniform kernel uses
@@ -33,6 +36,14 @@
 // bandwidth) is now ported too, so `UnivariateDistributionFactory::create_distribution`
 // can add a `KernelDensity` case -- previously this class had no default constructor, and
 // the factory had no case for it, matching the pre-2a0357a C# factory's own gap.
+//
+// T7 review fix (v2.1.4 ValidateData parity): the same task's EmpiricalDistribution
+// ValidateData wave initially made `cdf_table_`'s construction go through the normal, checked
+// EmpiricalDistribution constructor -- a corehydro-introduced regression, since real C#
+// KernelDensity never touches EmpiricalDistribution/ValidateData at all (see create_cdf()'s
+// comment). Fixed by routing through create_raw_table() instead; see
+// test_kernel_density.cpp for the regression test (compact kernel + tiny bandwidth, cdf() must
+// not throw).
 #pragma once
 #include <string>
 #include <algorithm>
@@ -304,7 +315,18 @@ class KernelDensity : public UnivariateDistributionBase {
     // Build the internal CDF table. Mirrors C# CreateCDF():
     //   1. 1000 equal-width bins [Minimum, Maximum], midpoint-rule integration.
     //   2. Cumulative sum, normalized to 1.
-    //   3. Stored as EmpiricalDistribution with NormalZ probability transform.
+    //   3. Stored as a raw (x, p) table -- real C# CreateCDF builds an OrderedPairedData
+    //      directly here, NEVER an EmpiricalDistribution, so its CDF/InverseCDF never run
+    //      EmpiricalDistribution's v2.1.4 ValidateData and can never throw on ties. This port
+    //      has no separate OrderedPairedData type, so cdf_table_ uses EmpiricalDistribution's
+    //      private create_raw_table() factory (KernelDensity is friended for exactly this) to
+    //      reproduce that: for a compact-support kernel (Epanechnikov/Triangular/Uniform) with
+    //      a small bandwidth, the density is exactly zero over long stretches between sample
+    //      clusters, so this cumulative-sum p array WILL have tied runs -- the checked public
+    //      EmpiricalDistribution constructor would (correctly, for every OTHER caller) mark
+    //      that invalid and throw on use; that would be a corehydro-introduced divergence here,
+    //      since real C# never throws for this case. See test_kernel_density.cpp for the
+    //      regression coverage.
     void create_cdf() const {
         constexpr int kBins = 1000;
         const double lo = minimum(), hi = maximum();
@@ -326,8 +348,8 @@ class KernelDensity : public UnivariateDistributionBase {
             for (double& p : pv) p /= total;
         }
 
-        cdf_table_ = std::make_unique<EmpiricalDistribution>(
-            std::move(xv), std::move(pv), EmpiricalTransform::NormalZ);
+        cdf_table_ = EmpiricalDistribution::create_raw_table(
+            std::move(xv), std::move(pv), EmpiricalTransform::NormalZ, /*p_descending=*/false);
         cdf_created_ = true;
     }
 };

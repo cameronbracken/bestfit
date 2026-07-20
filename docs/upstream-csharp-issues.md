@@ -68,25 +68,17 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested C# fix:** apply the same Stirling ratio (`Γ(α+0.5)/Γ(α) ≈ √α·(1 − 1/(8α) + …)`) in
   `LinearMomentsFromParameters` as already done in `ParametersFromLinearMoments`.
 
-## FIXED (was BUG) — UnivariateDistributionFactory has no case for VonMises (falls through to Deterministic)
+## BUG — UnivariateDistributionFactory has no case for VonMises (falls through to Deterministic)
 
 - **Where:** `Numerics/Distributions/Univariate/Base/UnivariateDistributionFactory.cs`,
   `CreateDistribution(UnivariateDistributionType)`.
-- **What:** `UnivariateDistributionType.VonMises` had no `case`, so the factory returned a
+- **What:** `UnivariateDistributionType.VonMises` has no `case`, so the factory returns a
   `Deterministic` distribution instead — silently wrong for any code that constructs VonMises by type
   (e.g. serialization round-trips, generic UIs).
 - **Evidence:** the dotnet oracle emitter had to bypass the factory and `new VonMises()` directly.
-- **Fixed upstream (v2.1.4, 2a0357a):** the if/else chain was rewritten to an explicit `switch`
-  with a case for every defined type (including `VonMises` and `KernelDensity`), throwing
-  `NotSupportedException` for `CompetingRisks`/`Mixture`/`UserDefined` and
-  `ArgumentOutOfRangeException` for anything undefined, plus a new
-  `TryCreateDistribution(type, out dist)` entry point.
-- **Port handling (T7):** the C++ factory already had a `VonMises` case (added before this bug was
-  known upstream); T7 added the missing `KernelDensity` case to match, and added
-  `try_create_distribution` mirroring the new `TryCreateDistribution`. The emitter's `VonMises`
-  bypass (`Build()`/`BuildComponent()`) is retired now that the real C# factory handles it, so
-  fixture reproduction for VonMises now goes through `UnivariateDistributionFactory.CreateDistribution`
-  like every other plain distribution.
+- **Port handling:** the C++ factory includes VonMises; the emitter uses a direct-construction bypass.
+- **Suggested C# fix:** add the `VonMises` case. **Also audit the factory against the full
+  `UnivariateDistributionType` enum** for any other missing entries.
 
 ## BUG (pattern) — SetParameters validates before assigning fields (invalid scale reported valid)
 

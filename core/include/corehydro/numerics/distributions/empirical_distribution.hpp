@@ -22,28 +22,38 @@
 // XTransform = Logarithmic, so the two composite distributions need a log-space-capable backing.
 //
 // v2.1.4 (2a0357a) ValidateData wave: C# now runs a `ValidateData` check on every construction
-// path and every `SetParameters` call, and gates it lazily -- `_parametersValid` is recomputed
-// eagerly, but `CDF`/`InverseCDF` re-check it and throw (C# `ArgumentOutOfRangeException`) the
-// first time the distribution is actually *used* while invalid, rather than throwing at
-// construction time. The rules: at least two ordinates; `x`/`p` arrays the same length; `x`
-// nondecreasing (C# `strictX` flipped `true` -> `false` at every call site in this diff, so
-// duplicate/tied X values -- e.g. repeated flood values, or bootstrap resamples -- are now
-// VALID, matching `OrderedPairedData`'s relaxed `StrictX = false`); every probability finite
-// and in [0, 1]; and the probabilities strictly monotonic in the DECLARED direction (C#'s
-// `OrderedPairedData` keeps `StrictY = true` always, and its `OrderY` is whatever the caller
-// passed as `probabilityOrder` -- Ascending, the hardcoded default for the plain
-// `SetParameters(x, p)` overload and the ordinary CDF case, or Descending, an explicit opt-in
-// treated as a survival-function encoding and flipped via `1 - p` in CDF / `1 - probability` in
-// InverseCDF; see `cdf()`/`inverse_cdf()` below). This is validated against the DECLARED order,
-// not auto-detected from the data: a descending p array constructed without opting into
-// Descending is INVALID (confirmed against the real C# via the dotnet oracle gate -- an
-// earlier auto-detect design in this port reproduced a false positive the gate caught).
+// path and every `SetParameters` call, and gates MOST of it lazily -- `_parametersValid` is
+// recomputed eagerly, but `CDF`/`InverseCDF` re-check it and throw (C# `ArgumentOutOfRangeException`)
+// the first time the distribution is actually *used* while invalid, rather than throwing at
+// construction time. The ONE exception is a length mismatch between `x` and `p`: C#'s
+// `SetParameters` overloads throw `ArgumentException` EAGERLY, right at the call site, before
+// `ValidateData` (and every other rule below) ever runs -- this port's constructor mirrors that
+// exactly (see the (x, p, transform, p_descending) constructor below). Every OTHER rule stays
+// lazy: at least two ordinates; `x` nondecreasing (C# `strictX` flipped `true` -> `false` at
+// every call site in this diff, so duplicate/tied X values -- e.g. repeated flood values, or
+// bootstrap resamples -- are now VALID, matching `OrderedPairedData`'s relaxed `StrictX =
+// false`); every probability finite and in [0, 1]; and the probabilities strictly monotonic in
+// the DECLARED direction (C#'s `OrderedPairedData` keeps `StrictY = true` always, and its
+// `OrderY` is whatever the caller passed as `probabilityOrder` -- Ascending, the hardcoded
+// default for the plain `SetParameters(x, p)` overload and the ordinary CDF case, or Descending,
+// an explicit opt-in treated as a survival-function encoding and flipped via `1 - p` in CDF /
+// `1 - probability` in InverseCDF; see `cdf()`/`inverse_cdf()` below). This is validated against
+// the DECLARED order, not auto-detected from the data: a descending p array constructed without
+// opting into Descending is INVALID (confirmed against the real C# via the dotnet oracle gate --
+// an earlier auto-detect design in this port reproduced a false positive the gate caught).
 // The C# `OrderedPairedData(orderedPairedData)` constructor overload additionally changed its
 // ascending-X-violation throw from a plain `ArgumentException` to `ArgumentOutOfRangeException`
 // -- this port has no separate `OrderedPairedData` type (the x/p tables are plain vectors owned
 // directly by this class), so there is no equivalent second throw site to migrate; the single
 // C++ convention below (`std::invalid_argument`, mirroring the C# `ArgumentOutOfRangeException`
 // thrown lazily from `CDF`/`InverseCDF`) covers every invalid-data case uniformly.
+//
+// NOT EXPOSED (deliberately): C#'s 4-arg `SetParameters(x, p, XOrder, probabilityOrder)` lets
+// the caller declare `XOrder` as `None` or `Descending` too, but ValidateData rejects both
+// unconditionally (`data.OrderX != SortOrder.Ascending` is always an error) -- i.e. `XOrder` is
+// only ever meaningfully `Ascending` in practice. This port's surface reflects that: there is no
+// XOrder parameter at all (x is always validated as the Ascending case), only the `p_descending`
+// axis above, which is the one C# axis that actually has an observable valid alternative.
 #pragma once
 #include <string>
 #include <algorithm>
@@ -71,6 +81,20 @@ enum class EmpiricalTransform {
 /// Univariate Empirical distribution.
 /// Stores an ordered (x, p) CDF table and interpolates with optional transforms.
 class EmpiricalDistribution : public UnivariateDistributionBase {
+    // KernelDensity's internal CDF table is a genuine C# architectural exception: real C#
+    // KernelDensity.CreateCDF builds a raw OrderedPairedData directly (never an
+    // EmpiricalDistribution), so its CDF/InverseCDF never run ValidateData and can never throw
+    // on tied cumulative probabilities -- which DOES happen for any compact-support kernel
+    // (Epanechnikov/Triangular/Uniform) with a small bandwidth, since the density is exactly
+    // zero over long stretches between sample clusters. This port has no separate
+    // OrderedPairedData type, so KernelDensity is friended to reach the private
+    // create_raw_table() factory below (bypassing validate_data() entirely, mirroring the raw
+    // OPD's total lack of a ValidateData concept) instead of going through the normal, checked
+    // public constructor every OTHER internal consumer (Mixture/CompetingRisks's
+    // CreateEmpiricalCDF, which DOES construct a real EmpiricalDistribution in C# too, so they
+    // correctly keep using the checked constructor -- see kernel_density.hpp's header note).
+    friend class KernelDensity;
+
    public:
     // --- Construction ------------------------------------------------------------------
 
@@ -89,9 +113,23 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
     /// caller-declared order, not the data's actual direction (confirmed against the real C#
     /// via the dotnet oracle gate: an ascending-declared-but-descending-data case fails
     /// ValidateData with "Y values must increase").
+    ///
+    /// A length mismatch between x and p throws EAGERLY, right here -- this mirrors C#'s
+    /// `SetParameters(x, p[, XOrder, probabilityOrder])`, which throws `ArgumentException`
+    /// immediately, before `ValidateData` (and thus before any of the OTHER rules below) ever
+    /// runs. Every other ValidateData rule (too few ordinates, non-nondecreasing x, out-of-range/
+    /// non-finite/non-monotonic p) stays LAZY exactly as C# has it -- construction succeeds with
+    /// `parameters_valid() == false`, and cdf()/inverse_cdf() throw std::invalid_argument on
+    /// first use (mirrors C#'s lazily-thrown `ArgumentOutOfRangeException`; see cdf()/
+    /// inverse_cdf() below). This port's convention: std::invalid_argument for both throw sites,
+    /// even though C# uses two different exception types (ArgumentException vs.
+    /// ArgumentOutOfRangeException) for the eager-vs-lazy cases.
     EmpiricalDistribution(std::vector<double> x_values, std::vector<double> p_values,
                           EmpiricalTransform p_transform = EmpiricalTransform::NormalZ,
                           bool p_descending = false) {
+        if (x_values.size() != p_values.size())
+            throw std::invalid_argument(
+                "EmpiricalDistribution: x and p arrays must have the same length");
         p_transform_ = p_transform;
         p_descending_ = p_descending;
         set_xy(std::move(x_values), std::move(p_values));
@@ -273,13 +311,48 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         parameters_valid_ = validate_data();
     }
 
+    // --- Raw/trusted construction (KernelDensity only; see the friend declaration above) -----
+
+    // Tag distinguishing the raw-table constructor below from the normal, checked public one
+    // (same argument types otherwise). Private: only reachable via create_raw_table(), which is
+    // itself private + friended to KernelDensity.
+    struct RawTableTag {};
+
+    // Skips validate_data() entirely and always reports parameters_valid() == true -- mirrors
+    // the real C# KernelDensity.CreateCDF building a raw OrderedPairedData directly (which has
+    // no ValidateData concept at all, so it can never throw on ties). x/p are trusted as-is;
+    // the interpolation code (get_y_from_x/get_x_from_y/bisect_p) already tolerates ties
+    // gracefully (the `if (y2 == y1) return ...` guards), matching what raw OPD interpolation
+    // would do.
+    EmpiricalDistribution(RawTableTag, std::vector<double> x, std::vector<double> p,
+                          EmpiricalTransform p_transform, bool p_descending)
+        : p_transform_(p_transform), p_descending_(p_descending) {
+        x_ = std::move(x);
+        p_ = std::move(p);
+        parameters_valid_ = true;
+    }
+
+    // Private factory KernelDensity actually calls (the constructor itself is private, and
+    // std::make_unique can't reach a private constructor even through a friend, so this
+    // wraps `new` directly).
+    static std::unique_ptr<EmpiricalDistribution> create_raw_table(
+        std::vector<double> x, std::vector<double> p, EmpiricalTransform p_transform,
+        bool p_descending) {
+        return std::unique_ptr<EmpiricalDistribution>(new EmpiricalDistribution(
+            RawTableTag{}, std::move(x), std::move(p), p_transform, p_descending));
+    }
+
     // Mirrors C# EmpiricalDistribution.ValidateData (v2.1.4): at least two ordinates, matching
     // x/p lengths, nondecreasing x (strictX = false), finite probabilities in [0, 1], and
     // probabilities strictly monotonic in the DECLARED direction (p_descending_; strictY = true
     // always -- C# rejects anything else via its `OrderedPairedData.IsValid`/`GetErrors`
     // machinery, validated against the caller-declared `probabilityOrder`, not the data's actual
     // direction). cdf()/inverse_cdf() throw std::invalid_argument (mirrors C#'s lazily-thrown
-    // ArgumentOutOfRangeException) rather than validating eagerly here.
+    // ArgumentOutOfRangeException) rather than validating eagerly here -- EXCEPT the length
+    // check just below, which can never actually be false when this is reached (the public
+    // constructor already throws EAGERLY on a length mismatch, before set_xy()/validate_data()
+    // ever run); it's kept only because C#'s own ValidateData has this exact same redundant
+    // check (structural mirroring), not because it's reachable in this port.
     bool validate_data() const {
         const std::size_t n = x_.size();
         if (n < 2 || p_.size() != n) return false;
