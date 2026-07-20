@@ -155,13 +155,16 @@ class TruncatedDistribution : public UnivariateDistributionBase {
         return (base_dist_->cdf(x) - f_min_) / (f_max_ - f_min_);
     }
 
-    // Mirrors C#: InverseCDF = base.InverseCDF(p * (Fmax - Fmin) + Fmin)
+    // Mirrors C#: InverseCDF = base.InverseCDF(p * (Fmax - Fmin) + Fmin). C# checks
+    // `_parametersValid` FIRST (before the probability-range check and the 0/1 early
+    // returns) -- see Numerics/Distributions/Univariate/TruncatedDistribution.cs's
+    // InverseCDF; matches pdf()/cdf() above, which already guard first.
     double inverse_cdf(double probability) const override {
+        if (!parameters_valid_) throw std::invalid_argument("TruncatedDistribution: invalid parameters");
         if (probability < 0.0 || probability > 1.0)
             throw std::invalid_argument("probability must be between 0 and 1");
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
-        if (!parameters_valid_) throw std::invalid_argument("TruncatedDistribution: invalid parameters");
         return base_dist_->inverse_cdf(probability * (f_max_ - f_min_) + f_min_);
     }
 
