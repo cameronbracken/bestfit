@@ -67,9 +67,10 @@ static UnivariateDistributionBase BuildComponent(JsonElement desc,
 {
     var compTarget = desc.GetProperty("target").GetString()!;
     var compType = Enum.Parse<UnivariateDistributionType>(compTarget);
-    UnivariateDistributionBase compDist = compTarget == "VonMises"
-        ? new VonMises()
-        : UnivariateDistributionFactory.CreateDistribution(compType);
+    // v2.1.4: the C# factory switch now has an explicit VonMises case (previously it fell
+    // through the old if/else chain to `new Deterministic()`), so the bypass this repo used to
+    // need is retired -- see docs/upstream-csharp-issues.md and the T7 factory header note.
+    UnivariateDistributionBase compDist = UnivariateDistributionFactory.CreateDistribution(compType);
     if (desc.TryGetProperty("params", out var compPs))
     {
         compDist.SetParameters(compPs.EnumerateArray().Select(ParseNum).ToArray());
@@ -103,7 +104,15 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
     {
         var xArr = construct.GetProperty("x").EnumerateArray().Select(ParseNum).ToArray();
         var pArr = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
-        var emp = new EmpiricalDistribution(xArr, pArr);
+        // v2.1.4: p_descending DECLARES the probability order via the 4-arg SetParameters
+        // overload (SortOrder.Ascending/Descending) rather than the 2-arg overload's hardcoded
+        // SortOrder.Ascending -- probabilityOrder is NOT auto-detected from the data (an
+        // earlier corehydro auto-detect design reproduced a false positive this gate caught;
+        // see empirical_distribution.hpp's header note). The two overloads are equivalent when
+        // p_descending is false, so this always goes through the 4-arg one.
+        bool pDescending = construct.TryGetProperty("p_descending", out var pdEl) && pdEl.GetBoolean();
+        var emp = new EmpiricalDistribution(xArr, pArr, Numerics.Data.SortOrder.Ascending,
+            pDescending ? Numerics.Data.SortOrder.Descending : Numerics.Data.SortOrder.Ascending);
         // Optional p_transform: "None" or "NormalZ" (default NormalZ)
         // Fully qualified: v2.0.0 moved the RMC.BestFit DataFrame series/data types into the
         // `RMC.BestFit.Models` namespace (see the `using RMC.BestFit.Models;` note above), which
@@ -203,10 +212,9 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
 
     // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.
     var type = Enum.Parse<UnivariateDistributionType>(target);
-    // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
-    UnivariateDistributionBase dist = target == "VonMises"
-        ? new VonMises()
-        : UnivariateDistributionFactory.CreateDistribution(type);
+    // v2.1.4: the C# factory switch now has an explicit VonMises case (see BuildComponent's
+    // matching note above), so this no longer needs to bypass the factory.
+    UnivariateDistributionBase dist = UnivariateDistributionFactory.CreateDistribution(type);
     if (construct.TryGetProperty("params", out var ps))
     {
         var p = ps.EnumerateArray().Select(ParseNum).ToArray();

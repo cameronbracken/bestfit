@@ -216,38 +216,38 @@ extern "C" SEXP _corehydror_ch_trunc_valid_(SEXP base_target, SEXP base_params, 
   END_CPP11
 }
 // dist.cpp
-doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform);
-extern "C" SEXP _corehydror_ch_emp_moments_(SEXP x_vals, SEXP p_vals, SEXP p_transform) {
+doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending);
+extern "C" SEXP _corehydror_ch_emp_moments_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP p_descending) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_emp_moments_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform)));
+    return cpp11::as_sexp(ch_emp_moments_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<bool>>(p_descending)));
   END_CPP11
 }
 // dist.cpp
-double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x);
-extern "C" SEXP _corehydror_ch_emp_pdf_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP x) {
+double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending, double x);
+extern "C" SEXP _corehydror_ch_emp_pdf_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP p_descending, SEXP x) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_emp_pdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+    return cpp11::as_sexp(ch_emp_pdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<bool>>(p_descending), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
   END_CPP11
 }
 // dist.cpp
-double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x);
-extern "C" SEXP _corehydror_ch_emp_cdf_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP x) {
+double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending, double x);
+extern "C" SEXP _corehydror_ch_emp_cdf_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP p_descending, SEXP x) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_emp_cdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+    return cpp11::as_sexp(ch_emp_cdf_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<bool>>(p_descending), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
   END_CPP11
 }
 // dist.cpp
-double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform, double prob);
-extern "C" SEXP _corehydror_ch_emp_quantile_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP prob) {
+double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending, double prob);
+extern "C" SEXP _corehydror_ch_emp_quantile_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP p_descending, SEXP prob) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_emp_quantile_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
+    return cpp11::as_sexp(ch_emp_quantile_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<bool>>(p_descending), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
   END_CPP11
 }
 // dist.cpp
-bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform);
-extern "C" SEXP _corehydror_ch_emp_valid_(SEXP x_vals, SEXP p_vals, SEXP p_transform) {
+bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending);
+extern "C" SEXP _corehydror_ch_emp_valid_(SEXP x_vals, SEXP p_vals, SEXP p_transform, SEXP p_descending) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_emp_valid_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform)));
+    return cpp11::as_sexp(ch_emp_valid_(cpp11::as_cpp<cpp11::decay_t<doubles>>(x_vals), cpp11::as_cpp<cpp11::decay_t<doubles>>(p_vals), cpp11::as_cpp<cpp11::decay_t<std::string>>(p_transform), cpp11::as_cpp<cpp11::decay_t<bool>>(p_descending)));
   END_CPP11
 }
 // dist.cpp
@@ -674,11 +674,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_corehydror_ch_dist_quantile_v_",            (DL_FUNC) &_corehydror_ch_dist_quantile_v_,             3},
     {"_corehydror_ch_dist_random_",                (DL_FUNC) &_corehydror_ch_dist_random_,                 4},
     {"_corehydror_ch_dist_valid_",                 (DL_FUNC) &_corehydror_ch_dist_valid_,                  2},
-    {"_corehydror_ch_emp_cdf_",                    (DL_FUNC) &_corehydror_ch_emp_cdf_,                     4},
-    {"_corehydror_ch_emp_moments_",                (DL_FUNC) &_corehydror_ch_emp_moments_,                 3},
-    {"_corehydror_ch_emp_pdf_",                    (DL_FUNC) &_corehydror_ch_emp_pdf_,                     4},
-    {"_corehydror_ch_emp_quantile_",               (DL_FUNC) &_corehydror_ch_emp_quantile_,                4},
-    {"_corehydror_ch_emp_valid_",                  (DL_FUNC) &_corehydror_ch_emp_valid_,                   3},
+    {"_corehydror_ch_emp_cdf_",                    (DL_FUNC) &_corehydror_ch_emp_cdf_,                     5},
+    {"_corehydror_ch_emp_moments_",                (DL_FUNC) &_corehydror_ch_emp_moments_,                 4},
+    {"_corehydror_ch_emp_pdf_",                    (DL_FUNC) &_corehydror_ch_emp_pdf_,                     5},
+    {"_corehydror_ch_emp_quantile_",               (DL_FUNC) &_corehydror_ch_emp_quantile_,                5},
+    {"_corehydror_ch_emp_valid_",                  (DL_FUNC) &_corehydror_ch_emp_valid_,                   4},
     {"_corehydror_ch_estimation_bayes_run_",       (DL_FUNC) &_corehydror_ch_estimation_bayes_run_,       10},
     {"_corehydror_ch_estimation_bic_",             (DL_FUNC) &_corehydror_ch_estimation_bic_,              5},
     {"_corehydror_ch_estimation_gmm_qvar_",        (DL_FUNC) &_corehydror_ch_estimation_gmm_qvar_,         6},

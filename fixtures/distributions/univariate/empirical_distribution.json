@@ -38,6 +38,65 @@
         { "method": "quantile", "args": [0.95], "expected": 39851.666666666693,  "mode": "abs", "tol": 1e-2 },
         { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
       ]
+    },
+    {
+      "name": "duplicate_x_valid",
+      "note": "v2.1.4 ValidateData: strictX flipped false, so duplicate/nondecreasing x values are now valid. Mirrors Test_NonStrictDuplicateXValues_AreValidForCdfAndInverseCdf.",
+      "construct": {
+        "x": [100.0, 100.0, 125.0, 150.0, 200.0],
+        "p": [0.1, 0.2, 0.45, 0.7, 0.95]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "quantile", "args": [0.45], "expected": 125.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "descending_probability_order_valid",
+      "note": "Ascending x with strictly descending p, EXPLICITLY declared via p_descending (mirrors C#'s SetParameters(x, p, SortOrder.Ascending, SortOrder.Descending)), is a valid survival-function encoding; CDF/InverseCDF flip via 1-p. Mirrors Test_DescendingProbabilityOrder_SupportsCdfAndInverseCdf. The probability order is DECLARED, not auto-detected from the data -- the same p array without p_descending: true is invalid (see decreasing_probability_without_declaring_invalid below).",
+      "construct": {
+        "x": [100.0, 150.0, 200.0],
+        "p": [0.9, 0.5, 0.1],
+        "p_descending": true
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "cdf",      "args": [150.0], "expected": 0.5,   "mode": "abs", "tol": 1e-10 },
+        { "method": "quantile", "args": [0.5],   "expected": 150.0, "mode": "abs", "tol": 1e-10 }
+      ]
+    },
+    {
+      "name": "decreasing_x_invalid",
+      "note": "A strictly-decreasing step anywhere in x is invalid. C# throws ArgumentOutOfRangeException lazily from CDF/InverseCDF when used (no throw-assertion schema here -- see test_empirical_distribution.cpp for the throw-on-use coverage). Mirrors Test_DecreasingXValues_ThrowWhenUsed.",
+      "construct": {
+        "x": [100.0, 150.0, 125.0],
+        "p": [0.1, 0.5, 0.9]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "non_finite_probability_invalid",
+      "note": "A NaN probability anywhere is invalid. C# throws ArgumentOutOfRangeException lazily from CDF when used (no throw-assertion schema here -- see test_empirical_distribution.cpp). Mirrors Test_NonFiniteProbability_ThrowsWhenUsed.",
+      "construct": {
+        "x": [100.0, 125.0, 150.0],
+        "p": [0.1, "nan", 0.9]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "decreasing_probability_without_declaring_invalid",
+      "note": "The same descending p array as descending_probability_order_valid, but WITHOUT p_descending: true (the default, matching the 2-arg SetParameters(x, p) overload's hardcoded SortOrder.Ascending) -- validated against the DECLARED (ascending) order, not auto-detected, so this is invalid. Confirmed against the real C# via the dotnet oracle gate (rejects with \"Y values must increase\"); this case exists specifically to pin that against regression.",
+      "construct": {
+        "x": [100.0, 150.0, 200.0],
+        "p": [0.9, 0.5, 0.1]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

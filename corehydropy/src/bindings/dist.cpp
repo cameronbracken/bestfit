@@ -173,8 +173,12 @@ void register_distributions(py::module_& m) {
     });
 
     // --- Composite glue: EmpiricalDistribution -----------------------------------------
-    // Accepts (x_vals, p_vals, p_transform) and exposes the full distribution surface.
-    // p_transform: "NormalZ" (default) or "None".
+    // Accepts (x_vals, p_vals, p_transform, p_descending) and exposes the full distribution
+    // surface. p_transform: "NormalZ" (default) or "None". p_descending (v2.1.4): DECLARES
+    // the probability order (mirrors C#'s explicit `probabilityOrder` argument -- NOT
+    // auto-detected from the data; see empirical_distribution.hpp's header note) -- false
+    // (the ordinary ascending-CDF case) unless the fixture opts into the descending
+    // survival-function encoding.
 
     auto parse_emp_transform = [](const std::string& s) {
         if (s == "None") return dist::EmpiricalTransform::None;
@@ -185,8 +189,8 @@ void register_distributions(py::module_& m) {
 
     m.def("emp_moments", [parse_emp_transform](const std::vector<double>& xv,
                                                 const std::vector<double>& pv,
-                                                const std::string& pt_str) {
-        dist::EmpiricalDistribution d(xv, pv, parse_emp_transform(pt_str));
+                                                const std::string& pt_str, bool p_descending) {
+        dist::EmpiricalDistribution d(xv, pv, parse_emp_transform(pt_str), p_descending);
         return std::map<std::string, double>{
             {"mean", d.mean()},         {"median", d.median()},
             {"mode", d.mode()},         {"sd", d.standard_deviation()},
@@ -195,23 +199,30 @@ void register_distributions(py::module_& m) {
     });
     m.def("emp_pdf", [parse_emp_transform](const std::vector<double>& xv,
                                             const std::vector<double>& pv,
-                                            const std::string& pt_str, double x) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).pdf(x);
+                                            const std::string& pt_str, bool p_descending,
+                                            double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .pdf(x);
     });
     m.def("emp_cdf", [parse_emp_transform](const std::vector<double>& xv,
                                             const std::vector<double>& pv,
-                                            const std::string& pt_str, double x) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).cdf(x);
+                                            const std::string& pt_str, bool p_descending,
+                                            double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .cdf(x);
     });
     m.def("emp_quantile", [parse_emp_transform](const std::vector<double>& xv,
                                                  const std::vector<double>& pv,
-                                                 const std::string& pt_str, double prob) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).inverse_cdf(prob);
+                                                 const std::string& pt_str, bool p_descending,
+                                                 double prob) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .inverse_cdf(prob);
     });
     m.def("emp_valid", [parse_emp_transform](const std::vector<double>& xv,
                                               const std::vector<double>& pv,
-                                              const std::string& pt_str) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).parameters_valid();
+                                              const std::string& pt_str, bool p_descending) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .parameters_valid();
     });
 
     // --- Composite glue: KernelDensity -------------------------------------------------

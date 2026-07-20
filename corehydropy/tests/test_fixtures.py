@@ -97,7 +97,11 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         xv = [float(v) for v in construct["x"]]
         pv = [float(v) for v in construct["p"]]
         pt = construct.get("p_transform", "NormalZ")
-        return {"x_vals": xv, "p_vals": pv, "p_transform": pt}
+        # v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+        # `probabilityOrder` argument -- NOT auto-detected from the data); default False
+        # matches the ordinary ascending-CDF case.
+        pd = bool(construct.get("p_descending", False))
+        return {"x_vals": xv, "p_vals": pv, "p_transform": pt, "p_descending": pd}
     if target == "KernelDensity":
         ds = datasets or {}
         data_key = construct["data"]
@@ -146,17 +150,17 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return (bp + [lo, hi])[int(args[0])]
         raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
     if target == "Empirical":
-        xv, pv, pt = cd["x_vals"], cd["p_vals"], cd["p_transform"]
+        xv, pv, pt, pd = cd["x_vals"], cd["p_vals"], cd["p_transform"], cd["p_descending"]
         if method in _MOMENTS:
-            return _core.emp_moments(xv, pv, pt)[method]
+            return _core.emp_moments(xv, pv, pt, pd)[method]
         if method == "pdf":
-            return _core.emp_pdf(xv, pv, pt, args[0])
+            return _core.emp_pdf(xv, pv, pt, pd, args[0])
         if method == "cdf":
-            return _core.emp_cdf(xv, pv, pt, args[0])
+            return _core.emp_cdf(xv, pv, pt, pd, args[0])
         if method == "quantile":
-            return _core.emp_quantile(xv, pv, pt, args[0])
+            return _core.emp_quantile(xv, pv, pt, pd, args[0])
         if method == "parameters_valid":
-            return _core.emp_valid(xv, pv, pt)
+            return _core.emp_valid(xv, pv, pt, pd)
         raise KeyError(f"unknown fixture method for Empirical: {method}")
     if target == "KernelDensity":
         dv, ker, bw, bd = cd["data_vec"], cd["kernel"], cd["bandwidth"], cd["bounded"]

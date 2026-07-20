@@ -120,24 +120,24 @@ ch_trunc_valid_ <- function(base_target, base_params, lo, hi) {
   .Call(`_corehydror_ch_trunc_valid_`, base_target, base_params, lo, hi)
 }
 
-ch_emp_moments_ <- function(x_vals, p_vals, p_transform) {
-  .Call(`_corehydror_ch_emp_moments_`, x_vals, p_vals, p_transform)
+ch_emp_moments_ <- function(x_vals, p_vals, p_transform, p_descending) {
+  .Call(`_corehydror_ch_emp_moments_`, x_vals, p_vals, p_transform, p_descending)
 }
 
-ch_emp_pdf_ <- function(x_vals, p_vals, p_transform, x) {
-  .Call(`_corehydror_ch_emp_pdf_`, x_vals, p_vals, p_transform, x)
+ch_emp_pdf_ <- function(x_vals, p_vals, p_transform, p_descending, x) {
+  .Call(`_corehydror_ch_emp_pdf_`, x_vals, p_vals, p_transform, p_descending, x)
 }
 
-ch_emp_cdf_ <- function(x_vals, p_vals, p_transform, x) {
-  .Call(`_corehydror_ch_emp_cdf_`, x_vals, p_vals, p_transform, x)
+ch_emp_cdf_ <- function(x_vals, p_vals, p_transform, p_descending, x) {
+  .Call(`_corehydror_ch_emp_cdf_`, x_vals, p_vals, p_transform, p_descending, x)
 }
 
-ch_emp_quantile_ <- function(x_vals, p_vals, p_transform, prob) {
-  .Call(`_corehydror_ch_emp_quantile_`, x_vals, p_vals, p_transform, prob)
+ch_emp_quantile_ <- function(x_vals, p_vals, p_transform, p_descending, prob) {
+  .Call(`_corehydror_ch_emp_quantile_`, x_vals, p_vals, p_transform, p_descending, prob)
 }
 
-ch_emp_valid_ <- function(x_vals, p_vals, p_transform) {
-  .Call(`_corehydror_ch_emp_valid_`, x_vals, p_vals, p_transform)
+ch_emp_valid_ <- function(x_vals, p_vals, p_transform, p_descending) {
+  .Call(`_corehydror_ch_emp_valid_`, x_vals, p_vals, p_transform, p_descending)
 }
 
 ch_kde_moments_ <- function(data, kernel, bandwidth, bounded_by_data) {

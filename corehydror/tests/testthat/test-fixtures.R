@@ -139,7 +139,11 @@ build_composite_data <- function(target, construct, datasets = list()) {
     xv <- as.double(unlist(construct$x))
     pv <- as.double(unlist(construct$p))
     pt <- if (!is.null(construct$p_transform)) construct$p_transform else "NormalZ"
-    return(list(x_vals = xv, p_vals = pv, p_transform = pt))
+    # v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+    # `probabilityOrder` argument -- NOT auto-detected from the data); default FALSE matches
+    # the ordinary ascending-CDF case.
+    pd <- if (!is.null(construct$p_descending)) as.logical(construct$p_descending) else FALSE
+    return(list(x_vals = xv, p_vals = pv, p_transform = pt, p_descending = pd))
   }
   if (target == "KernelDensity") {
     data_key  <- construct$data
@@ -196,15 +200,15 @@ dispatch_composite <- function(target, cd, method, args) {
     ))
   }
   if (target == "Empirical") {
-    xv <- cd$x_vals; pv <- cd$p_vals; pt <- cd$p_transform
+    xv <- cd$x_vals; pv <- cd$p_vals; pt <- cd$p_transform; pd <- cd$p_descending
     if (method %in% moment_names) {
-      return(unname(ns$ch_emp_moments_(xv, pv, pt)[[method]]))
+      return(unname(ns$ch_emp_moments_(xv, pv, pt, pd)[[method]]))
     }
     return(switch(method,
-      pdf      = ns$ch_emp_pdf_(xv, pv, pt, as.double(args[[1]])),
-      cdf      = ns$ch_emp_cdf_(xv, pv, pt, as.double(args[[1]])),
-      quantile = ns$ch_emp_quantile_(xv, pv, pt, as.double(args[[1]])),
-      parameters_valid = ns$ch_emp_valid_(xv, pv, pt),
+      pdf      = ns$ch_emp_pdf_(xv, pv, pt, pd, as.double(args[[1]])),
+      cdf      = ns$ch_emp_cdf_(xv, pv, pt, pd, as.double(args[[1]])),
+      quantile = ns$ch_emp_quantile_(xv, pv, pt, pd, as.double(args[[1]])),
+      parameters_valid = ns$ch_emp_valid_(xv, pv, pt, pd),
       stop(sprintf("unknown fixture method for Empirical: %s", method))
     ))
   }

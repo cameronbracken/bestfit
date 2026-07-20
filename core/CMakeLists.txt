@@ -25,6 +25,8 @@ set(BF_TESTS
   test_mcmc_extra
   test_mixture
   test_mixture_em_seeding
+  test_empirical_distribution
+  test_univariate_distribution_factory
   test_multiple_grubbs_beck
   test_matrix_regularization
   test_stratification

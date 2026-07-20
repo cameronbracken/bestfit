@@ -203,21 +203,25 @@ bool ch_trunc_valid_(std::string base_target, doubles base_params, double lo, do
 }
 
 // --- Composite glue: EmpiricalDistribution ------------------------------------------
-// Accepts (x, p, p_transform) and exposes the full distribution surface.
-// p_transform: "NormalZ" (default) or "None".
+// Accepts (x, p, p_transform, p_descending) and exposes the full distribution surface.
+// p_transform: "NormalZ" (default) or "None". p_descending (v2.1.4): DECLARES the
+// probability order (mirrors C#'s explicit `probabilityOrder` argument -- NOT auto-detected
+// from the data; see empirical_distribution.hpp's header note) -- false (the ordinary
+// ascending-CDF case) unless the fixture opts into the descending survival-function encoding.
 
 static dist::EmpiricalDistribution make_empirical(doubles x_vals, doubles p_vals,
-                                                   std::string p_transform) {
+                                                   std::string p_transform, bool p_descending) {
     std::vector<double> xv(x_vals.begin(), x_vals.end());
     std::vector<double> pv(p_vals.begin(), p_vals.end());
     dist::EmpiricalTransform pt = dist::EmpiricalTransform::NormalZ;
     if (p_transform == "None") pt = dist::EmpiricalTransform::None;
-    return dist::EmpiricalDistribution(std::move(xv), std::move(pv), pt);
+    return dist::EmpiricalDistribution(std::move(xv), std::move(pv), pt, p_descending);
 }
 
 [[cpp11::register]]
-doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform) {
-    auto d = make_empirical(x_vals, p_vals, p_transform);
+doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform,
+                        bool p_descending) {
+    auto d = make_empirical(x_vals, p_vals, p_transform, p_descending);
     writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
                            d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
     out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
@@ -225,23 +229,26 @@ doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform)
 }
 
 [[cpp11::register]]
-double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
-    return make_empirical(x_vals, p_vals, p_transform).pdf(x);
+double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending,
+                   double x) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).pdf(x);
 }
 
 [[cpp11::register]]
-double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
-    return make_empirical(x_vals, p_vals, p_transform).cdf(x);
+double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending,
+                   double x) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).cdf(x);
 }
 
 [[cpp11::register]]
-double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform, double prob) {
-    return make_empirical(x_vals, p_vals, p_transform).inverse_cdf(prob);
+double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform,
+                        bool p_descending, double prob) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).inverse_cdf(prob);
 }
 
 [[cpp11::register]]
-bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform) {
-    return make_empirical(x_vals, p_vals, p_transform).parameters_valid();
+bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).parameters_valid();
 }
 
 // --- Composite glue: KernelDensity --------------------------------------------------

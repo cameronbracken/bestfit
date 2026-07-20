@@ -64,8 +64,15 @@ structured `construct` instead of flat `"params"`/`"fit"`. Each of the four runn
 in `tools/oracle_emitter/Program.cs`) implements the same schema:
 
 - `TruncatedDistribution`: `{"base": {"target": ..., "params": [...]}, "bounds": [lo, hi]}`.
-- `Empirical`: `{"x": [...], "p": [...], "p_transform": "None" | "NormalZ"}` (`p_transform`
-  optional, default `"NormalZ"`).
+- `Empirical`: `{"x": [...], "p": [...], "p_transform": "None" | "NormalZ", "p_descending":
+  <bool>}` (`p_transform` optional, default `"NormalZ"`; `p_descending` optional, default
+  `false`). `p_descending` DECLARES the probability order (v2.1.4 -- mirrors C#'s explicit
+  `probabilityOrder` argument on the 4-arg `SetParameters` overload, `SortOrder.Ascending` vs.
+  `SortOrder.Descending`) rather than auto-detecting it from `p`'s actual direction: a
+  descending `p` array with `p_descending` omitted/false is INVALID (`parameters_valid: false`),
+  exactly as the real C# rejects it (confirmed via the dotnet oracle gate). When true, `p` must
+  be strictly decreasing and CDF/InverseCDF flip internally via `1 - p` (a survival-function
+  encoding); see `empirical_distribution.hpp`'s header note.
 - `KernelDensity`: `{"data": "<dataset name>", "kernel": "Gaussian" | "Epanechnikov" |
   "Triangular" | "Uniform", "bandwidth": <double>, "bounded_by_data": <bool>}` (`kernel`,
   `bandwidth`, `bounded_by_data` all optional).

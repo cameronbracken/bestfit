@@ -1018,7 +1018,12 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
             else if (t == "NormalZ") pt = dist::EmpiricalTransform::NormalZ;
             else throw std::runtime_error("unknown p_transform: " + t);
         }
-        return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt);
+        // v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+        // `probabilityOrder` argument -- NOT auto-detected from the data); default false
+        // matches the ordinary ascending-CDF case.
+        bool p_descending = construct.value("p_descending", false);
+        return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt,
+                                                              p_descending);
     }
     if (target == "KernelDensity") {
         const auto& ds_name = construct["data"].get<std::string>();

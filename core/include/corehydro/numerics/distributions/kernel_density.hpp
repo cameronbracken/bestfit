@@ -27,6 +27,12 @@
 // The Triangular kernel uses Triangular(-1,0,1).pdf(u) and the Uniform kernel uses
 // Uniform(-1,1).pdf(u), mirroring the C# private nested classes exactly.
 // No IEstimation / ILinearMomentEstimation: KernelDensity is non-parametric.
+//
+// T7 (factory completeness, v2.1.4): the C# parameterless `KernelDensity()` constructor
+// (30 random Normal(0,1) draws via the shared/clock-seeded RNG, Gaussian kernel, auto
+// bandwidth) is now ported too, so `UnivariateDistributionFactory::create_distribution`
+// can add a `KernelDensity` case -- previously this class had no default constructor, and
+// the factory had no case for it, matching the pre-2a0357a C# factory's own gap.
 #pragma once
 #include <string>
 #include <algorithm>
@@ -41,6 +47,7 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
 #include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/normal.hpp"
 #include "corehydro/numerics/distributions/triangular.hpp"
 #include "corehydro/numerics/distributions/uniform.hpp"
 #include "corehydro/numerics/tools.hpp"
@@ -61,6 +68,18 @@ enum class KernelType {
 class KernelDensity : public UnivariateDistributionBase {
    public:
     // --- Construction ------------------------------------------------------------------
+
+    /// Constructs a Gaussian kernel density distribution from 30 random samples of a
+    /// standard Normal distribution, using the default (Silverman) bandwidth. Mirrors C#
+    /// `KernelDensity()` -- non-deterministic by design (an unseeded/clock-seeded draw), same
+    /// as the C# default constructor; needed so `UnivariateDistributionFactory::create_distribution`
+    /// has a default-constructible case for `KernelDensity` (v2.1.4 factory completeness --
+    /// see univariate_distribution_factory.hpp). Not used by any oracle fixture.
+    KernelDensity() : kernel_type_(KernelType::Gaussian) {
+        init_sample(Normal().generate_random_values(30));
+        bandwidth_ = bandwidth_rule(sample_data_);
+        parameters_valid_ = validate_bandwidth(bandwidth_) && !sample_data_.empty();
+    }
 
     /// Construct with Gaussian kernel and auto bandwidth.
     explicit KernelDensity(std::vector<double> sample_data)
