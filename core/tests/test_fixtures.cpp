@@ -1052,7 +1052,17 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
         for (const auto& w : wts_json) wts.push_back(w.get<double>());
         for (const auto& c : comps_json) comps.push_back(build_component(c, datasets));
-        return std::make_unique<dist::Mixture>(std::move(wts), std::move(comps));
+        auto mix = std::make_unique<dist::Mixture>(std::move(wts), std::move(comps));
+        // Optional zero-inflation (v2.1.4): "zero_inflated" (default false) and "zero_weight"
+        // (default 0.0). Mirrors the C# Clone()/CompositeAnalysis call-site order --
+        // IsZeroInflated before ZeroWeight, since the setters renormalize component weights.
+        bool zero_inflated = construct.contains("zero_inflated")
+            ? construct["zero_inflated"].get<bool>() : false;
+        double zero_weight = construct.contains("zero_weight")
+            ? parse_num(construct["zero_weight"]) : 0.0;
+        mix->set_is_zero_inflated(zero_inflated);
+        mix->set_zero_weight(zero_weight);
+        return mix;
     }
     if (target == "CompetingRisks") {
         const auto& comps_json = construct["components"];

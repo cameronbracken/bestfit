@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Mixture.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Mixture.cs @ 2a0357a
 //
 // Mixture distribution: PDF = Σ wᵢ fᵢ(x); CDF = Σ wᵢ Fᵢ(x).
 // log_pdf: log-sum-exp stability (mirrors C# LogPDF).
@@ -17,9 +17,31 @@
 //   via IMaximumLikelihoodEstimation which is not ported; functional divergence for MLE
 //   only — PDF/CDF/moments are exact).
 //   Only ParameterEstimationMethod::MaximumLikelihood is supported; others throw.
-// Zero-inflation: is_zero_inflated / zero_weight properties (mirrors C# defaults).
+// Zero-inflation: is_zero_inflated()/set_is_zero_inflated() and zero_weight()/set_zero_weight()
+//   (mirrors C# IsZeroInflated/ZeroWeight -- see the v2.1.4 note below for the setter semantics).
 // Not in the factory — Mixture is composite-only (requires weights + components).
 // type() returns UnivariateDistributionType::Mixture (mirrors C#).
+//
+// v2.1.4 (313d7ba "Harden distribution parameter validation" + 7f8c652 "Preserve valid
+// zero-inflated mixture weights"): IsZeroInflated/ZeroWeight became properties with side
+// effects instead of plain auto-properties. Ported as set_is_zero_inflated()/set_zero_weight()
+// (is_zero_inflated_/zero_weight_ are now private backing fields, no longer public data
+// members -- every write goes through the setter, matching the C# where there is no way to
+// bypass the property). Each setter: (1) stores the new value, (2) if IsZeroInflated is
+// (now) true, calls normalize_component_weights() to rescale the finite, nonnegative
+// component weights so they sum to 1 - ZeroWeight (invalid/negative/non-finite ZeroWeight or
+// component weights leave the weights untouched, so ValidateParameters can still report the
+// original error), (3) unconditionally calls refresh_configuration_state() to recompute
+// parameters_valid_ and reset the moment/empirical-CDF caches. Setting IsZeroInflated then
+// ZeroWeight in that order (as C#'s Clone() object initializer and every call site in this
+// codebase do) performs the rescale TWICE -- once against the new object's default
+// ZeroWeight=0 (a no-op renormalize-to-1), then again against the real ZeroWeight -- which is
+// intentionally transcribed as-is rather than special-cased, since it reproduces the real C#
+// bit-for-bit (including the tiny floating-point churn from the double rescale). The three
+// other SetParameters overloads (weights+distributions x2, weights+flat-params) also gained a
+// `_parametersValid = ValidateParameters(...) is null` recompute at their end (previously only
+// the IList<double> override and SetParameters(ref) did); set_parameters(weights, parameters)
+// below now does the same (comment updated -- no longer "does NOT update the flag").
 //
 // M10 additions (completing the C# Mixture surface the MixtureModel port consumes):
 //   - IMaximumLikelihoodEstimation base + get_parameter_constraints (C# line 595):
@@ -27,7 +49,8 @@
 //     IMaximumLikelihoodEstimation constraints. The internal mle() below still uses its
 //     Phase 2 heuristic bounds (documented divergence, unchanged in M10).
 //   - set_parameters(weights, parameters) (C# SetParameters(double[], double[]), line 411):
-//     weights + component-parameter slices; like the C#, does NOT update _parametersValid.
+//     weights + component-parameter slices (v2.1.4 added the validity recompute -- see the
+//     v2.1.4 note above).
 //   - set_parameters_normalized(parameters&) (C# SetParameters(ref double[]), line 476):
 //     weights normalized to sum to 1 (or 1 - ZeroWeight) and written BACK into the passed
 //     vector, single-component special case, then validity update.
@@ -94,9 +117,29 @@ class Mixture : public UnivariateDistributionBase,
         validate_and_set();
     }
 
-    // Zero-inflation option (mirrors C# IsZeroInflated / ZeroWeight).
-    bool is_zero_inflated = false;
-    double zero_weight = 0.0;
+    // Zero-inflation option (mirrors C# IsZeroInflated / ZeroWeight properties; v2.1.4 gave
+    // both setters the renormalization side effect documented in the header comment above --
+    // no longer plain public data members, since C# offers no way to bypass a property
+    // setter). Reads: is_zero_inflated() / zero_weight(). Writes: set_is_zero_inflated(bool) /
+    // set_zero_weight(double).
+    bool is_zero_inflated() const { return is_zero_inflated_; }
+    double zero_weight() const { return zero_weight_; }
+
+    // Mirrors C# `IsZeroInflated` setter (Mixture.cs): store, then (if now true) rescale
+    // component weights onto the 1 - ZeroWeight simplex, then refresh validity/caches.
+    void set_is_zero_inflated(bool value) {
+        is_zero_inflated_ = value;
+        if (is_zero_inflated_) normalize_component_weights();
+        refresh_configuration_state();
+    }
+
+    // Mirrors C# `ZeroWeight` setter (Mixture.cs): store, then (if IsZeroInflated) rescale
+    // component weights onto the 1 - ZeroWeight simplex, then refresh validity/caches.
+    void set_zero_weight(double value) {
+        zero_weight_ = value;
+        if (is_zero_inflated_) normalize_component_weights();
+        refresh_configuration_state();
+    }
 
     // X5: the x-value / probability transforms the empirical CDF interpolates in (mirrors C#
     // XTransform / ProbabilityTransform; defaults None / NormalZ).
@@ -152,9 +195,12 @@ class Mixture : public UnivariateDistributionBase,
     }
 
     // Mirrors C# SetParameters(double[] weights, double[] parameters) (Mixture.cs line 411):
-    // sets the weights and distributes the component-parameter slices. Like the C#, this
-    // overload does NOT update the parameters-valid flag (the EM E-step drives unnormalized
-    // intermediate states through it).
+    // sets the weights and distributes the component-parameter slices. v2.1.4 added a
+    // `_parametersValid` recompute at the end (previously this overload alone skipped it,
+    // unlike SetParameters(IList<double>) and SetParameters(ref)) -- so this now recomputes
+    // too. The EM E-step (MixtureModel) still drives intermediate, not-yet-converged weights
+    // through this overload; parameters_valid_ is transiently false during those iterations,
+    // which is harmless since pdf()/cdf()/log_pdf() never gate on it (matching the C#).
     void set_parameters(const std::vector<double>& weights,
                         const std::vector<double>& parameters) {
         if (weights.size() != components_.size())
@@ -173,6 +219,7 @@ class Mixture : public UnivariateDistributionBase,
             components_[i]->set_parameters(p);
             t += n;
         }
+        parameters_valid_ = validate_weights() && validate_components();
         moments_computed_ = false;
     }
 
@@ -188,7 +235,7 @@ class Mixture : public UnivariateDistributionBase,
         if (components_.empty()) return;
         if (components_.size() == 1 &&
             static_cast<int>(parameters.size()) == components_[0]->number_of_parameters()) {
-            weights_[0] = is_zero_inflated ? 1.0 - zero_weight : 1.0;
+            weights_[0] = is_zero_inflated_ ? 1.0 - zero_weight_ : 1.0;
             components_[0]->set_parameters(parameters);
         } else {
             if (static_cast<int>(parameters.size()) != number_of_parameters())
@@ -207,14 +254,14 @@ class Mixture : public UnivariateDistributionBase,
 
             if (sum <= 0.0) {
                 // If weights sum to 0, reset to be uniformly distributed.
-                double w = is_zero_inflated ? (1.0 - zero_weight) / K : 1.0 / K;
+                double w = is_zero_inflated_ ? (1.0 - zero_weight_) / K : 1.0 / K;
                 for (int i = 0; i < K; ++i) {
                     weights_[static_cast<std::size_t>(i)] = w;
                     parameters[static_cast<std::size_t>(i)] = w;
                 }
             } else {
                 // Normalize weights to sum to 1.
-                double c = is_zero_inflated ? (1.0 - zero_weight) / sum : 1.0 / sum;
+                double c = is_zero_inflated_ ? (1.0 - zero_weight_) / sum : 1.0 / sum;
                 for (int i = 0; i < K; ++i) {
                     weights_[static_cast<std::size_t>(i)] *= c;
                     parameters[static_cast<std::size_t>(i)] = weights_[static_cast<std::size_t>(i)];
@@ -251,7 +298,7 @@ class Mixture : public UnivariateDistributionBase,
         int t = 0;
         for (int i = 0; i < K; ++i) {
             initials[static_cast<std::size_t>(i)] =
-                is_zero_inflated ? (1.0 - zero_weight) / K : 1.0 / K;
+                is_zero_inflated_ ? (1.0 - zero_weight_) / K : 1.0 / K;
             lowers[static_cast<std::size_t>(i)] = 0.0;
             uppers[static_cast<std::size_t>(i)] = 1.0;
             t += 1;
@@ -286,8 +333,8 @@ class Mixture : public UnivariateDistributionBase,
         std::vector<double> weights;
         std::vector<const UnivariateDistributionBase*> distributions;
         Deterministic zero_component(0.0);
-        if (is_zero_inflated) {
-            weights.push_back(zero_weight);
+        if (is_zero_inflated_) {
+            weights.push_back(zero_weight_);
             distributions.push_back(&zero_component);
         }
         for (std::size_t i = 0; i < components_.size(); ++i) {
@@ -365,8 +412,8 @@ class Mixture : public UnivariateDistributionBase,
     // Mirrors C# PDF: f = Σ wᵢ fᵢ(x); clamp to [0, ∞).
     double pdf(double x) const override {
         double f = 0.0;
-        if (is_zero_inflated && x <= 0.0) {
-            f = zero_weight;
+        if (is_zero_inflated_ && x <= 0.0) {
+            f = zero_weight_;
         } else {
             for (int i = 0; i < static_cast<int>(components_.size()); ++i)
                 f += weights_[i] * components_[i]->pdf(x);
@@ -377,8 +424,8 @@ class Mixture : public UnivariateDistributionBase,
     // Mirrors C# LogPDF: log-sum-exp over log(wᵢ) + log fᵢ(x).
     double log_pdf(double x) const override {
         std::vector<double> lnf;
-        if (is_zero_inflated && x <= 0.0) {
-            lnf.push_back(std::log(zero_weight));
+        if (is_zero_inflated_ && x <= 0.0) {
+            lnf.push_back(std::log(zero_weight_));
         } else {
             for (int i = 0; i < static_cast<int>(components_.size()); ++i)
                 lnf.push_back(std::log(weights_[i]) + components_[i]->log_pdf(x));
@@ -389,8 +436,8 @@ class Mixture : public UnivariateDistributionBase,
     // Mirrors C# CDF: F = Σ wᵢ Fᵢ(x); clamped to [0,1].
     double cdf(double x) const override {
         double F = 0.0;
-        if (is_zero_inflated) {
-            F = zero_weight;
+        if (is_zero_inflated_) {
+            F = zero_weight_;
             if (x > 0.0) {
                 for (int i = 0; i < static_cast<int>(components_.size()); ++i)
                     F += weights_[i] * components_[i]->cdf(x);
@@ -411,10 +458,10 @@ class Mixture : public UnivariateDistributionBase,
             throw std::out_of_range("probability must be between 0 and 1");
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
-        if (is_zero_inflated && probability <= zero_weight) return 0.0;
+        if (is_zero_inflated_ && probability <= zero_weight_) return 0.0;
 
         // Single component, not zero-inflated: delegate.
-        if (components_.size() == 1 && !is_zero_inflated)
+        if (components_.size() == 1 && !is_zero_inflated_)
             return components_[0]->inverse_cdf(probability);
 
         // X5: once CreateEmpiricalCDF() has been called (composite aggregation path), read the
@@ -427,8 +474,8 @@ class Mixture : public UnivariateDistributionBase,
         }
 
         // Derive bracket from component InverseCDF values (mirrors C# logic).
-        double adj_prob = is_zero_inflated
-            ? (probability - zero_weight) / (1.0 - zero_weight)
+        double adj_prob = is_zero_inflated_
+            ? (probability - zero_weight_) / (1.0 - zero_weight_)
             : probability;
         double minX = kInf, maxX = -kInf;
         for (const auto& c : components_) {
@@ -436,7 +483,7 @@ class Mixture : public UnivariateDistributionBase,
             maxX = std::max(maxX, c->inverse_cdf(std::min(probability, 1.0 - 1e-15)));
         }
         // Expand bracket if needed (mirrors Brent.Bracket behavior for zero-inflated).
-        if (is_zero_inflated) {
+        if (is_zero_inflated_) {
             // Expand bracket until CDF(lo) < probability < CDF(hi)
             int attempts = 0;
             while (cdf(minX) >= probability && attempts++ < 100) minX -= 1.0;
@@ -549,13 +596,18 @@ class Mixture : public UnivariateDistributionBase,
         moments_computed_ = false;
     }
 
+    // Mirrors C# Clone(): `new Mixture(Weights.ToArray(), dists) { IsZeroInflated =
+    // IsZeroInflated, ZeroWeight = ZeroWeight, ... }`. The object-initializer order
+    // (IsZeroInflated before ZeroWeight) matters for bit-exactness -- see the v2.1.4 header
+    // note -- so this calls the two setters in that same order rather than copying the fields
+    // directly.
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
         std::vector<std::unique_ptr<UnivariateDistributionBase>> cloned;
         cloned.reserve(components_.size());
         for (const auto& c : components_) cloned.push_back(c->clone());
         auto m = std::make_unique<Mixture>(weights_, std::move(cloned));
-        m->is_zero_inflated = is_zero_inflated;
-        m->zero_weight = zero_weight;
+        m->set_is_zero_inflated(is_zero_inflated_);
+        m->set_zero_weight(zero_weight_);
         m->max_iterations = max_iterations;
         m->tolerance = tolerance;
         m->x_transform = x_transform;
@@ -566,6 +618,8 @@ class Mixture : public UnivariateDistributionBase,
    private:
     std::vector<double> weights_;
     std::vector<std::unique_ptr<UnivariateDistributionBase>> components_;
+    bool is_zero_inflated_ = false;
+    double zero_weight_ = 0.0;
 
     // X5: lazily-built empirical CDF backing (mirrors C# _empiricalCDF / _empiricalCDFCreated).
     std::unique_ptr<EmpiricalDistribution> empirical_cdf_;
@@ -575,6 +629,41 @@ class Mixture : public UnivariateDistributionBase,
     mutable bool moments_computed_ = false;
     mutable double u_[4] = {kNaN, kNaN, kNaN, kNaN};  // [mean, sd, skewness, kurtosis]
 
+    // Mirrors C# NormalizeComponentWeights (Mixture.cs, v2.1.4): rescales finite, nonnegative
+    // component weights so they sum to 1 - zero_weight_. Bails out (leaving weights_
+    // untouched) if there are no weights, zero_weight_ is not a finite value in [0, 1], any
+    // component weight is not finite/nonnegative, or the weights sum to <= 0 or +inf --
+    // exactly the C# guard order, so ValidateParameters can still surface the original error.
+    void normalize_component_weights() {
+        if (weights_.empty() || std::isnan(zero_weight_) || std::isinf(zero_weight_) ||
+            zero_weight_ < 0.0 || zero_weight_ > 1.0) {
+            return;
+        }
+
+        double sum = 0.0;
+        for (double w : weights_) {
+            if (std::isnan(w) || std::isinf(w) || w < 0.0) return;
+            sum += w;
+        }
+
+        if (sum <= 0.0 || std::isinf(sum)) return;
+
+        double scale = (1.0 - zero_weight_) / sum;
+        for (double& w : weights_) w *= scale;
+    }
+
+    // Mirrors C# RefreshConfigurationState (Mixture.cs, v2.1.4): recomputes parameters_valid_
+    // and resets the moment / empirical-CDF caches after a zero-inflation configuration change.
+    void refresh_configuration_state() {
+        if (weights_.empty() || components_.empty()) {
+            parameters_valid_ = false;
+        } else {
+            parameters_valid_ = validate_weights() && validate_components();
+        }
+        moments_computed_ = false;
+        empirical_cdf_created_ = false;
+    }
+
     void validate_and_set() {
         if (weights_.size() != components_.size())
             throw std::invalid_argument("Mixture: weights and components must have the same size");
@@ -583,8 +672,8 @@ class Mixture : public UnivariateDistributionBase,
     }
 
     bool validate_weights() const {
-        if (is_zero_inflated && (zero_weight < 0.0 || zero_weight > 1.0)) return false;
-        double sum = is_zero_inflated ? zero_weight : 0.0;
+        if (is_zero_inflated_ && (zero_weight_ < 0.0 || zero_weight_ > 1.0)) return false;
+        double sum = is_zero_inflated_ ? zero_weight_ : 0.0;
         for (double w : weights_) {
             if (w < 0.0 || w > 1.0) return false;
             sum += w;
@@ -687,8 +776,8 @@ class Mixture : public UnivariateDistributionBase,
         }
 
         // EM weights (start uniform, not zero-inflated adjusted for now).
-        std::vector<double> mle_weights(K, is_zero_inflated
-            ? (1.0 - zero_weight) / K : 1.0 / K);
+        std::vector<double> mle_weights(K, is_zero_inflated_
+            ? (1.0 - zero_weight_) / K : 1.0 / K);
         std::vector<double> mle_params = initials;
 
         // Responsibility matrix [N][K] (row-major).
@@ -713,8 +802,8 @@ class Mixture : public UnivariateDistributionBase,
             // Compute log-likelihoods.
             for (int k = 0; k < K; ++k) {
                 for (int i = 0; i < N; ++i) {
-                    if (is_zero_inflated && sample[i] <= 0.0) {
-                        likelihood[i][k] = std::log(zero_weight);
+                    if (is_zero_inflated_ && sample[i] <= 0.0) {
+                        likelihood[i][k] = std::log(zero_weight_);
                     } else {
                         likelihood[i][k] = std::log(mle_weights[k])
                             + dist_ptr->components_[k]->log_pdf(sample[i]);
@@ -747,7 +836,7 @@ class Mixture : public UnivariateDistributionBase,
             for (int k = 0; k < K; ++k) {
                 double wgt = 0.0;
                 for (int i = 0; i < N; ++i) {
-                    if (!is_zero_inflated || sample[i] > 0.0)
+                    if (!is_zero_inflated_ || sample[i] > 0.0)
                         wgt += likelihood[i][k];
                 }
                 mle_weights[k] = wgt / N;

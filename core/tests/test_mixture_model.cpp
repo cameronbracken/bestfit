@@ -170,7 +170,7 @@ void test_constructor_with_distribution_types_zero_inflated() {
     MixtureModel model(std::move(df), types, /*is_zero_inflated=*/true);
 
     CHECK_TRUE(model.is_zero_inflated());
-    CHECK_TRUE(model.mixture()->zero_weight > 0);
+    CHECK_TRUE(model.mixture()->zero_weight() > 0);
 }
 
 // Test_Constructor_WithDistributions_UsesProvidedInstances
@@ -230,7 +230,7 @@ void test_is_zero_inflated_set_and_get() {
     model.set_is_zero_inflated(true);
 
     CHECK_TRUE(model.is_zero_inflated());
-    CHECK_TRUE(model.mixture()->is_zero_inflated);
+    CHECK_TRUE(model.mixture()->is_zero_inflated());
 }
 
 // Test_IsZeroInflated_SetsZeroWeight
@@ -242,7 +242,7 @@ void test_is_zero_inflated_sets_zero_weight() {
     model.set_is_zero_inflated(true);
 
     // 5 out of 10 values are zero, so ZeroWeight should be ~0.5.
-    CHECK_TRUE(model.mixture()->zero_weight > 0.4 && model.mixture()->zero_weight < 0.6);
+    CHECK_TRUE(model.mixture()->zero_weight() > 0.4 && model.mixture()->zero_weight() < 0.6);
 }
 
 // Test_IsZeroInflated_False_ZeroWeightIsZero
@@ -253,7 +253,7 @@ void test_is_zero_inflated_false_zero_weight_is_zero() {
 
     model.set_is_zero_inflated(false);
 
-    CHECK_EQ(model.mixture()->zero_weight, 0.0);
+    CHECK_EQ(model.mixture()->zero_weight(), 0.0);
 }
 
 // Test_UseSingleQuantile_AlwaysTrue
@@ -559,7 +559,7 @@ void test_zero_inflated_zero_weight_reflects_data() {
     MixtureModel model(std::move(df), types, /*is_zero_inflated=*/true);
 
     // Should reflect proportion of zeros in data.
-    CHECK_TRUE(model.mixture()->zero_weight > 0);
+    CHECK_TRUE(model.mixture()->zero_weight() > 0);
 }
 
 // ===========================================================================================
@@ -660,8 +660,8 @@ void test_clone_preserves_is_zero_inflated() {
     CHECK_EQ(clone.is_zero_inflated(), original.is_zero_inflated());
     // M9-lesson end-state check (beyond the C# test): the cloned model's wrapped mixture
     // carries the same zero-inflation state as the original's.
-    CHECK_EQ(clone.mixture()->is_zero_inflated, original.mixture()->is_zero_inflated);
-    CHECK_NEAR(clone.mixture()->zero_weight, original.mixture()->zero_weight, 0.0);
+    CHECK_EQ(clone.mixture()->is_zero_inflated(), original.mixture()->is_zero_inflated());
+    CHECK_NEAR(clone.mixture()->zero_weight(), original.mixture()->zero_weight(), 0.0);
 }
 
 // Test_Clone_PreservesQuantilePriors
@@ -809,7 +809,7 @@ void test_mixture_model_intermittent_stream() {
     CHECK_TRUE(valid.is_valid);
 
     // Zero weight should be significant for intermittent stream.
-    CHECK_TRUE(model.mixture()->zero_weight > 0.3);
+    CHECK_TRUE(model.mixture()->zero_weight() > 0.3);
 }
 
 // Test_MixtureModel_SeasonalFloodPopulations

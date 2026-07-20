@@ -193,9 +193,9 @@ class MixtureModel : public UnivariateDistributionModelBase,
 
         if (mixture_ != nullptr) {
             if (is_zero_inflated_) {
-                mixture_->zero_weight = data_frame_->zero_value_relative_frequency();
+                mixture_->set_zero_weight(data_frame_->zero_value_relative_frequency());
             } else {
-                mixture_->zero_weight = 0.0;
+                mixture_->set_zero_weight(0.0);
             }
         }
 
@@ -219,12 +219,12 @@ class MixtureModel : public UnivariateDistributionModelBase,
         mixture_ = std::move(mixture);
 
         if (mixture_ != nullptr) {
-            mixture_->is_zero_inflated = is_zero_inflated_;
+            mixture_->set_is_zero_inflated(is_zero_inflated_);
             if (is_zero_inflated_) {
-                mixture_->zero_weight =
-                    has_data_frame() ? data_frame().zero_value_relative_frequency() : 0.0;
+                mixture_->set_zero_weight(
+                    has_data_frame() ? data_frame().zero_value_relative_frequency() : 0.0);
             } else {
-                mixture_->zero_weight = 0.0;
+                mixture_->set_zero_weight(0.0);
             }
         }
 
@@ -248,12 +248,12 @@ class MixtureModel : public UnivariateDistributionModelBase,
         is_zero_inflated_ = value;
 
         if (mixture_ != nullptr) {
-            mixture_->is_zero_inflated = is_zero_inflated_;
+            mixture_->set_is_zero_inflated(is_zero_inflated_);
             if (is_zero_inflated_) {
-                mixture_->zero_weight =
-                    has_data_frame() ? data_frame().zero_value_relative_frequency() : 0.0;
+                mixture_->set_zero_weight(
+                    has_data_frame() ? data_frame().zero_value_relative_frequency() : 0.0);
             } else {
-                mixture_->zero_weight = 0.0;
+                mixture_->set_zero_weight(0.0);
             }
         }
 
@@ -504,8 +504,8 @@ class MixtureModel : public UnivariateDistributionModelBase,
                     // Exact Data.
                     if (const auto* exact = dynamic_cast<const ExactData*>(&data)) {
                         if (!exact->is_low_outlier()) {
-                            if (model.is_zero_inflated && data.value() <= 0.0) {
-                                likelihood[i][sk] = std::log(model.zero_weight);
+                            if (model.is_zero_inflated() && data.value() <= 0.0) {
+                                likelihood[i][sk] = std::log(model.zero_weight());
                             } else {
                                 likelihood[i][sk] = std::log(mle_weights[sk]) +
                                                     model.component(k).log_pdf(data.value());
@@ -1140,9 +1140,15 @@ class MixtureModel : public UnivariateDistributionModelBase,
         // M9-lesson end-state re-sync (deviation from strict C#; file header): the ctor
         // path above ran the Mixture setter with the default zero-inflation state and
         // stomped the cloned mixture's IsZeroInflated/ZeroWeight; restore them from the
-        // original so the clone's likelihood surface matches the original's.
-        result.mixture_->is_zero_inflated = mixture_->is_zero_inflated;
-        result.mixture_->zero_weight = mixture_->zero_weight;
+        // original so the clone's likelihood surface matches the original's. v2.1.4 turned
+        // Mixture's IsZeroInflated/ZeroWeight into setters that renormalize component weights
+        // as a side effect (see mixture.hpp's header note), so this restore is no longer a
+        // bit-exact field copy -- it goes through set_is_zero_inflated()/set_zero_weight() in
+        // that order (matching every other IsZeroInflated-then-ZeroWeight call site) and ends
+        // up numerically equal to the original's weights to floating-point precision, not
+        // bit-identical.
+        result.mixture_->set_is_zero_inflated(mixture_->is_zero_inflated());
+        result.mixture_->set_zero_weight(mixture_->zero_weight());
 
         result.process_quantile_priors();
         return result;
@@ -1223,14 +1229,14 @@ class MixtureModel : public UnivariateDistributionModelBase,
 
         // Zero-inflation checks.
         if (is_zero_inflated_) {
-            if (mixture_->zero_weight < 0.0 || mixture_->zero_weight >= 1.0 ||
-                std::isnan(mixture_->zero_weight) || std::isinf(mixture_->zero_weight)) {
+            if (mixture_->zero_weight() < 0.0 || mixture_->zero_weight() >= 1.0 ||
+                std::isnan(mixture_->zero_weight()) || std::isinf(mixture_->zero_weight())) {
                 result.is_valid = false;
                 result.validation_messages.push_back(
                     "Error: ZeroWeight must be in [0, 1) for a zero-inflated model.");
             }
         } else {
-            if (mixture_->zero_weight != 0.0) {
+            if (mixture_->zero_weight() != 0.0) {
                 // Warning only -- does not invalidate, exactly like the C#.
                 result.validation_messages.push_back(
                     "Warning: ZeroWeight is non-zero while IsZeroInflated is false. This "
@@ -1357,9 +1363,9 @@ class MixtureModel : public UnivariateDistributionModelBase,
 
         if (mixture_ != nullptr) {
             if (is_zero_inflated_) {
-                mixture_->zero_weight = data_frame().zero_value_relative_frequency();
+                mixture_->set_zero_weight(data_frame().zero_value_relative_frequency());
             } else {
-                mixture_->zero_weight = 0.0;
+                mixture_->set_zero_weight(0.0);
             }
         }
 

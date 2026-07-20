@@ -153,7 +153,10 @@ build_composite_data <- function(target, construct, datasets = list()) {
     comp_targets <- vapply(construct$components, function(c) c$target, character(1))
     comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
     wts          <- as.double(unlist(construct$weights))
-    return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts))
+    zero_inflated <- if (!is.null(construct$zero_inflated)) as.logical(construct$zero_inflated) else FALSE
+    zero_weight   <- if (!is.null(construct$zero_weight)) parse_num(construct$zero_weight) else 0.0
+    return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts,
+                zero_inflated = zero_inflated, zero_weight = zero_weight))
   }
   if (target == "CompetingRisks") {
     comp_targets <- vapply(construct$components, function(c) c$target, character(1))
@@ -220,14 +223,18 @@ dispatch_composite <- function(target, cd, method, args) {
   }
   if (target == "Mixture") {
     ct <- cd$comp_targets; cp <- cd$comp_params; wts <- cd$weights
+    zi <- cd$zero_inflated; zw <- cd$zero_weight
     if (method %in% moment_names) {
-      return(unname(ns$ch_mix_moments_(ct, cp, wts)[[method]]))
+      return(unname(ns$ch_mix_moments_(ct, cp, wts, zi, zw)[[method]]))
     }
     return(switch(method,
-      pdf              = ns$ch_mix_pdf_(ct, cp, wts, as.double(args[[1]])),
-      cdf              = ns$ch_mix_cdf_(ct, cp, wts, as.double(args[[1]])),
-      quantile         = ns$ch_mix_quantile_(ct, cp, wts, as.double(args[[1]])),
-      parameters_valid = ns$ch_mix_valid_(ct, cp, wts),
+      pdf              = ns$ch_mix_pdf_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      cdf              = ns$ch_mix_cdf_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      quantile         = ns$ch_mix_quantile_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      parameters_valid = ns$ch_mix_valid_(ct, cp, wts, zi, zw),
+      # GetParameters() flat vector [w0..wK-1, component params...] -- needed (not the raw
+      # `wts` in `cd`) because the zero-inflation setters recompute the weights in C++.
+      param            = ns$ch_mix_params_(ct, cp, wts, zi, zw)[[as.integer(args[[1]]) + 1L]],
       stop(sprintf("unknown fixture method for Mixture: %s", method))
     ))
   }

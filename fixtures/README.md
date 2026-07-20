@@ -69,9 +69,19 @@ in `tools/oracle_emitter/Program.cs`) implements the same schema:
 - `KernelDensity`: `{"data": "<dataset name>", "kernel": "Gaussian" | "Epanechnikov" |
   "Triangular" | "Uniform", "bandwidth": <double>, "bounded_by_data": <bool>}` (`kernel`,
   `bandwidth`, `bounded_by_data` all optional).
-- `Mixture`: `{"components": [{"target": ..., "params": [...]}, ...], "weights": [...]}`.
-  `components` entries may also use `{"fit": {"dataset": ..., "method": ...}}` instead of
-  `"params"` (recursive `build_component`).
+- `Mixture`: `{"components": [{"target": ..., "params": [...]}, ...], "weights": [...],
+  "zero_inflated": <bool>, "zero_weight": <double>}`. `components` entries may also use
+  `{"fit": {"dataset": ..., "method": ...}}` instead of `"params"` (recursive
+  `build_component`). `zero_inflated`/`zero_weight` (both optional, default `false`/`0.0`)
+  mirror the v2.1.4 `IsZeroInflated`/`ZeroWeight` setters, which renormalize the component
+  weights onto the `1 - zero_weight` simplex as a side effect (`Mixture` header comment in
+  `core/include/corehydro/numerics/distributions/mixture.hpp`); all four runners apply them in
+  that order (`IsZeroInflated` before `ZeroWeight`), matching every C# call site. Because the
+  weights are recomputed inside C++ rather than passed through unchanged (unlike
+  `TruncatedDistribution`'s params), asserting on them needs a `"param"` case (dispatched
+  against `GetParameters()` -- `[w0, ..., wK-1, component0 params, ...]` -- via a real
+  round trip through the constructed object in every runner, not a client-side
+  reconstruction) rather than reading back the raw `"weights"` input.
 - `CompetingRisks`: `{"components": [{"target": ..., "params": [...]}, ...],
   "minimum_of_random_variables": <bool>, "dependency": "Independent" | "PerfectlyPositive" |
   "PerfectlyNegative" | "CorrelationMatrix", "correlation": [[...], ...]}`.

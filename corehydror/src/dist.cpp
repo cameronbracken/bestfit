@@ -301,13 +301,18 @@ bool ch_kde_valid_(doubles data, std::string kernel, double bandwidth, bool boun
 }
 
 // --- Composite glue: Mixture --------------------------------------------------------
-// Accepts (component_targets, component_params_list, weights) and exposes the full
-// distribution surface. component_params_list is a list-of-doubles R list.
+// Accepts (component_targets, component_params_list, weights, zero_inflated, zero_weight)
+// and exposes the full distribution surface. component_params_list is a list-of-doubles R
+// list. zero_inflated/zero_weight mirror the v2.1.4 IsZeroInflated/ZeroWeight setters
+// (default FALSE/0.0 at the R call sites below); set in that order since the setters
+// renormalize component weights as a side effect (mixture.hpp's header note).
 // Mirrors the ch_trunc_* and ch_kde_* pattern; R fixture runner dispatches by target.
 
 static dist::Mixture make_mixture(strings comp_targets,
                                   list comp_params_list,
-                                  doubles weights) {
+                                  doubles weights,
+                                  bool zero_inflated,
+                                  double zero_weight) {
     int K = static_cast<int>(comp_targets.size());
     std::vector<double> wts(weights.begin(), weights.end());
     std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
@@ -318,12 +323,16 @@ static dist::Mixture make_mixture(strings comp_targets,
         d->set_parameters(std::vector<double>(p.begin(), p.end()));
         comps.push_back(std::move(d));
     }
-    return dist::Mixture(std::move(wts), std::move(comps));
+    dist::Mixture mix(std::move(wts), std::move(comps));
+    mix.set_is_zero_inflated(zero_inflated);
+    mix.set_zero_weight(zero_weight);
+    return mix;
 }
 
 [[cpp11::register]]
-doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights) {
-    auto d = make_mixture(comp_targets, comp_params_list, weights);
+doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights,
+                        bool zero_inflated, double zero_weight) {
+    auto d = make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight);
     writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
                            d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
     out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
@@ -331,23 +340,42 @@ doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles wei
 }
 
 [[cpp11::register]]
-double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
-    return make_mixture(comp_targets, comp_params_list, weights).pdf(x);
+double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight).pdf(x);
 }
 
 [[cpp11::register]]
-double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
-    return make_mixture(comp_targets, comp_params_list, weights).cdf(x);
+double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight).cdf(x);
 }
 
 [[cpp11::register]]
-double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, double prob) {
-    return make_mixture(comp_targets, comp_params_list, weights).inverse_cdf(prob);
+double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights,
+                        bool zero_inflated, double zero_weight, double prob) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+        .inverse_cdf(prob);
 }
 
 [[cpp11::register]]
-bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights) {
-    return make_mixture(comp_targets, comp_params_list, weights).parameters_valid();
+bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+        .parameters_valid();
+}
+
+// GetParameters() as a flat vector: [w0, ..., wK-1, component0 params..., ...] -- the
+// composite-target analogue of the generic "param" dispatch (which reads straight off the
+// already-known `construct.params`; Mixture's weights are recomputed inside C++ by the
+// zero-inflation setters, so unlike TruncatedDistribution's "param" case, this needs an
+// actual round trip through the real object rather than a client-side reconstruction).
+[[cpp11::register]]
+doubles ch_mix_params_(strings comp_targets, list comp_params_list, doubles weights,
+                       bool zero_inflated, double zero_weight) {
+    auto d = make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight);
+    auto p = d.get_parameters();
+    return writable::doubles(p.begin(), p.end());
 }
 
 // --- Composite glue: CompetingRisks -------------------------------------------------

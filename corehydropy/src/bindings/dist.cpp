@@ -267,12 +267,17 @@ void register_distributions(py::module_& m) {
     });
 
     // --- Composite glue: Mixture -------------------------------------------------------
-    // Accepts (comp_targets, comp_params, weights) where comp_params is a list of param
-    // vectors (one per component). Exposes the full distribution surface.
+    // Accepts (comp_targets, comp_params, weights, zero_inflated, zero_weight) where
+    // comp_params is a list of param vectors (one per component). Exposes the full
+    // distribution surface. zero_inflated/zero_weight mirror the v2.1.4 IsZeroInflated/
+    // ZeroWeight setters (default False/0.0 at the Python call sites); set in that order
+    // since the setters renormalize component weights as a side effect (mixture.hpp's
+    // header note).
 
     auto make_mixture = [](const std::vector<std::string>& comp_targets,
                             const std::vector<std::vector<double>>& comp_params,
-                            const std::vector<double>& weights) {
+                            const std::vector<double>& weights, bool zero_inflated,
+                            double zero_weight) {
         int K = static_cast<int>(comp_targets.size());
         std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
         comps.reserve(K);
@@ -281,13 +286,16 @@ void register_distributions(py::module_& m) {
             d->set_parameters(comp_params[i]);
             comps.push_back(std::move(d));
         }
-        return dist::Mixture(weights, std::move(comps));
+        dist::Mixture mix(weights, std::move(comps));
+        mix.set_is_zero_inflated(zero_inflated);
+        mix.set_zero_weight(zero_weight);
+        return mix;
     };
 
     m.def("mix_moments", [make_mixture](const std::vector<std::string>& ct,
                                          const std::vector<std::vector<double>>& cp,
-                                         const std::vector<double>& wts) {
-        auto d = make_mixture(ct, cp, wts);
+                                         const std::vector<double>& wts, bool zi, double zw) {
+        auto d = make_mixture(ct, cp, wts, zi, zw);
         return std::map<std::string, double>{
             {"mean", d.mean()},         {"median", d.median()},
             {"mode", d.mode()},         {"sd", d.standard_deviation()},
@@ -296,23 +304,35 @@ void register_distributions(py::module_& m) {
     });
     m.def("mix_pdf", [make_mixture](const std::vector<std::string>& ct,
                                      const std::vector<std::vector<double>>& cp,
-                                     const std::vector<double>& wts, double x) {
-        return make_mixture(ct, cp, wts).pdf(x);
+                                     const std::vector<double>& wts, bool zi, double zw,
+                                     double x) {
+        return make_mixture(ct, cp, wts, zi, zw).pdf(x);
     });
     m.def("mix_cdf", [make_mixture](const std::vector<std::string>& ct,
                                      const std::vector<std::vector<double>>& cp,
-                                     const std::vector<double>& wts, double x) {
-        return make_mixture(ct, cp, wts).cdf(x);
+                                     const std::vector<double>& wts, bool zi, double zw,
+                                     double x) {
+        return make_mixture(ct, cp, wts, zi, zw).cdf(x);
     });
     m.def("mix_quantile", [make_mixture](const std::vector<std::string>& ct,
                                           const std::vector<std::vector<double>>& cp,
-                                          const std::vector<double>& wts, double prob) {
-        return make_mixture(ct, cp, wts).inverse_cdf(prob);
+                                          const std::vector<double>& wts, bool zi, double zw,
+                                          double prob) {
+        return make_mixture(ct, cp, wts, zi, zw).inverse_cdf(prob);
     });
     m.def("mix_valid", [make_mixture](const std::vector<std::string>& ct,
                                        const std::vector<std::vector<double>>& cp,
-                                       const std::vector<double>& wts) {
-        return make_mixture(ct, cp, wts).parameters_valid();
+                                       const std::vector<double>& wts, bool zi, double zw) {
+        return make_mixture(ct, cp, wts, zi, zw).parameters_valid();
+    });
+    // GetParameters() as a flat vector: [w0, ..., wK-1, component0 params..., ...] -- the
+    // composite-target analogue of the generic "param" dispatch; needed because Mixture's
+    // weights are recomputed inside C++ by the zero-inflation setters (unlike
+    // TruncatedDistribution's "param", which reads straight off the known construct params).
+    m.def("mix_params", [make_mixture](const std::vector<std::string>& ct,
+                                        const std::vector<std::vector<double>>& cp,
+                                        const std::vector<double>& wts, bool zi, double zw) {
+        return make_mixture(ct, cp, wts, zi, zw).get_parameters();
     });
 
     // --- Composite glue: CompetingRisks -----------------------------------------------

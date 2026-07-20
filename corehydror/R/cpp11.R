@@ -160,24 +160,28 @@ ch_kde_valid_ <- function(data, kernel, bandwidth, bounded_by_data) {
   .Call(`_corehydror_ch_kde_valid_`, data, kernel, bandwidth, bounded_by_data)
 }
 
-ch_mix_moments_ <- function(comp_targets, comp_params_list, weights) {
-  .Call(`_corehydror_ch_mix_moments_`, comp_targets, comp_params_list, weights)
+ch_mix_moments_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_moments_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
 }
 
-ch_mix_pdf_ <- function(comp_targets, comp_params_list, weights, x) {
-  .Call(`_corehydror_ch_mix_pdf_`, comp_targets, comp_params_list, weights, x)
+ch_mix_pdf_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x) {
+  .Call(`_corehydror_ch_mix_pdf_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x)
 }
 
-ch_mix_cdf_ <- function(comp_targets, comp_params_list, weights, x) {
-  .Call(`_corehydror_ch_mix_cdf_`, comp_targets, comp_params_list, weights, x)
+ch_mix_cdf_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x) {
+  .Call(`_corehydror_ch_mix_cdf_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x)
 }
 
-ch_mix_quantile_ <- function(comp_targets, comp_params_list, weights, prob) {
-  .Call(`_corehydror_ch_mix_quantile_`, comp_targets, comp_params_list, weights, prob)
+ch_mix_quantile_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, prob) {
+  .Call(`_corehydror_ch_mix_quantile_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, prob)
 }
 
-ch_mix_valid_ <- function(comp_targets, comp_params_list, weights) {
-  .Call(`_corehydror_ch_mix_valid_`, comp_targets, comp_params_list, weights)
+ch_mix_valid_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_valid_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+}
+
+ch_mix_params_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_params_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
 }
 
 ch_cr_moments_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependency, correlation) {

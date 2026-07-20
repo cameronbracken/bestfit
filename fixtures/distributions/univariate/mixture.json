@@ -45,6 +45,42 @@
         { "method": "sd",      "args": [],      "expected": 2.958040,    "mode": "abs", "tol": 1e-3 },
         { "method": "parameters_valid", "args": [], "expected": true,   "mode": "bool" }
       ]
+    },
+    {
+      "name": "zero_inflation_rescales_weights",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0, 1]},
+          {"target": "Normal", "params": [5, 2]}
+        ],
+        "weights": [0.25, 0.75],
+        "zero_inflated": true,
+        "zero_weight": 0.2
+      },
+      "assertions": [
+        { "method": "param",   "args": [0],    "expected": 0.2,                "mode": "abs", "tol": 1e-12 },
+        { "method": "param",   "args": [1],    "expected": 0.6,                "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",     "args": [-1.0], "expected": 0.2,                "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",     "args": [0.0],  "expected": 0.2,                "mode": "abs", "tol": 1e-12 },
+        { "method": "pdf",     "args": [5.0],  "expected": 0.11968298146433276, "mode": "abs", "tol": 1e-9 },
+        { "method": "cdf",     "args": [0.0],  "expected": 0.2,                "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf",     "args": [5.0],  "expected": 0.69999994266968568, "mode": "abs", "tol": 1e-9 },
+        { "method": "parameters_valid", "args": [], "expected": true,          "mode": "bool" }
+      ]
+    },
+    {
+      "name": "zero_inflation_disabled_leaves_weights_invalid",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0, 1]},
+          {"target": "Normal", "params": [5, 2]}
+        ],
+        "weights": [0.2, 0.6],
+        "zero_inflated": false
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

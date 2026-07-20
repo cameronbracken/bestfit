@@ -110,7 +110,10 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
         wts = [float(w) for w in construct["weights"]]
-        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts}
+        zero_inflated = bool(construct.get("zero_inflated", False))
+        zero_weight = _num(construct.get("zero_weight", 0.0))
+        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts,
+                "zero_inflated": zero_inflated, "zero_weight": zero_weight}
     if target == "CompetingRisks":
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
@@ -170,16 +173,21 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         raise KeyError(f"unknown fixture method for KernelDensity: {method}")
     if target == "Mixture":
         ct, cp, wts = cd["comp_targets"], cd["comp_params"], cd["weights"]
+        zi, zw = cd["zero_inflated"], cd["zero_weight"]
         if method in _MOMENTS:
-            return _core.mix_moments(ct, cp, wts)[method]
+            return _core.mix_moments(ct, cp, wts, zi, zw)[method]
         if method == "pdf":
-            return _core.mix_pdf(ct, cp, wts, args[0])
+            return _core.mix_pdf(ct, cp, wts, zi, zw, args[0])
         if method == "cdf":
-            return _core.mix_cdf(ct, cp, wts, args[0])
+            return _core.mix_cdf(ct, cp, wts, zi, zw, args[0])
         if method == "quantile":
-            return _core.mix_quantile(ct, cp, wts, args[0])
+            return _core.mix_quantile(ct, cp, wts, zi, zw, args[0])
         if method == "parameters_valid":
-            return _core.mix_valid(ct, cp, wts)
+            return _core.mix_valid(ct, cp, wts, zi, zw)
+        if method == "param":
+            # GetParameters() flat vector [w0..wK-1, component params...] -- needed (not the
+            # raw `wts` in `cd`) because the zero-inflation setters recompute the weights.
+            return _core.mix_params(ct, cp, wts, zi, zw)[int(args[0])]
         raise KeyError(f"unknown fixture method for Mixture: {method}")
     if target == "CompetingRisks":
         ct, cp, min_rv = cd["comp_targets"], cd["comp_params"], cd["minimum_of_rv"]

@@ -541,8 +541,8 @@ class CompositeAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         mix->x_transform = Transform::Logarithmic;
         mix->probability_transform = Transform::NormalZ;
         if (sum < 1.0) {
-            mix->is_zero_inflated = true;
-            mix->zero_weight = 1.0 - sum;
+            mix->set_is_zero_inflated(true);
+            mix->set_zero_weight(1.0 - sum);
         }
         mix->create_empirical_cdf();
         return mix;

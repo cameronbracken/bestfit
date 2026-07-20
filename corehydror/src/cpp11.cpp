@@ -286,38 +286,45 @@ extern "C" SEXP _corehydror_ch_kde_valid_(SEXP data, SEXP kernel, SEXP bandwidth
   END_CPP11
 }
 // dist.cpp
-doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights);
-extern "C" SEXP _corehydror_ch_mix_moments_(SEXP comp_targets, SEXP comp_params_list, SEXP weights) {
+doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight);
+extern "C" SEXP _corehydror_ch_mix_moments_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_mix_moments_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights)));
+    return cpp11::as_sexp(ch_mix_moments_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight)));
   END_CPP11
 }
 // dist.cpp
-double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, double x);
-extern "C" SEXP _corehydror_ch_mix_pdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP x) {
+double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight, double x);
+extern "C" SEXP _corehydror_ch_mix_pdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight, SEXP x) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_mix_pdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+    return cpp11::as_sexp(ch_mix_pdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
   END_CPP11
 }
 // dist.cpp
-double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, double x);
-extern "C" SEXP _corehydror_ch_mix_cdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP x) {
+double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight, double x);
+extern "C" SEXP _corehydror_ch_mix_cdf_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight, SEXP x) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_mix_cdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
+    return cpp11::as_sexp(ch_mix_cdf_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight), cpp11::as_cpp<cpp11::decay_t<double>>(x)));
   END_CPP11
 }
 // dist.cpp
-double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, double prob);
-extern "C" SEXP _corehydror_ch_mix_quantile_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP prob) {
+double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight, double prob);
+extern "C" SEXP _corehydror_ch_mix_quantile_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight, SEXP prob) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_mix_quantile_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
+    return cpp11::as_sexp(ch_mix_quantile_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight), cpp11::as_cpp<cpp11::decay_t<double>>(prob)));
   END_CPP11
 }
 // dist.cpp
-bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights);
-extern "C" SEXP _corehydror_ch_mix_valid_(SEXP comp_targets, SEXP comp_params_list, SEXP weights) {
+bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight);
+extern "C" SEXP _corehydror_ch_mix_valid_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight) {
   BEGIN_CPP11
-    return cpp11::as_sexp(ch_mix_valid_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights)));
+    return cpp11::as_sexp(ch_mix_valid_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight)));
+  END_CPP11
+}
+// dist.cpp
+doubles ch_mix_params_(strings comp_targets, list comp_params_list, doubles weights, bool zero_inflated, double zero_weight);
+extern "C" SEXP _corehydror_ch_mix_params_(SEXP comp_targets, SEXP comp_params_list, SEXP weights, SEXP zero_inflated, SEXP zero_weight) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(ch_mix_params_(cpp11::as_cpp<cpp11::decay_t<strings>>(comp_targets), cpp11::as_cpp<cpp11::decay_t<list>>(comp_params_list), cpp11::as_cpp<cpp11::decay_t<doubles>>(weights), cpp11::as_cpp<cpp11::decay_t<bool>>(zero_inflated), cpp11::as_cpp<cpp11::decay_t<double>>(zero_weight)));
   END_CPP11
 }
 // dist.cpp
@@ -695,11 +702,12 @@ static const R_CallMethodDef CallEntries[] = {
     {"_corehydror_ch_latin_hypercube_",            (DL_FUNC) &_corehydror_ch_latin_hypercube_,             4},
     {"_corehydror_ch_mcmc_run_",                   (DL_FUNC) &_corehydror_ch_mcmc_run_,                    5},
     {"_corehydror_ch_mgbt_test_",                  (DL_FUNC) &_corehydror_ch_mgbt_test_,                   1},
-    {"_corehydror_ch_mix_cdf_",                    (DL_FUNC) &_corehydror_ch_mix_cdf_,                     4},
-    {"_corehydror_ch_mix_moments_",                (DL_FUNC) &_corehydror_ch_mix_moments_,                 3},
-    {"_corehydror_ch_mix_pdf_",                    (DL_FUNC) &_corehydror_ch_mix_pdf_,                     4},
-    {"_corehydror_ch_mix_quantile_",               (DL_FUNC) &_corehydror_ch_mix_quantile_,                4},
-    {"_corehydror_ch_mix_valid_",                  (DL_FUNC) &_corehydror_ch_mix_valid_,                   3},
+    {"_corehydror_ch_mix_cdf_",                    (DL_FUNC) &_corehydror_ch_mix_cdf_,                     6},
+    {"_corehydror_ch_mix_moments_",                (DL_FUNC) &_corehydror_ch_mix_moments_,                 5},
+    {"_corehydror_ch_mix_params_",                 (DL_FUNC) &_corehydror_ch_mix_params_,                  5},
+    {"_corehydror_ch_mix_pdf_",                    (DL_FUNC) &_corehydror_ch_mix_pdf_,                     6},
+    {"_corehydror_ch_mix_quantile_",               (DL_FUNC) &_corehydror_ch_mix_quantile_,                6},
+    {"_corehydror_ch_mix_valid_",                  (DL_FUNC) &_corehydror_ch_mix_valid_,                   5},
     {"_corehydror_ch_model_data_frame_",           (DL_FUNC) &_corehydror_ch_model_data_frame_,            2},
     {"_corehydror_ch_model_simulate_",             (DL_FUNC) &_corehydror_ch_model_simulate_,              4},
     {"_corehydror_ch_multinomial_val_",            (DL_FUNC) &_corehydror_ch_multinomial_val_,             4},

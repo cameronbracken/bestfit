@@ -1,9 +1,15 @@
-// ported from: Numerics/Distributions/Univariate/BetaDistribution.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/BetaDistribution.cs @ 2a0357a
 //
 // The Beta distribution with shape parameters α (alpha) and β (beta), defined on (0,1).
 // Logic mirrors the C# source method-for-method. The C# class derives only from
 // UnivariateDistributionBase and implements no estimation interfaces, so none are ported.
 // The WPF helpers are desktop concerns and are not ported.
+//
+// v2.1.4 (33dc1af "Fix audited Numerics port issues"): Mode widened the boundary comparisons
+// to <=/>= (previously < / <= on one side only, `<= 1 && > 1` / `> 1 && <= 1`) and added an
+// explicit U-shape branch (both shape parameters < 1 -> midpoint 0.5). This closes the gap
+// where exactly one parameter equal to 1 (e.g. alpha=1, beta=0.5) fell through to the interior
+// formula and returned a value outside [0,1].
 #pragma once
 #include <string>
 #include <cmath>
@@ -47,8 +53,9 @@ class BetaDistribution : public UnivariateDistributionBase {
 
     double mode() const override {
         if (alpha_ == 1.0 && beta_ == 1.0) return 0.5;
-        if (alpha_ <= 1.0 && beta_ > 1.0) return 0.0;
-        if (alpha_ > 1.0 && beta_ <= 1.0) return 1.0;
+        if (alpha_ < 1.0 && beta_ < 1.0) return 0.5;
+        if (alpha_ <= 1.0 && beta_ >= 1.0) return 0.0;
+        if (alpha_ >= 1.0 && beta_ <= 1.0) return 1.0;
         return (alpha_ - 1.0) / (alpha_ + beta_ - 2.0);
     }
 

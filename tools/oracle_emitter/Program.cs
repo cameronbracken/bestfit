@@ -147,7 +147,16 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
             .Select(c => BuildComponent(c, datasets)).ToArray();
         var wts = construct.GetProperty("weights").EnumerateArray()
             .Select(e => e.GetDouble()).ToArray();
-        return new Mixture(wts, comps);
+        var mix = new Mixture(wts, comps);
+        // Optional zero-inflation (v2.1.4): "zero_inflated" (default false) / "zero_weight"
+        // (default 0.0). IsZeroInflated set before ZeroWeight, matching Clone()'s object
+        // initializer order and every other call site (mixture.hpp's header note) -- the
+        // setters renormalize component weights as a side effect.
+        mix.IsZeroInflated = construct.TryGetProperty("zero_inflated", out var ziEl)
+            && ziEl.GetBoolean();
+        mix.ZeroWeight = construct.TryGetProperty("zero_weight", out var zwEl)
+            ? ParseNum(zwEl) : 0.0;
+        return mix;
     }
     if (target == "CompetingRisks")
     {
