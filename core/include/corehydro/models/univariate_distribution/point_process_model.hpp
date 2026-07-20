@@ -398,7 +398,7 @@ class PointProcessModel : public UnivariateDistributionModelBase,
 
         auto dist = std::make_unique<CompetingRisks>(std::move(components));
         dist->minimum_of_random_variables = false;
-        dist->dependency = numerics::data::probability::DependencyType::Independent;
+        dist->set_dependency(numerics::data::probability::DependencyType::Independent);
         distribution_ = std::move(dist);
     }
 

@@ -132,17 +132,31 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested action:** verify the intent; consider renaming one overload (e.g.
   `CentralMomentsBySteps` / `CentralMomentsByTolerance`) to remove the ambiguity.
 
-## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear
+## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/BivariateEmpirical.cs`, `SetParameters` /
   `CDF(double, double)`.
 - **What:** `CDF` lazily builds the `bilinear` field only `if (bilinear == null)`. Calling
   `SetParameters` a second time (new grid) after a `CDF` call has already run does not reset
   `bilinear` to null, so subsequent `CDF` calls keep interpolating against the OLD grid.
-- **Evidence:** read from source; not exercised by the ported fixture (constructed once, `CDF`
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) added `bilinear = null;` at the end of
+  `SetParameters`, plus new finite-value (NaN/Inf) checks on X1/X2/the probability grid. Ported in
+  the upstream-sync Task 9: `set_parameters()` in `bivariate_empirical.hpp` now resets `bilinear_`,
+  and `validate_parameters()` gained the matching finiteness checks (checked immediately before
+  each ascending-order/range check, same relative position as the new C# guards -- a NaN
+  previously slipped through the ascending-order comparisons undetected, since NaN compares false
+  in both directions, and reported `parameters_valid() == true`). See
+  `fixtures/distributions/multivariate/bivariate_empirical.json`'s
+  `set_parameters_invalidates_bilinear_interpolator` (adapted from the new
+  `Test_BivariateEmpirical.SetParametersInvalidatesBilinearInterpolator`) and the three
+  `*_non_finite_invalid` cases, all reproduced against the real C# library.
+- **Evidence:** read from source; not exercised by any fixture pre-v2.1.4 (constructed once, `CDF`
   called several times against the same grid, per `Test_BivariateEmpirical.Test_BivariateEmp`).
-- **Port handling:** mirrored faithfully (`bilinear_` is likewise never reset in `set_parameters()`).
-- **Suggested C# fix:** set `bilinear = null;` at the end of `SetParameters`.
+  Confirmed reproducible post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`bilinear_` was likewise never
+  reset in `set_parameters()`).
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** set `bilinear = null;` at the
+  end of `SetParameters`.
 
 ## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
@@ -172,7 +186,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   near-symmetric until it is switched to the now-ported AGK). Only a limitation on the C++ side.
 - **Suggested action:** none for C#; noted for context.
 
-## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted
+## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `COVSRT`, the
   `for (int j = i - 1; j < 0; j--)` loop inside the `CVDIAG <= 0` branch (permute limits/rows when
@@ -182,21 +196,37 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `i >= 1` the condition fails immediately and the loop never executes. When it does run (`i == 0`,
   `j == -1`), it immediately indexes `COV[II + j]` with `II == 0`, i.e. `COV[-1]` — in C# this throws
   `IndexOutOfRangeException`. The condition looks like a Fortran `DO j = i-1, 0, -1` mistranslated
-  (should be `j >= 0`).
-- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test (requires a
-  degenerate/near-zero effective covariance diagonal at the very first COVSRT-sorted pivot).
-- **Port handling:** the C++ (`core/include/.../multivariate_normal.hpp`, `covsrt`) transcribes the
-  loop verbatim but adds a minimal bounds guard immediately before the first `COV[II + j]` access:
-  if `II + j < 0` it throws `std::out_of_range` instead of indexing. `std::vector::operator[]`
-  performs no bounds check, so the verbatim `i==0` access would otherwise be undefined behavior (a
-  heap-corrupting out-of-bounds write) rather than the catchable `IndexOutOfRangeException` C#
-  raises there. The guard reproduces C#'s *observable* behavior (a thrown exception on this path)
-  without restructuring the loop or any other `covsrt` logic.
-- **Suggested C# fix:** change the loop condition to `j >= 0` (or reverse the iteration order to
-  match the apparent Fortran intent); add a regression test with a rank-deficient covariance matrix
-  that forces the first sorted pivot to be numerically zero.
+  (should be `j >= 0`). For `i >= 1`, the buggy loop was worse than "throws" — it silently did
+  NOTHING (falling through to the trailing `Y[i] = 0;` with `A[i]`/`B[i]` unscaled and unpermuted),
+  producing a wrong (not crashing) collapsed-CDF result whenever a rank-deficient covariance's
+  redundant dimension sorted to any position OTHER than the very first pivot.
+- **Status:** RESOLVED. Numerics 651035e (v2.1.4) fixed the whole degenerate-diagonal region:
+  loop bounds `j >= 0` / `l <= j` / `l <= i - 1` / `k >= l` / `m <= k`, the packed index
+  `l * (l + 1) / 2 + j + 1` (was `(l - 1) * l / 2 + j + 1`), the swap offset `IJ - k + m - 1` (was
+  `IJ - k + m`), and the `IJ` decrement `IJ - k - 1` (was `IJ - k`). Ported in the upstream-sync
+  Task 9: `covsrt` in `multivariate_normal.hpp` replaces the whole region wholesale, transcribed
+  verbatim from the fixed C# rather than patched incrementally, retiring the bounds-guard divergence
+  below. New coverage: `fixtures/distributions/multivariate/multivariate_normal.json`'s
+  `cdf_perfect_correlation_collapse`, `cdf_perfect_anticorrelation_collapse`, and
+  `cdf_permuted_rank_deficient_collapse_{a,b}` (the last pair drives the SAME rank-1 redundancy
+  through two different sorted positions, exercising the fix at more than one `i`), all reproduced
+  against the real C# library.
+- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test pre-v2.1.4
+  (requires a degenerate/near-zero effective covariance diagonal at a non-first COVSRT-sorted
+  pivot). Confirmed reproducible post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** the C++ (`core/include/.../multivariate_normal.hpp`,
+  `covsrt`) transcribed the loop verbatim but added a minimal bounds guard immediately before the
+  first `COV[II + j]` access: if `II + j < 0` it threw `std::out_of_range` instead of indexing.
+  `std::vector::operator[]` performs no bounds check, so the verbatim `i==0` access would otherwise
+  be undefined behavior (a heap-corrupting out-of-bounds write) rather than the catchable
+  `IndexOutOfRangeException` C# raises there. Retired in Task 9 -- the fixed loop no longer produces
+  an out-of-range access on this port's fixture-exercised inputs.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** change the loop condition to
+  `j >= 0` (or reverse the iteration order to match the apparent Fortran intent); add a regression
+  test with a rank-deficient covariance matrix that forces a non-first sorted pivot to be
+  numerically zero.
 
-## COSMETIC — MultivariateNormal.MVNDNT return value is always 0
+## COSMETIC — MultivariateNormal.MVNDNT return value is always 0 (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `MVNDNT`.
 - **What:** the local `result` is initialized to `0` and never reassigned anywhere in the method
@@ -204,10 +234,15 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `INFORM` (`INFORM = (int)MVNDNT(...)`), so `INFORM` is always (re)initialized to `0` regardless of
   what `COVSRT`/`MVNLMS`/`BVNMVN` computed; only the `N-INFIS >= 2` branch (via `DKBVRC`) can set it
   to anything else afterward.
-- **Port handling:** mirrored faithfully (`mvndnt` always returns `0.0`), documented in-header.
-  Harmless in practice — `INFORM` ends up correct for the only case that matters (multi-dimensional
-  integration) — but the return value itself is dead code.
-- **Suggested C# fix:** either remove the unused return value (change `MVNDNT` to `void`) or wire it
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed `MVNDNT` from `private double` to
+  `private void`, with `MVNDST` now setting `INFORM = 0` explicitly before calling it instead of
+  casting the old always-0 return value -- a pure shape mirror, no behavior change. Ported in the
+  upstream-sync Task 9: `mvndnt`/`mvndst` in `multivariate_normal.hpp` mirror the new void shape.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`mvndnt` always returned `0.0`),
+  documented in-header. Harmless in practice — `INFORM` ended up correct for the only case that
+  mattered (multi-dimensional integration) — but the return value itself was dead code.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** either remove the unused
+  return value (change `MVNDNT` to `void`) or wire it
   up if some future INFORM semantics were intended for the `N-INFIS` 0/1 branches.
 
 ## COSMETIC — dead variables / heritage artifacts
@@ -426,7 +461,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   change.
 - **Suggested C# fix:** none — this is a C++-port-only bug with no C# analog to fix.
 
-## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)
+## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CreateMultivariateNormal()`.
 - **What:** in the `PerfectlyNegative` branch, the method does `CorrelationMatrix = new double[D,
@@ -437,17 +472,32 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `PerfectlyNegative` mode — not the rho matrix the MVN's `.Covariance` actually holds. This looks
   like a leftover from refactoring (the zero matrix was probably meant to be a scratch buffer, not
   assigned to the public property) rather than intentional API design.
-- **Evidence:** direct inspection; not exercised by any fixture assertion (no fixture reads
-  `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call — the fixtures only check
-  CDF/PDF/moments values, which are unaffected since the MVN itself uses the correct local
-  `sigma`).
-- **Port handling:** mirrored faithfully (`create_multivariate_normal()` in `competing_risks.hpp`
-  likewise overwrites the mutable `correlation_matrix_` field with zeros in the `PerfectlyNegative`
-  branch), documented in-header.
-- **Suggested C# fix:** use a local scratch array (e.g. `var scratchCorr = new double[D, D];`)
-  instead of assigning through the public `CorrelationMatrix` property, so
-  `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
-  silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) deleted the `CorrelationMatrix = new double[D,
+  D];` line entirely -- the `PerfectlyNegative` branch now builds its synthetic rho matrix purely
+  into the local `sigma` array, leaving the public `CorrelationMatrix` untouched. The same commit
+  also gave `Dependency` a side-effecting setter (invalidates the cached MVN when the mode
+  actually changes) and made `SetParameters`/`ValidateParameters` throw/honor `throwException` for
+  an empty `Distributions` list. Ported in the upstream-sync Task 9: `create_multivariate_normal()`
+  in `competing_risks.hpp` no longer assigns to `correlation_matrix_` in the `PerfectlyNegative`
+  branch; `dependency` became a private field with `dependency()`/`set_dependency()` accessors
+  (invalidating `mvn_created_` on an actual change) in place of the plain public field the prior
+  no-side-effect property justified; `set_parameters()` throws `std::invalid_argument` on a
+  flattened-length mismatch; and a new `validate_parameters(parameters, throw_exception)` mirrors
+  the throwException contract for the empty-Distributions case. See
+  `fixtures/distributions/univariate/competing_risks.json`'s `dependency_change_cdf_before` /
+  `dependency_change_correlation_preserved` / `dependency_change_cdf_after` (adapted from the new
+  `Test_DependencyChangeInvalidatesMvnWithoutMutatingCorrelation`), all reproduced against the real
+  C# library.
+- **Evidence:** direct inspection; not exercised by any fixture assertion pre-v2.1.4 (no fixture
+  read `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call). Confirmed reproducible
+  post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`create_multivariate_normal()`
+  in `competing_risks.hpp` likewise overwrote the mutable `correlation_matrix_` field with zeros in
+  the `PerfectlyNegative` branch), documented in-header.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** use a local scratch array
+  (e.g. `var scratchCorr = new double[D, D];`) instead of assigning through the public
+  `CorrelationMatrix` property, so `CorrelationMatrix` retains whatever the caller last set (or
+  `null`) rather than being silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
 ## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code (RESOLVED in Numerics v2.1.4 / 2a0357a)
 

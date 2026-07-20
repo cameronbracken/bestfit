@@ -101,9 +101,23 @@ in `tools/oracle_emitter/Program.cs`) implements the same schema:
     `core/include/corehydro/numerics/data/probability.hpp`'s header comment and
     `docs/upstream-csharp-issues.md` for why this path is fully deterministic, unlike
     `MultivariateNormal.CDF()`'s own seeded Genz-Bretz integrator for dimension >= 3).
-  - `correlation` (optional, default `[]`): a square matrix, one row per component. Only
-    consulted when `dependency == "CorrelationMatrix"` (ignored, and may be omitted, for the
-    other three modes -- `PerfectlyNegative` synthesizes its own correlation internally).
+  - `correlation` (optional, default `[]`): a square matrix, one row per component. Applied to
+    the constructed object whenever present/non-empty, regardless of `dependency` (matches C#:
+    `CorrelationMatrix` is an independent property a caller may set before ever switching
+    `Dependency` to `CorrelationMatrix` -- see `dependency_change` below); only actually
+    CONSULTED by CDF/PDF when `dependency == "CorrelationMatrix"` (ignored, though still stored
+    and readable, for the other three modes -- `PerfectlyNegative` synthesizes its own
+    correlation internally without touching the stored matrix, v2.1.4).
+  - `dependency_change [x, dependency2, i, j, field]` (v2.1.4) -- verifies the `Dependency`
+    setter fix (switching modes mid-lifetime invalidates the cached MVN) and that
+    `PerfectlyNegative` no longer zeroes the public `CorrelationMatrix` as a side effect, in ONE
+    self-contained call: `CDF(x)` under the case's `dependency`, read back
+    `CorrelationMatrix[i, j]`, switch to `dependency2`, `CDF(x)` again -- returns the value named
+    by `field` (`"cdf1"`/`"correlation"`/`"cdf2"`). One call per case (rather than several
+    assertions against a shared object) because the sequence mutates `Dependency` for good on
+    whichever object it runs against; a fresh per-case build keeps every `field` variant
+    observing the SAME starting configuration, matching R/Python's stateless-per-call composite
+    dispatch (see `set_parameters` below for the general pattern this follows).
 
 #### `set_parameters`: mutating a constructed `univariate_distribution` in place
 
@@ -213,6 +227,41 @@ hardcoded literal, so there is no literal to transcribe. Methods:
   only two multivariate targets with a `LatinHypercubeRandomValues` method in the C# source;
   Dirichlet/Multinomial have no such method and carry no `lhs_value` cases) -- same shape,
   dispatching to `latin_hypercube_random_values(sample_size, seed)`.
+- `mvndst_inform [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]` /
+  `mvndst_error [...]` (MultivariateNormal only; v2.1.4) -- same args/shape as `mvndst`, reading
+  back `INFORM`/`ERROR` instead of `VALUE` (the MVNDST status-code cases -- invalid dimension,
+  all-unbounded, insufficient budget -- need the status code itself, not just the probability).
+  All three of a case's `mvndst`/`mvndst_inform`/`mvndst_error` assertions may share one
+  `construct` (with or without `"seed"`, per Statefulness below) since none of the status-code
+  cases touch the seeded MVNUNI stream (N-INFIS stays small enough to avoid DKBVRC) except
+  `mvndst_insufficient_budget_status_one`, whose seed-stream-position-dependent VALUE/ERROR are
+  deliberately NOT pinned -- only the deterministic `INFORM` is (see that case's `note`).
+- `marginal_mean [[indices...], i]`, `marginal_covariance [[indices...], i, j]`,
+  `marginal_log_pdf [[indices...], [x...]]`, `marginal_dimension [[indices...]]`
+  (MultivariateNormal only; v2.1.4) -- `Marginal(indices)`'s sub-mean/sub-covariance/dimension and
+  the marginal distribution's own LogPDF at `x`. Stateless (fresh `Marginal` per call).
+- `conditional_mean [[observed_indices...], [observed_values...], i]`,
+  `conditional_covariance [[observed_indices...], [observed_values...], i, j]`,
+  `conditional_dimension [[observed_indices...], [observed_values...]]` (MultivariateNormal only;
+  v2.1.4) -- `Conditional(observedIndices, observedValues)`'s mean/covariance/dimension over the
+  unobserved (free) dimensions, in ascending index order. Stateless (fresh `Conditional` per call).
+  Index-validation throws (empty/duplicate/out-of-range indices, an all-observed subset, or a
+  values-length mismatch) are not fixture-shaped (no exception-mode assertion exists) -- see
+  `core/tests/test_multivariate_normal_api.cpp`, which also covers the stateful
+  `TrySetParameters`/`TrySetCovariance`/`IsDensityValid` non-throwing-mutation sequence (each
+  assertion depends on the PRECEDING one having mutated the SAME object, which doesn't fit this
+  kind's per-case-not-per-assertion statefulness contract below).
+- `cdf_xy_after_set_parameters [[x1_new...], [x2_new...], [[p_row0...], ...], x1_eval, x2_eval]`
+  (BivariateEmpirical only; v2.1.4) -- verifies the `SetParameters` stale-Bilinear-cache fix in
+  ONE self-contained call: `cdf(x1_eval, x2_eval)` once against the CURRENT grid (forces the
+  cache to build), `set_parameters()` with the replacement grid, then `cdf(x1_eval, x2_eval)`
+  again -- returns the SECOND value. A stale cache would still reflect the OLD grid on that
+  second call. One call rather than three separate `cdf_xy`/`set_parameters`/`cdf_xy` assertions
+  because BivariateEmpirical (like every other `multivariate_distribution` target besides
+  MultivariateNormal) is dispatched fresh-per-call in R/Python -- a `set_parameters` mutation
+  wouldn't persist to a later assertion there the way it does in C++'s/the emitter's
+  persistent-per-case object (see the `set_parameters` composite convention under
+  `univariate_distribution` for the analogous R/Python-side workaround used elsewhere).
 
 **Statefulness:** Dirichlet/Multinomial/BivariateEmpirical are stateless per case (every assertion
 is independent, dispatched against a fresh instance). MultivariateNormal is stateless UNLESS its

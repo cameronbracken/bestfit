@@ -120,6 +120,40 @@ double ch_bve_cdf_(std::string method, doubles x1, doubles x2, doubles p_flat, i
     stop("unknown BivariateEmpirical fixture method '%s'", method.c_str());
 }
 
+// v2.1.4: verifies the stale-cache fix (SetParameters now nulls the cached bilinear
+// interpolator) in ONE self-contained call -- CDF() once (forces the bilinear cache to
+// build against the CURRENT grid), SetParameters() with a REPLACEMENT grid, then CDF()
+// again. `p_new_flat` is nrow_new*x2_new.size() row-major, matching `p_flat`'s convention.
+[[cpp11::register]]
+double ch_bve_cdf_after_set_parameters_(doubles x1, doubles x2, doubles p_flat, int nrow,
+                                         strings transforms, doubles x1_new, doubles x2_new,
+                                         doubles p_new_flat, int nrow_new, double x1_eval,
+                                         double x2_eval) {
+    std::vector<double> x1v(x1.begin(), x1.end());
+    std::vector<double> x2v(x2.begin(), x2.end());
+    std::size_t ncol = x2v.size();
+    std::vector<std::vector<double>> p(static_cast<std::size_t>(nrow), std::vector<double>(ncol));
+    for (int i = 0; i < nrow; ++i)
+        for (std::size_t j = 0; j < ncol; ++j)
+            p[static_cast<std::size_t>(i)][j] = p_flat[static_cast<int>(static_cast<std::size_t>(i) * ncol + j)];
+
+    mvd::BivariateEmpirical bv(x1v, x2v, p, parse_transform(std::string(transforms[0])),
+                                parse_transform(std::string(transforms[1])),
+                                parse_transform(std::string(transforms[2])));
+    bv.cdf(x1_eval, x2_eval);
+
+    std::vector<double> x1n(x1_new.begin(), x1_new.end());
+    std::vector<double> x2n(x2_new.begin(), x2_new.end());
+    std::size_t ncol_new = x2n.size();
+    std::vector<std::vector<double>> p_new(static_cast<std::size_t>(nrow_new), std::vector<double>(ncol_new));
+    for (int i = 0; i < nrow_new; ++i)
+        for (std::size_t j = 0; j < ncol_new; ++j)
+            p_new[static_cast<std::size_t>(i)][j] =
+                p_new_flat[static_cast<int>(static_cast<std::size_t>(i) * ncol_new + j)];
+    bv.set_parameters(std::move(x1n), std::move(x2n), std::move(p_new));
+    return bv.cdf(x1_eval, x2_eval);
+}
+
 // --- MultivariateNormal (deterministic methods) ---------------------------------------
 // Stateless per-call style: a fresh instance is constructed from (mean, cov_flat) on every
 // call. Covers everything that does not touch the seeded MVNUNI stream (mean, median,
@@ -171,7 +205,139 @@ double ch_mvn_val_(std::string method, doubles mean, doubles cov_flat, doubles a
         auto sample = n.latin_hypercube_random_values(static_cast<int>(ar[0]), static_cast<int>(ar[1]));
         return sample[static_cast<std::size_t>(ar[2])][static_cast<std::size_t>(ar[3])];
     }
+    // v2.1.4: IsDensityValid is always true for a freshly-constructed (throwing-ctor)
+    // instance -- the interesting false-after-a-failed-Try* transition is a stateful
+    // sequence that doesn't fit this stateless dispatch shape; see
+    // core/tests/test_multivariate_normal_api.cpp for that half.
+    if (method == "is_density_valid") return n.is_density_valid() ? 1.0 : 0.0;
+    if (method == "mvndst" || method == "mvndst_inform" || method == "mvndst_error") {
+        // Stateless (unseeded) mvndst path -- exercised by the deterministic status-code/
+        // collapse cases whose construct carries no "seed" (mvnuni_ is never touched: no
+        // -1/finite-bound-count reaches DKBVRC for these). Same args shape as
+        // mvndst_seq's per-call arrays, packed flat here -- args = [n_dim, lower...,
+        // upper..., infin..., correl..., maxpts, abseps, releps], sizes inferred from
+        // n_dim/nl.
+        int n_dim = static_cast<int>(ar[0]);
+        int nl = n_dim * (n_dim - 1) / 2;
+        std::size_t i = 1;
+        std::vector<double> lower(ar.begin() + static_cast<long>(i), ar.begin() + static_cast<long>(i + static_cast<std::size_t>(n_dim)));
+        i += static_cast<std::size_t>(n_dim);
+        std::vector<double> upper(ar.begin() + static_cast<long>(i), ar.begin() + static_cast<long>(i + static_cast<std::size_t>(n_dim)));
+        i += static_cast<std::size_t>(n_dim);
+        std::vector<int> infin;
+        for (std::size_t k = 0; k < static_cast<std::size_t>(n_dim); ++k) infin.push_back(static_cast<int>(ar[i + k]));
+        i += static_cast<std::size_t>(n_dim);
+        std::vector<double> correl(ar.begin() + static_cast<long>(i), ar.begin() + static_cast<long>(i + static_cast<std::size_t>(nl)));
+        i += static_cast<std::size_t>(nl);
+        int maxpts = static_cast<int>(ar[i]);
+        double abseps = ar[i + 1];
+        double releps = ar[i + 2];
+        double error = 0, value = 0;
+        int inform = 0;
+        n.mvndst(n_dim, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+        if (method == "mvndst_inform") return inform;
+        if (method == "mvndst_error") return error;
+        return value;
+    }
     stop("unknown MultivariateNormal fixture method '%s'", method.c_str());
+}
+
+// --- MultivariateNormal Marginal/Conditional (v2.1.4) ----------------------------------
+// Dedicated entry points (rather than folding into ch_mvn_val_'s flat `args`) because
+// these take a variable-length INDEX vector (and, for Conditional, a second
+// variable-length VALUES vector of the same length) -- flatten_mv_args's "one nested
+// vector, or all-scalar" convention can't disambiguate two adjacent variable-length
+// vectors packed into one flat args list. Stateless per-call, matching ch_mvn_val_.
+
+[[cpp11::register]]
+double ch_mvn_marginal_mean_(doubles mean, doubles cov_flat, integers indices, int idx) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(indices.begin(), indices.end());
+    return n.marginal(idxv).mean()[static_cast<std::size_t>(idx)];
+}
+
+[[cpp11::register]]
+double ch_mvn_marginal_covariance_(doubles mean, doubles cov_flat, integers indices, int i, int j) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t r = 0; r < dim; ++r)
+        for (std::size_t c = 0; c < dim; ++c) cov[r][c] = cov_flat[static_cast<int>(r * dim + c)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(indices.begin(), indices.end());
+    return n.marginal(idxv).covariance(i, j);
+}
+
+[[cpp11::register]]
+double ch_mvn_marginal_log_pdf_(doubles mean, doubles cov_flat, integers indices, doubles point) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(indices.begin(), indices.end());
+    std::vector<double> x(point.begin(), point.end());
+    return n.marginal(idxv).log_pdf(x);
+}
+
+[[cpp11::register]]
+double ch_mvn_marginal_dimension_(doubles mean, doubles cov_flat, integers indices) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(indices.begin(), indices.end());
+    return n.marginal(idxv).dimension();
+}
+
+[[cpp11::register]]
+double ch_mvn_conditional_mean_(doubles mean, doubles cov_flat, integers obs_indices,
+                                 doubles obs_values, int idx) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(obs_indices.begin(), obs_indices.end());
+    std::vector<double> valv(obs_values.begin(), obs_values.end());
+    return n.conditional(idxv, valv).mean()[static_cast<std::size_t>(idx)];
+}
+
+[[cpp11::register]]
+double ch_mvn_conditional_covariance_(doubles mean, doubles cov_flat, integers obs_indices,
+                                       doubles obs_values, int i, int j) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t r = 0; r < dim; ++r)
+        for (std::size_t c = 0; c < dim; ++c) cov[r][c] = cov_flat[static_cast<int>(r * dim + c)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(obs_indices.begin(), obs_indices.end());
+    std::vector<double> valv(obs_values.begin(), obs_values.end());
+    return n.conditional(idxv, valv).covariance(i, j);
+}
+
+[[cpp11::register]]
+double ch_mvn_conditional_dimension_(doubles mean, doubles cov_flat, integers obs_indices,
+                                      doubles obs_values) {
+    std::vector<double> mu(mean.begin(), mean.end());
+    std::size_t dim = mu.size();
+    std::vector<std::vector<double>> cov(dim, std::vector<double>(dim));
+    for (std::size_t i = 0; i < dim; ++i)
+        for (std::size_t j = 0; j < dim; ++j) cov[i][j] = cov_flat[static_cast<int>(i * dim + j)];
+    mvd::MultivariateNormal n(mu, cov);
+    std::vector<int> idxv(obs_indices.begin(), obs_indices.end());
+    std::vector<double> valv(obs_values.begin(), obs_values.end());
+    return n.conditional(idxv, valv).dimension();
 }
 
 // --- MultivariateNormal (seeded batch methods) -----------------------------------------

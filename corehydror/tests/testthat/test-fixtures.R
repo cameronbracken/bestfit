@@ -248,6 +248,13 @@ dispatch_composite <- function(target, cd, method, args) {
     if (method %in% moment_names) {
       return(unname(ns$ch_cr_moments_(ct, cp, min_rv, dep, corr)[[method]]))
     }
+    if (method == "dependency_change") {
+      # v2.1.4: verifies the Dependency setter fix + PerfectlyNegative no longer zeroing
+      # CorrelationMatrix, in ONE self-contained call -- args = [x, dependency2, i, j, field].
+      return(ns$ch_cr_dependency_change_(ct, cp, min_rv, dep, args[[2]], corr,
+                                          as.double(args[[1]]), args[[5]],
+                                          as.integer(args[[3]]), as.integer(args[[4]])))
+    }
     return(switch(method,
       pdf              = ns$ch_cr_pdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
       log_pdf          = ns$ch_cr_log_pdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
@@ -317,11 +324,61 @@ dispatch_multivariate <- function(target, construct, method, args) {
       if (!is.null(construct$x2_transform)) construct$x2_transform else "None",
       if (!is.null(construct$p_transform)) construct$p_transform else "None"
     )
+    # v2.1.4 stale-cache fix: args = [[x1_new...], [x2_new...], [[p_row0...], ...],
+    # x1_eval, x2_eval] -- a dedicated entry point (not the flattened `ar`) since the
+    # replacement grid's shape must stay structured.
+    if (method == "cdf_xy_after_set_parameters") {
+      x1_new <- vapply(args[[1]], parse_num, numeric(1))
+      x2_new <- vapply(args[[2]], parse_num, numeric(1))
+      p_new_flat <- as.double(unlist(lapply(args[[3]], function(row) vapply(row, parse_num, numeric(1)))))
+      x1_eval <- parse_num(args[[4]])
+      x2_eval <- parse_num(args[[5]])
+      return(ns$ch_bve_cdf_after_set_parameters_(x1, x2, p_flat, length(x1), transforms,
+                                                  x1_new, x2_new, p_new_flat, length(x1_new),
+                                                  x1_eval, x2_eval))
+    }
     return(ns$ch_bve_cdf_(method, x1, x2, p_flat, length(x1), transforms, ar))
   }
   if (target == "MultivariateNormal") {
     mean <- vapply(construct$mean, parse_num, numeric(1))
     cov_flat <- as.double(unlist(lapply(construct$covariance, function(row) vapply(row, parse_num, numeric(1)))))
+    # v2.1.4 Marginal/Conditional: dedicated entry points (not the flattened `ar`) since
+    # these take a variable-length index vector (Conditional: a second same-length values
+    # vector) that flatten_mv_args's "one nested vector, or all-scalar" convention can't
+    # disambiguate from adjacent variable-length vectors.
+    if (method == "marginal_mean") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_mean_(mean, cov_flat, indices, as.integer(args[[2]])))
+    }
+    if (method == "marginal_covariance") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_covariance_(mean, cov_flat, indices, as.integer(args[[2]]), as.integer(args[[3]])))
+    }
+    if (method == "marginal_log_pdf") {
+      indices <- as.integer(unlist(args[[1]]))
+      point <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_marginal_log_pdf_(mean, cov_flat, indices, point))
+    }
+    if (method == "marginal_dimension") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_dimension_(mean, cov_flat, indices))
+    }
+    if (method == "conditional_mean") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_mean_(mean, cov_flat, obs_indices, obs_values, as.integer(args[[3]])))
+    }
+    if (method == "conditional_covariance") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_covariance_(mean, cov_flat, obs_indices, obs_values,
+                                                as.integer(args[[3]]), as.integer(args[[4]])))
+    }
+    if (method == "conditional_dimension") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_dimension_(mean, cov_flat, obs_indices, obs_values))
+    }
     return(ns$ch_mvn_val_(method, mean, cov_flat, ar))
   }
   if (target == "MultivariateStudentT") {

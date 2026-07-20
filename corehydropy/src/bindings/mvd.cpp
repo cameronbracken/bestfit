@@ -100,6 +100,21 @@ void register_multivariate(py::module_& m) {
         throw py::value_error("unknown BivariateEmpirical fixture method: " + method);
     });
 
+    // v2.1.4: verifies the stale-cache fix in ONE self-contained call -- CDF() once
+    // (forces the bilinear cache to build against the CURRENT grid), set_parameters()
+    // with a REPLACEMENT grid, then CDF() again.
+    m.def("bve_cdf_after_set_parameters",
+          [](const std::vector<double>& x1, const std::vector<double>& x2,
+             const std::vector<std::vector<double>>& p, const std::vector<std::string>& transforms,
+             const std::vector<double>& x1_new, const std::vector<double>& x2_new,
+             const std::vector<std::vector<double>>& p_new, double x1_eval, double x2_eval) {
+        mvd::BivariateEmpirical bv(x1, x2, p, parse_transform(transforms[0]),
+                                    parse_transform(transforms[1]), parse_transform(transforms[2]));
+        bv.cdf(x1_eval, x2_eval);
+        bv.set_parameters(x1_new, x2_new, p_new);
+        return bv.cdf(x1_eval, x2_eval);
+    });
+
     // --- MultivariateNormal (deterministic methods) -------------------------------------
     // Stateless per-call style: a fresh instance is constructed from (mean, covariance) on
     // every call. Covers everything that does not touch the seeded MVNUNI stream (mean,
@@ -143,7 +158,95 @@ void register_multivariate(py::module_& m) {
                 n.latin_hypercube_random_values(static_cast<int>(args[0]), static_cast<int>(args[1]));
             return sample[static_cast<std::size_t>(args[2])][static_cast<std::size_t>(args[3])];
         }
+        // v2.1.4: IsDensityValid is always true for a freshly-constructed (throwing-ctor)
+        // instance -- the interesting false-after-a-failed-Try* transition is a stateful
+        // sequence covered by core/tests/test_multivariate_normal_api.cpp instead.
+        if (method == "is_density_valid") return n.is_density_valid() ? 1.0 : 0.0;
+        if (method == "mvndst" || method == "mvndst_inform" || method == "mvndst_error") {
+            // Stateless (unseeded) mvndst path -- exercised by the deterministic
+            // status-code/collapse cases whose construct carries no "seed" (mvnuni_ is
+            // never touched: no -1/finite-bound-count reaches DKBVRC for these). Same
+            // args shape as the seeded batch's per-call arrays, flattened here to a plain
+            // double vector by the Python side (_flatten_mv_args) -- args = [n_dim,
+            // [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps];
+            // re-derive the sub-vector boundaries from n_dim/nl.
+            int n_dim = static_cast<int>(args[0]);
+            int nl = n_dim * (n_dim - 1) / 2;
+            std::size_t i = 1;
+            std::vector<double> lower(args.begin() + static_cast<long>(i),
+                                       args.begin() + static_cast<long>(i + static_cast<std::size_t>(n_dim)));
+            i += static_cast<std::size_t>(n_dim);
+            std::vector<double> upper(args.begin() + static_cast<long>(i),
+                                       args.begin() + static_cast<long>(i + static_cast<std::size_t>(n_dim)));
+            i += static_cast<std::size_t>(n_dim);
+            std::vector<int> infin;
+            for (std::size_t k = 0; k < static_cast<std::size_t>(n_dim); ++k)
+                infin.push_back(static_cast<int>(args[i + k]));
+            i += static_cast<std::size_t>(n_dim);
+            std::vector<double> correl(args.begin() + static_cast<long>(i),
+                                        args.begin() + static_cast<long>(i + static_cast<std::size_t>(nl)));
+            i += static_cast<std::size_t>(nl);
+            int maxpts = static_cast<int>(args[i]);
+            double abseps = args[i + 1];
+            double releps = args[i + 2];
+            double error = 0, value = 0;
+            int inform = 0;
+            n.mvndst(n_dim, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+            if (method == "mvndst_inform") return static_cast<double>(inform);
+            if (method == "mvndst_error") return error;
+            return value;
+        }
         throw py::value_error("unknown MultivariateNormal fixture method: " + method);
+    });
+
+    // v2.1.4 Marginal/Conditional: dedicated entry points (not the flattened `args`)
+    // since these take a variable-length INDEX vector (Conditional: a second same-length
+    // VALUES vector) -- Python's own flattening convention can't disambiguate two
+    // adjacent variable-length vectors either. Stateless per-call, matching mvn_val.
+    m.def("mvn_marginal_mean", [](const std::vector<double>& mean,
+                                   const std::vector<std::vector<double>>& covariance,
+                                   const std::vector<int>& indices, int idx) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.marginal(indices).mean()[static_cast<std::size_t>(idx)];
+    });
+    m.def("mvn_marginal_covariance", [](const std::vector<double>& mean,
+                                         const std::vector<std::vector<double>>& covariance,
+                                         const std::vector<int>& indices, int i, int j) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.marginal(indices).covariance(i, j);
+    });
+    m.def("mvn_marginal_log_pdf", [](const std::vector<double>& mean,
+                                      const std::vector<std::vector<double>>& covariance,
+                                      const std::vector<int>& indices, const std::vector<double>& point) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.marginal(indices).log_pdf(point);
+    });
+    m.def("mvn_marginal_dimension", [](const std::vector<double>& mean,
+                                        const std::vector<std::vector<double>>& covariance,
+                                        const std::vector<int>& indices) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.marginal(indices).dimension();
+    });
+    m.def("mvn_conditional_mean", [](const std::vector<double>& mean,
+                                      const std::vector<std::vector<double>>& covariance,
+                                      const std::vector<int>& obs_indices,
+                                      const std::vector<double>& obs_values, int idx) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.conditional(obs_indices, obs_values).mean()[static_cast<std::size_t>(idx)];
+    });
+    m.def("mvn_conditional_covariance", [](const std::vector<double>& mean,
+                                            const std::vector<std::vector<double>>& covariance,
+                                            const std::vector<int>& obs_indices,
+                                            const std::vector<double>& obs_values, int i, int j) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.conditional(obs_indices, obs_values).covariance(i, j);
+    });
+    m.def("mvn_conditional_dimension", [](const std::vector<double>& mean,
+                                           const std::vector<std::vector<double>>& covariance,
+                                           const std::vector<int>& obs_indices,
+                                           const std::vector<double>& obs_values) {
+        mvd::MultivariateNormal n(mean, covariance);
+        return n.conditional(obs_indices, obs_values).dimension();
     });
 
     // --- MultivariateNormal (seeded batch methods) ---------------------------------------

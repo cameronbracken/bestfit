@@ -525,7 +525,7 @@ class CompositeAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         const std::vector<UnivariateDistributionBase*>& dists) const {
         auto cr = std::make_unique<CompetingRisks>(dists);
         cr->minimum_of_random_variables = !is_maximum_;
-        cr->dependency = dependency_;
+        cr->set_dependency(dependency_);
         cr->x_transform = Transform::Logarithmic;
         cr->probability_transform = Transform::NormalZ;
         cr->create_empirical_cdf();

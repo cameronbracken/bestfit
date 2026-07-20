@@ -420,8 +420,14 @@ static dist::CompetingRisks make_competing_risks(strings comp_targets,
     }
     dist::CompetingRisks cr(std::move(comps));
     cr.minimum_of_random_variables = minimum_of_rv;
-    cr.dependency = parse_dependency(dependency);
-    if (dependency == "CorrelationMatrix") {
+    cr.set_dependency(parse_dependency(dependency));
+    // Unconditional on `dependency` (matches test_fixtures.cpp's build_composite and the
+    // dotnet emitter's BuildComposite) -- a caller may set CorrelationMatrix up front and
+    // only later switch Dependency to CorrelationMatrix (the v2.1.4
+    // dependency_change fixture), so gating this on `dependency == "CorrelationMatrix"`
+    // left correlation_matrix_ empty for any OTHER initial dependency, an
+    // out-of-bounds read waiting to happen the first time a fixture read it back.
+    if (correlation.size() > 0) {
         corehydro::numerics::data::probability::Matrix2D corr;
         corr.reserve(correlation.size());
         for (R_xlen_t i = 0; i < correlation.size(); ++i) {
@@ -477,4 +483,25 @@ bool ch_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_r
                    std::string dependency, list correlation) {
     return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
                                  correlation).parameters_valid();
+}
+
+// v2.1.4: verifies the Dependency setter fix (changing Dependency mid-lifetime invalidates
+// the cached MVN) and that PerfectlyNegative no longer zeroes the public CorrelationMatrix.
+// ONE self-contained call (R has no persistent object across fixture assertions): CDF
+// under the FIRST dependency, read CorrelationMatrix[i, j] back, then switch to
+// `dependency2` and CDF again -- returns the value the fixture asked for via `field`
+// ("cdf1", "correlation", "cdf2").
+[[cpp11::register]]
+double ch_cr_dependency_change_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                                 std::string dependency, std::string dependency2, list correlation,
+                                 double x, std::string field, int i, int j) {
+    auto cr = make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency, correlation);
+    double cdf1 = cr.cdf(x);
+    double corr_ij = cr.correlation_matrix()[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+    cr.set_dependency(parse_dependency(dependency2));
+    double cdf2 = cr.cdf(x);
+    if (field == "cdf1") return cdf1;
+    if (field == "correlation") return corr_ij;
+    if (field == "cdf2") return cdf2;
+    stop("unknown ch_cr_dependency_change_ field '%s'", field.c_str());
 }

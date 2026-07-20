@@ -242,6 +242,38 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
         // parameter-validity fixture). Returns a dummy value; pair with a
         // mode:"equal", expected:0 assertion.
         case "set_parameters": d.SetParameters(a.Select(ParseNum).ToArray()); return 0;
+        // CompetingRisks-only: verifies the v2.1.4 Dependency setter fix (changing
+        // Dependency mid-lifetime invalidates the cached MVN) and that PerfectlyNegative no
+        // longer zeroes the public CorrelationMatrix. ONE self-contained call (mirrors
+        // test_fixtures.cpp's dispatch_generic "dependency_change" branch -- works
+        // identically whether a runner holds the persistent `d` across a case's
+        // assertions or rebuilds fresh per dispatch, like R/Python): CDF under the CURRENT
+        // dependency, read back CorrelationMatrix[i, j], switch to args[1], CDF again --
+        // returns the value named by args[4] ("cdf1"/"correlation"/"cdf2").
+        // args = [x, dependency2, i, j, field].
+        case "dependency_change":
+        {
+            var cr = (CompetingRisks)d;
+            double x = a[0].GetDouble();
+            double cdf1 = cr.CDF(x);
+            double corrIj = cr.CorrelationMatrix[a[2].GetInt32(), a[3].GetInt32()];
+            cr.Dependency = a[1].GetString() switch
+            {
+                "Independent" => Probability.DependencyType.Independent,
+                "PerfectlyPositive" => Probability.DependencyType.PerfectlyPositive,
+                "PerfectlyNegative" => Probability.DependencyType.PerfectlyNegative,
+                "CorrelationMatrix" => Probability.DependencyType.CorrelationMatrix,
+                var s => throw new Exception($"unknown dependency type: {s}")
+            };
+            double cdf2 = cr.CDF(x);
+            return a[4].GetString() switch
+            {
+                "cdf1" => cdf1,
+                "correlation" => corrIj,
+                "cdf2" => cdf2,
+                var f => throw new Exception($"unknown dependency_change field: {f}")
+            };
+        }
         case "mean": return d.Mean;
         case "median": return d.Median;
         case "mode": return d.Mode;
@@ -1015,6 +1047,25 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
     {
         var bb = (BivariateEmpirical)d;
         if (m == "cdf_xy") return bb.CDF(a[0].GetDouble(), a[1].GetDouble());
+        // v2.1.4: verifies the stale-cache fix in ONE self-contained call -- CDF() once
+        // (forces the bilinear cache to build against the CURRENT grid), SetParameters()
+        // with a REPLACEMENT grid, then CDF() again. args = [[x1_new...], [x2_new...],
+        // [[p_row0...], ...], x1_eval, x2_eval].
+        if (m == "cdf_xy_after_set_parameters")
+        {
+            bb.CDF(a[3].GetDouble(), a[4].GetDouble());
+            var x1 = a[0].EnumerateArray().Select(ParseNum).ToArray();
+            var x2 = a[1].EnumerateArray().Select(ParseNum).ToArray();
+            var pRows = a[2].EnumerateArray().ToArray();
+            var p = new double[pRows.Length, x2.Length];
+            for (int i = 0; i < pRows.Length; i++)
+            {
+                var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
+                for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
+            }
+            bb.SetParameters(x1, x2, p);
+            return bb.CDF(a[3].GetDouble(), a[4].GetDouble());
+        }
     }
     else if (target == "MultivariateNormal")
     {
@@ -1060,6 +1111,77 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
             }
             case "random_value": return SampleValueAt(nn.GenerateRandomValues, a);
             case "lhs_value": return SampleValueAt(nn.LatinHypercubeRandomValues, a);
+            // v2.1.4: MVNDST status-code cases assert INFORM/ERROR alongside VALUE
+            // (same args shape as "mvndst" above; a separate case since DispatchMultivariate
+            // returns one double per call).
+            case "mvndst_inform":
+            case "mvndst_error":
+            {
+                int n = a[0].GetInt32();
+                var lower = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[2].EnumerateArray().Select(ParseNum).ToArray();
+                var infin = a[3].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var correl = a[4].EnumerateArray().Select(ParseNum).ToArray();
+                int maxpts = a[5].GetInt32();
+                double abseps = a[6].GetDouble();
+                double releps = a[7].GetDouble();
+                double error = 0, val = 0;
+                int inform = 0;
+                nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
+                return m == "mvndst_inform" ? inform : error;
+            }
+            // v2.1.4: IsDensityValid, as a double (1.0/0.0) for the uniform dispatch shape.
+            case "is_density_valid": return nn.IsDensityValid ? 1.0 : 0.0;
+            // v2.1.4: Marginal(indices)/Conditional(observedIndices, observedValues) --
+            // args = [[indices...], out_index] / [[obs_indices...], [obs_values...], out_index]
+            // (mean/dimension) or [[indices...], i, j] (covariance) or
+            // [[indices...], [x...]] (log_pdf). Every case constructs the marginal/
+            // conditional distribution fresh from `nn` and reads one scalar off it --
+            // stateless, matching every other MultivariateNormal dispatch method here.
+            case "marginal_mean":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                return marginal.Mean[a[1].GetInt32()];
+            }
+            case "marginal_covariance":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                return marginal.Covariance[a[1].GetInt32(), a[2].GetInt32()];
+            }
+            case "marginal_log_pdf":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                var x = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return marginal.LogPDF(x);
+            }
+            case "marginal_dimension":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                return nn.Marginal(indices).Dimension;
+            }
+            case "conditional_mean":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var conditional = nn.Conditional(obsIndices, obsValues);
+                return conditional.Mean[a[2].GetInt32()];
+            }
+            case "conditional_covariance":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var conditional = nn.Conditional(obsIndices, obsValues);
+                return conditional.Covariance[a[2].GetInt32(), a[3].GetInt32()];
+            }
+            case "conditional_dimension":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return nn.Conditional(obsIndices, obsValues).Dimension;
+            }
         }
     }
     else if (target == "MultivariateStudentT")

@@ -90,6 +90,7 @@ set(BF_TESTS
   test_coincident_frequency_analysis
   test_bootstrap_analysis
   test_copula_clone
+  test_multivariate_normal_api
 )
 
 # Sobol test takes the direction-number file as its sole argument.

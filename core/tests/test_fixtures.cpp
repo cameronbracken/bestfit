@@ -1077,7 +1077,7 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         if (construct.contains("minimum_of_random_variables"))
             cr->minimum_of_random_variables = construct["minimum_of_random_variables"].get<bool>();
         if (construct.contains("dependency"))
-            cr->dependency = parse_dependency(construct["dependency"].get<std::string>());
+            cr->set_dependency(parse_dependency(construct["dependency"].get<std::string>()));
         if (construct.contains("correlation")) {
             prob::Matrix2D corr;
             for (const auto& row : construct["correlation"]) {
@@ -1116,6 +1116,28 @@ static double dispatch_generic(dist::UnivariateDistributionBase& d, const std::s
         for (const auto& v : a) p.push_back(parse_num(v));
         d.set_parameters(p);
         return 0.0;
+    }
+    // CompetingRisks-only: verifies the v2.1.4 Dependency setter fix (changing Dependency
+    // mid-lifetime invalidates the cached MVN) and that PerfectlyNegative no longer zeroes
+    // the public CorrelationMatrix. ONE self-contained call (mirrors BivariateEmpirical's
+    // cdf_xy_after_set_parameters -- works identically whether a runner holds the
+    // persistent `d` across a case's assertions, like this one, or rebuilds fresh per
+    // dispatch, like R/Python): CDF under the CURRENT dependency, read back
+    // correlation_matrix()[i, j], switch to `dependency2`, CDF again -- returns the value
+    // named by `field` ("cdf1"/"correlation"/"cdf2"). args = [x, dependency2, i, j, field].
+    if (m == "dependency_change") {
+        auto& cr = dynamic_cast<dist::CompetingRisks&>(d);
+        double x = a[0].get<double>();
+        double cdf1 = cr.cdf(x);
+        double corr_ij = cr.correlation_matrix()[static_cast<std::size_t>(a[2].get<int>())]
+                                                  [static_cast<std::size_t>(a[3].get<int>())];
+        cr.set_dependency(parse_dependency(a[1].get<std::string>()));
+        double cdf2 = cr.cdf(x);
+        std::string field = a[4].get<std::string>();
+        if (field == "cdf1") return cdf1;
+        if (field == "correlation") return corr_ij;
+        if (field == "cdf2") return cdf2;
+        throw std::runtime_error("unknown dependency_change field: " + field);
     }
     if (m == "mean") return d.mean();
     if (m == "median") return d.median();
@@ -1285,6 +1307,12 @@ static std::vector<double> parse_num_vec(const json& arr) {
     return v;
 }
 
+static std::vector<int> parse_int_vec(const json& arr) {
+    std::vector<int> v;
+    for (const auto& e : arr) v.push_back(e.get<int>());
+    return v;
+}
+
 static std::unique_ptr<dist::MultivariateDistribution> build_multivariate(const std::string& target,
                                                                            const json& construct) {
     if (target == "Dirichlet") {
@@ -1353,7 +1381,13 @@ static double lhs_value_at(const Dist& d, const json& a) {
     return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
 }
 
-static double dispatch_multivariate(const dist::MultivariateDistribution& d, const std::string& target,
+// Non-const: BivariateEmpirical's "set_parameters" (below) mutates `d` in place, mirroring
+// dispatch_generic's own "set_parameters" precedent -- lets a case exercise the v2.1.4
+// stale-cache fix ("construct -> cdf -> set_parameters (new grid) -> cdf again") on ONE
+// persistent object. Every other branch only calls const accessors, so this is a pure
+// widening of what the reference can do (the sole call site in run_multivariate already
+// holds `d` via a non-const std::unique_ptr).
+static double dispatch_multivariate(dist::MultivariateDistribution& d, const std::string& target,
                                     const std::string& m, const json& a) {
     if (m == "dimension") return d.dimension();
     if (m == "pdf") return d.pdf(parse_num_vec(a[0]));
@@ -1378,8 +1412,24 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "covariance") return mm.covariance(a[0].get<int>(), a[1].get<int>());
         if (m == "random_value") return random_value_at(mm, a);
     } else if (target == "BivariateEmpirical") {
-        const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
+        auto& bb = dynamic_cast<dist::BivariateEmpirical&>(d);
         if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
+        // v2.1.4: verifies the stale-cache fix in ONE self-contained call (works
+        // identically whether a runner holds a persistent object across a case's
+        // assertions, like this one, or rebuilds fresh per dispatch, like R/Python) --
+        // cdf() once (forces the bilinear cache to build against the CURRENT grid),
+        // set_parameters() with a REPLACEMENT grid, then cdf() again; a stale cache would
+        // still reflect the OLD grid on the second call. args = [[x1_new...], [x2_new...],
+        // [[p_row0...], ...], x1_eval, x2_eval].
+        if (m == "cdf_xy_after_set_parameters") {
+            bb.cdf(a[3].get<double>(), a[4].get<double>());
+            std::vector<double> x1 = parse_num_vec(a[0]);
+            std::vector<double> x2 = parse_num_vec(a[1]);
+            std::vector<std::vector<double>> p;
+            for (const auto& row : a[2]) p.push_back(parse_num_vec(row));
+            bb.set_parameters(std::move(x1), std::move(x2), std::move(p));
+            return bb.cdf(a[3].get<double>(), a[4].get<double>());
+        }
     } else if (target == "MultivariateNormal") {
         const auto& nn = dynamic_cast<const dist::MultivariateNormal&>(d);
         if (m == "mean") return nn.mean()[static_cast<std::size_t>(a[0].get<int>())];
@@ -1409,6 +1459,47 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
             nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
             return value;
         }
+        if (m == "mvndst_inform" || m == "mvndst_error") {
+            // Same args shape as "mvndst" above -- a separate method since dispatch_multivariate
+            // returns one double per call and the v2.1.4 status-code cases assert INFORM/ERROR.
+            int n = a[0].get<int>();
+            std::vector<double> lower = parse_num_vec(a[1]);
+            std::vector<double> upper = parse_num_vec(a[2]);
+            std::vector<int> infin;
+            for (const auto& v : a[3]) infin.push_back(v.get<int>());
+            std::vector<double> correl = parse_num_vec(a[4]);
+            int maxpts = a[5].get<int>();
+            double abseps = a[6].get<double>();
+            double releps = a[7].get<double>();
+            double error = 0, value = 0;
+            int inform = 0;
+            nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+            return m == "mvndst_inform" ? inform : error;
+        }
+        if (m == "is_density_valid") return nn.is_density_valid() ? 1.0 : 0.0;
+        if (m == "marginal_mean") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.mean()[static_cast<std::size_t>(a[1].get<int>())];
+        }
+        if (m == "marginal_covariance") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.covariance(a[1].get<int>(), a[2].get<int>());
+        }
+        if (m == "marginal_log_pdf") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.log_pdf(parse_num_vec(a[1]));
+        }
+        if (m == "marginal_dimension") return nn.marginal(parse_int_vec(a[0])).dimension();
+        if (m == "conditional_mean") {
+            auto conditional = nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1]));
+            return conditional.mean()[static_cast<std::size_t>(a[2].get<int>())];
+        }
+        if (m == "conditional_covariance") {
+            auto conditional = nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1]));
+            return conditional.covariance(a[2].get<int>(), a[3].get<int>());
+        }
+        if (m == "conditional_dimension")
+            return nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1])).dimension();
     } else if (target == "MultivariateStudentT") {
         const auto& tt = dynamic_cast<const dist::MultivariateStudentT&>(d);
         if (m == "degrees_of_freedom") return tt.degrees_of_freedom();

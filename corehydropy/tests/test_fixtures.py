@@ -208,6 +208,13 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return _core.cr_quantile(ct, cp, min_rv, dep, corr, args[0])
         if method == "parameters_valid":
             return _core.cr_valid(ct, cp, min_rv, dep, corr)
+        if method == "dependency_change":
+            # v2.1.4: verifies the Dependency setter fix + PerfectlyNegative no longer
+            # zeroing CorrelationMatrix, in ONE self-contained call -- args = [x,
+            # dependency2, i, j, field].
+            x, dep2, i, j, field = args
+            return _core.cr_dependency_change(ct, cp, min_rv, dep, dep2, corr, float(x),
+                                               field, int(i), int(j))
         raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
     raise KeyError(f"unknown composite target: {target}")
 
@@ -291,7 +298,14 @@ def _flatten_mv_args(args: list) -> list[float]:
 
 
 def _dispatch_multivariate(target: str, construct: dict, method: str, args: list):
-    ar = _flatten_mv_args(args)
+    # Methods with a doubly-nested arg (e.g. cdf_xy_after_set_parameters's replacement
+    # probability grid, or MultivariateNormal's marginal_*/conditional_*) can't flatten
+    # through _flatten_mv_args's "one nested vector, or all-scalar" convention -- those
+    # branches below never reference `ar`, so a flatten failure here is harmless.
+    try:
+        ar = _flatten_mv_args(args)
+    except (TypeError, ValueError):
+        ar = None
     if target == "Dirichlet":
         alpha = [float(v) for v in construct["alpha"]]
         return _core.dirichlet_val(method, alpha, ar)
@@ -308,10 +322,48 @@ def _dispatch_multivariate(target: str, construct: dict, method: str, args: list
             construct.get("x2_transform", "None"),
             construct.get("p_transform", "None"),
         ]
+        if method == "cdf_xy_after_set_parameters":
+            # v2.1.4 stale-cache fix, verified in ONE self-contained call -- args =
+            # [[x1_new...], [x2_new...], [[p_row0...], ...], x1_eval, x2_eval].
+            x1_new = [float(v) for v in args[0]]
+            x2_new = [float(v) for v in args[1]]
+            p_new = [[float(v) for v in row] for row in args[2]]
+            return _core.bve_cdf_after_set_parameters(x1, x2, p, transforms, x1_new, x2_new,
+                                                       p_new, float(args[3]), float(args[4]))
         return _core.bve_cdf(method, x1, x2, p, transforms, ar)
     if target == "MultivariateNormal":
         mean = [float(v) for v in construct["mean"]]
         cov = [[float(v) for v in row] for row in construct["covariance"]]
+        # v2.1.4 Marginal/Conditional: dedicated entry points (not the flattened `ar`)
+        # since these take a variable-length index vector (Conditional: a second
+        # same-length values vector) that _flatten_mv_args's "one nested vector, or
+        # all-scalar" convention can't disambiguate from adjacent variable-length vectors.
+        if method == "marginal_mean":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_mean(mean, cov, indices, int(args[1]))
+        if method == "marginal_covariance":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_covariance(mean, cov, indices, int(args[1]), int(args[2]))
+        if method == "marginal_log_pdf":
+            indices = [int(v) for v in args[0]]
+            point = [float(v) for v in args[1]]
+            return _core.mvn_marginal_log_pdf(mean, cov, indices, point)
+        if method == "marginal_dimension":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_dimension(mean, cov, indices)
+        if method == "conditional_mean":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_mean(mean, cov, obs_indices, obs_values, int(args[2]))
+        if method == "conditional_covariance":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_covariance(mean, cov, obs_indices, obs_values,
+                                                     int(args[2]), int(args[3]))
+        if method == "conditional_dimension":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_dimension(mean, cov, obs_indices, obs_values)
         return _core.mvn_val(method, mean, cov, ar)
     if target == "MultivariateStudentT":
         df = float(construct["df"])

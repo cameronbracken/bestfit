@@ -1049,6 +1049,137 @@
           "source": "curated via oracle_emitter --dump"
         }
       ]
+    },
+    {
+      "name": "mvndst_invalid_dimension_status_two",
+      "note": "Test_MVNDST_InvalidDimensionReturnsStatusTwo: N=0 (outside MVNDST's 1..500 range) short-circuits before MVNDNT initialization -- INFORM=2, VALUE=0, ERROR=1, deterministic.",
+      "construct": { "mean": [0.0], "covariance": [[1.0]] },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [0, [], [], [], [], 1, 0.0, 0.0], "expected": 2, "mode": "equal" },
+        { "method": "mvndst", "args": [0, [], [], [], [], 1, 0.0, 0.0], "expected": 0.0, "mode": "abs", "tol": 0 },
+        { "method": "mvndst_error", "args": [0, [], [], [], [], 1, 0.0, 0.0], "expected": 1.0, "mode": "abs", "tol": 0 }
+      ]
+    },
+    {
+      "name": "mvndst_all_unbounded_status_zero",
+      "note": "Test_MVNDST_AllUnboundedReturnsExactProbability: both dimensions flagged INFIN=-1 (no finite bound) -- N-INFIS==0 short-circuit, VALUE=1 exactly, ERROR=0, INFORM=0.",
+      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.0], [0.0, 1.0]] },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [2, [0.0, 0.0], [0.0, 0.0], [-1, -1], [0.0], 1, 0.0, 0.0], "expected": 0, "mode": "equal" },
+        { "method": "mvndst", "args": [2, [0.0, 0.0], [0.0, 0.0], [-1, -1], [0.0], 1, 0.0, 0.0], "expected": 1.0, "mode": "abs", "tol": 0 },
+        { "method": "mvndst_error", "args": [2, [0.0, 0.0], [0.0, 0.0], [-1, -1], [0.0], 1, 0.0, 0.0], "expected": 0.0, "mode": "abs", "tol": 0 }
+      ]
+    },
+    {
+      "name": "mvndst_one_active_dimension",
+      "note": "Test_MVNDST_OneActiveDimensionMatchesNormalProbability: dim 1 unbounded (INFIN=-1), dim 0 upper-bounded at 0 -- N-INFIS==1 exact-normal-limit branch (VALUE = MVNPHI(0) = 0.5), INFORM=0, ERROR=2E-16. Mirrors the C# test's `new MultivariateNormal(2)` (identity covariance) -- the 0.7 correlation is supplied entirely through the mvndst CORREL argument, decoupled from the object's own covariance state (mvndst never reads covariance_).",
+      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.0], [0.0, 1.0]] },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, -1], [0.7], 1, 0.0, 0.0], "expected": 0, "mode": "equal" },
+        { "method": "mvndst", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, -1], [0.7], 1, 0.0, 0.0], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
+        { "method": "mvndst_error", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, -1], [0.7], 1, 0.0, 0.0], "expected": 2e-16, "mode": "abs", "tol": 0 }
+      ]
+    },
+    {
+      "name": "mvndst_bivariate_collapse",
+      "note": "Test_MVNDST_BivariateCollapseMatchesAnalyticalProbability: both dims upper-bounded at 0, correlation 0.5 -- N-INFIS==2 BVNMVN closed-form branch, VALUE = 1/3 (the zero-threshold quadrant probability), INFORM=0, ERROR=2E-16. Identity-covariance construct (see mvndst_one_active_dimension's note) -- the 0.5 correlation is supplied through the mvndst CORREL argument only.",
+      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.0], [0.0, 1.0]] },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, 0], [0.5], 1, 0.0, 0.0], "expected": 0, "mode": "equal" },
+        { "method": "mvndst", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, 0], [0.5], 1, 0.0, 0.0], "expected": 0.3333333333333333, "mode": "abs", "tol": 1e-12 },
+        { "method": "mvndst_error", "args": [2, [0.0, 0.0], [0.0, 0.0], [0, 0], [0.5], 1, 0.0, 0.0], "expected": 2e-16, "mode": "abs", "tol": 0 }
+      ]
+    },
+    {
+      "name": "mvndst_insufficient_budget_status_one",
+      "note": "Test_MVNDST_InsufficientBudgetReturnsStatusOne: dim 3, all finite bounds (N-INFIS==3 reaches the DKBVRC lattice-integration branch), MAXPTS=1 deliberately starves the budget -- INFORM=1 is the deterministic invariant the C# test itself asserts (its VALUE/ERROR checks are loose bounds -- value in [0,1], error finite and non-negative -- not exact values, since both are genuinely seed-stream-position-dependent once budget is exhausted; only INFORM==1 is pinned here to avoid a cross-runner RNG-sequencing dependency the schema has no way to express). Identity-covariance construct (mirrors the C# test's `new MultivariateNormal(3)`) -- the 0.25/0.1/0.3 correlations are supplied through the mvndst CORREL argument only.",
+      "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] },
+      "assertions": [
+        { "method": "mvndst_inform", "args": [3, [0.0, 0.0, 0.0], [0.2, 0.5, 1.0], [0, 0, 0], [0.25, 0.1, 0.3], 1, 0.0, 0.0], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "cdf_perfect_correlation_collapse",
+      "note": "Test_CDF_PerfectCorrelationCollapsesToNormal: three perfectly-correlated (rho=1) standard normals collapse the trivariate CDF to the tightest univariate bound, StandardCDF(min(upper)). Exercises the COVSRT degenerate-diagonal fix at the SECOND/THIRD sorted pivot (the case the old inverted loop bound silently produced wrong output for, since it only ever fired for i==0). Identity-covariance construct (mirrors the C# test's `new MultivariateNormal(3)`, via EvaluateStandardCdf) -- the rho=1 correlation is supplied entirely through the mvndst CORREL argument; a rank-deficient covariance in `construct` itself would fail Cholesky at construction time.",
+      "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.8, -0.3, 0.2], [0, 0, 0], [1.0, 1.0, 1.0], 25000, 1e-10, 0.0], "expected": 0.3820885778110475, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(-0.3)" }
+      ]
+    },
+    {
+      "name": "cdf_perfect_anticorrelation_collapse",
+      "note": "Test_CDF_PerfectAnticorrelationCollapsesToNormalInterval: two perfectly-anticorrelated (rho=-1) standard normals collapse the bivariate CDF to a bounded normal interval, StandardCDF(upper0) - StandardCDF(-upper1). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- rho=-1 is supplied through the mvndst CORREL argument only.",
+      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.0], [0.0, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "mvndst", "args": [2, [0.0, 0.0], [0.7, 0.2], [0, 0], [-1.0], 25000, 1e-10, 0.0], "expected": 0.33729605721602995, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(0.7) - Normal.StandardCDF(-0.2)" }
+      ]
+    },
+    {
+      "name": "cdf_permuted_rank_deficient_collapse_a",
+      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (1st call): X3 perfectly correlated with X1 (corr20=1), X2 independent of both (corr01=corr21=0) -- a rank-deficient covariance whose redundant dimension sorts to the THIRD position. Collapses to the independent product StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only.",
+      "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.2, -0.4, 0.7], [0, 0, 0], [0.0, 1.0, 0.0], 25000, 1e-10, 0.0], "expected": 0.19960030183383579, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(0.2) * Normal.StandardCDF(-0.4)" }
+      ]
+    },
+    {
+      "name": "cdf_permuted_rank_deficient_collapse_b",
+      "note": "Test_CDF_PermutedRankDeficientMatricesCollapseAnalytically (2nd call): the SAME redundancy permuted to the SECOND position (X2 perfectly correlated with X1, corr10=1; X3 independent of both) -- the point of 'permuted': exercises the fixed COVSRT loop at a different sorted index than the 1st call, same analytical collapse StandardCDF(0.2)*StandardCDF(-0.4). Identity-covariance construct (see cdf_perfect_correlation_collapse's note) -- the redundancy is supplied through the mvndst CORREL argument only.",
+      "construct": { "mean": [0.0, 0.0, 0.0], "covariance": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "mvndst", "args": [3, [0.0, 0.0, 0.0], [0.7, 0.2, -0.4], [0, 0, 0], [1.0, 0.0, 0.0], 25000, 1e-10, 0.0], "expected": 0.19960030183383579, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches Normal.StandardCDF(0.2) * Normal.StandardCDF(-0.4)" }
+      ]
+    },
+    {
+      "name": "cdf_near_singular_matches_bivariate_formula",
+      "note": "Test_CDF_NearSingularCorrelationMatchesBivariateFormula: correlation 1 - 1E-12 (just short of perfectly singular) stays on the ordinary dim-2 closed-form bivariate_cdf path (never touches MVNUNI/MVNDST) -- confirms the COVSRT repair didn't disturb the unrelated, unchanged nonsingular path immediately above perfect correlation.",
+      "construct": { "mean": [0.0, 0.0], "covariance": [[1.0, 0.999999999999], [0.999999999999, 1.0]], "seed": 12345 },
+      "assertions": [
+        { "method": "cdf", "args": [[0.0, 0.0]], "expected": 0.4999997749234105, "mode": "abs", "tol": 1e-10, "source": "curated via oracle_emitter --dump; matches 0.25 + asin(0.999999999999) / (2*pi)" }
+      ]
+    },
+    {
+      "name": "marginal_subset_and_values",
+      "note": "Test_Marginal_SubsetAndValidation: Marginal(2, 0) reorders and subsets the mean/covariance; marginal_log_pdf cross-checks against a directly-constructed 2D MultivariateNormal((3,1), [[16,0.5],[0.5,4]]) built by hand from the same entries (mirrors the C# test's own cross-check, which this fixture reproduces as one curated value rather than two constructs). Throws-on-invalid-indices (empty/duplicate/out-of-range) are not fixture-shaped (no exception-mode assertion exists) -- see core/tests/test_multivariate_normal_api.cpp.",
+      "construct": {
+        "mean": [1.0, 2.0, 3.0],
+        "covariance": [[4.0, 1.2, 0.5], [1.2, 9.0, 2.1], [0.5, 2.1, 16.0]]
+      },
+      "assertions": [
+        { "method": "marginal_dimension", "args": [[2, 0]], "expected": 2, "mode": "equal" },
+        { "method": "marginal_mean", "args": [[2, 0], 0], "expected": 3.0, "mode": "abs", "tol": 0 },
+        { "method": "marginal_mean", "args": [[2, 0], 1], "expected": 1.0, "mode": "abs", "tol": 0 },
+        { "method": "marginal_covariance", "args": [[2, 0], 0, 0], "expected": 16.0, "mode": "abs", "tol": 0 },
+        { "method": "marginal_covariance", "args": [[2, 0], 0, 1], "expected": 0.5, "mode": "abs", "tol": 0 },
+        { "method": "marginal_covariance", "args": [[2, 0], 1, 1], "expected": 4.0, "mode": "abs", "tol": 0 },
+        { "method": "marginal_log_pdf", "args": [[2, 0], [2.5, 1.4]], "expected": -3.944851854507044, "mode": "abs", "tol": 1e-12, "source": "curated via oracle_emitter --dump; matches a direct MultivariateNormal((3,1), [[16,0.5],[0.5,4]]).LogPDF" }
+      ]
+    },
+    {
+      "name": "conditional_bivariate_closed_form",
+      "note": "Test_Conditional_ClosedFormsAndValidation (bivariate half): X1 | X2=3.5 has mean mu1 + rho*(s1/s2)*(x2-mu2) and variance s1^2*(1-rho^2) -- the textbook Gaussian conditioning identity.",
+      "construct": { "mean": [4.0, 2.0], "covariance": [[4.0, 3.6], [3.6, 9.0]] },
+      "assertions": [
+        { "method": "conditional_dimension", "args": [[1], [3.5]], "expected": 1, "mode": "equal" },
+        { "method": "conditional_mean", "args": [[1], [3.5], 0], "expected": 4.6, "mode": "abs", "tol": 1e-12 },
+        { "method": "conditional_covariance", "args": [[1], [3.5], 0, 0], "expected": 2.56, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "conditional_trivariate_schur_complement",
+      "note": "Test_Conditional_ClosedFormsAndValidation (trivariate half): observing the middle dimension leaves free dimensions [0, 2] in ascending order; mu_c = mu_free + Sigma_free,obs * (x_obs - mu_obs) / Sigma_obs,obs and Sigma_c = Sigma_free,free - outer(Sigma_free,obs) / Sigma_obs,obs (the Schur complement, D=1 observed so no matrix inverse needed).",
+      "construct": {
+        "mean": [1.0, 2.0, 3.0],
+        "covariance": [[4.0, 1.2, 0.5], [1.2, 9.0, 2.1], [0.5, 2.1, 16.0]]
+      },
+      "assertions": [
+        { "method": "conditional_dimension", "args": [[1], [4.0]], "expected": 2, "mode": "equal" },
+        { "method": "conditional_mean", "args": [[1], [4.0], 0], "expected": 1.2666666666666666, "mode": "abs", "tol": 1e-12 },
+        { "method": "conditional_mean", "args": [[1], [4.0], 1], "expected": 3.4666666666666668, "mode": "abs", "tol": 1e-12 },
+        { "method": "conditional_covariance", "args": [[1], [4.0], 0, 0], "expected": 3.84, "mode": "abs", "tol": 1e-12 },
+        { "method": "conditional_covariance", "args": [[1], [4.0], 0, 1], "expected": 0.22, "mode": "abs", "tol": 1e-12 },
+        { "method": "conditional_covariance", "args": [[1], [4.0], 1, 1], "expected": 15.51, "mode": "abs", "tol": 1e-12 }
+      ]
     }
   ]
 }
