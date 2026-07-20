@@ -404,11 +404,15 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Port handling:** fixed via the standard numerically-stable identity `Phi(z) =
   0.5 * erfc(-z/sqrt2)` (mathematically identical to the erf form since `erfc(x) = 1 - erf(x)`,
   but `erfc` doesn't lose precision as its argument grows, so it never cancels down to exactly
-  0/1). Verified to reproduce the real C# MVNPHI-based value bit-for-bit at `z=-9`
-  (`1.1285884059538425E-19` here vs. `1.128588405953841E-19` from `oracle_emitter --dump`) and to
-  agree with the old erf formula to ~1E-16 for every ordinary `z` any other existing fixture
-  exercises — confirmed by the full `verify_oracles.py` gate (same 10 pre-existing failures,
-  zero new ones) and the full C++/R/Python suites (all green) after the change.
+  0/1). Verified to reproduce the real C# MVNPHI-based value at `z=-9` to ~1E-15 RELATIVE
+  precision (`1.1285884059538425E-19` here vs. `1.128588405953841E-19` from `oracle_emitter
+  --dump`) — the two differ by ~6 ULP, NOT bit-for-bit, since C#'s MVNPHI is itself only a
+  ~1E-15-accurate Chebyshev-series approximation (per its own doc comment) while this `erfc`
+  form is the more accurate of the two — comfortably within the fixture's 1E-8 relative
+  tolerance. Agrees with the old erf formula to ~1E-16 for every ordinary `z` any other
+  existing fixture exercises — confirmed by the full `verify_oracles.py` gate (same 10
+  pre-existing failures, zero new ones) and the full C++/R/Python suites (all green) after the
+  change.
 - **Suggested C# fix:** none — this is a C++-port-only bug with no C# analog to fix.
 
 ## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)

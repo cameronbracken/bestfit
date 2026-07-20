@@ -103,6 +103,7 @@
 #include "corehydro/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
 #include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
@@ -903,6 +904,8 @@ special_function_table() {
         // fixtures/special_functions/probability.json)
         {"Probability.hpcm_joint", [](const std::vector<double>& a) { return probability_hpcm_joint(a); }},
         {"Probability.hpcm_conditional_at", probability_hpcm_conditional_at},
+        // Tools.log10 (args: [x] -- see fixtures/special_functions/tools.json)
+        {"Tools.log10", [](const std::vector<double>& a) { return corehydro::numerics::clamped_log10(a[0]); }},
     };
     return t;
 }

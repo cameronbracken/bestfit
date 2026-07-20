@@ -1,0 +1,50 @@
+{
+  "target": "Tools.log10",
+  "kind": "special_function",
+  "source": "Numerics/Utilities/Tools.cs; Test_Log10 (Test_Numerics/Utilities/Test_Tools.cs) scrapes the two ordinary cases (100 -> 2, 1 -> 0), unchanged before and after v2.1.4. No dedicated Log10 NaN/boundary test exists upstream (grep-confirmed: the v2.1.4 diff to Test_Tools.cs only adds Test_ParallelAdd_* cases -- see tools.hpp's file header on why ParallelAdd is out of this port's scope -- none touch Log10), so the guard-boundary and NaN cases below are curated.",
+  "reference": "Numerics @ 2a0357a. Args convention (this port's own -- see fixtures/README.md): args = [x], a single scalar. Tools.Log10's near-zero guard changed in 33dc1af from `x < 1E-16 && Math.Sign(x) != -1` (throws ArithmeticException for x=NaN, since Math.Sign(NaN) throws) to `x < 1E-16 && x >= 0d` (NaN-safe: the comparison is false for NaN, so Log10(NaN) now returns NaN instead of throwing) -- see tools.hpp's file header. This port's own clamped_log10 already used the NaN-safe `x >= 0.0` phrasing from the start (C++ comparison operators never throw for NaN, unlike Math.Sign), so `nan_propagates` pins behavior this port already had, now confirmed to match the FIXED v2.1.4 C# rather than the old (throwing) C#. `log10_zero`/`log10_below_floor` pin the pre-existing (unchanged by v2.1.4) clamp-to-1E-16 floor; `log10_positive`/`log10_one` scrape Test_Log10 verbatim; `log10_negative_not_clamped` confirms a negative input is NOT clamped (Math.Log10 of a negative number is NaN in both languages -- an assertion about the guard's sign check, unrelated to the v2.1.4 NaN-input fix). Every curated value was confirmed reproducible against the REAL C# Tools class via tools/oracle_emitter --dump / verify_oracles.py.",
+  "cases": [
+    {
+      "name": "log10_positive",
+      "args": [100],
+      "assertions": [
+        { "method": "value", "expected": 2, "mode": "equal", "source": "Test_Log10" }
+      ]
+    },
+    {
+      "name": "log10_one",
+      "args": [1],
+      "assertions": [
+        { "method": "value", "expected": 0, "mode": "equal", "source": "Test_Log10" }
+      ]
+    },
+    {
+      "name": "log10_zero",
+      "args": [0],
+      "assertions": [
+        { "method": "value", "expected": -16, "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump; x=0 is < 1E-16 and >= 0, so it clamps to 1E-16 before the log; log10(1E-16) = -16" }
+      ]
+    },
+    {
+      "name": "log10_below_floor",
+      "args": [1e-20],
+      "assertions": [
+        { "method": "value", "expected": -16, "mode": "abs", "tol": 1e-9, "source": "curated via oracle_emitter --dump; 1E-20 is < 1E-16 and >= 0, so it clamps to 1E-16 before the log" }
+      ]
+    },
+    {
+      "name": "log10_negative_not_clamped",
+      "args": [-5],
+      "assertions": [
+        { "method": "value", "expected": "nan", "mode": "equal", "source": "curated via oracle_emitter --dump; x=-5 is < 1E-16 but NOT >= 0, so the guard does not fire; Math.Log10(-5) is NaN in both languages -- confirms the guard's sign check is intact, distinct from the NaN-input case below" }
+      ]
+    },
+    {
+      "name": "nan_propagates",
+      "args": ["nan"],
+      "assertions": [
+        { "method": "value", "expected": "nan", "mode": "equal", "source": "curated via oracle_emitter --dump; the v2.1.4 regression pin itself -- Log10(NaN) no longer throws ArithmeticException (the old Math.Sign(NaN) guard threw), it now returns NaN. This port's own clamped_log10 already used the NaN-safe `x >= 0.0` comparison from the start, so this case confirms a match against the FIXED C# rather than discriminating old-vs-new C++ behavior" }
+      ]
+    }
+  ]
+}

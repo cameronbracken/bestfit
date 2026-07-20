@@ -627,6 +627,8 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // ProbabilityHpcmConditionalAt() below and fixtures/special_functions/probability.json)
     "Probability.hpcm_joint" => a => ProbabilityHpcmJoint(a),
     "Probability.hpcm_conditional_at" => ProbabilityHpcmConditionalAt,
+    // Tools.log10 (args: [x] -- see fixtures/special_functions/tools.json)
+    "Tools.log10" => a => Tools.Log10(a[0]),
     _ => null,
 };
 
