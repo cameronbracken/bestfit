@@ -1,19 +1,30 @@
-// ported from: Numerics/Distributions/Univariate/StudentT.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/StudentT.cs @ 2a0357a
 //
 // The Student's t distribution with parameters µ (location), σ (scale), and ν (degrees of freedom).
-// PDF via log-gamma formula; CDF via regularized incomplete beta with the t→beta argument transform
-// betaX = (Z + sqrt(Z²+ν)) / (2·sqrt(Z²+ν)); InverseCDF via two Beta.IncompleteInverse paths split
-// at p=0.25/0.75 matching the Accord Math Library algorithm (mirrored from C# source).
-// No estimation interfaces upstream. Logic mirrors the C# source method-for-method.
+// PDF via log-gamma formula, scaled by the 1/sigma Jacobian; CDF via regularized incomplete beta
+// with the t→beta argument transform betaX = (Z + sqrt(Z²+ν)) / (2·sqrt(Z²+ν)); InverseCDF via two
+// Beta.IncompleteInverse paths split at p=0.25/0.75 matching the Accord Math Library algorithm
+// (mirrored from C# source). No estimation interfaces upstream. Logic mirrors the C# source
+// method-for-method.
+//
+// v2.1.4 (2a0357a) upstream fixes ported here (audited Jacobian fix, "Fix audited Numerics port
+// issues"; see also the finite-dof validation from "Harden distribution parameter validation"):
+//   - PDF now multiplies by 1/sigma (previously returned the unscaled standard-t density T_nu(Z)
+//     even when sigma != 1, so the density did not integrate to 1 for sigma != 1 -- upstreamed the
+//     bug this port's oracle note used to cross-reference; see the pdf() comment below).
+//   - InverseCDF's tail path recomputes t as sqrt(nu)*sqrt(1-z)/sqrt(z) (algebraically equivalent to
+//     the old sqrt(nu/z - nu) but avoids the old double.MaxValue*z<nu overflow guard, which used to
+//     saturate to a bare +-double.MaxValue that dropped the mu/sigma location-scale transform
+//     entirely at extreme tail probabilities).
 //
 // CDF/InverseCDF beta transform notes (both copied from Accord Math Library via C# source):
 //   CDF: for nu < 1e8, transform Z=(x-mu)/sigma to betaX as above; feed Beta.Incomplete(nu/2, nu/2, betaX).
 //   InverseCDF mid path (0.25 < p < 0.75): uses IncompleteInverse(0.5, nu/2, |1-2p|), t=sqrt(nu*z/(1-z)).
-//   InverseCDF tail path (p <= 0.25 or p >= 0.75): uses IncompleteInverse(nu/2, 0.5, 2*p_adj), t=sqrt(nu/z - nu).
+//   InverseCDF tail path (p <= 0.25 or p >= 0.75): uses IncompleteInverse(nu/2, 0.5, 2*p_adj),
+//     t=sqrt(nu)*sqrt(1-z)/sqrt(z); no overflow guard (mu+sigma*t retained even at extreme tails).
 #pragma once
 #include <string>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -100,19 +111,21 @@ class StudentT : public UnivariateDistributionBase {
     // --- Distribution functions ---
 
     // PDF: for nu >= 1e8, delegate to standard normal PDF. Otherwise use log-gamma formula.
-    // Note: the C# implementation does NOT divide by sigma when sigma != 1; it uses Z=(x-mu)/sigma
-    // in the formula and returns T_nu(Z) — the standard t density evaluated at Z, not T_nu(Z)/sigma.
-    // This mirrors the C# source exactly (verified against Test_StudentT.cs oracle values).
+    // Both branches multiply by 1/sigma (the audited Jacobian fix, upstreamed at v2.1.4/2a0357a):
+    // Z=(x-mu)/sigma is the standardized argument, but the location-scale density is
+    // T_nu(Z)/sigma, not the bare standard-t density T_nu(Z) -- without the 1/sigma factor the
+    // result does not integrate to 1 for sigma != 1.
     double pdf(double x) const override {
         if (!parameters_valid_) throw std::invalid_argument("StudentT: invalid parameters");
-        double Z = (x - mu_) / sigma_;
+        double inverse_sigma = 1.0 / sigma_;
+        double Z = (x - mu_) * inverse_sigma;
         if (nu_ >= 1.0e8) {
-            // Large-df fallback: standard normal PDF at Z (mirrors C# Normal.StandardPDF(Z) — no /sigma)
-            return std::exp(-0.5 * Z * Z) / kSqrt2PI;
+            // Large-df fallback: standard normal PDF at Z (mirrors C# Normal.StandardPDF(Z)), scaled.
+            return (std::exp(-0.5 * Z * Z) / kSqrt2PI) * inverse_sigma;
         }
         return std::exp(sf_st::log_gamma((nu_ + 1.0) / 2.0) -
                         sf_st::log_gamma(nu_ / 2.0)) *
-               std::pow(1.0 + Z * Z / nu_, -0.5 * (nu_ + 1.0)) /
+               std::pow(1.0 + Z * Z / nu_, -0.5 * (nu_ + 1.0)) * inverse_sigma /
                std::sqrt(nu_ * kPi);
     }
 
@@ -132,7 +145,10 @@ class StudentT : public UnivariateDistributionBase {
     // InverseCDF: implements the Accord Math Library algorithm mirrored from the C# source.
     // Mid-range path (0.25 < p < 0.75): IncompleteInverse(0.5, nu/2, |1-2p|), t = sqrt(nu*z/(1-z)).
     // Tail path (p <= 0.25 or p >= 0.75): reflect if p > 0.5, then IncompleteInverse(nu/2, 0.5, 2p),
-    //   t = sqrt(nu/z - nu); guard against overflow per the C# double.MaxValue * z < nu check.
+    //   t = sqrt(nu)*sqrt(1-z)/sqrt(z) (v2.1.4/2a0357a: algebraically equivalent to the old
+    //   sqrt(nu/z - nu) but drops the old double.MaxValue*z<nu overflow guard, which used to
+    //   saturate to a bare +-double.MaxValue -- ignoring mu/sigma entirely -- at extreme tail
+    //   probabilities; mu + sigma*t is now retained all the way to the extreme tail).
     double inverse_cdf(double probability) const override {
         if (probability < 0.0 || probability > 1.0)
             throw std::out_of_range("probability must be between 0 and 1");
@@ -155,11 +171,7 @@ class StudentT : public UnivariateDistributionBase {
                 rflg = 1;
             }
             double z = sf_st::beta::incomplete_inverse(0.5 * nu_, 0.5, 2.0 * p);
-            double t = std::sqrt(nu_ / z - nu_);
-            if (std::numeric_limits<double>::max() * z < nu_) {
-                // Overflow guard: return rflg * double.MaxValue (no mu, no sigma — mirrors C# exactly)
-                return static_cast<double>(rflg) * std::numeric_limits<double>::max();
-            }
+            double t = std::sqrt(nu_) * std::sqrt(1.0 - z) / std::sqrt(z);
             return mu_ + sigma_ * static_cast<double>(rflg) * t;
         }
     }
@@ -186,7 +198,10 @@ class StudentT : public UnivariateDistributionBase {
     static bool validate(double mu, double sigma, double v) {
         if (std::isnan(mu) || std::isinf(mu)) return false;
         if (std::isnan(sigma) || std::isinf(sigma) || sigma <= 0.0) return false;
-        if (v < 1.0) return false;
+        // v2.1.4/2a0357a: explicit NaN/Inf rejection -- `v < 1.0` alone is false for both,
+        // silently reading a non-finite degrees-of-freedom as valid (same class of bug as
+        // NoncentralT's Task-3 fix).
+        if (std::isnan(v) || std::isinf(v) || v < 1.0) return false;
         return true;
     }
 

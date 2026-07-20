@@ -31,15 +31,23 @@
     },
     {
       "name": "student_t_shifted_mu2p5_sigma0p5_nu4",
-      "note": "Test_StudentT_PDF, Test_StudentT_CDF: StudentT(2.5, 0.5, 4) at x=1.4",
+      "note": "Test_StudentT_PDF, Test_StudentT_CDF: StudentT(2.5, 0.5, 4) at x=1.4. PDF re-pinned at v2.1.4/2a0357a (audited 1/sigma Jacobian fix): sigma=0.5 so the corrected density is exactly 2x the pre-fix 0.0516476521260042 (see docs/upstream-csharp-issues.md's StudentT PDF Jacobian entry, now resolved upstream).",
       "construct": { "params": [2.5, 0.5, 4.0] },
       "assertions": [
-        { "method": "pdf",      "args": [1.4], "expected": 0.0516476521260042,  "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf",      "args": [1.4], "expected": 0.1032953042520084,  "mode": "abs", "tol": 1e-10 },
         { "method": "cdf",      "args": [1.4], "expected": 0.0463263350898173,  "mode": "abs", "tol": 1e-10 },
         { "method": "quantile", "args": [0.0463263350898173], "expected": 1.4,  "mode": "abs", "tol": 1e-2 },
         { "method": "median",   "args": [], "expected": 2.5, "mode": "abs", "tol": 1e-12 },
         { "method": "mode",     "args": [], "expected": 2.5, "mode": "abs", "tol": 1e-12 },
         { "method": "mean",     "args": [], "expected": 2.5, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "student_t_pdf_location_scale_identity",
+      "note": "Test_StudentT_PDF_LocationScaleIdentityAndNormalization: standard.PDF(z) / scaled.Sigma == scaled.PDF(x), where standard=StudentT(0,1,4), scaled=StudentT(2.5,0.5,4), x=1.4, z=(x-2.5)/0.5=-2.2. standard.PDF(-2.2) reproduces the OLD (pre-Jacobian-fix) literal 0.0516476521260042 exactly, since sigma=1 here is unaffected by the fix; pairing with student_t_shifted_mu2p5_sigma0p5_nu4's re-pinned 0.1032953042520084 = 0.0516476521260042 / 0.5 demonstrates the identity by inspection across the two cases. The C# test's own trapezoidal normalization check (100000-interval integral of scaled.PDF over +-100 sigma ~= 1) is not independently fixture-representable (no numeric-integration assertion in this schema); it exercises the same corrected pdf() this case and the shifted case already pin pointwise, so no separate oracle is added for it.",
+      "construct": { "params": [0.0, 1.0, 4.0] },
+      "assertions": [
+        { "method": "pdf", "args": [-2.2], "expected": 0.0516476521260042, "mode": "abs", "tol": 1e-10 }
       ]
     },
     {
@@ -84,6 +92,15 @@
       ]
     },
     {
+      "name": "student_t_inverse_cdf_extreme_tail_retains_location_scale",
+      "note": "Test_StudentT_InverseCDF_ExtremeTailRetainsLocationAndScale: StudentT(mu=2, sigma=3, nu=1) at probability=1e-155 (nu=1 = Cauchy). v2.1.4/2a0357a removed the old `double.MaxValue * z < nu` overflow guard, which used to saturate to a bare +-double.MaxValue at this probability (ignoring mu/sigma entirely -- double.MaxValue*z with z~1e-310 subnormal is ~0.18 < nu=1, so the OLD guard fires here). The new t=sqrt(nu)*sqrt(1-z)/sqrt(z) form instead returns a finite value retaining mu+sigma*t, matching the closed-form Cauchy tail approximation mu - sigma/(pi*p) (exact to ~1e-16 relative at this probability, since the next correction term is O(p^2) -- astronomically below double precision). A second, less extreme probability (1e-150) confirms InverseCDF(1e-150) > InverseCDF(1e-155) (deeper tail probability -> more negative quantile), i.e. monotonicity is preserved through the refactor.",
+      "construct": { "params": [2.0, 3.0, 1.0] },
+      "assertions": [
+        { "method": "quantile", "args": [1e-155], "expected": -9.5492965855137342e+154, "mode": "rel", "tol": 1e-9 },
+        { "method": "quantile", "args": [1e-150], "expected": -9.5492965855137224e+149, "mode": "rel", "tol": 1e-9 }
+      ]
+    },
+    {
       "name": "student_t_large_df_normal_approx",
       "note": "nu=1e8 >= 1e8 threshold: PDF/CDF degrade to standard normal approximation",
       "construct": { "params": [0.0, 1.0, 100000000.0] },
@@ -95,12 +112,12 @@
     },
     {
       "name": "student_t_large_df_sigma2_normal_approx",
-      "note": "nu=1e8 large-df branch with sigma=2 (sigma!=1): PDF mirrors C# Normal.StandardPDF(Z) with NO /sigma factor. Would fail before the fix.",
+      "note": "nu=1e8 large-df branch with sigma=2 (sigma!=1): PDF mirrors C# Normal.StandardPDF(Z) * (1/sigma) since v2.1.4/2a0357a's audited Jacobian fix. Re-pinned: both PDF values are exactly half the pre-fix literals (0.3989422804014327, 0.3520653267642995), an exact bit-halving since 1/sigma=0.5.",
       "construct": { "params": [0.0, 2.0, 100000000.0] },
       "assertions": [
-        { "method": "pdf", "args": [0.0], "expected": 0.3989422804014327, "mode": "abs", "tol": 1e-10 },
-        { "method": "pdf", "args": [1.0], "expected": 0.3520653267642995, "mode": "abs", "tol": 1e-10 },
-        { "method": "cdf", "args": [0.0], "expected": 0.5,                "mode": "abs", "tol": 1e-12 }
+        { "method": "pdf", "args": [0.0], "expected": 0.19947114020071635, "mode": "abs", "tol": 1e-10 },
+        { "method": "pdf", "args": [1.0], "expected": 0.17603266338214976, "mode": "abs", "tol": 1e-10 },
+        { "method": "cdf", "args": [0.0], "expected": 0.5,                 "mode": "abs", "tol": 1e-12 }
       ]
     },
     {
@@ -115,6 +132,22 @@
       "name": "student_t_invalid_nu_zero",
       "note": "nu=0 < 1 -> parameters_valid = false",
       "construct": { "params": [1.0, 1.0, 0.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "student_t_invalid_nu_nan",
+      "note": "v2.1.4 real fix (Harden distribution parameter validation): the old `v < 1.0d` check is false for NaN, so a NaN degrees-of-freedom silently read as valid before ValidateParameters gained an explicit isnan/isinf check -- see student_t.hpp's validate() note.",
+      "construct": { "params": [0.0, 1.0, "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "student_t_invalid_nu_inf",
+      "note": "v2.1.4 real fix: `Infinity < 1.0d` is also false, so an infinite degrees-of-freedom silently read as valid before this same isnan/isinf check was added.",
+      "construct": { "params": [0.0, 1.0, "inf"] },
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
       ]
