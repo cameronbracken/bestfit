@@ -132,8 +132,10 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
             "Uniform"      => KernelDensity.KernelType.Uniform,
             var s          => throw new Exception($"unknown kernel type: {s}")
         };
+        // ParseNum (not bw.GetDouble()) so a "nan"/"inf" string literal (the v2.1.4
+        // Bandwidth NaN/Infinity-rejection case) parses instead of throwing.
         KernelDensity kde = construct.TryGetProperty("bandwidth", out var bw)
-            ? new KernelDensity(data, kernelType, bw.GetDouble())
+            ? new KernelDensity(data, kernelType, ParseNum(bw))
             : new KernelDensity(data, kernelType);
         if (construct.TryGetProperty("bounded_by_data", out var bd))
             kde.BoundedByData = bd.GetBoolean();
@@ -216,6 +218,13 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
 {
     switch (m)
     {
+        // Mutates the already-built `d` in place with a new flat parameter vector -- lets a
+        // case exercise a "construct valid -> SetParameters invalid -> recheck ->
+        // SetParameters valid -> recheck" sequence on ONE persistent object (mirrors
+        // test_fixtures.cpp's dispatch_generic; needed for TruncatedDistribution's
+        // parameter-validity fixture). Returns a dummy value; pair with a
+        // mode:"equal", expected:0 assertion.
+        case "set_parameters": d.SetParameters(a.Select(ParseNum).ToArray()); return 0;
         case "mean": return d.Mean;
         case "median": return d.Median;
         case "mode": return d.Mode;

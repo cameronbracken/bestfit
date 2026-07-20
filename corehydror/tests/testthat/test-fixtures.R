@@ -183,6 +183,10 @@ dispatch_composite <- function(target, cd, method, args) {
       quantile = ns$ch_trunc_quantile_(cd$base_target, cd$base_params, cd$lo, cd$hi,
                                        as.double(args[[1]])),
       parameters_valid = ns$ch_trunc_valid_(cd$base_target, cd$base_params, cd$lo, cd$hi),
+      # GetParameters mirrors {base_params..., lo, hi} -- no C++ call needed, `cd` already
+      # holds the flat tuple (used by the sequential_setparameters_recovery-style cases to
+      # confirm a restored parameter set after a SetParameters recovery).
+      param = c(cd$base_params, cd$lo, cd$hi)[[as.integer(args[[1]]) + 1L]],
       stop(sprintf("unknown fixture method for TruncatedDistribution: %s", method))
     ))
   }
@@ -241,6 +245,26 @@ dispatch_composite <- function(target, cd, method, args) {
     ))
   }
   stop(sprintf("unknown composite target: %s", target))
+}
+
+# Applies a "set_parameters" fixture step to a composite's parsed construct data, mirroring
+# the C# SetParameters(flat vector) entry point -- lets a case exercise a "construct valid ->
+# SetParameters invalid -> recheck -> SetParameters valid -> recheck" sequence. There is no
+# persistent C++ object to mutate here (every ch_trunc_*_ call is a stateless
+# construct-and-compute), so this instead updates the R-side `cd` list in place; the NEXT
+# dispatch_composite call reconstructs from the updated fields, which is behaviorally
+# equivalent (see test-fixtures.R's fixture-README companion note). Only TruncatedDistribution
+# needs this in the current validation wave.
+apply_set_parameters_composite <- function(target, cd, flat_args) {
+  flat <- vapply(flat_args, parse_num, numeric(1))
+  if (target == "TruncatedDistribution") {
+    n_base <- length(cd$base_params)
+    cd$base_params <- flat[seq_len(n_base)]
+    cd$lo <- flat[n_base + 1L]
+    cd$hi <- flat[n_base + 2L]
+    return(cd)
+  }
+  stop(sprintf("set_parameters not supported for composite target: %s", target))
 }
 
 # --- multivariate_distribution path -----------------------------------------------------
@@ -883,7 +907,12 @@ test_that("oracle fixtures validate", {
         cd <- build_composite_data(target, case$construct, datasets)
         for (a in case$assertions) {
           args <- if (is.null(a$args)) list() else a$args
-          actual <- dispatch_composite(target, cd, a$method, args)
+          if (identical(a$method, "set_parameters")) {
+            cd <- apply_set_parameters_composite(target, cd, args)
+            actual <- 0
+          } else {
+            actual <- dispatch_composite(target, cd, a$method, args)
+          }
           check_assertion(actual, a)
         }
       } else {

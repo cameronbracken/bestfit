@@ -1034,8 +1034,11 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         else throw std::runtime_error("unknown kernel type: " + kernel_str);
         std::unique_ptr<dist::KernelDensity> kde;
         if (construct.contains("bandwidth"))
+            // parse_num (not .get<double>()) so a "nan"/"inf" string literal (the v2.1.4
+            // Bandwidth NaN/Infinity-rejection case) parses instead of throwing a JSON
+            // type_error.
             kde = std::make_unique<dist::KernelDensity>(std::move(data), kt,
-                                                        construct["bandwidth"].get<double>());
+                                                        parse_num(construct["bandwidth"]));
         else
             kde = std::make_unique<dist::KernelDensity>(std::move(data), kt);
         if (construct.contains("bounded_by_data"))
@@ -1079,8 +1082,26 @@ static bool is_composite_target(const std::string& target) {
         || target == "KernelDensity" || target == "Mixture" || target == "CompetingRisks";
 }
 
-static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,
+// Non-const: "set_parameters" (below) mutates `d` in place. Every other branch only calls
+// const accessors, so this is a pure widening of what the reference can do, not a behavior
+// change for any existing caller (the sole call site in run_generic already holds `d` via a
+// non-const std::unique_ptr).
+static double dispatch_generic(dist::UnivariateDistributionBase& d, const std::string& m,
                                const json& a) {
+    // Mutates the already-built `d` in place with a new flat parameter vector, mirroring the
+    // C# SetParameters entry point -- lets a case exercise a "construct valid -> SetParameters
+    // invalid -> recheck -> SetParameters valid -> recheck" sequence on ONE persistent object
+    // (needed for TruncatedDistribution's parameter-validity fixture; the flat, non-composite
+    // targets in this same validation wave don't need it -- their construct+params already IS
+    // a fresh-construct-then-SetParameters call, see gumbel.json/etc.). Returns a dummy value;
+    // pair with a mode:"equal", expected:0 assertion and check the resulting state with a
+    // separate "parameters_valid"/"param" assertion right after.
+    if (m == "set_parameters") {
+        std::vector<double> p;
+        for (const auto& v : a) p.push_back(parse_num(v));
+        d.set_parameters(p);
+        return 0.0;
+    }
     if (m == "mean") return d.mean();
     if (m == "median") return d.median();
     if (m == "mode") return d.mode();

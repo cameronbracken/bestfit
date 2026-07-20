@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/TruncatedDistribution.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/TruncatedDistribution.cs @ 2a0357a
 //
 // A general truncated probability distribution. Wraps any UnivariateDistributionBase
 // and restricts it to [min, max]: PDF is renormalized by F(max)-F(min); CDF and InverseCDF
@@ -12,6 +12,31 @@
 // BrentSearch-over-truncated-PDF port if such a base is ever truncated.
 // type() delegates to the base distribution (mirrors C# `_baseDist.Type`).
 // No IEstimation / ILinearMomentEstimation (TruncatedDistribution does not implement them in C#).
+//
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C# centralized
+// validation into a private `ValidateParametersCore(parameters, throwException, out
+// lowerProbability, out upperProbability)` consulted by BOTH the constructor and
+// SetParameters (previously the constructor called `_baseDist.CDF(min)`/`CDF(max)` directly,
+// unconditionally, with no validation at all). validate_parameters_core() below is the C++
+// mirror: it validates the base params on a scratch CLONE (this port has no read-only,
+// non-mutating `ValidateParameters(vector)` on the polymorphic base -- only the mutating
+// set_parameters()+parameters_valid() pair -- so a clone stands in for C#'s non-mutating
+// `_baseDist.ValidateParameters(baseParameters, false)` check), then the finite/ordered bounds
+// check, then the same clone's CDF(min)/CDF(max) for the zero-mass check -- matching C#'s
+// "validate on a clone, mutate the real base only after" sequencing. SetParameters also gained
+// an explicit parameter-count check that THROWS before touching any state (previously any
+// mismatch fell through to undefined std::vector iterator behavior); pdf/cdf/inverse_cdf now
+// throw when `!parameters_valid_`, matching the C# guard `if (_parametersValid == false)
+// ValidateParameters(GetParameters, true);` at the top of each. Regarding the base-parameter
+// slice: this port already sliced `params.begin() .. params.begin() + n_base` correctly (a
+// plain iterator range); the design-doc concern that C#'s own `Subset(0, count-3)` looked
+// off-by-one turned out not to be a real divergence once `Subset(int, int)`'s INCLUSIVE-end-
+// index convention is accounted for (see `Numerics/Utilities/ExtensionMethods.cs`), so there
+// was no actual slicing bug to retire on either side.
+// None of this is fixture-observable for the throwing behaviors (count mismatch, evaluating
+// an invalid instance) -- the schema has no "expect throw" assertion -- so only the silent
+// `parameters_valid` semantics (construct-then-SetParameters recovery) are fixture-tested; see
+// truncated_distribution.json's sequential case.
 #pragma once
 #include <string>
 #include <algorithm>
@@ -30,16 +55,14 @@ class TruncatedDistribution : public UnivariateDistributionBase {
     /// Construct a truncated distribution from a cloned base + bounds.
     TruncatedDistribution(const UnivariateDistributionBase& base, double min_val, double max_val)
         : base_dist_(base.clone()), min_(min_val), max_(max_val) {
-        update_cached_cdfs();
-        validate_and_set();
+        init_from_current_state();
     }
 
     /// Construct from an rvalue unique_ptr (takes ownership).
     TruncatedDistribution(std::unique_ptr<UnivariateDistributionBase> base,
                           double min_val, double max_val)
         : base_dist_(std::move(base)), min_(min_val), max_(max_val) {
-        update_cached_cdfs();
-        validate_and_set();
+        init_from_current_state();
     }
 
     // Accessors matching C# properties
@@ -60,15 +83,26 @@ class TruncatedDistribution : public UnivariateDistributionBase {
         return p;
     }
 
-    // Mirrors C# SetParameters: first N-2 go to base; last 2 are min/max.
+    // Mirrors C# SetParameters: first N-2 go to base; last 2 are min/max. Throws when the
+    // flattened parameter count doesn't match (mirrors C#'s ArgumentException) -- checked
+    // FIRST, before any state is touched.
     void set_parameters(const std::vector<double>& params) override {
+        if (static_cast<int>(params.size()) != number_of_parameters()) {
+            throw std::invalid_argument(
+                "TruncatedDistribution: the length of the parameter array is invalid");
+        }
+        double lower_cdf, upper_cdf;
+        bool valid = validate_parameters_core(params, lower_cdf, upper_cdf);
         int n_base = base_dist_->number_of_parameters();
         std::vector<double> base_params(params.begin(), params.begin() + n_base);
+        // Mutate the real base only AFTER validating on the scratch clone above (mirrors C#:
+        // `_baseDist.SetParameters(...)` runs unconditionally, even when validation failed).
         base_dist_->set_parameters(base_params);
-        min_ = params[n_base];
-        max_ = params[n_base + 1];
-        update_cached_cdfs();
-        validate_and_set();
+        min_ = params[params.size() - 2];
+        max_ = params[params.size() - 1];
+        f_min_ = lower_cdf;
+        f_max_ = upper_cdf;
+        parameters_valid_ = valid;
         moments_computed_ = false;
     }
 
@@ -105,14 +139,17 @@ class TruncatedDistribution : public UnivariateDistributionBase {
     }
 
     // --- Distribution functions ---
-    // Mirrors C#: PDF = basePDF(x) / (Fmax - Fmin) on [min, max], 0 outside.
+    // Mirrors C#: PDF = basePDF(x) / (Fmax - Fmin) on [min, max], 0 outside. Mirrors C#'s
+    // `if (_parametersValid == false) ValidateParameters(GetParameters, true);` guard.
     double pdf(double x) const override {
+        if (!parameters_valid_) throw std::invalid_argument("TruncatedDistribution: invalid parameters");
         if (x < min_ || x > max_) return 0.0;
         return base_dist_->pdf(x) / (f_max_ - f_min_);
     }
 
     // Mirrors C#: CDF = (baseCDF(x) - Fmin) / (Fmax - Fmin)
     double cdf(double x) const override {
+        if (!parameters_valid_) throw std::invalid_argument("TruncatedDistribution: invalid parameters");
         if (x <= min_) return 0.0;
         if (x >= max_) return 1.0;
         return (base_dist_->cdf(x) - f_min_) / (f_max_ - f_min_);
@@ -124,6 +161,7 @@ class TruncatedDistribution : public UnivariateDistributionBase {
             throw std::invalid_argument("probability must be between 0 and 1");
         if (probability == 0.0) return minimum();
         if (probability == 1.0) return maximum();
+        if (!parameters_valid_) throw std::invalid_argument("TruncatedDistribution: invalid parameters");
         return base_dist_->inverse_cdf(probability * (f_max_ - f_min_) + f_min_);
     }
 
@@ -158,17 +196,43 @@ class TruncatedDistribution : public UnivariateDistributionBase {
     mutable bool moments_computed_ = false;
     mutable double u_[4] = {kNaN, kNaN, kNaN, kNaN};  // [mean, sd, skewness, kurtosis]
 
-    void update_cached_cdfs() {
-        f_min_ = base_dist_->cdf(min_);
-        f_max_ = base_dist_->cdf(max_);
+    // Builds the constructor's initial flat parameter vector (current base params + min_ +
+    // max_) and validates it via validate_parameters_core, mirroring the C# constructor's
+    // `ValidateParametersCore(parameters, false, out _Fmin, out _Fmax)` call.
+    void init_from_current_state() {
+        std::vector<double> params = base_dist_->get_parameters();
+        params.push_back(min_);
+        params.push_back(max_);
+        parameters_valid_ = validate_parameters_core(params, f_min_, f_max_);
     }
 
-    void validate_and_set() {
-        parameters_valid_ = base_dist_->parameters_valid() &&
-                            !std::isnan(min_) && !std::isnan(max_) &&
-                            !std::isinf(min_) && !std::isinf(max_) &&
-                            min_ < max_ &&
-                            std::fabs(f_max_ - f_min_) >= 1e-15;
+    // Validates a flattened base-distribution parameter vector and its truncation bounds
+    // WITHOUT mutating this object (mirrors C#'s private ValidateParametersCore). On
+    // success, `lower_cdf`/`upper_cdf` receive the base distribution's CDF at min/max
+    // (evaluated on a scratch clone at the CANDIDATE base params); on failure both are NaN.
+    bool validate_parameters_core(const std::vector<double>& params,
+                                   double& lower_cdf, double& upper_cdf) const {
+        lower_cdf = kNaN;
+        upper_cdf = kNaN;
+        if (static_cast<int>(params.size()) != number_of_parameters()) return false;
+        int n_base = base_dist_->number_of_parameters();
+        std::vector<double> base_params(params.begin(), params.begin() + n_base);
+        // Validate (and, if valid, evaluate CDF at the bounds) on a scratch clone -- this
+        // port has no read-only ValidateParameters(vector) on the polymorphic base, only the
+        // mutating set_parameters()+parameters_valid() pair, so a clone stands in for C#'s
+        // non-mutating `_baseDist.ValidateParameters(baseParameters, false)` check.
+        auto candidate = base_dist_->clone();
+        candidate->set_parameters(base_params);
+        if (!candidate->parameters_valid()) return false;
+        double lo = params[params.size() - 2];
+        double hi = params[params.size() - 1];
+        if (std::isnan(lo) || std::isnan(hi) || std::isinf(lo) || std::isinf(hi) || lo >= hi) {
+            return false;
+        }
+        lower_cdf = candidate->cdf(lo);
+        upper_cdf = candidate->cdf(hi);
+        if (std::fabs(lower_cdf - upper_cdf) < 1e-15) return false;
+        return true;
     }
 
     // Numerical moments via AGK integration, mirroring C# CentralMoments(double tolerance=1e-8).

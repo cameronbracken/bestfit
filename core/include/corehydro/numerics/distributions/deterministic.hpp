@@ -1,10 +1,18 @@
-// ported from: Numerics/Distributions/Univariate/Deterministic.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Deterministic.cs @ 2a0357a
 //
 // Deterministic (degenerate) point-mass distribution with a single value. Logic mirrors
 // the C# source method-for-method. PDF returns 1 at the value and 0 elsewhere (mirroring
 // the C# integer-spike convention). Minimum == Maximum == Value (degenerate support).
 // SD, skewness, and kurtosis are undefined (NaN). Implements IEstimation (MoM only).
 // The WPF PDF-graph builder is not ported.
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters previously assigned `Value` (an auto-property) WITHOUT ever computing
+// `_parametersValid` at all, so a Deterministic distribution's ParametersValid was always
+// the base class's `true` default regardless of the value (NaN/Infinity included) -- a
+// real coverage gap, now closed by an explicit `_parametersValid = ValidateParameters(...)`
+// call. This port's set_parameters already computed parameters_valid_ via validate() (NaN/
+// Infinity rejection) on every call -- pre-aligned (already stricter than the pre-wave C#),
+// no code change; the gap here was fixture coverage only (see deterministic.json).
 #pragma once
 #include <string>
 #include <cmath>

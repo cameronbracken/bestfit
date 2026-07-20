@@ -1,4 +1,15 @@
-// ported from: Numerics/Distributions/Univariate/KernelDensity.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/KernelDensity.cs @ 2a0357a
+//
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: the private
+// Bandwidth ValidateParameters(double, bool) now rejects NaN/Infinity explicitly (previously
+// only `value <= 0d`, which is false for +Infinity, so an infinite bandwidth could silently
+// read as valid). The three constructors below previously computed
+// `parameters_valid_ = bandwidth_ > 0.0 && !sample_data_.empty();` inline, which has the same
+// gap (`Infinity > 0.0` is true); all three now route through the shared validate_bandwidth()
+// helper, which adds the missing isnan/isinf rejection. (KernelDensity has no public
+// Bandwidth setter in this port -- see the constructor-only note below -- so this is
+// exercised via the explicit-bandwidth constructor's `construct.bandwidth` fixture field,
+// not a post-construction mutation.)
 //
 // Kernel density estimation distribution. Mirrors the C# source method-for-method.
 // IBootstrappable is not ported (desktop/uncertainty concern). The weighted (per-point
@@ -56,7 +67,7 @@ class KernelDensity : public UnivariateDistributionBase {
         : kernel_type_(KernelType::Gaussian) {
         init_sample(std::move(sample_data));
         bandwidth_ = bandwidth_rule(sample_data_);
-        parameters_valid_ = bandwidth_ > 0.0 && !sample_data_.empty();
+        parameters_valid_ = validate_bandwidth(bandwidth_) && !sample_data_.empty();
     }
 
     /// Construct with specified kernel and auto bandwidth.
@@ -64,14 +75,14 @@ class KernelDensity : public UnivariateDistributionBase {
         : kernel_type_(kernel) {
         init_sample(std::move(sample_data));
         bandwidth_ = bandwidth_rule(sample_data_);
-        parameters_valid_ = bandwidth_ > 0.0 && !sample_data_.empty();
+        parameters_valid_ = validate_bandwidth(bandwidth_) && !sample_data_.empty();
     }
 
     /// Construct with specified kernel and explicit bandwidth.
     KernelDensity(std::vector<double> sample_data, KernelType kernel, double bandwidth)
         : kernel_type_(kernel), bandwidth_(bandwidth) {
         init_sample(std::move(sample_data));
-        parameters_valid_ = bandwidth_ > 0.0 && !sample_data_.empty();
+        parameters_valid_ = validate_bandwidth(bandwidth_) && !sample_data_.empty();
     }
 
     // --- Property accessors ------------------------------------------------------------
@@ -233,6 +244,13 @@ class KernelDensity : public UnivariateDistributionBase {
 
     mutable bool cdf_created_ = false;
     mutable std::unique_ptr<EmpiricalDistribution> cdf_table_;
+
+    // Mirrors C# KernelDensity's private Bandwidth ValidateParameters(double, bool): the
+    // bandwidth must be finite and strictly positive. Shared by all three constructors so
+    // the NaN/Infinity rejection lives in exactly one place.
+    static bool validate_bandwidth(double value) {
+        return !std::isnan(value) && !std::isinf(value) && value > 0.0;
+    }
 
     // Initialise from sample data: store and compute product moments.
     void init_sample(std::vector<double> data) {

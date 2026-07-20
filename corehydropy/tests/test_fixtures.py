@@ -136,6 +136,11 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return _core.trunc_quantile(bt, bp, lo, hi, args[0])
         if method == "parameters_valid":
             return _core.trunc_valid(bt, bp, lo, hi)
+        if method == "param":
+            # GetParameters mirrors {base_params..., lo, hi} -- no C++ call needed, `cd`
+            # already holds the flat tuple (used by the sequential_setparameters_recovery-
+            # style cases to confirm a restored parameter set after a SetParameters recovery).
+            return (bp + [lo, hi])[int(args[0])]
         raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
     if target == "Empirical":
         xv, pv, pt = cd["x_vals"], cd["p_vals"], cd["p_transform"]
@@ -193,6 +198,27 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return _core.cr_valid(ct, cp, min_rv, dep, corr)
         raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
     raise KeyError(f"unknown composite target: {target}")
+
+
+def _apply_set_parameters_composite(target: str, cd: dict, args: list) -> dict:
+    """Applies a "set_parameters" fixture step to a composite's parsed construct data,
+    mirroring the C# SetParameters(flat vector) entry point -- lets a case exercise a
+    "construct valid -> SetParameters invalid -> recheck -> SetParameters valid -> recheck"
+    sequence. There is no persistent C++ object to mutate here (every _core.trunc_*
+    call is a stateless construct-and-compute), so this instead updates the local `cd` dict;
+    the NEXT dispatch call reconstructs from the updated fields, which is behaviorally
+    equivalent. Only TruncatedDistribution needs this in the current validation wave.
+    """
+    flat = [_num(v) for v in args]
+    if target == "TruncatedDistribution":
+        n_base = len(cd["base_params"])
+        return {
+            **cd,
+            "base_params": flat[:n_base],
+            "lo": flat[n_base],
+            "hi": flat[n_base + 1],
+        }
+    raise KeyError(f"set_parameters not supported for composite target: {target}")
 
 
 # --- Generic polymorphic path ----------------------------------------------------------
@@ -1004,7 +1030,10 @@ def test_fixture_case(kind, target, datasets, case):
         params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:
         args = a.get("args", [])
-        if is_gev:
+        if is_composite and a["method"] == "set_parameters":
+            cd = _apply_set_parameters_composite(target, cd, args)
+            actual = 0
+        elif is_gev:
             actual = _dispatch_gev(g, a["method"], args)
         elif is_composite:
             actual = _dispatch_composite(target, cd, a["method"], args)

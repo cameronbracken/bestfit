@@ -1,8 +1,18 @@
-// ported from: Numerics/Distributions/Univariate/InverseChiSquared.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/InverseChiSquared.cs @ 2a0357a
 //
 // Inverse Chi-Squared (Inv-χ²) distribution with degrees of freedom ν and scale σ.
 // Mirrors the C# source method-for-method. No estimation interfaces upstream.
 // CDF = UpperIncomplete(ν/2, ν·σ/(2x)); InverseCDF = ν·σ / (2·InverseUpperIncomplete(ν/2, p)).
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters assigns the backing fields directly then validates once from the raw
+// (unrounded) `parameters[0]`/`parameters[1]`, and ValidateParameters now rejects
+// NaN/Infinity in the degrees-of-freedom parameter explicitly (previously only `< 1.0d`,
+// which is false for both NaN and +Infinity -- the old check silently accepted them).
+// set_parameters below mirrors this: sigma_ is always assigned; dof_ is assigned via a
+// UB-safe guarded truncation (`static_cast<int>` of a non-finite double is undefined
+// behavior in C++, unlike C#'s merely-unspecified int cast); parameters_valid_ is computed
+// from the RAW `dof` double (matching C#'s parameters[0]-based check) so NaN/Infinity are
+// rejected regardless of what the truncated int would have been.
 #pragma once
 #include <string>
 #include <cmath>
@@ -42,9 +52,12 @@ class InverseChiSquared : public UnivariateDistributionBase {
     }
 
     void set_parameters(double dof, double sigma) {
-        dof_   = static_cast<int>(dof);
+        // Guard the truncating cast: static_cast<int> of a non-finite double is undefined
+        // behavior. Leave dof_ unchanged when dof is non-finite (parameters_valid_ below
+        // will be false either way, so the stale value is never consulted).
+        dof_   = std::isfinite(dof) ? static_cast<int>(dof) : dof_;
         sigma_ = sigma;
-        parameters_valid_ = validate(dof_, sigma_);
+        parameters_valid_ = !std::isnan(dof) && !std::isinf(dof) && validate(dof_, sigma_);
     }
     void set_parameters(const std::vector<double>& p) override { set_parameters(p[0], p[1]); }
 

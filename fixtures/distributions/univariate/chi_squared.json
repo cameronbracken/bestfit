@@ -111,6 +111,21 @@
       ]
     },
     {
+      "name": "invalid_nan_dof",
+      "note": "v2.1.4: ValidateParameters now rejects NaN/Infinity explicitly (previously only `dof < 1.0d` on the ALREADY TRUNCATED value, false for both NaN and +Infinity -- see chi_squared.hpp file header note).",
+      "construct": { "params": ["nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_dof",
+      "construct": { "params": ["inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
       "name": "minimum_maximum",
       "construct": { "params": [1.0] },
       "assertions": [

@@ -140,6 +140,29 @@
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
       ]
+    },
+    {
+      "name": "nct_invalid_params_lambda_nan",
+      "construct": { "params": [1.0, "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "nct_invalid_params_nu_nan",
+      "note": "v2.1.4 real fix: the old `v < 1.0d` check is false for NaN, so a NaN degrees-of-freedom silently read as valid before ValidateParameters gained an explicit isnan/isinf check -- see noncentral_t.hpp file header note.",
+      "construct": { "params": ["nan", 0.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "nct_invalid_params_nu_inf",
+      "note": "v2.1.4 real fix: `Infinity < 1.0d` is also false, so an infinite degrees-of-freedom silently read as valid before this same isnan/isinf check was added.",
+      "construct": { "params": ["inf", 0.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

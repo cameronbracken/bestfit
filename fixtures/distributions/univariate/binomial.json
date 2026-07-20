@@ -94,6 +94,36 @@
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
       ]
+    },
+    {
+      "name": "binomial_invalid_nan_p",
+      "note": "v2.1.4 setter-ordering wave: SetParameters assigns fields directly then validates once from the final (p, n) pair -- see binomial.hpp file header note.",
+      "construct": { "params": ["nan", 10.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "binomial_invalid_inf_p",
+      "construct": { "params": ["inf", 10.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "binomial_invalid_nan_n",
+      "note": "n (second parameter) must reject NaN/Infinity without triggering undefined behavior from truncating a non-finite double to int -- see binomial.hpp file header note.",
+      "construct": { "params": [0.5, "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "binomial_invalid_inf_n",
+      "construct": { "params": [0.5, "inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

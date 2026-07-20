@@ -27,6 +27,22 @@
         { "method": "cdf",      "args": [28708.74],  "expected": 0.9999118,  "mode": "abs", "tol": 1e-2 },
         { "method": "quantile", "args": [0.4669572], "expected": 12221.33,   "mode": "abs", "tol": 100.0 }
       ]
+    },
+    {
+      "name": "invalid_nan_bandwidth",
+      "note": "v2.1.4: the private Bandwidth ValidateParameters(double, bool) now rejects NaN/Infinity explicitly (previously only `value <= 0d`, false for +Infinity -- see kernel_density.hpp file header note).",
+      "construct": {"data": "tippecanoe", "kernel": "Gaussian", "bandwidth": "nan"},
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_bandwidth",
+      "note": "v2.1.4 real fix: `Infinity <= 0d` is false, so an infinite bandwidth silently read as valid before this explicit isnan/isinf check was added.",
+      "construct": {"data": "tippecanoe", "kernel": "Gaussian", "bandwidth": "inf"},
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

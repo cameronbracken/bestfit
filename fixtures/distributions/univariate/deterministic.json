@@ -43,6 +43,21 @@
         { "method": "quantile", "args": [0.3],   "expected": 42.0, "mode": "equal" },
         { "method": "quantile", "args": [0.7],   "expected": 42.0, "mode": "equal" }
       ]
+    },
+    {
+      "name": "invalid_nan_value",
+      "note": "v2.1.4: SetParameters now computes _parametersValid at all (previously it never did, so ParametersValid always read the UnivariateDistributionBase default of true, regardless of Value -- see deterministic.hpp file header note; this port already validated on every call).",
+      "construct": { "params": ["nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_value",
+      "construct": { "params": ["inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

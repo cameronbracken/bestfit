@@ -84,6 +84,30 @@ in `tools/oracle_emitter/Program.cs`) implements the same schema:
     consulted when `dependency == "CorrelationMatrix"` (ignored, and may be omitted, for the
     other three modes -- `PerfectlyNegative` synthesizes its own correlation internally).
 
+#### `set_parameters`: mutating a constructed `univariate_distribution` in place
+
+`set_parameters [<flat parameter vector>]` mutates the case's already-built instance with a
+new flat parameter vector (mirrors the C# `SetParameters(IList<double>)` entry point), rather
+than reading a value. Pair it with `"mode": "equal", "expected": 0` (the mutation always
+"succeeds" as an assertion; the dummy `0` just satisfies the uniform assertion shape) and
+check the resulting state with a separate `parameters_valid`/`param` assertion immediately
+after. This is how a case exercises the "construct valid -> SetParameters invalid -> recheck
+-> SetParameters valid -> recheck" sequence needed to fixture-test setter-ordering semantics
+(see `truncated_distribution.json`'s `sequential_*` case) -- a single `construct.params`/
+`construct.fit` case already implicitly does one "construct-then-SetParameters" step, so
+`set_parameters` is only needed to go BEYOND that single step on one persistent object.
+For `TruncatedDistribution`, `<flat parameter vector>` is `[base_param0, ..., min, max]` (same
+shape as `get_parameters()`/C#'s `GetParameters`), not the `{"base": ..., "bounds": ...}`
+`construct` shape. C++'s `dispatch_generic` mutates the persisted `UnivariateDistributionBase`
+directly; R/Python have no persistent object at this layer (every `ch_dist_*`/`_core.dist_*`
+call is a stateless construct-and-compute), so their composite dispatch instead updates the
+parsed construct dict/list in place (`apply_set_parameters_composite` /
+`_apply_set_parameters_composite`) and the next call reconstructs from the updated fields --
+behaviorally equivalent since nothing in this schema depends on any state beyond the current
+flat parameter vector. Composite targets other than `TruncatedDistribution` don't use
+`set_parameters` in the current fixture corpus; adding one means adding a branch to that
+function.
+
 ### `multivariate_distribution`
 
 ```jsonc

@@ -1,4 +1,24 @@
-// ported from: Numerics/Distributions/Multivariate/MultivariateStudentT.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/MultivariateStudentT.cs @ 2a0357a
+//
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave:
+// ValidateParameters gained three NaN/Infinity checks -- degrees_of_freedom (previously only
+// `<= 0`, which is false for both NaN and +Infinity), every location element (previously
+// unchecked), and every scale-matrix element (previously unchecked; a non-finite entry would
+// otherwise propagate into the Cholesky decomposition and surface as a confusing
+// not-positive-definite failure rather than a direct "must be finite" one). SetParameters
+// itself is unchanged: it already called validate_parameters(..., /*throw=*/true) BEFORE
+// mutating any field (transactional -- an invalid call throws and leaves the previous state
+// untouched), matching the new C# exactly; this ordering predates this wave for MVT (unlike
+// the univariate distributions in this same wave, which had the OLD buggy
+// validate-via-stale-sibling-property-setter pattern). Because SetParameters always throws
+// rather than leaving the object alive in an invalid state, `parameters_valid_` stays dead
+// state here (see the divergence note below) and there is no "construct valid -> mutate
+// invalid -> read parameters_valid()" sequence to fixture -- this exact class of throw-only
+// validation is already documented as out of fixture scope in
+// fixtures/distributions/multivariate/multivariate_student_t.json's file-level "note" (the
+// Test_ParameterValidation_*/Test_ValidateParameters_ReturnException skips), so no new
+// fixture case is added here; the three new checks are covered by mirroring the C# source
+// line-for-line and by the existing valid-construction fixtures continuing to pass.
 //
 // The Multivariate Student's t-distribution, dimensions >= 1, degrees of freedom v (nu),
 // location vector mu, and (not-covariance) scale matrix Sigma. PDF/LogPDF/Mahalanobis are
@@ -207,11 +227,17 @@ class MultivariateStudentT : public MultivariateDistribution {
                                                      const std::vector<double>& location,
                                                      const std::vector<std::vector<double>>& scale_matrix,
                                                      bool throw_exception) const {
-        if (degrees_of_freedom <= 0.0) {
+        if (std::isnan(degrees_of_freedom) || std::isinf(degrees_of_freedom) || degrees_of_freedom <= 0.0) {
             if (throw_exception) throw std::out_of_range("Degrees of freedom must be greater than zero.");
             return "Degrees of freedom must be greater than zero.";
         }
         // location/scale_matrix null-checks omitted -- see file header divergence note.
+        for (double loc : location) {
+            if (std::isnan(loc) || std::isinf(loc)) {
+                if (throw_exception) throw std::out_of_range("Location values must be finite.");
+                return "Location values must be finite.";
+            }
+        }
         la::Matrix m(scale_matrix);
         if (!m.is_square()) {
             if (throw_exception) throw std::out_of_range("Scale matrix must be square.");
@@ -220,6 +246,14 @@ class MultivariateStudentT : public MultivariateDistribution {
         if (m.number_of_rows() != static_cast<int>(location.size())) {
             if (throw_exception) throw std::out_of_range("Location vector length must match scale matrix dimension.");
             return "Location vector length must match scale matrix dimension.";
+        }
+        for (int i = 0; i < m.number_of_rows(); ++i) {
+            for (int j = 0; j < m.number_of_columns(); ++j) {
+                if (std::isnan(m(i, j)) || std::isinf(m(i, j))) {
+                    if (throw_exception) throw std::out_of_range("Scale-matrix values must be finite.");
+                    return "Scale-matrix values must be finite.";
+                }
+            }
         }
         // Cholesky try/catch quirk: UNLIKE MultivariateNormal::validate_parameters (which
         // lets a non-positive-definite construction propagate unconditionally), the C#

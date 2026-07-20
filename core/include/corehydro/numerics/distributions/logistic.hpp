@@ -1,9 +1,14 @@
-// ported from: Numerics/Distributions/Univariate/Logistic.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Logistic.cs @ 2a0357a
 //
 // The Logistic distribution with location ξ and scale α. Logic mirrors the C# source
 // method-for-method. IStandardError, IBootstrappable, and the WPF helpers are not ported
 // (desktop / uncertainty-analysis concerns). ILinearMomentEstimation is not implemented
 // in the C# source and is therefore absent here.
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters now assigns Xi/Alpha directly before computing _parametersValid once from
+// the final (location, scale) pair (the old code let the Xi/Alpha property setters
+// revalidate against a stale sibling field). This port already assigned xi_/alpha_
+// directly and validated once at the end -- pre-aligned, no code change.
 #pragma once
 #include <string>
 #include <cmath>
