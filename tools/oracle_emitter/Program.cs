@@ -555,6 +555,16 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "RunningStatistics.combined_coefficient_of_variation" => a => RunningStatisticsCombined(a).CoefficientOfVariation,
     "RunningStatistics.combined_skewness" => a => RunningStatisticsCombined(a).Skewness,
     "RunningStatistics.combined_kurtosis" => a => RunningStatisticsCombined(a).Kurtosis,
+    "RunningStatistics.combined_count" => a => (double)RunningStatisticsCombined(a).Count,
+    // RunningStatistics.clone_* family (args: the flat sample -- see RunningStatisticsClone()
+    // below and fixtures/special_functions/running_statistics.json)
+    "RunningStatistics.clone_mean" => a => RunningStatisticsClone(a).Mean,
+    "RunningStatistics.clone_variance" => a => RunningStatisticsClone(a).Variance,
+    "RunningStatistics.clone_skewness" => a => RunningStatisticsClone(a).Skewness,
+    "RunningStatistics.clone_kurtosis" => a => RunningStatisticsClone(a).Kurtosis,
+    "RunningStatistics.clone_minimum" => a => RunningStatisticsClone(a).Minimum,
+    "RunningStatistics.clone_maximum" => a => RunningStatisticsClone(a).Maximum,
+    "RunningStatistics.clone_count" => a => (double)RunningStatisticsClone(a).Count,
     // Fourier family (see Fourier*At() below for the args conventions -- mirrors
     // fourier_*_at() in core/tests/test_fixtures.cpp exactly)
     "Fourier.fft_at" => FourierFftAt,
@@ -586,6 +596,15 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "Histogram.bin_upper_bound_at" => a => HistogramBuild(a, 1)[(int)a[^1]].UpperBound,
     "Histogram.bin_frequency_at" => a => (double)HistogramBuild(a, 1)[(int)a[^1]].Frequency,
     "Histogram.get_bin_index_of" => a => (double)HistogramBuild(a, 1).GetBinIndexOf(a[^1]),
+    // Histogram.adapt_* family (args: [explicit_bins, num_adds, data..., adds...] -- see
+    // HistogramBuildAdapt() below and fixtures/special_functions/histogram.json)
+    "Histogram.adapt_lower_bound" => a => HistogramBuildAdapt(a).LowerBound,
+    "Histogram.adapt_upper_bound" => a => HistogramBuildAdapt(a).UpperBound,
+    "Histogram.adapt_bin_first_lower_bound" => a => HistogramBuildAdapt(a)[0].LowerBound,
+    "Histogram.adapt_bin_last_upper_bound" => a => { var h = HistogramBuildAdapt(a); return h[h.NumberOfBins - 1].UpperBound; },
+    "Histogram.adapt_bin_first_frequency" => a => (double)HistogramBuildAdapt(a)[0].Frequency,
+    "Histogram.adapt_bin_last_frequency" => a => { var h = HistogramBuildAdapt(a); return (double)h[h.NumberOfBins - 1].Frequency; },
+    "Histogram.adapt_data_count" => a => (double)HistogramBuildAdapt(a).DataCount,
     // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
     // weibull_at -- see fixtures/special_functions/plotting_positions.json)
     "PlottingPositions.function_at" => a => PlottingPositions.Function((int)a[0], a[1])[(int)a[2]],
@@ -596,6 +615,18 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] -- see
     // fixtures/special_functions/mcmc_diagnostics.json)
     "MCMCDiagnostics.minimum_sample_size" => a => MCMCDiagnostics.MinimumSampleSize(a[0], a[1], a[2]),
+    // Search.*_descending family (args: [values..., x, start], same convention as
+    // Search.sequential/bisection above but with SortOrder.Descending -- MUST match
+    // core/tests/test_fixtures.cpp's Search.*_descending entries)
+    "Search.sequential_descending" => a => Search.Sequential(a[^2], a[..^2], (int)a[^1], SortOrder.Descending),
+    "Search.bisection_descending" => a => Search.Bisection(a[^2], a[..^2], (int)a[^1], SortOrder.Descending),
+    // Bilinear.log_floor_value (args: [x1_query, x2_query] -- see BilinearLogFloorValue()
+    // below and fixtures/special_functions/bilinear.json)
+    "Bilinear.log_floor_value" => BilinearLogFloorValue,
+    // Probability.hpcm_* family (args: see ProbabilityHpcmJoint()/
+    // ProbabilityHpcmConditionalAt() below and fixtures/special_functions/probability.json)
+    "Probability.hpcm_joint" => a => ProbabilityHpcmJoint(a),
+    "Probability.hpcm_conditional_at" => ProbabilityHpcmConditionalAt,
     _ => null,
 };
 
@@ -629,6 +660,10 @@ static RunningStatistics RunningStatisticsCombined(double[] a)
     var sample2 = a[(1 + n1)..];
     return new RunningStatistics(sample1) + new RunningStatistics(sample2);
 }
+
+// RunningStatistics.clone_* fixture args convention -- MUST mirror running_statistics_clone()
+// in core/tests/test_fixtures.cpp: args = the flat sample.
+static RunningStatistics RunningStatisticsClone(double[] a) => new RunningStatistics(a).Clone();
 
 // Fourier fixture args conventions -- MUST mirror fourier_*_at() in
 // core/tests/test_fixtures.cpp exactly (see fixtures/special_functions/fourier.json).
@@ -750,6 +785,68 @@ static Histogram HistogramBuild(double[] a, int trailing)
     int explicitBins = (int)a[0];
     var data = a[1..(a.Length - trailing)];
     return explicitBins > 0 ? new Histogram(data, explicitBins) : new Histogram(data);
+}
+
+// Histogram.adapt_* fixture args convention -- MUST mirror histogram_build_adapt() in
+// core/tests/test_fixtures.cpp exactly: args = [explicit_bins, num_adds, data..., adds...].
+static Histogram HistogramBuildAdapt(double[] a)
+{
+    int explicitBins = (int)a[0];
+    int numAdds = (int)a[1];
+    var data = a[2..(a.Length - numAdds)];
+    var h = explicitBins > 0 ? new Histogram(data, explicitBins) : new Histogram(data);
+    foreach (var value in a[^numAdds..]) h.AddData(value);
+    return h;
+}
+
+// Bilinear.log_floor_value fixture args convention -- MUST mirror bilinear_log_floor_value()
+// in core/tests/test_fixtures.cpp: args = [x1_query, x2_query] against a FIXED 3x3 identity
+// grid ({0, 1E-15, 1} on both axes) with X1Transform/X2Transform/YTransform all Logarithmic.
+static double BilinearLogFloorValue(double[] a)
+{
+    var coords = new[] { 0d, 1e-15, 1d };
+    var y = new[,] { { 0d, 0d, 0d }, { 1e-15, 1e-15, 1e-15 }, { 1d, 1d, 1d } };
+    var bilinear = new Bilinear(coords, coords, y)
+    {
+        X1Transform = Numerics.Data.Transform.Logarithmic,
+        X2Transform = Numerics.Data.Transform.Logarithmic,
+        YTransform = Numerics.Data.Transform.Logarithmic
+    };
+    return bilinear.Interpolate(a[0], a[1]);
+}
+
+// Probability.hpcm_* fixture args convention -- MUST mirror probability_hpcm_n()/
+// probability_hpcm_joint() in core/tests/test_fixtures.cpp: args = [p_0..p_(n-1),
+// ind_0..ind_(n-1), corr(n*n flattened row-major)] for hpcm_joint; hpcm_conditional_at
+// appends one trailing 0-based component index.
+static int ProbabilityHpcmN(int len)
+{
+    for (int n = 1; n <= 20; n++)
+        if (2 * n + n * n == len) return n;
+    throw new Exception("cannot infer n for Probability.hpcm args");
+}
+
+static double ProbabilityHpcmJoint(double[] a, double[]? conditional = null)
+{
+    int n = ProbabilityHpcmN(a.Length);
+    var probabilities = a[..n];
+    var indicators = new int[n];
+    for (int i = 0; i < n; i++) indicators[i] = (int)a[n + i];
+    var corr = new double[n, n];
+    int baseIdx = 2 * n;
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            corr[i, j] = a[baseIdx + i * n + j];
+    return Probability.JointProbabilityHPCM(probabilities, indicators, corr, conditional);
+}
+
+static double ProbabilityHpcmConditionalAt(double[] a)
+{
+    int idx = (int)a[^1];
+    var body = a[..^1];
+    var cond = new double[ProbabilityHpcmN(body.Length)];
+    ProbabilityHpcmJoint(body, cond);
+    return cond[idx];
 }
 
 // --- multivariate_distribution branch -----------------------------------------------------

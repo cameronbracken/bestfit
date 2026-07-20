@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/Histogram.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/Histogram.cs @ 2a0357a
 //
 // Bins a sample into a Histogram, used by ParameterResults to summarize MCMC posterior
 // draws. Ports the full public surface except the internal deserialization ctor (took
@@ -10,16 +10,26 @@
 // (only the NumberOfBins line differs); factored into a private build_bins() helper here --
 // same operations, same order, byte-identical behavior, just not re-typed twice.
 //
-// BUG transcribed verbatim (not "fixed"): AddData(double)'s "expand the first/last bin to
-// cover an out-of-range point" branches (`data <= LowerBound` / `data >= UpperBound`) are
-// effectively DEAD CODE. The method calls GetBinIndexOf(data) UNCONDITIONALLY before
-// checking either branch, and GetBinIndexOf throws for any value strictly outside
-// [LowerBound, UpperBound] -- so a point that would need the histogram to "auto-adapt" (per
-// the class's own XML doc comment) throws instead, before the adapting branch is ever
-// reached. The branches are only reachable at an EXACT boundary match (data == LowerBound
-// or data == UpperBound), where the "expansion" is a no-op (setting a bound to the value it
-// already equals). See docs/upstream-csharp-issues.md. The C++ mirrors this exactly:
-// add_data(double) calls get_bin_index_of() first and lets it throw.
+// v2.1.4 sync (Numerics 33dc1af): FIXED, not mirrored -- AddData(double)'s "expand the
+// first/last bin to cover an out-of-range point" branches used to be DEAD CODE: the method
+// called GetBinIndexOf(data) UNCONDITIONALLY before checking either branch, and
+// GetBinIndexOf throws for any value strictly outside [LowerBound, UpperBound], so a point
+// that would need the histogram to "auto-adapt" (per the class's own XML doc comment)
+// threw instead of adapting. Upstream's fix moves the interior GetBinIndexOf call into an
+// `else` branch reached only when `data` is strictly between the current bounds, and
+// additionally distinguishes "at the boundary" (`data == LowerBound`/`UpperBound`, a true
+// no-op) from "beyond the boundary" (`data < LowerBound`/`data > UpperBound`, which now
+// actually widens the endpoint bin and updates LowerBound/UpperBound) via a nested `if`;
+// either way the endpoint bin's Frequency is incremented. This port mirrors that same
+// nested-if structure below, INCLUDING one upstream asymmetry transcribed verbatim: the
+// lower-extend branch marks `bins_sorted_ = false` (a stale flag, since extending an
+// endpoint outward never changes the bins' relative order -- Bin::compare_to only
+// compares bounds pairwise, and widening the first/last bin never crosses another bin's
+// bounds), but the upper-extend branch does NOT -- this asymmetry is harmless (any
+// re-sort would be a no-op) but is not "fixed" here, matching the C# exactly. See
+// docs/upstream-csharp-issues.md (marked RESOLVED) and
+// fixtures/special_functions/histogram.json's `adapt_*` cases (ported from the new v2.1.4
+// Test_AddData_AdaptsEndpointBins).
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -153,24 +163,31 @@ class Histogram {
         bins_sorted_ = false;
     }
 
-    // Adds one data value to the histogram. See the file header for the "auto-adapt at an
-    // out-of-range point" quirk this faithfully mirrors: get_bin_index_of(value) is called
-    // unconditionally first and throws for any value strictly outside the current
-    // [lower_bound(), upper_bound()] range, so the two branches below only ever fire at an
-    // exact boundary match (where they are a no-op).
+    // Adds one data value to the histogram. If `value` falls strictly outside the current
+    // [lower_bound(), upper_bound()] range, the first/last bin (and the histogram's own
+    // lower_bound()/upper_bound()) widen to cover it (see the file header for the v2.1.4
+    // fix this ports); an exact boundary match is a no-op widen but still increments the
+    // endpoint bin's frequency; an interior value increments whichever bin contains it.
     void add_data(double value) {
         sort_bins();
-        int index = get_bin_index_of(value);
         if (value <= lower_bound_) {
-            bins_.front().lower_bound = value;
+            if (value < lower_bound_) {
+                bins_.front().lower_bound = value;
+                lower_bound_ = value;
+                bins_sorted_ = false;
+            }
             bins_.front().frequency += 1;
-            bins_sorted_ = false;
         } else if (value >= upper_bound_) {
-            bins_.back().upper_bound = value;
+            if (value > upper_bound_) {
+                bins_.back().upper_bound = value;
+                upper_bound_ = value;
+            }
             bins_.back().frequency += 1;
-            bins_sorted_ = false;
-        } else if (index >= 0 && index < number_of_bins_) {
-            bins_[static_cast<std::size_t>(index)].frequency += 1;
+        } else {
+            int index = get_bin_index_of(value);
+            if (index >= 0 && index < number_of_bins_) {
+                bins_[static_cast<std::size_t>(index)].frequency += 1;
+            }
         }
     }
 

@@ -49,6 +49,7 @@
 #include "corehydro/numerics/data/correlation.hpp"
 #include "corehydro/numerics/data/goodness_of_fit.hpp"
 #include "corehydro/numerics/data/histogram.hpp"
+#include "corehydro/numerics/data/interpolation/bilinear.hpp"
 #include "corehydro/numerics/data/interpolation/search.hpp"
 #include "corehydro/numerics/data/multiple_grubbs_beck_test.hpp"
 #include "corehydro/numerics/data/plotting_positions.hpp"
@@ -293,6 +294,15 @@ static bfdata::RunningStatistics running_statistics_combined(const std::vector<d
     return bfdata::RunningStatistics(sample1) + bfdata::RunningStatistics(sample2);
 }
 
+// RunningStatistics.clone_* fixture args convention (fixtures/special_functions/running_statistics.json):
+// args = the flat sample (same convention as the plain per-property targets above); builds
+// RunningStatistics(sample).clone() and reads one property off the CLONE. Exercises the new
+// v2.1.4 Clone() method (see running_statistics.hpp's file header) -- in particular
+// clone_skewness/clone_kurtosis would surface a clone() that forgot to copy m3_/m4_.
+static bfdata::RunningStatistics running_statistics_clone(const std::vector<double>& a) {
+    return bfdata::RunningStatistics(a).clone();
+}
+
 // Fourier fixture args conventions (fixtures/special_functions/fourier.json):
 //  - Fourier.fft_at / Fourier.real_fft_at: args = [data..., inverse (0/1), index] -- n =
 //    len(args) - 2; runs fft()/real_fft() in place on a copy of `data`, returns data[index].
@@ -448,6 +458,74 @@ static bfdata::Histogram histogram_build(const std::vector<double>& a, std::size
     std::vector<double> data(a.begin() + 1, a.end() - static_cast<std::ptrdiff_t>(trailing));
     if (explicit_bins > 0) return bfdata::Histogram(data, explicit_bins);
     return bfdata::Histogram(data);
+}
+
+// Histogram.adapt_* fixture args convention (fixtures/special_functions/histogram.json):
+// args = [explicit_bins, num_adds, data..., adds(num_adds)...] -- builds the histogram via
+// the same explicit_bins/data convention as histogram_build() above, then replays each of
+// `adds` through a scalar add_data(double) call, in order. Exercises the v2.1.4
+// AddData-endpoint-adapt fix (see histogram.hpp's file header): before the fix, an add
+// value strictly outside the current bounds threw instead of widening the endpoint bin.
+static bfdata::Histogram histogram_build_adapt(const std::vector<double>& a) {
+    int explicit_bins = static_cast<int>(a[0]);
+    int num_adds = static_cast<int>(a[1]);
+    std::vector<double> data(a.begin() + 2, a.end() - static_cast<std::ptrdiff_t>(num_adds));
+    bfdata::Histogram h = explicit_bins > 0 ? bfdata::Histogram(data, explicit_bins) : bfdata::Histogram(data);
+    for (auto it = a.end() - static_cast<std::ptrdiff_t>(num_adds); it != a.end(); ++it) h.add_data(*it);
+    return h;
+}
+
+// Bilinear.log_floor_* fixture args convention (fixtures/special_functions/bilinear.json):
+// args = [x1_query, x2_query] against a FIXED 3x3 identity grid ({0, 1E-15, 1} on both
+// axes, y[i][j] = x1_values[i] for every j) with X1/X2/Y all Transform::Logarithmic -- the
+// exact grid the new v2.1.4 Test_LogarithmicFloorMatchesLinearInterpolation uses to prove
+// Bilinear's guarded log10 floor now matches Linear's (see bilinear.hpp's file header).
+static double bilinear_log_floor_value(const std::vector<double>& a) {
+    std::vector<double> coords = {0.0, 1e-15, 1.0};
+    std::vector<std::vector<double>> y = {{0.0, 0.0, 0.0}, {1e-15, 1e-15, 1e-15}, {1.0, 1.0, 1.0}};
+    bfdata::Bilinear bilin(coords, coords, y);
+    bilin.x1_transform = bfdata::Transform::Logarithmic;
+    bilin.x2_transform = bfdata::Transform::Logarithmic;
+    bilin.y_transform = bfdata::Transform::Logarithmic;
+    return bilin.interpolate(a[0], a[1]);
+}
+
+// Probability.hpcm_* fixture args convention (fixtures/special_functions/probability.json):
+// args = [p_0..p_(n-1), ind_0..ind_(n-1), corr(n*n flattened row-major)] for hpcm_joint; n is
+// inferred as the unique n solving 2n + n^2 = len(args). hpcm_conditional_at appends one
+// trailing 0-based component index (so its own args length is one more). Exercises the
+// v2.1.4 minimumCdf-guard fix in joint_probability_hpcm's "First cycle" (see probability.hpp's
+// file header) with the new Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite inputs
+// (a probability of exactly 0 and a subnormal 1E-320), which previously could divide by a
+// near-zero standard-normal CDF in that unguarded first cycle.
+static int probability_hpcm_n(std::size_t len) {
+    for (int n = 1; n <= 20; ++n)
+        if (static_cast<std::size_t>(2 * n + n * n) == len) return n;
+    throw std::runtime_error("cannot infer n for Probability.hpcm args");
+}
+
+static double probability_hpcm_joint(const std::vector<double>& a, std::vector<double>* conditional = nullptr) {
+    int n = probability_hpcm_n(a.size());
+    std::vector<double> probabilities(a.begin(), a.begin() + n);
+    std::vector<int> indicators(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i)
+        indicators[static_cast<std::size_t>(i)] = static_cast<int>(a[static_cast<std::size_t>(n + i)]);
+    prob::Matrix2D corr(static_cast<std::size_t>(n), std::vector<double>(static_cast<std::size_t>(n)));
+    std::size_t base = static_cast<std::size_t>(2 * n);
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < n; ++j)
+            corr[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                a[base + static_cast<std::size_t>(i * n + j)];
+    return prob::joint_probability_hpcm(probabilities, indicators, corr, conditional);
+}
+
+static double probability_hpcm_conditional_at(const std::vector<double>& a) {
+    int idx = static_cast<int>(a.back());
+    std::vector<double> body(a.begin(), a.end() - 1);
+    int n = probability_hpcm_n(body.size());
+    std::vector<double> cond(static_cast<std::size_t>(n));
+    probability_hpcm_joint(body, &cond);
+    return cond[static_cast<std::size_t>(idx)];
 }
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
@@ -679,6 +757,20 @@ special_function_table() {
         {"RunningStatistics.combined_coefficient_of_variation", [](const std::vector<double>& a) { return running_statistics_combined(a).coefficient_of_variation(); }},
         {"RunningStatistics.combined_skewness", [](const std::vector<double>& a) { return running_statistics_combined(a).skewness(); }},
         {"RunningStatistics.combined_kurtosis", [](const std::vector<double>& a) { return running_statistics_combined(a).kurtosis(); }},
+        {"RunningStatistics.combined_count", [](const std::vector<double>& a) {
+            return static_cast<double>(running_statistics_combined(a).count());
+        }},
+        // RunningStatistics.clone_* family (args: the flat sample -- see
+        // running_statistics_clone() above and fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.clone_mean", [](const std::vector<double>& a) { return running_statistics_clone(a).mean(); }},
+        {"RunningStatistics.clone_variance", [](const std::vector<double>& a) { return running_statistics_clone(a).variance(); }},
+        {"RunningStatistics.clone_skewness", [](const std::vector<double>& a) { return running_statistics_clone(a).skewness(); }},
+        {"RunningStatistics.clone_kurtosis", [](const std::vector<double>& a) { return running_statistics_clone(a).kurtosis(); }},
+        {"RunningStatistics.clone_minimum", [](const std::vector<double>& a) { return running_statistics_clone(a).minimum(); }},
+        {"RunningStatistics.clone_maximum", [](const std::vector<double>& a) { return running_statistics_clone(a).maximum(); }},
+        {"RunningStatistics.clone_count", [](const std::vector<double>& a) {
+            return static_cast<double>(running_statistics_clone(a).count());
+        }},
         // Fourier family (see fourier_*_at() above for the args conventions)
         {"Fourier.fft_at", fourier_fft_at},
         {"Fourier.real_fft_at", fourier_real_fft_at},
@@ -730,6 +822,33 @@ special_function_table() {
         {"Histogram.get_bin_index_of", [](const std::vector<double>& a) {
             return static_cast<double>(histogram_build(a, 1).get_bin_index_of(a.back()));
         }},
+        // Histogram.adapt_* family (args: [explicit_bins, num_adds, data..., adds...] -- see
+        // histogram_build_adapt() above and fixtures/special_functions/histogram.json)
+        {"Histogram.adapt_lower_bound", [](const std::vector<double>& a) {
+            return histogram_build_adapt(a).lower_bound();
+        }},
+        {"Histogram.adapt_upper_bound", [](const std::vector<double>& a) {
+            return histogram_build_adapt(a).upper_bound();
+        }},
+        {"Histogram.adapt_bin_first_lower_bound", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return h.bin(0).lower_bound;
+        }},
+        {"Histogram.adapt_bin_last_upper_bound", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return h.bin(h.number_of_bins() - 1).upper_bound;
+        }},
+        {"Histogram.adapt_bin_first_frequency", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return static_cast<double>(h.bin(0).frequency);
+        }},
+        {"Histogram.adapt_bin_last_frequency", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return static_cast<double>(h.bin(h.number_of_bins() - 1).frequency);
+        }},
+        {"Histogram.adapt_data_count", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build_adapt(a).data_count());
+        }},
         // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
         // weibull_at -- see fixtures/special_functions/plotting_positions.json)
         {"PlottingPositions.function_at", [](const std::vector<double>& a) {
@@ -754,12 +873,36 @@ special_function_table() {
             return static_cast<double>(
                 bfdata::search::bisection(a[n], values, static_cast<int>(a[n + 1])));
         }},
+        // Search.*_descending family (args: [values..., x, start], same convention as
+        // Search.sequential/bisection above but with SortOrder::Descending -- v2.1.4 fixed
+        // bisection()'s descending branch, previously dead code that always returned
+        // `start`; see search.hpp's file header)
+        {"Search.sequential_descending", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(bfdata::search::sequential(
+                a[n], values, static_cast<int>(a[n + 1]), bfdata::SortOrder::Descending));
+        }},
+        {"Search.bisection_descending", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(bfdata::search::bisection(
+                a[n], values, static_cast<int>(a[n + 1]), bfdata::SortOrder::Descending));
+        }},
         // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] --
         // see fixtures/special_functions/mcmc_diagnostics.json)
         {"MCMCDiagnostics.minimum_sample_size", [](const std::vector<double>& a) {
             return static_cast<double>(
                 corehydro::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
         }},
+        // Bilinear.log_floor_* family (args: [x1_query, x2_query] -- see
+        // bilinear_log_floor_value() above and fixtures/special_functions/bilinear.json)
+        {"Bilinear.log_floor_value", bilinear_log_floor_value},
+        // Probability.hpcm_* family (args: see probability_hpcm_joint()/
+        // probability_hpcm_conditional_at() above and
+        // fixtures/special_functions/probability.json)
+        {"Probability.hpcm_joint", [](const std::vector<double>& a) { return probability_hpcm_joint(a); }},
+        {"Probability.hpcm_conditional_at", probability_hpcm_conditional_at},
     };
     return t;
 }

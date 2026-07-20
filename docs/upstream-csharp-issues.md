@@ -144,18 +144,23 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Port handling:** mirrored faithfully (`bilinear_` is likewise never reset in `set_parameters()`).
 - **Suggested C# fix:** set `bilinear = null;` at the end of `SetParameters`.
 
-## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform
+## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Interpolation/Linear.cs` (`Tools.Log10`, clamps values `< 1E-16` to
   `1E-16`) vs. `Numerics/Data/Interpolation/Bilinear.cs` (`Math.Log10` directly, no clamp).
 - **What:** the two interpolation classes apply the Logarithmic transform inconsistently: Linear
   is guarded against `log(0)`/`log(negative)` producing `-Inf`/`NaN`; Bilinear is not, despite
   Bilinear internally reusing Linear instances for its search machinery.
-- **Port handling:** mirrored faithfully (`Linear::base_interpolate`/`extrapolate` use
-  `corehydro::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
-  at both call sites.
-- **Suggested C# fix:** have `Bilinear` call `Tools.Log10` for consistency, unless the lack of
-  clamping there is intentional (e.g. grids are assumed always positive).
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) switched every `Math.Log10` call in
+  `Bilinear.cs`'s Logarithmic-transform branches to the guarded `Tools.Log10`, matching Linear.
+  Ported in the upstream-sync T1 task: `bilinear.hpp` now calls
+  `corehydro::numerics::clamped_log10` at every log10 site, exactly like `linear.hpp`. See
+  `fixtures/special_functions/bilinear.json`'s `log_floor_*` cases (adapted from the new
+  `Test_LogarithmicFloorMatchesLinearInterpolation`), confirmed reproducible against the real C#
+  Bilinear class.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`Linear::base_interpolate`/
+  `extrapolate` used `corehydro::numerics::clamped_log10`; `Bilinear::interpolate` used plain
+  `std::log10`), documented at both call sites.
 
 ## ROBUSTNESS — NoncentralT moments use AdaptiveGaussKronrod (heavy) with no analytic fallback
 
@@ -333,7 +338,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   "why does CompetingRisks build a MultivariateNormal but never call its CDF" doesn't need to
   re-derive the overload-resolution chain from scratch.
 
-## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1
+## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1 (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Statistics/Probability.cs`, `JointProbabilityHPCM`.
 - **What:** the "First cycle" block computes `cdf = Normal.StandardCDF(z1);` and then has a
@@ -345,18 +350,66 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   lines apart — looks like an accidental omission (e.g. a guard added later to fix a NaN/Infinity
   seen only in the multi-cycle case, never back-ported to cycle 1) rather than an intentional
   design choice.
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) named the guard `minimumCdf` and activated it
+  in the "First cycle" block too, matching "Remaining cycles". Ported in the upstream-sync T1
+  task: `joint_probability_hpcm` in `probability.hpp` now applies the shared `kMinimumCdf`
+  constant in both places. See `fixtures/special_functions/probability.json`'s
+  `extreme_probabilities_*` cases (adapted from the new
+  `Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite`), confirmed reproducible against
+  the real C# Probability class — though note the companion finding directly below, which this
+  new coverage surfaced as a genuine prerequisite.
 - **Evidence:** direct inspection of `Probability.cs`; not hit by any CompetingRisks fixture
   (`R[0,0] = Normal.StandardZ(probabilities[0])` is never so extreme that
   `Normal.StandardCDF(R[0,0])` underflows below `1e-300` for any component/x combination the
   fixtures exercise — the two closest CompetingRisks fixture cases keep `z1` well within a few
   standard deviations of the median).
-- **Port handling:** mirrored faithfully (`joint_probability_hpcm` in `probability.hpp` leaves the
-  guard commented out in the analogous "First cycle" block, applies it in "Remaining cycles"),
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`joint_probability_hpcm` in
+  `probability.hpp` left the guard commented out in the analogous "First cycle" block, applied it
+  in "Remaining cycles"),
   documented in-header at both the file comment and the function itself.
 - **Suggested C# fix:** either add the matching `if (cdf < 1e-300) cdf = 1e-300;` guard to the
   first cycle (for consistency and to avoid a potential `A = pdf / 0` -> `Infinity`/`NaN` if `z1`
   is extreme enough), or confirm the omission is deliberate (e.g. cycle 1's `cdf` is provably
   bounded away from zero by some invariant not obvious from the code) and document why.
+
+## BUG (C++ port only, unrelated to any C# diff) — `Normal::standard_cdf` used an unguarded erf formula, diverging from C#'s `Normal.StandardCDF` at extreme |z| (FIXED in the upstream-sync T1 task)
+
+- **Where:** `core/include/corehydro/numerics/distributions/normal.hpp`, `standard_cdf(double z)`
+  (the static helper mirroring `Normal.StandardCDF(Z)`; NOT the instance `cdf(x)` method, which
+  correctly mirrors C#'s own separate, equally-unguarded `Normal.CDF(x)` — see below).
+- **What:** discovered while curating the `Probability.hpcm_joint`/`hpcm_conditional_at` fixture
+  cases for the JointProbabilityHPCM `minimumCdf` guard fix above. `standard_cdf` computed
+  `Phi(z) = 0.5 * (1.0 + std::erf(z / sqrt(2)))` directly. For `z <~ -6`, `erf(z/sqrt2)` is so
+  close to `-1` that `1.0 + erf(...)` suffers catastrophic cancellation and rounds to EXACTLY
+  `0.0` in double precision — e.g. `standard_cdf(-9)` returned `0.0` instead of the true
+  `~1.13E-19` — silently wrong, not merely imprecise. The real C# `Normal.StandardCDF(Z)` does
+  NOT hit this: per `Numerics/Distributions/Univariate/Normal.cs`, it delegates to
+  `MultivariateNormal.MVNPHI(Z)`, a Chebyshev-series algorithm (Schonfelder 1978) accurate to
+  1E-15 across the whole range — the SAME algorithm this port's own
+  `MultivariateNormal::mvnphi` already mirrors faithfully for the bivariate-CDF machinery, but
+  calling it from `normal.hpp` isn't practical (`multivariate_normal.hpp` already depends on
+  `normal.hpp`, so the reverse include would be circular). Note this affects ONLY the static
+  `Normal.StandardCDF`/`standard_cdf` helper: the instance `Normal.CDF(x)`/`Normal::cdf(x)` (used
+  by an actual `Normal(mu, sigma)` distribution instance) has its OWN separate erf-based formula
+  in C# too (`0.5d * (1.0d + Erf.Function((x - Mu) / (Sigma * Tools.Sqrt2)))`), so that method's
+  matching imprecision at extreme tails is a faithful mirror, not a divergence — left unchanged.
+- **Evidence:** discovered because `JointProbabilityHPCM`'s z-values are clamped to `[-9, 9]`
+  before every `Normal.StandardCDF`/`standard_cdf` call, so the new `Test_JointProbabilityHPCM_
+  ExtremeProbabilitiesRemainFinite` inputs (probabilities `0` and `1E-320`) drive `z` to exactly
+  that boundary. Comparing this port's (buggy) output against `tools/oracle_emitter --dump`
+  showed a stark mismatch (this port: `joint = 0`, `cond = [0, 1, 0]`; real C#: `joint =
+  1.71146...E-26`, `cond = [1.1286...E-19, 1.5176...E-7, 0.99927...]`) that couldn't be explained
+  by the `minimumCdf` guard itself (both old and new C++ agreed with each other, since the
+  guard's effect saturates against the same downstream `[0,1]` clamp either way).
+- **Port handling:** fixed via the standard numerically-stable identity `Phi(z) =
+  0.5 * erfc(-z/sqrt2)` (mathematically identical to the erf form since `erfc(x) = 1 - erf(x)`,
+  but `erfc` doesn't lose precision as its argument grows, so it never cancels down to exactly
+  0/1). Verified to reproduce the real C# MVNPHI-based value bit-for-bit at `z=-9`
+  (`1.1285884059538425E-19` here vs. `1.128588405953841E-19` from `oracle_emitter --dump`) and to
+  agree with the old erf formula to ~1E-16 for every ordinary `z` any other existing fixture
+  exercises — confirmed by the full `verify_oracles.py` gate (same 10 pre-existing failures,
+  zero new ones) and the full C++/R/Python suites (all green) after the change.
+- **Suggested C# fix:** none — this is a C++-port-only bug with no C# analog to fix.
 
 ## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)
 
@@ -381,7 +434,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
   silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
-## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code
+## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Statistics/Histogram.cs`, `AddData(double data)`.
 - **What:** the XML doc comment promises "If the data value falls outside the range of the
@@ -395,21 +448,24 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   branches are only reachable at an **exact boundary match** (`data == LowerBound` or
   `data == UpperBound`), where the "expansion" is a no-op (each sets a bound to the value it
   already equals).
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) moved the `GetBinIndexOf` call into an `else`
+  branch reached only for genuinely interior values, and split each boundary branch into "exact
+  match" (no-op) vs. "beyond the boundary" (now actually widens `LowerBound`/`UpperBound` and the
+  endpoint bin). Ported in the upstream-sync T1 task, including one upstream asymmetry
+  transcribed verbatim (the lower-extend branch marks the bins stale for re-sort, the
+  upper-extend branch does not — harmless, since widening an endpoint never changes bin order).
+  See `fixtures/special_functions/histogram.json`'s `adapt_*` cases (adapted from the new
+  `Test_AddData_AdaptsEndpointBins`), confirmed reproducible against the real C# Histogram class.
 - **Evidence:** direct inspection of the method body's statement order (`SortBins(); int index =
   GetBinIndexOf(data); if (data <= LowerBound) {...}`); confirmed by tracing `GetBinIndexOf`'s own
   guard (`if (value < _bins.First().LowerBound || value > _bins.Last().UpperBound) throw ...`).
   Not exercised by any Test_Histogram.cs test (none call `AddData` a second time with an
   out-of-range point after construction).
-- **Port handling:** mirrored faithfully — `histogram.hpp`'s `add_data(double)` calls
-  `get_bin_index_of()` first and lets it throw, exactly like the C#; documented in the file
-  header and at the call site.
-- **Suggested C# fix:** reorder the method to check `data <= LowerBound` / `data >= UpperBound`
-  **before** calling `GetBinIndexOf`, so the intended auto-adapt behavior is reachable; or, if the
-  auto-adapt behavior was never actually intended (a histogram's bins are usually meant to be
-  fixed once constructed), update the doc comment and let `AddData` throw for genuinely
-  out-of-range points instead of silently documenting a promise it can't keep.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully — `histogram.hpp`'s
+  `add_data(double)` called `get_bin_index_of()` first and let it throw, exactly like the C#;
+  documented in the file header and at the call site.
 
-## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator)
+## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Interpolation/Support/Search.cs`, `Bisection(double x, IList<double>
   values, int start, SortOrder order)` (all three overloads share the same loop body).
@@ -422,18 +478,27 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   always `false`, so the whole condition is always `false` regardless of `x` — the loop only ever
   shrinks `xhi`, `xlo` never advances past `start`, and `Bisection` returns `start` unconditionally
   instead of the correct bracketing index.
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) split the loop into separate ascending
+  (`x >= values[xm]`) / descending (`x < values[xm]`) branches rather than adopting the
+  equality-test phrasing Interpolater/Hunt already used, but the effect is the same: descending
+  bisection now correctly narrows `xlo` toward the bracketing index. Ported in the upstream-sync
+  T1 task's `search.hpp`. See `fixtures/special_functions/search.json`'s `*_descending_*` cases
+  (adapted from the new `Test_Search.cs`), confirmed reproducible against the real C# Search
+  class, including two cases that genuinely distinguish old (`start`) from new (correct index)
+  behavior.
 - **Evidence:** direct inspection of the loop body; reproduced independently in a standalone
   Python re-implementation of the exact algorithm during the P3.3 port (a 5-element descending
   array bisected for a midrange value returns `start` regardless of where the value actually
   falls, while `Search.Sequential` on the same inputs returns the correct index).
-- **Port handling:** mirrored faithfully (verbatim, not "fixed") — `search.hpp`'s `bisection()`
-  keeps the same `&&`-against-`SortOrder::Ascending` condition; documented at length in the file
-  header, including a warning that it's dead code for every current caller (Histogram and SNIS
-  both only ever call with the default `Ascending` order) but a live bug if a future caller passes
-  `Descending`.
-- **Suggested C# fix:** change the condition to `(x >= values[xm]) == (order ==
-  SortOrder.Ascending)`, matching `Interpolater.BisectionSearch`'s already-correct phrasing of the
-  same test.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (verbatim, not "fixed") —
+  `search.hpp`'s `bisection()` kept the same `&&`-against-`SortOrder::Ascending` condition;
+  documented at length in the file header, including a warning that it was dead code for every
+  current caller (Histogram and SNIS both only ever call with the default `Ascending` order) but
+  a live bug if a future caller passed `Descending`.
+- **Originally suggested C# fix (superseded by the actual v2.1.4 fix above):** change the
+  condition to `(x >= values[xm]) == (order == SortOrder.Ascending)`, matching
+  `Interpolater.BisectionSearch`'s already-correct phrasing of the same test. Upstream instead
+  split the loop into two branches (see Status above) — a different but equally correct fix.
 
 ---
 

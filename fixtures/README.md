@@ -1401,7 +1401,15 @@ instance via the list constructor): `args = [n1, sample1(n1 values), sample2(rem
 "split-index" convention distinct from `Correlation.*`'s equal-length two-halves split -- the
 upstream `Test_Combine`/`Test_Add` literals split their 69-value sample into UNEQUAL 48/21
 sub-samples, so a fixed midpoint doesn't apply. Each target builds `RunningStatistics(sample1) +
-RunningStatistics(sample2)` and reads one property off the merged result.
+RunningStatistics(sample2)` and reads one property off the merged result; `combined_count` closes
+out that property set. The `RunningStatistics.clone_*` targets (v2.1.4's new `Clone()` method)
+reuse the plain per-property `args` convention (the flat sample) and read one property off
+`RunningStatistics(sample).Clone()` instead of the sample instance directly -- additive API-parity
+coverage, not a re-pin, since the C++ port's value semantics already made `combine()`'s
+empty-operand branches return independent copies before v2.1.4 added `Clone()` for C# parity. The
+`combined_with_first_empty`/`combined_with_second_empty`/`combined_both_empty` cases reuse the
+EXISTING `combined_*` targets with `n1 = 0` or an empty trailing `sample2` (no new dispatch
+needed).
 
 The `Fourier.*` targets (`fixtures/special_functions/fourier.json`) take: `fft_at`/`real_fft_at`
 `args = [data..., inverse (0/1), index]` (n = len(args) - 2; runs `FFT`/`RealFFT` in place on a
@@ -1447,7 +1455,14 @@ lower/upper/frequency arrays are scraped from `Test_Histogram.cs`; `mean`/`media
 `standard_deviation` were independently recomputed in Python from that test's own closed-form
 formulas (1e-6 tolerance, matching); `get_bin_index_of` cases port `Test_Indexing`'s invariant
 (`GetBinIndexOf(bin[i].Midpoint) == i`) with the midpoint recomputed from the identical
-bin-construction arithmetic.
+bin-construction arithmetic. The `Histogram.adapt_*` targets (new in v2.1.4, adapted from
+`Test_AddData_AdaptsEndpointBins`) take a DIFFERENT convention, `args = [explicit_bins, num_adds,
+data..., adds(num_adds)...]`: build the histogram as above from `data`, then replay each of
+`adds` through a scalar `AddData(double)` call, in order, before reading one property
+(`lower_bound`/`upper_bound`/`bin_first_lower_bound`/`bin_last_upper_bound`/
+`bin_first_frequency`/`bin_last_frequency`/`data_count`) off the result -- exercising
+`AddData`'s v2.1.4 endpoint-auto-adapt fix (see `core/include/corehydro/numerics/data/
+histogram.hpp`'s file header).
 
 The `PlottingPositions.*` targets (`fixtures/special_functions/plotting_positions.json`) take
 `weibull_at` `args = [N, i]` (0-based `i`, analytic `PP[i] = (i+1)/(N+1)`) and `function_at`
@@ -1455,12 +1470,34 @@ The `PlottingPositions.*` targets (`fixtures/special_functions/plotting_position
 `Test_PlottingPositions.cs` (`N=30`, `alpha=0.1`).
 
 The `Search.*` targets (`fixtures/special_functions/search.json`) take
-`args = [values..., x, start]` (n = len(args) - 2), the default `SortOrder.Ascending` only -- the
-only order any real caller uses (SNIS's `Search.Sequential` call and Histogram's
-`Search.Bisection` call both omit the `order` argument). No upstream `Test_Search.cs` exists, so
-every case is curated via `oracle_emitter --dump`; probes cover both boundary sentinels
-(below/above the range, exact first/last-element match) and interior lookups, including one with a
-non-zero `start`.
+`args = [values..., x, start]` (n = len(args) - 2). The plain `sequential`/`bisection` targets use
+the default `SortOrder.Ascending` only -- the only order any real caller uses (SNIS's
+`Search.Sequential` call and Histogram's `Search.Bisection` call both omit the `order` argument).
+No upstream `Test_Search.cs` existed for these, so every case is curated via `oracle_emitter
+--dump`; probes cover both boundary sentinels (before/after the range, exact first/last-element
+match) and interior lookups, including one with a non-zero `start`. The `Search.*_descending`
+targets (new in v2.1.4, adapted from the new `Test_Search.cs`) use the same `args` shape but
+`SortOrder.Descending` explicitly, exercising `bisection()`'s v2.1.4 descending-branch fix (see
+`core/include/corehydro/numerics/data/interpolation/search.hpp`'s file header) -- two of the
+`bisection_descending_*` cases genuinely distinguish the pre-fix (`start`) from the fixed (correct
+bracketing index) behavior.
+
+The `Bilinear.log_floor_value` target (`fixtures/special_functions/bilinear.json`, new in v2.1.4,
+adapted from `Test_LogarithmicFloorMatchesLinearInterpolation`) takes `args = [x1_query,
+x2_query]` against a FIXED 3x3 identity grid (`{0, 1E-15, 1}` on both axes) with
+X1Transform/X2Transform/YTransform all `Logarithmic`, exercising Bilinear's v2.1.4 switch to the
+guarded `Tools.Log10` (see `core/include/corehydro/numerics/data/interpolation/bilinear.hpp`'s
+file header) -- before the fix both cases returned NaN.
+
+The `Probability.hpcm_joint`/`Probability.hpcm_conditional_at` targets
+(`fixtures/special_functions/probability.json`, new in v2.1.4, adapted from the new
+`Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite`) take `args = [p_0..p_(n-1),
+ind_0..ind_(n-1), corr(n*n flattened row-major)]` (n inferred from the argument count) for
+`hpcm_joint`; `hpcm_conditional_at` appends one trailing 0-based component index and returns the
+corresponding `conditionalProbabilities[i]` out-value. Exercises `JointProbabilityHPCM`'s v2.1.4
+`minimumCdf` guard fix (see `core/include/corehydro/numerics/data/probability.hpp`'s file
+header); curating this case surfaced and fixed an unrelated, pre-existing precision bug in this
+port's own `Normal::standard_cdf` (see `docs/upstream-csharp-issues.md`).
 
 The `MCMCDiagnostics.minimum_sample_size` target (`fixtures/special_functions/mcmc_diagnostics.json`)
 takes `args = [quantile, tolerance, probability]` (the Raftery-Lewis normal-approximation

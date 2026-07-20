@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Interpolation/Support/Search.cs @ a2c4dbf
+// ported from: Numerics/Data/Interpolation/Support/Search.cs @ 2a0357a
 //
 // Only the two overloads this port's callers actually need: `sequential` (SNIS.cs's
 // `Search.Sequential(rndOut[i], cdf, idx)` posterior-weight lookup during output
@@ -17,16 +17,19 @@
 // skipped this file entirely (see interpolater.hpp's header comment); this header ports
 // the SNIS/Histogram-required subset only.
 //
-// QUIRK transcribed verbatim (not "fixed"): bisection()'s loop condition is
-// `x >= values[xm] && order == Ascending` (a logical AND against the order flag), not
+// v2.1.4 sync (Numerics 33dc1af): FIXED, not mirrored -- bisection()'s loop condition used
+// to be `x >= values[xm] && order == Ascending` (a logical AND against the order flag), not
 // `(x >= values[xm]) == ascending` the way Interpolater's own bisection_search phrases the
-// equivalent test. For order == Descending this condition is always false, so the loop
-// only ever shrinks `xhi`; `xlo` never advances past `start`, meaning bisection() in
-// descending order always returns `start`, not the correct bracketing index. Not exercised
-// by any current caller (Histogram::get_bin_index_of always calls with the default
-// Ascending order, and SNIS only calls sequential(), not bisection()), so this is dead
-// code today -- but a real latent bug if a future caller passes SortOrder::Descending. See
-// docs/upstream-csharp-issues.md.
+// equivalent test. For order == Descending that condition was always false, so the loop
+// only ever shrank `xhi`; `xlo` never advanced past `start`, so bisection() in descending
+// order always returned `start` instead of the correct bracketing index. Upstream's fix
+// splits the loop into separate ascending/descending branches (`x >= values[xm]` for
+// ascending, `x < values[xm]` for descending) rather than adopting the equality-test
+// phrasing Interpolater/Hunt already used; this port mirrors that same split. Previously
+// dead code for every caller in this port's scope (Histogram::get_bin_index_of and SNIS
+// both only ever call with the default Ascending order), now oracle-covered in the
+// descending direction too via fixtures/special_functions/search.json's
+// `*_descending_*` cases. See docs/upstream-csharp-issues.md (marked RESOLVED).
 #pragma once
 #include <stdexcept>
 #include <vector>
@@ -90,12 +93,22 @@ inline int bisection(double x, const std::vector<double>& values, int start = 0,
     }
 
     int xlo = start, xhi = n;
-    while (xhi - xlo > 1) {
-        int xm = xlo + ((xhi - xlo) >> 1);
-        if (x >= values[static_cast<std::size_t>(xm)] && order == SortOrder::Ascending)
-            xlo = xm;
-        else
-            xhi = xm;
+    if (order == SortOrder::Ascending) {
+        while (xhi - xlo > 1) {
+            int xm = xlo + ((xhi - xlo) >> 1);
+            if (x >= values[static_cast<std::size_t>(xm)])
+                xlo = xm;
+            else
+                xhi = xm;
+        }
+    } else {
+        while (xhi - xlo > 1) {
+            int xm = xlo + ((xhi - xlo) >> 1);
+            if (x < values[static_cast<std::size_t>(xm)])
+                xlo = xm;
+            else
+                xhi = xm;
+        }
     }
     return xlo;
 }

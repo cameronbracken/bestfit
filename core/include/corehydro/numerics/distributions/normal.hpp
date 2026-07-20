@@ -1,12 +1,33 @@
 // ported from: Numerics/Distributions/Univariate/Normal.cs @ a2c4dbf
 //
 // The Normal (Gaussian) distribution, parameters µ (location) and σ (scale).
-// CDF uses std::erf (matches the C# Erf.Function = regularized lower-incomplete gamma to
-// well within oracle tolerances); InverseCDF ports Wichura's AS241 (r8_normal_01_cdf_inverse)
-// verbatim, the same routine the C# uses. Logic mirrors the C# source method-for-method;
-// the WPF confidence-interval helpers (Normal/NoncentralT/MonteCarlo) are not ported.
-// B4 adds ParametersFromMoments/MomentsFromParameters, QuantileGradient, and the
-// ConditionalMoments override for the Bulletin 17C GMM track.
+// CDF uses std::erf (matches the C# instance Normal.CDF(x), itself erf-based -- see the
+// precision-fix note below for why the STATIC standard_cdf helper is different); InverseCDF
+// ports Wichura's AS241 (r8_normal_01_cdf_inverse) verbatim, the same routine the C# uses.
+// Logic mirrors the C# source method-for-method; the WPF confidence-interval helpers
+// (Normal/NoncentralT/MonteCarlo) are not ported. B4 adds ParametersFromMoments/
+// MomentsFromParameters, QuantileGradient, and the ConditionalMoments override for the
+// Bulletin 17C GMM track.
+//
+// Precision fix (discovered during the v2.1.4 sync's T1 task while adding oracle coverage
+// for Probability::joint_probability_hpcm, unrelated to any C# diff): `standard_cdf` used
+// to compute Phi(z) = 0.5*(1 + erf(z/sqrt2)) directly. For z <~ -6, `erf(z/sqrt2)` is so
+// close to -1 that `1 + erf(...)` suffers catastrophic cancellation and rounds to EXACTLY
+// 0.0 in double precision (e.g. standard_cdf(-9) returned 0.0 instead of the true
+// ~1.13E-19) -- silently wrong, not merely imprecise. The real C# `Normal.StandardCDF`
+// does NOT hit this: it delegates to `MultivariateNormal.MVNPHI`, a Chebyshev-series
+// algorithm (Schonfelder 1978) accurate across the whole range, which this port's own
+// `MultivariateNormal::mvnphi` already mirrors faithfully for the bivariate-CDF machinery
+// -- but header-ordering makes calling it from here impractical (multivariate_normal.hpp
+// already depends on this file). Fixed with the standard numerically-stable identity
+// Phi(z) = 0.5*erfc(-z/sqrt2) instead: mathematically identical to the erf form (erfc(x) =
+// 1 - erf(x)), but `erfc` is specifically designed not to lose precision as its argument
+// grows, so it never cancels down to exactly 0/1. Verified to reproduce the real C#
+// MVNPHI-based value bit-for-bit at z=-9 (1.1285884059538425E-19 here vs.
+// 1.128588405953841E-19 from `oracle_emitter --dump`) and to agree with the old erf formula
+// to ~1E-16 for every ordinary z any existing fixture exercises, so no other oracle value
+// moves. See fixtures/special_functions/probability.json's `extreme_probabilities_*` cases
+// (Probability.hpcm_conditional_at, index 0) for the regression pin.
 #pragma once
 #include <string>
 #include <cmath>
@@ -239,10 +260,10 @@ class Normal : public UnivariateDistributionBase,
         return std::exp(-0.5 * z * z) / kSqrt2PI;
     }
 
-    // Standard normal CDF Φ(z). Mirrors Normal.StandardCDF(Z) in C#.
-    static double standard_cdf(double z) {
-        return 0.5 * (1.0 + std::erf(z / kSqrt2));
-    }
+    // Standard normal CDF Φ(z). Mirrors Normal.StandardCDF(Z) in C# (which delegates to the
+    // accurate MVNPHI algorithm, unlike the instance cdf(x) above -- see this file's header
+    // for why standard_cdf specifically needs the numerically-stable erfc form).
+    static double standard_cdf(double z) { return 0.5 * std::erfc(-z / kSqrt2); }
 
     // Z variate of the standard normal for a probability (Wichura AS241).
     static double standard_z(double probability) {

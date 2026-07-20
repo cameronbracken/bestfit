@@ -1,8 +1,8 @@
 {
   "target": "RunningStatistics.mean",
   "kind": "special_function",
-  "source": "Numerics/Data/Statistics/RunningStatistics.cs; expected values scraped verbatim from Test_RunningStatistics.cs (Test_Stats/Test_PopStats), which construct a RunningStatistics from the same 69-value sample used by fixtures/special_functions/percentile.json and validate each property to a 1e-10 delta against the values from Test_Statistics.cs. The `combined_*` cases scrape Test_Combine/Test_Add verbatim, which split the SAME 69-value sample into a 48-value sub-sample and a 21-value sub-sample, build a RunningStatistics from each, merge them via `RunningStatistics.Combine`/`operator+`, and assert the merge reproduces the exact same 8 values as Test_Stats/Test_PopStats above (min/max/mean/variance/sd/coefficient_of_variation/skewness/kurtosis) -- i.e. the C# tests themselves prove combine() is associative-with-single-pass on this data, so the expected values are identical to their un-combined counterparts by construction.",
-  "reference": "Numerics @ a2c4dbf. Not called out in the task brief's own fixture list, but added because the task's stated goal is that every ported prerequisite be oracle-validated before a sampler consumes it (ARWMH/Bootstrap both use RunningStatistics). Args convention: args = the flat sample (RunningStatistics's list constructor pushes every element in order); each dispatch target reads one property off the resulting instance. minimum/maximum/count are trivial (min/max of a fixed sample; N=69) but included for completeness of the ported member set. The `combined_*` targets close a gap: `RunningStatistics::combine()`/`operator+` had zero fixture coverage from the cases above (which only ever construct via the list ctor, never combine two instances). They use a DIFFERENT args convention: `[n1, sample1(n1 values), sample2(remaining values)]`, a 'split-index' convention rather than Correlation's equal-length two-halves split (Test_Combine/Test_Add's 48/21 sub-samples are unequal, so a fixed midpoint doesn't apply). Each `combined_*` dispatch target builds `RunningStatistics(sample1) + RunningStatistics(sample2)` (operator+, which forwards to the static `combine()` -- exercising both) and reads one property off the merged result. See fixtures/README.md.",
+  "source": "Numerics/Data/Statistics/RunningStatistics.cs; expected values scraped verbatim from Test_RunningStatistics.cs (Test_Stats/Test_PopStats), which construct a RunningStatistics from the same 69-value sample used by fixtures/special_functions/percentile.json and validate each property to a 1e-10 delta against the values from Test_Statistics.cs. The `combined_*` cases scrape Test_Combine/Test_Add verbatim, which split the SAME 69-value sample into a 48-value sub-sample and a 21-value sub-sample, build a RunningStatistics from each, merge them via `RunningStatistics.Combine`/`operator+`, and assert the merge reproduces the exact same 8 values as Test_Stats/Test_PopStats above (min/max/mean/variance/sd/coefficient_of_variation/skewness/kurtosis) -- i.e. the C# tests themselves prove combine() is associative-with-single-pass on this data, so the expected values are identical to their un-combined counterparts by construction. The `clone_*` and `combined_with_*_empty`/`combined_both_empty` cases are adapted from the new v2.1.4 Test_Clone/Test_Combine_WithEmpty.",
+  "reference": "Numerics @ 2a0357a. Not called out in the task brief's own fixture list, but added because the task's stated goal is that every ported prerequisite be oracle-validated before a sampler consumes it (ARWMH/Bootstrap both use RunningStatistics). Args convention: args = the flat sample (RunningStatistics's list constructor pushes every element in order); each dispatch target reads one property off the resulting instance. minimum/maximum/count are trivial (min/max of a fixed sample; N=69) but included for completeness of the ported member set. The `combined_*` targets close a gap: `RunningStatistics::combine()`/`operator+` had zero fixture coverage from the cases above (which only ever construct via the list ctor, never combine two instances). They use a DIFFERENT args convention: `[n1, sample1(n1 values), sample2(remaining values)]`, a 'split-index' convention rather than Correlation's equal-length two-halves split (Test_Combine/Test_Add's 48/21 sub-samples are unequal, so a fixed midpoint doesn't apply). Each `combined_*` dispatch target builds `RunningStatistics(sample1) + RunningStatistics(sample2)` (operator+, which forwards to the static `combine()` -- exercising both) and reads one property off the merged result. v2.1.4 added `Clone()` and changed `Combine` to return a clone (not a bare reference) when either operand is empty -- see running_statistics.hpp's file header: this was never observable in the C++ port (value semantics already gave an independent copy), so `clone_*`/`combined_with_*_empty` are additive coverage for the new API surface, not a re-pin. `clone_*` reuses the plain per-property targets' own `mean`/`combined_kurtosis` args convention (the flat sample) but reads the property off `RunningStatistics(sample).Clone()`; `combined_with_first_empty`/`combined_with_second_empty` reuse the EXISTING `combined_*` targets and args convention with `n1 = 0` (first operand empty) or `n1 = 69` (second operand empty, i.e. no args left after the sample) -- no new dispatch needed for those two since RunningStatisticsCombined()/running_statistics_combined() already handle an empty half correctly; `combined_both_empty` is the new `combined_count` target with `args = [0]` (both operands empty). See fixtures/README.md.",
   "cases": [
     {
       "name": "mean",
@@ -129,6 +129,78 @@
       "target": "RunningStatistics.combined_kurtosis",
       "args": [48, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
       "assertions": [ { "method": "value", "expected": 1.3434868130194, "mode": "abs", "tol": 1e-9 } ]
+    },
+    {
+      "name": "clone_mean",
+      "target": "RunningStatistics.clone_mean",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 191.317391304348, "mode": "abs", "tol": 1e-9, "source": "adapted from Test_Clone; identical to the un-cloned mean case above by construction (Clone() is a copy of every field)" } ]
+    },
+    {
+      "name": "clone_variance",
+      "target": "RunningStatistics.clone_variance",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 2300.31616368286, "mode": "abs", "tol": 1e-8, "source": "adapted from Test_Clone" } ]
+    },
+    {
+      "name": "clone_skewness",
+      "target": "RunningStatistics.clone_skewness",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 0.8605451107461, "mode": "abs", "tol": 1e-9, "source": "adapted from Test_Clone; not directly asserted by Test_Clone itself, but included here since a clone() that forgot to copy m3_ would surface here" } ]
+    },
+    {
+      "name": "clone_kurtosis",
+      "target": "RunningStatistics.clone_kurtosis",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 1.3434868130194, "mode": "abs", "tol": 1e-9, "source": "adapted from Test_Clone; not directly asserted by Test_Clone itself, but included here since a clone() that forgot to copy m4_ would surface here" } ]
+    },
+    {
+      "name": "clone_minimum",
+      "target": "RunningStatistics.clone_minimum",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 98.8, "mode": "abs", "tol": 1e-10, "source": "adapted from Test_Clone" } ]
+    },
+    {
+      "name": "clone_maximum",
+      "target": "RunningStatistics.clone_maximum",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 337.0, "mode": "abs", "tol": 1e-10, "source": "adapted from Test_Clone" } ]
+    },
+    {
+      "name": "clone_count",
+      "target": "RunningStatistics.clone_count",
+      "args": [122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 69.0, "mode": "equal", "source": "adapted from Test_Clone" } ]
+    },
+    {
+      "name": "combined_with_first_empty_mean",
+      "target": "RunningStatistics.combined_mean",
+      "args": [0, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 191.317391304348, "mode": "abs", "tol": 1e-9, "source": "adapted from Test_Combine_WithEmpty (empty first operand); reuses the existing combined_mean target/args convention with n1=0 -- no new dispatch needed since running_statistics_combined() already handles an empty sample1" } ]
+    },
+    {
+      "name": "combined_with_first_empty_count",
+      "target": "RunningStatistics.combined_count",
+      "args": [0, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 69.0, "mode": "equal", "source": "adapted from Test_Combine_WithEmpty (empty first operand)" } ]
+    },
+    {
+      "name": "combined_with_second_empty_mean",
+      "target": "RunningStatistics.combined_mean",
+      "args": [69, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 191.317391304348, "mode": "abs", "tol": 1e-9, "source": "adapted from Test_Combine_WithEmpty (empty second operand); n1=69 leaves an empty sample2 slice" } ]
+    },
+    {
+      "name": "combined_with_second_empty_count",
+      "target": "RunningStatistics.combined_count",
+      "args": [69, 122, 244, 214, 173, 229, 156, 212, 263, 146, 183, 161, 205, 135, 331, 225, 174, 98.8, 149, 238, 262, 132, 235, 216, 240, 230, 192, 195, 172, 173, 172, 153, 142, 317, 161, 201, 204, 194, 164, 183, 161, 167, 179, 185, 117, 192, 337, 125, 166, 99.1, 202, 230, 158, 262, 154, 164, 182, 164, 183, 171, 250, 184, 205, 237, 177, 239, 187, 180, 173, 174],
+      "assertions": [ { "method": "value", "expected": 69.0, "mode": "equal", "source": "adapted from Test_Combine_WithEmpty (empty second operand)" } ]
+    },
+    {
+      "name": "combined_both_empty_count",
+      "target": "RunningStatistics.combined_count",
+      "args": [0],
+      "assertions": [ { "method": "value", "expected": 0, "mode": "equal", "source": "adapted from Test_Combine_WithEmpty's final assertion (combining two empty instances returns a new empty instance, Count==0)" } ]
     }
   ]
 }
