@@ -1015,6 +1015,40 @@ void test_data_frame_process_threshold_clamps_negative_number_below() {
     CHECK_EQ(df.threshold_series()[0].number_below(), 0);
 }
 
+// BestFit v2.0.0 (ThresholdData source/effective count split, T12): repeated calls to
+// process_threshold_series() must be idempotent. Before the split, a second call would
+// re-derive NumberAbove from the ALREADY-REDUCED effective NumberAbove left by the first
+// call rather than the user's original input, permanently losing the exceedance count once
+// explicit data fully covered the window. Same scenario as
+// test_data_frame_process_threshold_zeroes_number_above_when_fully_covered above (Duration
+// 5, NumberAbove 2, three overlapping exact points -> NumberAbove zeroed on the first
+// pass); a SECOND call must reproduce exactly the same effective state, not zero out
+// anything further or diverge.
+void test_data_frame_process_threshold_series_is_idempotent() {
+    DataFrame df;
+    df.set_exact_series(ExactSeries(std::vector<ExactData>{
+        ExactData(2000, 1.0), ExactData(2001, 2.0), ExactData(2002, 3.0)}));
+    df.threshold_series().add(make_threshold(2000, 2004, 100.0, 2));
+
+    df.process_threshold_series();
+    CHECK_EQ(df.threshold_series()[0].source_number_above(), 2);  // stable user input
+    CHECK_EQ(df.threshold_series()[0].number_above(), 0);         // fully covered -> zeroed
+    CHECK_EQ(df.threshold_series()[0].number_below(), 0);
+
+    df.process_threshold_series();  // second pass: must reproduce the SAME state
+    CHECK_EQ(df.threshold_series()[0].source_number_above(), 2);
+    CHECK_EQ(df.threshold_series()[0].number_above(), 0);
+    CHECK_EQ(df.threshold_series()[0].number_below(), 0);
+
+    // Removing the overlapping data and reprocessing must RESTORE the original exceedance
+    // count from the stable source input -- proof the reduction isn't a one-way ratchet.
+    df.set_exact_series(ExactSeries());
+    df.process_threshold_series();
+    CHECK_EQ(df.threshold_series()[0].source_number_above(), 2);
+    CHECK_EQ(df.threshold_series()[0].number_above(), 2);
+    CHECK_EQ(df.threshold_series()[0].number_below(), 3);  // Duration 5 - NumberAbove 2
+}
+
 // ---------------------------------------------------------------------------
 // DataFrame: FullTimeSeries expansion (the DataFrame-state part of
 // ThresholdLikelihoodGuardTests.NonstationaryUnivariateThresholdLikelihood_
@@ -1259,14 +1293,24 @@ void test_data_frame_various_plotting_parameters() {
 // DataFrame: Validate / Clone
 // ---------------------------------------------------------------------------
 
-// Transcribes DataFrame.Validate (plotting parameter range; no upstream direct test).
-void test_data_frame_validate_plotting_parameter_range() {
+// C# Test_PlottingPositions_InvalidInputs_Throw (BestFit v2.0.0): set_plotting_parameter()
+// now validates eagerly and throws (mirrors ArgumentOutOfRangeException) rather than
+// leaving an out-of-range value for DataFrame::validate() to catch later -- so an
+// out-of-range/non-finite value can no longer reach the object at all through the public
+// setter. DataFrame::validate()'s own plotting-parameter check (still ported, for
+// structural parity with the C#) is consequently unreachable via this port's public API;
+// see its header comment.
+void test_data_frame_set_plotting_parameter_rejects_out_of_range() {
     DataFrame df = create_test_data_frame(10);
     CHECK_TRUE(df.validate().is_valid);
-    df.set_plotting_parameter(1.5);
-    ValidationResult result = df.validate();
-    CHECK_TRUE(!result.is_valid);
-    CHECK_TRUE(any_contains(result.validation_messages, "plotting parameter"));
+    CHECK_THROWS(df.set_plotting_parameter(1.5));
+    CHECK_THROWS(df.set_plotting_parameter(-0.01));
+    CHECK_THROWS(df.set_plotting_parameter(1.0));  // half-open: [0, 1)
+    CHECK_THROWS(df.set_plotting_parameter(std::numeric_limits<double>::quiet_NaN()));
+    CHECK_THROWS(df.set_plotting_parameter(std::numeric_limits<double>::infinity()));
+    // A rejected assignment must leave the prior (valid) state untouched.
+    CHECK_NEAR(df.plotting_parameter(), 0.0, 0.0);
+    CHECK_TRUE(df.validate().is_valid);
 }
 
 // Validate aggregates the four series validations (exercised through the overlap rule).
@@ -1524,6 +1568,7 @@ int main() {
     test_data_frame_process_threshold_overlapping_points_reduce_number_below();
     test_data_frame_process_threshold_zeroes_number_above_when_fully_covered();
     test_data_frame_process_threshold_clamps_negative_number_below();
+    test_data_frame_process_threshold_series_is_idempotent();
 
     // FullTimeSeries expansion (incl. ThresholdLikelihoodGuardTests DataFrame state)
     test_data_frame_full_time_series_splits_threshold_into_single_counts();
@@ -1538,7 +1583,7 @@ int main() {
 
     // PlottingParameter / Validate / Clone
     test_data_frame_various_plotting_parameters();
-    test_data_frame_validate_plotting_parameter_range();
+    test_data_frame_set_plotting_parameter_rejects_out_of_range();
     test_data_frame_validate_aggregates_series_validations();
     test_data_frame_clone_is_deep_and_preserves_state();
 

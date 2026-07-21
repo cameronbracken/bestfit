@@ -32,13 +32,20 @@
 //      variants, StationaryData_LogLikelihood) NEVER call ProcessThresholdSeries. The
 //      C# guard tests rely on this: they overwrite threshold counts after model
 //      construction, and the likelihood must not reprocess/overwrite them.
-// Because the C++ DataFrame (M4) replaced INPC with explicit invalidation -- and
-// ProcessThresholdSeries is NOT idempotent when explicit points exactly cover
-// Duration - NumberAbove -- this base calls process_threshold_series() exactly ONCE per
-// model-boundary assignment, in set_data_frame(), and never before likelihood evaluation.
-// Callers that mutate the held frame's series in place afterwards own the C# "event"
-// obligation: call data_frame().process_threshold_series() themselves (or re-set the frame)
-// -- mirroring the upstream once-per-mutation cadence.
+// Because the C++ DataFrame (M4) replaced INPC with explicit invalidation, this base calls
+// process_threshold_series() exactly ONCE per model-boundary assignment, in
+// set_data_frame(), and never before likelihood evaluation. Callers that mutate the held
+// frame's series in place afterwards own the C# "event" obligation: call
+// data_frame().process_threshold_series() themselves (or re-set the frame) -- mirroring the
+// upstream once-per-mutation cadence. (Historical note: prior to BestFit v2.0.0's
+// ThresholdData source/effective count split, ProcessThresholdSeries was NOT idempotent --
+// a second call re-derived NumberAbove from an already-reduced NumberAbove rather than the
+// original user input, so a caller invoking it twice could permanently lose the original
+// exceedance count. That is fixed now: process_threshold_series() always recomputes from
+// ThresholdData::source_number_above(), so calling it more than once, or re-processing
+// after the series are further mutated, is harmless. This base still calls it only once at
+// the model boundary, matching the C#'s own once-per-mutation event cadence, not because a
+// second call would be unsafe.)
 //
 // The C# DataFrame_PropertyChanged handler (lines 234-249: ignore PlottingParameter /
 // PlottingPosition changes, else ProcessThresholdSeries + SetDefaultParameters-if-flat)

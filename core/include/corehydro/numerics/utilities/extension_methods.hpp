@@ -17,10 +17,13 @@
 // bit-exact: a later task (SNIS) depends on reproducing it against the real C# output.
 //
 // Omitted (no ported caller needs them; the C# source has many more extension-method
-// regions -- Enum, Double, 1-D/2-D Array, Vector, Matrix -- covering `Apply`/`Map`/
-// `Subset`/`RandomSubset`/`Fill`/`GetColumn`/`SetRow`/`SetColumn`/etc.): every
-// `ExtensionMethods.cs` member outside the three ported below.
+// regions -- Enum, 1-D/2-D Array, Vector, Matrix -- covering `Apply`/`Map`/`Subset`/
+// `RandomSubset`/`Fill`/`GetColumn`/`SetRow`/`SetColumn`/etc.): every `ExtensionMethods.cs`
+// member outside the four ported below. `almost_equals` (the `Double` region's sole
+// member) was added additively for the BestFit v2.0.0 DataFrame plotting-position rewrite,
+// which uses it to detect/separate tied Hirsch-Stedinger positions.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -28,6 +31,12 @@
 #include "corehydro/numerics/sampling/mersenne_twister.hpp"
 
 namespace corehydro::numerics::utilities {
+
+// Returns true when `a` and `b` differ by no more than `epsilon` (matches C# `AlmostEquals
+// (this double a, double b, double epsilon = 1E-15)`).
+inline bool almost_equals(double a, double b, double epsilon = 1e-15) {
+    return std::fabs(a - b) <= epsilon;
+}
 
 // Returns an array of `length` random doubles (matches C# `NextDoubles(this Random,
 // int length)`).

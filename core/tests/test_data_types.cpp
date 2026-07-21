@@ -750,6 +750,67 @@ void test_threshold_clone_creates_independent_copy() {
 }
 
 // ---------------------------------------------------------------------------
+// ThresholdData: source-vs-effective NumberAbove split (BestFit v2.0.0)
+// ---------------------------------------------------------------------------
+
+// C# Test_ProcessedCounts_CloneAndSerializationPreserveRequiredState (minus the XML-
+// round-trip half, which is not ported -- see the file header): SetProcessedCounts
+// mutates only the EFFECTIVE counts, leaving SourceNumberAbove (the stable user input)
+// untouched; Clone() preserves both.
+void test_threshold_processed_counts_clone_preserves_source_and_effective() {
+    ThresholdData original(0, 2, 100.0);
+    original.set_number_above(2);
+    CHECK_EQ(original.source_number_above(), 2);
+    CHECK_EQ(original.number_above(), 2);
+
+    bool changed = original.set_processed_counts(/*number_above=*/0, /*number_below=*/0);
+    CHECK_TRUE(changed);
+    CHECK_EQ(original.source_number_above(), 2);  // source untouched
+    CHECK_EQ(original.number_above(), 0);         // effective reduced
+    CHECK_EQ(original.number_below(), 0);
+
+    ThresholdData clone = original.clone();
+    CHECK_EQ(clone.source_number_above(), 2);
+    CHECK_EQ(clone.number_above(), 0);
+    CHECK_EQ(clone.number_below(), 0);
+
+    // set_processed_counts() is idempotent/no-op-detecting: repeating the same effective
+    // counts reports no change; a genuinely different pair reports a change.
+    CHECK_TRUE(!original.set_processed_counts(0, 0));
+    CHECK_TRUE(original.set_processed_counts(1, 1));
+    CHECK_EQ(original.number_above(), 1);
+    CHECK_EQ(original.number_below(), 1);
+    CHECK_EQ(original.source_number_above(), 2);  // still untouched
+}
+
+// validate() checks SourceNumberAbove, not the (possibly-reduced) effective NumberAbove --
+// a threshold whose effective count was zeroed by set_processed_counts() must still
+// validate against the user's ORIGINAL exceedance count.
+void test_threshold_validate_uses_source_number_above() {
+    ThresholdData threshold(1900, 1950, 100000.0);  // Duration 51
+    threshold.set_number_above(100);                // invalid: exceeds Duration
+    threshold.set_processed_counts(0, 0);           // effective count now valid (0 <= 51)
+    ValidationResult result = threshold.validate();
+    CHECK_TRUE(!result.is_valid);  // still invalid: SourceNumberAbove (100) exceeds Duration
+    CHECK_TRUE(any_contains(result.validation_messages, "number above"));
+}
+
+// set_number_above() (the public setter) always resets BOTH the source and effective
+// counts together, matching the C# public NumberAbove setter -- it is not possible to
+// change the effective count alone through it.
+void test_threshold_set_number_above_resets_source_and_effective_together() {
+    ThresholdData threshold(0, 9, 100.0);
+    threshold.set_number_above(5);
+    threshold.set_processed_counts(0, 10);  // effective reduced to 0 by processing
+    CHECK_EQ(threshold.number_above(), 0);
+    CHECK_EQ(threshold.source_number_above(), 5);
+
+    threshold.set_number_above(3);  // a fresh user assignment
+    CHECK_EQ(threshold.number_above(), 3);
+    CHECK_EQ(threshold.source_number_above(), 3);
+}
+
+// ---------------------------------------------------------------------------
 // ThresholdData: Historical Flood Analysis Scenarios
 // ---------------------------------------------------------------------------
 
@@ -1192,6 +1253,9 @@ int main() {
     test_threshold_validate_infinity_value_returns_false();
     test_threshold_validate_index_out_of_range_returns_false();
     test_threshold_clone_creates_independent_copy();
+    test_threshold_processed_counts_clone_preserves_source_and_effective();
+    test_threshold_validate_uses_source_number_above();
+    test_threshold_set_number_above_resets_source_and_effective_together();
     test_threshold_historical_period_typical_scenario();
     test_threshold_historical_period_no_exceedances();
     test_threshold_historical_period_all_exceedances();

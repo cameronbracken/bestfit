@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/DataFrame/DataFrame.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/DataFrame/DataFrame.cs @ c2e6192
 //
 // The input data frame containing exact, uncertain, interval, and threshold data series --
 // the data container every univariate model consumes. This class satisfies the forward
@@ -26,7 +26,8 @@
 // ProcessThresholdSeries, TotalRecordLength, ZeroValueRelativeFrequency, Lambda
 // (SetLambda/CalculateLambda), the low-outlier surface (NumberOfLowOutliers,
 // LowOutlierThreshold, ClearLowOutliers, SetLowOutliersFromMGBT,
-// SetLowOutliersFromThreshold), the plain PlottingParameter property, Validate(), a
+// SetLowOutliersFromThreshold), the validating PlottingParameter property (BestFit v2.0.0;
+// see below), Validate(), a
 // direct deep Clone() (the C# clones via an XElement round trip; the direct clone has the
 // same observable result, including the empty lazily-rebuilt full series noted in the C#
 // remarks), (M5) CalculatePlottingPositions / ApplyLangbeinConversion -- the
@@ -56,6 +57,24 @@
 //   - XML (ToXElement / XElement constructor), INotifyPropertyChanged, and the
 //     concurrency machinery (_syncRoot, Volatile, SnapshotNonNull)
 //
+// BESTFIT v2.0.0 ADDITIONS (T12): CalculatePlottingPositions was rewritten to the
+// peakFQ-faithful ARRANGE2/PPLOT2/PLPOS scheme -- see data_frame_plotting.hpp's file header
+// for the algorithm summary and the strict-validation / tie-ordering notes.
+// ProcessThresholdSeries became idempotent via the ThresholdData source/effective count
+// split (see that header's own note) -- process_threshold_series() below now reads
+// source_number_above() rather than number_above() and writes through
+// set_processed_counts(), so calling it more than once, or after further series mutation,
+// is safe. plotting_position_version() exposes a monotonically increasing counter bumped
+// once per calculate_plotting_positions() call (PORTED NON-GUI CORE ONLY -- see its own
+// accessor comment for what is deliberately not ported: the XML round-trip stamp and the
+// wider per-mutation event bump). set_plotting_parameter() now validates eagerly (throws
+// std::out_of_range, C# ArgumentOutOfRangeException) instead of accepting any value.
+// get_nonparametric_moments()/get_nonparametric_moments_ros() gained the
+// CreateEmpiricalDistributionWithUniqueValues repeated-X-value dedupe (a private static
+// helper below) before constructing their EmpiricalDistribution, returning an empty
+// optional for a degenerate (fewer than two distinct values) sample instead of
+// constructing an invalid one-point distribution.
+//
 // FOLLOW-UPS (M5 ledger finding): create_full_time_series() below sorts the combined series
 // with std::stable_sort, while M5 proved the .NET List<T>.Sort introsort tie order IS
 // oracle-visible in plotting positions (data_frame_plotting.hpp carries the faithful
@@ -68,6 +87,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -169,15 +189,42 @@ class DataFrame {
     void set_low_outlier_threshold(double threshold) { low_outlier_threshold_ = threshold; }
 
     // --- The plotting position parameter; default 0.0 = Weibull (C# property, line 256;
-    // alternatives: 0.40 Cunnane, 0.44 Gringorten, 0.50 Hazen). The setter recomputes
-    // plotting positions on change, mirroring the C#. ---
+    // alternatives: 0.40 Cunnane, 0.44 Gringorten, 0.50 Hazen). The setter validates
+    // eagerly (C# throws ArgumentOutOfRangeException for a non-finite value or one outside
+    // [0, 1), BestFit v2.0.0) and, on a real change, recomputes plotting positions. The C#
+    // recalculation now goes through RecalculatePlottingPositionsAfterEdit, which swallows
+    // an InvalidOperationException raised by a transiently-invalid threshold state while an
+    // interactive GUI edit is in progress -- a WPF-only concern with no C++ counterpart (see
+    // the file header's SKIP note), so this setter calls calculate_plotting_positions()
+    // directly and lets any throw propagate, matching every other explicit-trigger method
+    // on this class. ---
     double plotting_parameter() const { return plotting_parameter_; }
     void set_plotting_parameter(double plotting_parameter) {
+        if (!numerics::is_finite(plotting_parameter) || plotting_parameter < 0.0 ||
+            plotting_parameter >= 1.0) {
+            throw std::out_of_range(
+                "The plotting parameter must be finite, greater than or equal to zero, "
+                "and less than one.");
+        }
         if (plotting_parameter_ != plotting_parameter) {
             plotting_parameter_ = plotting_parameter;
             calculate_plotting_positions();
         }
     }
+
+    // The version stamp for data-frame plotting-position inputs (C# internal
+    // PlottingPositionVersion, line 168; BestFit v2.0.0). Bumped once per
+    // calculate_plotting_positions() call so consumers (Task 15's BivariateDistribution
+    // pseudo-observation cache) can detect a stale cache without rescanning the series.
+    // PORTED NON-GUI CORE ONLY: the C# XML-round-trip stamp handling (ToXElement /
+    // FromXElement recomputation) and the wider event-driven bump on every series/item
+    // mutation (Interlocked.Increment inside the ExactSeries/UncertainSeries/
+    // IntervalSeries/ThresholdSeries property setters and their PropertyChanged handlers)
+    // are WPF/XML-only concerns with no C++ counterpart -- this port's invalidation
+    // strategy already requires an explicit calculate_plotting_positions() call after any
+    // mutation (see the file header), so bumping there alone is sufficient and observably
+    // equivalent for every caller that follows the documented invalidation contract.
+    std::int64_t plotting_position_version() const { return plotting_position_version_; }
 
     // The average number of events per index (C# line 273).
     double lambda() const { return lambda_; }
@@ -209,9 +256,15 @@ class DataFrame {
     ValidationResult validate() const {
         ValidationResult result;
 
-        if (plotting_parameter_ < 0.0 || plotting_parameter_ > 1.0) {
+        // Unreachable via set_plotting_parameter() (which now validates eagerly, BestFit
+        // v2.0.0), but kept for structural parity with the C# -- there the raw
+        // `_plottingParameter` field can still be populated out of range via the
+        // (unported) XML deserialization constructor, bypassing the property setter.
+        if (!numerics::is_finite(plotting_parameter_) || plotting_parameter_ < 0.0 ||
+            plotting_parameter_ >= 1.0) {
             result.validation_messages.push_back(
-                "Error: The plotting parameter must be between 0 and 1.");
+                "Error: The plotting parameter must be finite, greater than or equal to 0, "
+                "and less than 1.");
             result.is_valid = false;
         }
 
@@ -260,13 +313,19 @@ class DataFrame {
     }
 
     // Process the threshold data to ensure exclusivity by adjusting counts for
-    // overlapping data (C# line 618): NumberBelow = Duration - NumberAbove - (explicit
-    // interval/uncertain/exact points inside the window), clamped at 0; NumberAbove is
-    // zeroed when the explicit points account for every remaining year (nBelow == 0).
+    // overlapping data (C# line 618): NumberBelow = Duration - source NumberAbove -
+    // (explicit interval/uncertain/exact points inside the window), clamped at 0; the
+    // EFFECTIVE NumberAbove is zeroed when the explicit points account for every remaining
+    // year (nBelow == 0). Idempotent (BestFit v2.0.0): each pass starts from
+    // source_number_above() -- the stable user-supplied input -- rather than from
+    // number_above() (a previous pass's possibly-already-reduced effective value), and
+    // writes the result via set_processed_counts() rather than the public setter, so
+    // repeated calls (or a mutation of the data series followed by a fresh call) never
+    // compound the reduction across multiple passes.
     void process_threshold_series() {
         for (std::size_t i = 0; i < threshold_series_.count(); i++) {
             ThresholdData& threshold_data = threshold_series_[i];
-            int n_above = threshold_data.number_above();
+            int n_above = threshold_data.source_number_above();
             int n_below = threshold_data.duration() - n_above;
             // Check interval data
             for (std::size_t j = 0; j < interval_series_.count(); j++) {
@@ -289,9 +348,10 @@ class DataFrame {
                     n_below -= 1;
                 }
             }
-            // Zero out NumberAbove when all years are accounted for by explicit data
-            threshold_data.set_number_above(n_below == 0 ? 0 : n_above);
-            threshold_data.set_number_below(std::max(0, n_below));
+            // Zero out the effective NumberAbove when explicit data account for every
+            // remaining year.
+            threshold_data.set_processed_counts(n_below == 0 ? 0 : n_above,
+                                                std::max(0, n_below));
         }
     }
 
@@ -460,9 +520,13 @@ class DataFrame {
         // Build sorted plotting position complements
         std::vector<double> probs = plotting_position_complements();
 
-        numerics::distributions::EmpiricalDistribution dist(std::move(values),
-                                                            std::move(probs));
-        return dist.central_moments(1000);
+        // Repeated X-values collapse into a single right-continuous CDF step (BestFit
+        // v2.0.0); a degenerate sample (fewer than two distinct values, e.g. all-identical)
+        // reports unavailable rather than constructing a one-point EmpiricalDistribution.
+        std::optional<numerics::distributions::EmpiricalDistribution> dist =
+            create_empirical_distribution_with_unique_values(values, probs);
+        if (!dist.has_value()) return std::nullopt;
+        return dist->central_moments(1000);
     }
 
     // Computes nonparametric central moments using Regression on Order Statistics (ROS)
@@ -552,9 +616,13 @@ class DataFrame {
         // Build sorted plotting position complements
         std::vector<double> probs = plotting_position_complements();
 
-        numerics::distributions::EmpiricalDistribution dist(std::move(values),
-                                                            std::move(probs));
-        return dist.central_moments(1000);
+        // Repeated X-values collapse into a single right-continuous CDF step (BestFit
+        // v2.0.0); a degenerate sample (fewer than two distinct values) reports
+        // unavailable rather than constructing a one-point EmpiricalDistribution.
+        std::optional<numerics::distributions::EmpiricalDistribution> dist =
+            create_empirical_distribution_with_unique_values(values, probs);
+        if (!dist.has_value()) return std::nullopt;
+        return dist->central_moments(1000);
     }
 
     // Create a deep copy of the data frame (C# Clone, line 1907, which round-trips
@@ -968,6 +1036,40 @@ class DataFrame {
         return probs;
     }
 
+    // Creates an empirical distribution after collapsing repeated sorted values (C#
+    // CreateEmpiricalDistributionWithUniqueValues, BestFit v2.0.0; the shared tail of both
+    // GetNonparametricMoments methods). A CDF is right-continuous, so a repeated X-value
+    // retains the LARGEST cumulative probability assigned to it (not the first or an
+    // average) rather than producing a duplicate-X EmpiricalDistribution, which is either
+    // invalid or degrades interpolation accuracy. Returns an empty optional (the C# null)
+    // when fewer than two distinct values remain -- e.g. an all-identical sample -- since a
+    // one-point empirical distribution has no defined shape/moments. `sorted_values` and
+    // `sorted_probabilities` are independently-sorted parallel arrays (see the two call
+    // sites: pre-existing, unrelated-to-this-fix quirk carried through unchanged).
+    static std::optional<numerics::distributions::EmpiricalDistribution>
+    create_empirical_distribution_with_unique_values(
+        const std::vector<double>& sorted_values,
+        const std::vector<double>& sorted_probabilities) {
+        std::vector<double> unique_values;
+        std::vector<double> unique_probabilities;
+        unique_values.reserve(sorted_values.size());
+        unique_probabilities.reserve(sorted_probabilities.size());
+        for (std::size_t i = 0; i < sorted_values.size(); i++) {
+            double value = sorted_values[i];
+            double probability = sorted_probabilities[i];
+            if (!unique_values.empty() && value == unique_values.back()) {
+                if (probability > unique_probabilities.back())
+                    unique_probabilities.back() = probability;
+            } else {
+                unique_values.push_back(value);
+                unique_probabilities.push_back(probability);
+            }
+        }
+        if (unique_values.size() < 2) return std::nullopt;
+        return numerics::distributions::EmpiricalDistribution(std::move(unique_values),
+                                                               std::move(unique_probabilities));
+    }
+
     static void append(ValidationResult& result, const ValidationResult& partial) {
         if (partial.is_valid) return;
         result.validation_messages.insert(result.validation_messages.end(),
@@ -988,6 +1090,10 @@ class DataFrame {
     int number_of_low_outliers_ = 0;
     double low_outlier_threshold_ = 0;
     double plotting_parameter_ = 0.0;
+    // C# `_plottingPositionVersion` (BestFit v2.0.0); starts fresh at 0 on a clone, exactly
+    // like the C# (Clone() round-trips through the XElement constructor, which never
+    // restores this field either).
+    std::int64_t plotting_position_version_ = 0;
 };
 
 // ---------------------------------------------------------------------------

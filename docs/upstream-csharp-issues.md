@@ -1026,7 +1026,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   field, minding its side effects); add a regression test that clones a zero-inflated model and
   asserts the cloned distribution's `IsZeroInflated`/`ZeroWeight`.
 
-## ROBUSTNESS — DataFrame.ProcessThresholdSeries is destructive and not idempotent when explicit points exactly cover a threshold window
+## ROBUSTNESS — DataFrame.ProcessThresholdSeries is destructive and not idempotent when explicit points exactly cover a threshold window (RESOLVED in BestFit v2.0.0 / c2e6192)
 
 - **Where:** `RMC.BestFit/Models/DataFrame/DataFrame.cs`, `ProcessThresholdSeries()` (~line 618).
 - **What:** the method reads the STORED `thresholdData.NumberAbove`, computes `nBelow = Duration
@@ -1042,19 +1042,39 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   calls it unconditionally as its first step (~lines 1142-1144) -- so in the exact-coverage edge
   case any later mutation or a repeated plotting-positions call silently corrupts the threshold
   likelihood counts.
+- **Status:** RESOLVED. BestFit c2e6192 (v2.0.0) split `ThresholdData.NumberAbove` into a
+  user-supplied `_sourceNumberAbove` (updated only by the public `NumberAbove` setter) and the
+  effective `_numberAbove`/`_numberBelow` (updated only by the new `internal SetProcessedCounts`).
+  `ProcessThresholdSeries` now reads `SourceNumberAbove` -- the STABLE original input -- on every
+  pass instead of the possibly-already-reduced effective value, so repeated calls (or a call after
+  further series mutation) always reproduce the correct effective state; the destructive
+  one-way-ratchet described above cannot happen anymore. `Validate()` and `Clone()` were updated to
+  key off `SourceNumberAbove` too (Clone: `NumberAbove = SourceNumberAbove` then a
+  `SetProcessedCounts` replay of the effective state). Ported in the upstream-sync Task 12:
+  `threshold_data.hpp` gained the matching `source_number_above()`/`set_processed_counts()` split;
+  `data_frame.hpp`'s `process_threshold_series()` now reads `source_number_above()` and writes
+  through `set_processed_counts()`. See `core/tests/test_data_types.cpp`'s
+  `test_threshold_processed_counts_clone_preserves_source_and_effective`/
+  `test_threshold_validate_uses_source_number_above` and `core/tests/test_data_frame.cpp`'s
+  `test_data_frame_process_threshold_series_is_idempotent` (calls `process_threshold_series()`
+  twice, then a third time after removing the overlapping data, and asserts the effective counts
+  are exactly reproduced/restored each time) -- new C++-only regression coverage, since
+  `ProcessThresholdSeries` has no existing C# unit test for this sequence and no ported fixture
+  exercises it either (the same "not tested by the current corpus" gap this finding originally
+  noted).
 - **Evidence:** static inspection of the read-modify-write during Task M4 (report concern #1);
   no upstream test hits the exact-coverage-then-rerun sequence, and no ported fixture exercises
-  the edge either.
-- **Port handling:** mirrored faithfully -- `data_frame.hpp`'s `process_threshold_series()` is
-  the same read-modify-write, and `calculate_plotting_positions()` calls it first exactly like
-  the C#. The C++ replaces the INPC auto-trigger with the documented explicit "call once after
-  mutations" cadence (see the file-header invalidation strategy), which matches the C#
-  once-per-mutation event cadence.
-- **Suggested C# fix:** make the pass idempotent by recomputing from immutable inputs -- retain
-  the originally supplied `NumberAbove` (e.g. a private `_originalNumberAbove` set on
-  construction/assignment) and derive both published counts from it on every pass; add a
-  regression test that processes a fully covered threshold window twice and asserts stable
-  counts.
+  the edge either. Confirmed the fix's idempotency directly via the new C++-only ctests above and
+  indirectly via the full oracle gate reaching 0 failures for the first time this sync (Task 12).
+- **Port handling (historical, pre-v2.0.0):** mirrored faithfully -- `data_frame.hpp`'s
+  `process_threshold_series()` was the same read-modify-write, and `calculate_plotting_positions()`
+  called it first exactly like the C#. The C++ replaced the INPC auto-trigger with the documented
+  explicit "call once after mutations" cadence (see the file-header invalidation strategy), which
+  matched the C# once-per-mutation event cadence.
+- **Originally suggested C# fix (this is essentially what v2.0.0 did):** make the pass idempotent
+  by recomputing from immutable inputs -- retain the originally supplied `NumberAbove` and derive
+  both published counts from it on every pass; add a regression test that processes a fully
+  covered threshold window twice and asserts stable counts.
 
 ---
 

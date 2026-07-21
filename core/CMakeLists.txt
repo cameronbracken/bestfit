@@ -46,6 +46,7 @@ set(BF_TESTS
   test_data_frame
   test_data_frame_bootstrap
   test_plotting_positions_df
+  test_nonparametric_empirical
   test_threshold_diagnostics
   test_trend_functions
   test_general_linear_function
