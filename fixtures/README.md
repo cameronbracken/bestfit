@@ -1230,6 +1230,23 @@ case, caching the full surface. Assertion methods:
 - `simulated_value [i]` -- the shared seeded-draw arm: after the fit, the estimator's best
   parameters are pinned into the B17C parent and a seeded `generate_random_values(sample_size,
   seed)` stream is drawn (the same `short_exact` digest semantics as `Simulation`).
+- `gmm_iterations []` -- `GMMIterations()` (T13): the optimizer pass count. 1 for `"OneStep"`,
+  1 or 2 for `"TwoStep"`, and for `"Iterative"` the pass at which the loop returned -- clamped to
+  `max_gmm_iterations` on exhaustion rather than the pre-T13 `max_gmm_iterations + 1` overshoot.
+  `mode: "equal"` (an exact integer count).
+- `converged_within_tolerance []` -- `ConvergedWithinTolerance()` (T13 off-by-one fix): `1` only
+  for an `"Iterative"` run whose loop actually hit its tolerance-convergence branch (including on
+  the LAST permitted iteration, which the old strict `<` boundary under-reported); `0` for
+  `"OneStep"`/`"TwoStep"` (no comparison pass) and for an iteration-budget exhaustion.
+  `mode: "equal"`, `expected: 0` or `1`.
+- `optimizer_fallback_count []` -- `OptimizerFallbackCount()` (T13; C# `internal`, widened to
+  public in the port -- see `generalized_method_of_moments.hpp`'s header). Counts BFGS->NelderMead
+  fallback transitions, sticky across an `"Iterative"` run's passes (increments at most once per
+  `estimate()` call). `mode: "equal"`. No fixture case forces a BFGS failure against the real
+  `bulletin17c` model (the census found the shipped smoke case converges cleanly in both
+  directions), so every GMM fixture case here asserts `0`; the non-zero/sticky-fallback path is
+  covered by a C++-only `core/tests/test_gmm.cpp` PART 3 delegate-based toy problem instead (same
+  precedent as the custom-gradient NUTS scenario noted elsewhere in this file).
 
 The GMM surface is disjoint enough from ML/MAP (adds `j_stat`/`j_stat_pval`/`quantile_variance`,
 drops `max_log_likelihood`/`aic`/`bic`) that it joins the estimator `std::variant` on its own

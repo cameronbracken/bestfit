@@ -1787,6 +1787,13 @@ static double DispatchGmm(BestFitModels.Bulletin17CDistribution b17c, Generalize
         case "correlation": return gmm.GetCorrelationMatrix()[I(0), I(1)];
         case "j_stat": return gmm.JStat;
         case "j_stat_pval": return gmm.JStatPval;
+        // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+        // OptimizerFallbackCount (sticky BFGS->NelderMead fallback; internal, accessible here
+        // because Program.cs compiles into the same subset assembly as the real
+        // GeneralizedMethodOfMoments.cs -- see OracleEmitter.csproj's B12 note).
+        case "gmm_iterations": return gmm.GMMIterations;
+        case "converged_within_tolerance": return gmm.ConvergedWithinTolerance ? 1.0 : 0.0;
+        case "optimizer_fallback_count": return gmm.OptimizerFallbackCount;
         case "quantile_variance":
             return b17c.QuantileVariance(1.0 - a[0].GetDouble(), gmm.BestParameterSet.Values,
                 gmm.GetCovarianceMatrix().ToArray());

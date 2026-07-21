@@ -569,6 +569,12 @@ def _dispatch_estimation(
         return result["j_stat"]
     if method == "j_stat_pval":
         return result["j_stat_pval"]
+    if method == "gmm_iterations":
+        return result["gmm_iterations"]
+    if method == "converged_within_tolerance":
+        return 1.0 if result["converged_within_tolerance"] else 0.0
+    if method == "optimizer_fallback_count":
+        return result["optimizer_fallback_count"]
     if method == "quantile_variance":
         return _core.estimation_gmm_qvar(
             model_json,

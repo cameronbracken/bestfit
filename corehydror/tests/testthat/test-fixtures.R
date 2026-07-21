@@ -635,6 +635,11 @@ dispatch_estimation <- function(result, method, args, ctx) {
     # per-assertion AEP, so it rebuilds the deterministic fit live (the `bic` precedent).
     j_stat             = result$j_stat[[1]],
     j_stat_pval        = result$j_stat_pval[[1]],
+    # T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+    # OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+    gmm_iterations     = result$gmm_iterations[[1]],
+    converged_within_tolerance = as.numeric(result$converged_within_tolerance[[1]]),
+    optimizer_fallback_count = result$optimizer_fallback_count[[1]],
     quantile_variance  = ctx$qvar_fn(as.double(args[[1]])),
     posterior_mean     = result$posterior_mean[[i1(args[[1]])]],
     # chain_value [chain, iter, param]: ch_estimation_bayes_run_ returns a flattened

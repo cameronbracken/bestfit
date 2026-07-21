@@ -2164,6 +2164,12 @@ static double dispatch_estimation(EstimationCase& ec, const std::string& m, cons
                         return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
                     if (m == "j_stat") return est->jstat();
                     if (m == "j_stat_pval") return est->jstat_pval();
+                    // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+                    // OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+                    if (m == "gmm_iterations") return est->gmm_iterations();
+                    if (m == "converged_within_tolerance")
+                        return est->converged_within_tolerance() ? 1.0 : 0.0;
+                    if (m == "optimizer_fallback_count") return est->optimizer_fallback_count();
                     if (m == "quantile_variance") {
                         // args[0] is the annual EXCEEDANCE probability (AEP); the C#
                         // QuantileVariance takes a NON-exceedance probability, so pass 1 - AEP.

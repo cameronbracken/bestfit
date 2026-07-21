@@ -1151,7 +1151,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested C# fix:** either apply `k` (e.g. `s *= k;` inside the loop for geometric expansion) or
   drop the parameter from the signature if the linear step is intentional.
 
-## CONSISTENCY — GMM's iterative loop overshoots GMMIterations by one on exhaustion, and ConvergedWithinTolerance is off-by-one at the boundary
+## CONSISTENCY — GMM's iterative loop overshoots GMMIterations by one on exhaustion, and ConvergedWithinTolerance is off-by-one at the boundary (RESOLVED in BestFit v2.0.0 / 5e1877f)
 
 - **Where:** `RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs`, `EstimateIterative` @ fc28c0c
   (~line 2253, `for (GMMIterations = 2; GMMIterations <= MaxGMMIterations; GMMIterations++)`) and the
@@ -1164,16 +1164,39 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
      A fit that converges on exactly the last permitted iteration (`GMMIterations ==
      MaxGMMIterations`) therefore reports `ConvergedWithinTolerance == false` even though it did
      converge within the budget.
+- **Status:** RESOLVED. BestFit v2.0.0 (5e1877f..b43943c, Task T13) fixed both: `EstimateIterative`
+  now clamps `GMMIterations` back to `MaxGMMIterations` on exhaustion (`if (GMMIterations >
+  MaxGMMIterations) GMMIterations = MaxGMMIterations;`) instead of leaving the for-loop's final
+  overshoot, and `ConvergedWithinTolerance` now reads a tracked `_convergedWithinTolerance` flag
+  set ONLY on the loop's own tolerance-convergence branch (true even on the LAST permitted
+  iteration, fixing the strict-`<` boundary) rather than deriving from the iteration count at all;
+  the flag stays false for `OneStep`/`TwoStep` (no comparison pass) and for exhaustion. Ported in
+  the upstream-sync Task 13: `generalized_method_of_moments.hpp`'s `estimate_iterative` mirrors the
+  clamp verbatim and `converged_within_tolerance_` mirrors the tracked flag, retiring the
+  preserve-the-bug note below. New coverage: `fixtures/estimation/gmm_bulletin17c_smoke.json` gained
+  `gmm_iterations`/`converged_within_tolerance`/`optimizer_fallback_count` assertions on the
+  existing case plus two new cases (`lp3_exact_one_step_bfgs`, OneStep's no-comparison-pass path;
+  `lp3_exact_iterative_max_gmm_iterations_1`, an Iterative run capped before the loop's first
+  comparison pass), all reproduced against the real C# library. The exhaustion-clamp path itself
+  (an Iterative run that runs the loop repeatedly and never converges) stays untested by any
+  fixture -- no B17C data drives that many passes without converging -- but is covered by
+  `core/tests/test_gmm.cpp` PART 3's `test_iteration_exhaustion_clamps_count_and_reports_not_converged`
+  via a `max_gmm_iterations = 1` toy problem (the loop body never runs at all, so this exercises the
+  "no comparison pass" side of the fix rather than a many-iteration exhaustion; both sides clamp to
+  the same `GMMIterations == MaxGMMIterations` outcome by construction).
 - **Evidence:** static inspection during the B8 GMM port; not reachable through the ported B17C
-  fixtures (a just-identified B17C GMM converges in one or two iterations, far below the cap), so no
-  oracle exercises the exhaustion boundary.
-- **Port handling:** mirrored faithfully -- `generalized_method_of_moments.hpp`'s
-  `estimate_iterative` preserves the `gmm_iterations_ == max_gmm_iterations_ + 1` exhaustion value
+  fixtures pre-T13 (a just-identified B17C GMM converges in one or two iterations, far below the
+  cap), so no oracle exercised the exhaustion boundary before this fix landed.
+- **Port handling (historical, pre-T13):** mirrored faithfully -- `generalized_method_of_moments.hpp`'s
+  `estimate_iterative` preserved the `gmm_iterations_ == max_gmm_iterations_ + 1` exhaustion value
   and the same strict-`<` `converged_within_tolerance()` boundary, documented at the call site.
-- **Suggested C# fix:** report the true count on exhaustion (e.g. clamp `GMMIterations` to
-  `MaxGMMIterations`, or count iterations actually executed) and relax `ConvergedWithinTolerance` to
-  `GMMIterations <= MaxGMMIterations` so a last-iteration convergence is reported honestly; add a
-  regression test that exhausts the iteration budget and asserts both the reported count and the flag.
+  Retired in Task 13 -- the fixed loop no longer overshoots or under-reports on this port's
+  fixture-exercised inputs.
+- **Originally suggested C# fix (this is exactly what v2.0.0 did):** report the true count on
+  exhaustion (e.g. clamp `GMMIterations` to `MaxGMMIterations`, or count iterations actually
+  executed) and relax `ConvergedWithinTolerance` to `GMMIterations <= MaxGMMIterations` so a
+  last-iteration convergence is reported honestly; add a regression test that exhausts the
+  iteration budget and asserts both the reported count and the flag.
 
 ---
 

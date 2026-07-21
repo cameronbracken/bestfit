@@ -419,6 +419,12 @@ list ch_estimation_gmm_run_(std::string model_json, doubles dataset, std::string
         "correlation"_nm = correlation,
         "j_stat"_nm = writable::doubles({gmm->jstat()}),
         "j_stat_pval"_nm = writable::doubles({gmm->jstat_pval()}),
+        // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+        // OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+        "gmm_iterations"_nm = writable::integers({gmm->gmm_iterations()}),
+        "converged_within_tolerance"_nm =
+            writable::logicals({cpp11::r_bool(gmm->converged_within_tolerance())}),
+        "optimizer_fallback_count"_nm = writable::integers({gmm->optimizer_fallback_count()}),
         "simulated"_nm = simulated,
     });
 }

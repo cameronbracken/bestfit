@@ -427,6 +427,11 @@ void register_estimation(py::module_& m) {
             out["correlation"] = correlation;
             out["j_stat"] = gmm->jstat();
             out["j_stat_pval"] = gmm->jstat_pval();
+            // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+            // OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+            out["gmm_iterations"] = gmm->gmm_iterations();
+            out["converged_within_tolerance"] = gmm->converged_within_tolerance();
+            out["optimizer_fallback_count"] = gmm->optimizer_fallback_count();
 
             if (sample_size > 0) {
                 model->set_parameter_values(gmm->best_parameter_set().values);
