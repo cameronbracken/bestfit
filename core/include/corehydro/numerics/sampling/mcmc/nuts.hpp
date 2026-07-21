@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/NUTS.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/NUTS.cs @ 2a0357a
 //
 // No-U-Turn Sampler (NUTS): an adaptive extension of HMC that eliminates hand-tuning the
 // leapfrog step size/step count. Each ChainIteration recursively doubles a binary tree of
@@ -18,15 +18,19 @@
 // it between the two classes either (each is a private, non-virtual method on its own
 // class).
 //
-// GRADIENT-PATH GOTCHA (verbatim from the C# source, not a bug -- see LeapfrogInPlace and
-// Leapfrog below): `LeapfrogInPlace` (used only by `FindReasonableEpsilon`/
-// `TrySingleStepLogAcceptance`, i.e. the step-size heuristic of Hoffman & Gelman Algorithm
-// 4) calls `NumericalDerivative.Gradient` DIRECTLY, bypassing `GradientFunction` entirely --
-// even when the caller supplied a custom `gradientFunction`. `Leapfrog` (used by
-// `BuildTree`, i.e. every actual trajectory step) calls `GradientFunction(...)` as
-// expected. This means a custom gradient function affects the sampled trajectory but NOT
-// the initial step-size heuristic, which always uses finite differences regardless. Ported
-// faithfully; both call sites are transcribed exactly as the C# source has them.
+// GRADIENT PATH (v2.1.4 fix, formerly a documented gotcha): both `leapfrog_in_place` (the
+// step-size heuristic of Hoffman & Gelman Algorithm 4, used only by
+// `find_reasonable_epsilon`/`try_single_step_log_acceptance`) and `leapfrog` (used by
+// `build_tree`, i.e. every actual trajectory step) now call `gradient_function_(...)`.
+// Previously `leapfrog_in_place` bypassed `gradient_function_` entirely and called the
+// numerical gradient of SafeLogLikelihood directly, even when the caller supplied a custom
+// `gradient_function` -- so a custom gradient affected the sampled trajectory but not the
+// step-size heuristic. Both call sites now honor whatever gradient function is configured,
+// matching upstream. Stream stability: for the DEFAULT gradient function (no custom
+// `gradient_function` argument at construction), the default closure below performs EXACTLY
+// the same bound-aware finite-difference computation `leapfrog_in_place`'s old hardcoded
+// call did, so every seeded NUTS fixture (all of which use the default gradient) reproduces
+// bit-for-bit unchanged by this fix.
 //
 // `Vector` (linalg::Vector) is a C++ value type (no reference semantics), so every C#
 // `.Clone()` call in NUTS.cs is simply a copy in this port -- copy-construction/assignment
@@ -417,18 +421,16 @@ class NUTS : public MCMCSampler {
     }
 
     // Performs a single leapfrog step in-place on raw arrays, using the per-chain mass
-    // matrix. Used by find_reasonable_epsilon to avoid Vector allocations. NOTE: calls
-    // diff::gradient DIRECTLY (not gradient_function_) -- see file header's gradient-path
-    // gotcha.
+    // matrix. Used by find_reasonable_epsilon to avoid Vector allocations. Calls
+    // gradient_function_ (v2.1.4 fix, formerly called diff::gradient directly) -- see file
+    // header's gradient-path note.
     void leapfrog_in_place(std::vector<double>& theta, std::vector<double>& momentum, double epsilon, int chain_index) {
         int d = number_of_parameters();
         double half_eps = epsilon * 0.5;
         const std::vector<double>& inv_mass = inverse_mass_matrix_[static_cast<std::size_t>(chain_index)];
 
         // Half-step momentum update.
-        std::vector<double> grad =
-            diff::gradient([this](const std::vector<double>& y) { return safe_log_likelihood(y); }, theta, lower_bounds_,
-                            upper_bounds_);
+        std::vector<double> grad = gradient_function_(theta).to_array();
         for (int j = 0; j < d; ++j) momentum[static_cast<std::size_t>(j)] += grad[static_cast<std::size_t>(j)] * half_eps;
 
         // Full-step position update.
@@ -442,8 +444,7 @@ class NUTS : public MCMCSampler {
         }
 
         // Half-step momentum update.
-        grad = diff::gradient([this](const std::vector<double>& y) { return safe_log_likelihood(y); }, theta, lower_bounds_,
-                               upper_bounds_);
+        grad = gradient_function_(theta).to_array();
         for (int j = 0; j < d; ++j) momentum[static_cast<std::size_t>(j)] += grad[static_cast<std::size_t>(j)] * half_eps;
     }
 

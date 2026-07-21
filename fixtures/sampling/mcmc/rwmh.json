@@ -661,7 +661,7 @@
         },
         {
           "method": "map_fitness",
-          "expected": 473.55840961774777,
+          "expected": -473.55840961774777,
           "mode": "rel",
           "tol": 0.0001,
           "source": "curated via oracle_emitter --dump"

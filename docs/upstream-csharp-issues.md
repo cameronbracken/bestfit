@@ -567,7 +567,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
-## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization
+## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch
   (`MAP = DE.BestParameterSet.Clone();`) versus `Sample()`'s output-phase MAP tracking
@@ -583,27 +583,28 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   is thereby nearly always false, so `MAP` is effectively frozen at the DE estimate for the
   rest of `Sample()` -- the output-phase MAP-tracking loop is live code but practically
   never fires after a successful MAP initialization.
-- **Evidence (reproduced against the real C# library):** the `normal_rstan` MCMC fixture case
-  (`fixtures/sampling/mcmc/rwmh.json`, `Initialize = MAP`) shows `MCMCResults.MAP.Fitness ==
-  473.558...` (positive) while every per-draw chain fitness recorded in the same run is in the
-  `[-478, -473]` range (negative) -- confirming the comparison never re-triggers once MAP is
-  seeded from `DifferentialEvolution`. A `Randomize`-initialized run (no `DifferentialEvolution`
-  in the picture, `MAP` starts at `double.NegativeInfinity` and accumulates normally) does NOT
-  exhibit this: its `MAP.Fitness` (`normal_short_exact` case) is a normal, properly-tracked
-  negative log-likelihood value.
-- **Port handling:** mirrored faithfully -- `mcmc_sampler.hpp`'s `sample()` has the identical
-  `chain_states_[j].fitness > map_.fitness` comparison, and `initialize_chains()`'s MAP branch
-  copies `de.best_parameter_set()` (also on DE's scaled-fitness convention) into `map_`
-  unmodified. Both are documented in-header at the call site; the `normal_rstan` fixture case
-  asserts `map_fitness` at its (buggy, positive) value specifically to lock this behavior in,
-  not to celebrate it.
-- **Suggested C# fix:** either re-scale `DE.BestParameterSet.Fitness` back to the unscaled
-  log-likelihood convention when copying it into `MAP` (`MAP = new
-  ParameterSet(DE.BestParameterSet.Values, LogLikelihoodFunction(DE.BestParameterSet.Values));`
-  recomputes it cleanly), or track a separate scaled/unscaled flag on `ParameterSet` so the
-  output-phase comparison in `Sample()` can normalize before comparing. Either fix changes the
-  observable `MAP.Fitness` value for every successful-MAP-init run -- coordinate with any
-  downstream consumer (`RMC.BestFit`'s Bayesian analysis) that reads it before shipping.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed the `MAP` branch to `MAP = new
+  ParameterSet((double[])DE.BestParameterSet.Values.Clone(), -DE.BestParameterSet.Fitness);` --
+  negating `DE`'s scaled fitness back onto the sampler's own unscaled log-likelihood convention
+  before storing it. Ported in the upstream-sync Task 10:
+  `initialize_chains()`/`InitializeChains` in `mcmc_sampler.hpp` now constructs `map_` the same
+  way (`ParameterSet(de.best_parameter_set().values, -de.best_parameter_set().fitness)`), so the
+  output-phase `chain_states_[j].fitness > map_.fitness` comparison is now meaningful again (a
+  later-sampled chain state CAN re-trigger and overtake the initial MAP estimate). The
+  `normal_rstan` MCMC fixture case (`fixtures/sampling/mcmc/rwmh.json`) re-pins `map_fitness` from
+  its old (buggy) `473.558...` (positive) to `-473.558...` (negative, matching every per-draw
+  chain fitness in the same run), reproduced against the real C# library.
+- **Evidence:** `tools/verify_oracles.py` confirms the re-pinned `map_fitness` value reproduces
+  against the real C# library post-fix.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully -- `mcmc_sampler.hpp`'s
+  `sample()` had the identical `chain_states_[j].fitness > map_.fitness` comparison, and
+  `initialize_chains()`'s MAP branch copied `de.best_parameter_set()` (also on DE's
+  scaled-fitness convention) into `map_` unmodified; the `normal_rstan` fixture case asserted
+  `map_fitness` at its (buggy, positive) value specifically to lock this behavior in, not to
+  celebrate it.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** re-scale
+  `DE.BestParameterSet.Fitness` back to the unscaled log-likelihood convention when copying it
+  into `MAP`.
 
 ## CONSISTENCY/API — an all-zero RWMH proposal covariance is only safe under `Initialize = MAP`
 
@@ -723,7 +724,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   document that `Output`'s specific draw-to-plotting-position mapping is order-nondeterministic
   whenever tied fitness values occur.
 
-## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2`
+## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2` (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/Test_Gibbs.cs`, `Test_Gibbs_NormalDist_RStan`'s local
   `proposal` closure: `double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));` (the test's
@@ -746,18 +747,37 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   therefore unverified/unverifiable from the test alone whether it's a genuine library bug or an
   intentional simplification for this specific (`mu0 = 0`) worked example -- flagged as
   CONSISTENCY rather than BUG for that reason.
-- **Port handling:** transcribed verbatim into `model_registry.hpp`'s `"normal_conjugate_gibbs"`
-  proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 / (sigma0 * sigma0));`) -- this
-  is the oracle-governing rule (C# source, including this specific test's inline formula, governs
-  over what a textbook derivation "should" say), and the `gibbs.json` fixture's curated
-  `chain_value` digests (draws 0-4, including the mutated-prior-path draws >= 1) reproduce this
-  exact formula bit-for-bit against the real C# library at `rel: 1e-12`.
-- **Suggested action:** if a future caller of this conjugate-Gibbs pattern uses a non-zero
-  `mu0`, re-derive/re-verify the formula against the textbook conjugate-Normal update before
-  reusing this test's `proposal` closure as a template -- the `mu0 / 2` coefficient will NOT
-  degenerate away in that case and would materially bias the posterior mean draws.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) reworked `Test_Gibbs_NormalDist_RStan`'s
+  conjugate math into two extracted, independently-tested helpers -- `ConditionalMeanParameters`
+  (the textbook `posteriorVariance = 1 / (n / likelihoodVariance + 1 / priorVariance);
+  posteriorMean = posteriorVariance * (n * sampleMean / likelihoodVariance + priorMean /
+  priorVariance);`, i.e. the correct `mu0 / sigma0^2` term) and `ConditionalVarianceParameters`
+  (algebraically unchanged from the old inline formula) -- plus a new
+  `Test_ConditionalParameters_InformativePrior` unit test that exercises both helpers directly
+  against a nonzero-`mu0` case, closing the "unverified/unverifiable" gap above. The rework also
+  splits the single `muPrior`/`sigmaPrior` pair into a `muInitializationPrior`/
+  `sigmaInitializationPrior` pair (seeds sampler feasibility bounds only) and a separate
+  `conditionalMean`/`conditionalVariance` pair (default-constructed, mutated by the proposal
+  closure only, no longer aliased with the initialization priors). Ported in the upstream-sync
+  Task 10: `model_registry.hpp`'s `"normal_conjugate_gibbs"` proposal closure now
+  computes `posterior_variance`/`posterior_mean` with the corrected formula (and the matching
+  `mu_initialization_prior`/`sigma_initialization_prior` vs. `conditional_mean`/
+  `conditional_variance` split), and the `gibbs.json` fixture's curated `chain_value` digests
+  (draws 0-4, 99, plus `map_value`/`map_fitness`) are re-pinned and reproduced against the real
+  C# library at `rel: 1e-12`.
+- **Evidence:** `tools/verify_oracles.py` confirms the re-pinned `gibbs.json` digests reproduce
+  against the real C# library post-fix.
+- **Port handling (historical, pre-v2.1.4):** transcribed verbatim into `model_registry.hpp`'s
+  `"normal_conjugate_gibbs"` proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 /
+  (sigma0 * sigma0));`) -- this was the oracle-governing rule at the time (C# source, including
+  this specific test's inline formula, governs over what a textbook derivation "should" say), and
+  the pre-fix `gibbs.json` fixture's curated `chain_value` digests reproduced this exact formula
+  bit-for-bit against the real C# library.
+- **Originally suggested action (this is exactly what v2.1.4 did):** re-derive/re-verify the
+  formula against the textbook conjugate-Normal update and add regression coverage for a
+  nonzero-`mu0` case.
 
-## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction`
+## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction` (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/NUTS.cs`, `LeapfrogInPlace` (called only by
   `FindReasonableEpsilon`/`TrySingleStepLogAcceptance`, i.e. the Hoffman & Gelman 2014 Algorithm 4
@@ -774,14 +794,25 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   sampled trajectory (the step size is just a tuning heuristic, not part of the target
   distribution), but it is a surprising, easy-to-miss asymmetry between two call sites that both
   claim to leapfrog-integrate "the" gradient.
-- **Evidence:** direct code reading; both call sites are reproduced verbatim in this port's
-  `nuts.hpp` (`leapfrog_in_place()` calls `diff::gradient(...)` directly, `leapfrog()` calls
-  `gradient_function_(...)`) -- see that file's header comment. Unexercised by any fixture (every
-  `nuts.json`/`hmc.json` case uses the default finite-difference gradient, so the two code paths
-  are numerically identical in every case actually tested here).
-- **Port handling:** mirrored faithfully -- both C++ call sites reproduce the C# asymmetry exactly.
-- **Suggested C# fix:** route `LeapfrogInPlace` through `GradientFunction` too, so a custom gradient
-  is honored everywhere the class claims to use "the" gradient function.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed both `LeapfrogInPlace` half-step
+  momentum updates from `NumericalDerivative.Gradient((y) => SafeLogLikelihood(y), theta,
+  _lowerBounds, _upperBounds)` to `GradientFunction(theta).Array`, so the step-size heuristic now
+  honors whatever `GradientFunction` the caller supplied, matching `Leapfrog`/`BuildTree`. Because
+  the DEFAULT `GradientFunction` (no custom gradient supplied at construction) performs EXACTLY
+  the same bound-aware finite-difference computation the old hardcoded call did, every seeded NUTS
+  fixture (all of which use the default gradient) reproduces bit-for-bit unchanged by this fix.
+  Ported in the upstream-sync Task 10: both `leapfrog_in_place()` half-step momentum updates in
+  `nuts.hpp` now call `gradient_function_(theta).to_array()` instead of `diff::gradient(...)`
+  directly; the existing seeded `nuts.json`/`hmc.json` fixtures pass unchanged post-port,
+  confirming stream stability.
+- **Evidence:** direct code reading; `ctest`/`verify_oracles.py` confirm every seeded NUTS/HMC
+  fixture reproduces bit-for-bit unchanged post-fix.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully -- both C++ call sites
+  reproduced the C# asymmetry exactly (`leapfrog_in_place()` called `diff::gradient(...)`
+  directly, `leapfrog()` called `gradient_function_(...)`).
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** route `LeapfrogInPlace`
+  through `GradientFunction` too, so a custom gradient is honored everywhere the class claims to
+  use "the" gradient function.
 
 ## CONSISTENCY — `NextDoubles(length, dimension)` draws each column from its own fresh sub-`MersenneTwister`, not the caller's stream
 

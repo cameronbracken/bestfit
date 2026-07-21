@@ -470,19 +470,19 @@ name>}`. The registry is **closed**; today it has two entries:
   + a `IMaximumLikelihoodEstimation` cast, matching the C++ registry's approach, so `--dump`
   curation works for every family this schema references.
 - `"normal_conjugate_gibbs"`: a conjugate Normal(mean)-InverseGamma(variance) model, transcribed
-  VERBATIM from `Test_Gibbs_NormalDist_RStan` (`family` must be `"Normal"`; the conjugate math is
+  from `Test_Gibbs_NormalDist_RStan` (v2.1.4 rework: `ConditionalMeanParameters`/
+  `ConditionalVarianceParameters`; `family` must be `"Normal"`, since the conjugate math is
   Normal-InverseGamma-specific, not family-generic). `McmcModel` gains a third member,
-  `proposal` (a `Gibbs::Proposal` closure; empty/falsy for every other registry entry). The
-  proposal closure captures the SAME `shared_ptr<Normal>`/`shared_ptr<InverseGamma>` prior
-  objects also held in `priors` -- see the header comment for why `shared_ptr` (not
-  `unique_ptr`) backs `McmcModel::priors`: `Gibbs::Proposal` is a `std::function`, which requires
-  its captured state to be copy-constructible, something a `unique_ptr` capture cannot satisfy.
-  `SetParameters`/`set_parameters` inside the closure mutates the shared prior instance in place
-  every call, exactly mirroring the C# closure's `muPrior.SetParameters(...)`/
-  `sigmaPrior.SetParameters(...)` reference-type mutation -- see
-  `docs/upstream-csharp-issues.md` for a note on the closure's `mu0 / 2` term (transcribed
-  verbatim; unobservable in this fixture's `mu0 = 0` test data, but not the textbook
-  conjugate-Normal-update formula).
+  `proposal` (a `Gibbs::Proposal` closure; empty/falsy for every other registry entry). Two
+  DISTINCT pairs of distributions are built: `mu_initialization_prior`/
+  `sigma_initialization_prior` seed only `priors` (feasibility bounds / initial draws), while
+  `conditional_mean`/`conditional_variance` are separate, freshly constructed locals the
+  proposal closure alone mutates every Gibbs step (`set_parameters` then `inverse_cdf`) --
+  `Gibbs::Proposal` is a `std::function`, so this state must be copy-constructible and persist
+  across calls, hence the `shared_ptr` capture (`unique_ptr` cannot be captured by a copyable
+  closure). The corrected conditional-mean formula replaces the pre-v2.1.4 `mu0 / 2` bug (a
+  textbook conjugate-Normal-update violation, unobservable in this fixture's `mu0 = 0` test data
+  but not textbook-correct); see `docs/upstream-csharp-issues.md` for the retired finding.
 
 `construct.settings` holds only **non-default** sampler settings (every key optional):
 `initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"` -- a plain field, does NOT trigger

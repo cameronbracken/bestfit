@@ -1353,12 +1353,12 @@ static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
 // --- mcmc_sampler helpers (Task P3.5 / P3.6) ----------------------------------------------
 //
 // The model builder mirrors Test_RWMH.cs's Test_RWMH_NormalDist_RStan construction VERBATIM
-// for "uniform_constraints", and Test_Gibbs.cs's Test_Gibbs_NormalDist_RStan VERBATIM for
-// "normal_conjugate_gibbs" -- see model_registry.hpp's header comment for the prior-aliasing
-// rationale this mirrors (both `muPrior`/`sigmaPrior` here and the C++ port's `mu_prior`/
-// `sigma_prior` are the SAME reference-type object the proposal closure and `priors` both
-// point at -- ordinary C# object references already give this for free, no `shared_ptr`
-// analog needed on this side).
+// for "uniform_constraints", and Test_Gibbs.cs's Test_Gibbs_NormalDist_RStan (v2.1.4 rework:
+// ConditionalMeanParameters/ConditionalVarianceParameters) for "normal_conjugate_gibbs" -- see
+// model_registry.hpp's header comment for the v2.1.4 split this mirrors: `muInitializationPrior`/
+// `sigmaInitializationPrior` seed only `priors` (feasibility bounds), while `conditionalMean`/
+// `conditionalVariance` are separate, freshly constructed locals the proposal closure alone
+// mutates every Gibbs step.
 static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs.Proposal? proposal) BuildMcmcModel(
     string name, string family, double[] data)
 {
@@ -1395,10 +1395,17 @@ static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs
         int n = data.Length;
         var mu = Statistics.Mean(data);
         double mu0 = 0, sigma0 = 5E5;
-        var muPrior = new Normal(mu0, sigma0);
-        double alpha0 = 2, beta0 = 0.001;
-        var sigmaPrior = new InverseGamma(beta0, alpha0);
-        var priors = new List<IUnivariateDistribution> { muPrior, sigmaPrior };
+        // Preserve the reference model's limiting non-informative inverse-gamma prior for
+        // the conditional variance update.
+        double variancePriorShape = 0d, variancePriorScale = 0d;
+        // Proper distributions used SOLELY to initialize the sampler state (feasibility
+        // bounds / initial draws) -- see model_registry.hpp's v2.1.4 split note.
+        double initializationShape = 2d, initializationScale = 0.001d;
+        var muInitializationPrior = new Normal(mu0, sigma0);
+        var sigmaInitializationPrior = new InverseGamma(initializationScale, initializationShape);
+        var conditionalMean = new Normal();
+        var conditionalVariance = new InverseGamma();
+        var priors = new List<IUnivariateDistribution> { muInitializationPrior, sigmaInitializationPrior };
 
         double LogLH(double[] x)
         {
@@ -1408,20 +1415,28 @@ static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs
 
         double[] Proposal(double[] x, Random random)
         {
-            // Sample mu.
-            double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));
-            double sigma2 = (x[1] * x[1]) / (n + (x[1] * x[1]) / (sigma0 * sigma0));
-            muPrior.SetParameters(mun, Math.Sqrt(sigma2));
-            double mup = muPrior.InverseCDF(random.NextDouble());
+            // Sample the conditional mean given the current standard deviation
+            // (ConditionalMeanParameters): the corrected conjugate-Normal posterior
+            // mean/variance, replacing the pre-v2.1.4 `mu0 / 2` bug.
+            double likelihoodVariance = x[1] * x[1];
+            double priorVariance = sigma0 * sigma0;
+            double posteriorVariance = 1d / (n / likelihoodVariance + 1d / priorVariance);
+            double posteriorMean = posteriorVariance * (n * mu / likelihoodVariance + mu0 / priorVariance);
+            conditionalMean.SetParameters(posteriorMean, Math.Sqrt(posteriorVariance));
+            double mup = conditionalMean.InverseCDF(random.NextDouble());
 
-            // Sample sigma.
-            double alpha1 = n / 2d;
-            double sse = 0;
+            // Sample the conditional variance (ConditionalVarianceParameters), then return
+            // its square root as sigma.
+            double sumOfSquaredErrors = 0;
             for (int i = 0; i < data.Length; i++)
-                sse += Math.Pow(data[i] - mup, 2);
-            double beta1 = sse / 2d;
-            sigmaPrior.SetParameters(new double[] { beta1, alpha1 });
-            double sig2p = sigmaPrior.InverseCDF(random.NextDouble());
+            {
+                double residual = data[i] - mup;
+                sumOfSquaredErrors += residual * residual;
+            }
+            double scale = variancePriorScale + sumOfSquaredErrors / 2d;
+            double shape = variancePriorShape + n / 2d;
+            conditionalVariance.SetParameters(new double[] { scale, shape });
+            double sig2p = conditionalVariance.InverseCDF(random.NextDouble());
 
             return new double[] { mup, Math.Sqrt(sig2p) };
         }

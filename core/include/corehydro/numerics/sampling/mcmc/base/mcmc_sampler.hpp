@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Base/MCMCSampler.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Base/MCMCSampler.cs @ 2a0357a
 //
 // Abstract base class for every Bayesian MCMC sampler (RWMH, and later ARWMH/DEMCz/DEMCzs/
 // HMC/NUTS/Gibbs/SNIS): inputs (PRNG seed, chain/iteration/thinning counts, initialization
@@ -318,17 +318,17 @@ class MCMCSampler {
                     output_[static_cast<std::size_t>(j)].push_back(
                         chain_states_[static_cast<std::size_t>(j)].clone(false));
                     ++output_count;
-                    // MAP FITNESS SIGN QUIRK (verbatim from C#, see initialize_chains()'s
-                    // MAP branch header comment): when MAP init succeeded, map_.fitness
-                    // holds DifferentialEvolution's *scaled* fitness (-logLH, since
-                    // Maximize() sets function_scale_ = -1), while chain_states_[j].fitness
-                    // is the UNSCALED log-likelihood the sampler tracks everywhere else. For
-                    // any typical negative log-likelihood this makes map_.fitness a large
-                    // POSITIVE number, so the comparison below is nearly always false and
-                    // MAP is effectively frozen at the DE estimate for the rest of Sample().
-                    // Logged in docs/upstream-csharp-issues.md; ported faithfully (not
-                    // fixed) since the fixture's map_value/map_fitness assertions oracle-
-                    // lock this exact (buggy) behavior.
+                    // MAP tracking (v2.1.4 fix, formerly a documented scale bug -- see
+                    // initialize_chains()'s MAP branch): map_.fitness is now negated back
+                    // onto the same UNSCALED log-likelihood scale chain_states_[j].fitness
+                    // uses everywhere else, so this comparison is meaningful and can
+                    // actually re-trigger when a later-sampled chain state beats the
+                    // initial MAP estimate (formerly map_.fitness carried
+                    // DifferentialEvolution's internally-negated scale, making it a large
+                    // POSITIVE number for any typical negative log-likelihood, so the
+                    // comparison was nearly always false and MAP stayed frozen at the DE
+                    // estimate for the rest of Sample() -- retired history logged in
+                    // docs/upstream-csharp-issues.md).
                     if (chain_states_[static_cast<std::size_t>(j)].fitness > map_.fitness)
                         map_ = chain_states_[static_cast<std::size_t>(j)].clone();
                 }
@@ -461,8 +461,14 @@ class MCMCSampler {
             if (de.status() == opt::OptimizationStatus::Success) {
                 try {
                     map_successful_ = true;
-                    // Get MAP.
-                    map_ = de.best_parameter_set().clone();
+                    // Get MAP. Fitness is negated back onto the log-likelihood scale
+                    // (v2.1.4 fix): DifferentialEvolution::maximize() sets function_scale_
+                    // = -1, so best_parameter_set().fitness is that internally *scaled*
+                    // (-logLH) value, not the plain log-likelihood chain_states_[j].fitness
+                    // uses everywhere else in this sampler. Negating it here puts map_
+                    // back on that common scale -- see sample()'s output-phase MAP-tracking
+                    // comparison, which depends on this.
+                    map_ = ParameterSet(de.best_parameter_set().values, -de.best_parameter_set().fitness);
                     // Get Fisher Information Matrix.
                     if (!de.hessian().has_value())
                         throw std::runtime_error("Hessian matrix is not available.");
