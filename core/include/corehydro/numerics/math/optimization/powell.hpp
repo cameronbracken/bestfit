@@ -28,7 +28,13 @@
 //    tracking sees the probe points. Neither effect alters the accepted line minimum
 //    (the Hessian runs AFTER Brent's loop) and any probe-point "improvement" is O(h^2)
 //    around an already-converged 1-D minimum -- orders of magnitude below the 1E-4
-//    upstream oracle tolerances, which reproduce (see test_optimizers_local.cpp).
+//    upstream oracle tolerances, which reproduce (see test_optimizers_local.cpp). A
+//    second, Task-11-added shape drift: a `bracket()` failure (see brent_search.hpp's
+//    header for the v2.1.4 hardening and its Status-surface divergence) now always
+//    propagates here as a thrown C++ exception, rather than the narrower C# case where a
+//    Bracket()-originated MaximumIterationsReached is silently swallowed by this
+//    Optimizer's own catch filter. Not reachable by any current fixture -- every
+//    LineMinimization slice objective brackets in a handful of iterations.
 //
 // 3. `ximat` (C# `double[,]`) ports as a plain vector-of-vectors, mirroring the C# 2-D
 //    array shape rather than reaching for linalg::Matrix.

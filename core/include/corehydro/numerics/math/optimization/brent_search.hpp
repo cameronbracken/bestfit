@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Local/BrentSearch.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Local/BrentSearch.cs @ 2a0357a
 //             + Numerics/Mathematics/Optimization/Support/Optimizer.cs (base behavior)
 //
 // Brent's method (golden-section step + parabolic interpolation) for 1D optimization
@@ -14,9 +14,55 @@
 // needed it -- copula fits supply their own [lower, upper] bounds directly); Task B6 adds
 // it (plus the best_fitness() accessor) ADDITIVELY for Powell's LineMinimization, which
 // calls `Bracket(0.1)` then `Minimize()` then reads `BestParameterSet.Values[0]` /
-// `.Fitness` on the C# BrentSearch. No pre-existing line of this oracle-locked file was
-// altered other than this comment.
+// `.Fitness` on the C# BrentSearch.
+//
+// v2.1.4 (upstream-sync Task 11, 651035e "Harden MVNDST status and Brent bracketing"):
+// Bracket() gained real geometric growth. The expansion factor `k` was declared but
+// UNUSED pre-2.1.4 (every step added the SAME `s`, so this file's old `(void)k;` marker
+// was correct at the time -- NOW RETIRED); `k` is applied every unsuccessful iteration
+// (`s *= k`), and the termination test loosened from `fc > fb` to `fc >= fb` (the C#
+// dropped its now-unused `fa` tracking to match; kept here too since nothing reads it
+// past the initial swap). Upstream's measured regression: a minimum 1000 units away
+// now brackets in a few dozen evaluations (logarithmic in distance/s) instead of
+// thousands (linear). Bracket() also gained: upfront validation of `s` (finite,
+// nonzero) and `k` (finite, > 1); NaN-objective guards after every evaluation;
+// non-finite-coordinate guards on the initial point and every trial `c`, and on `s`
+// itself after each `s *= k`; and an explicit `max_iterations`-bounded loop (the
+// pre-2.1.4 C++ used `while (true)` -- an unconditional loop that never terminates for
+// a monotone, flat, or NaN-valued objective, since `fc > fb` can then never become
+// true; the new bound is a live-hang fix upstream also makes). Every guard below fires
+// BEFORE the success path's `lower_bound_`/`upper_bound_` assignment, so a failed
+// bracket() call always leaves the existing bounds untouched -- the C# "failed searches
+// leave the existing bounds unchanged" contract.
+//
+// Status-surface divergence (carried from Task 2's review, still applicable here): this
+// port has NO OptimizationStatus surface -- BrentSearch here is the deliberately-
+// standalone Phase 0 class (see above), not a subclass of the ported Optimizer base (see
+// optimizer.hpp). The C# Bracket() routes every failure through `UpdateStatus(status,
+// exception)`, which only throws when `ReportFailure` is true (the C# default) and
+// otherwise records `Status` and returns without throwing. This port has neither
+// `ReportFailure` nor `Status`: every guard below throws UNCONDITIONALLY, matching the
+// C# DEFAULT-configuration observable behavior (a bare `BrentSearch(...).Bracket(...)`
+// with `ReportFailure` left at its default `true`) -- the only behavior any current
+// caller (Powell's LineMinimization) can observe. Two narrower C# behaviors are
+// consequently NOT reproduced: (1) `ReportFailure = false` silently swallowing a
+// failure and leaving a queryable `Status` -- there is no equivalent query surface
+// here, every failure throws; (2) a Bracket()-originated `MaximumIterationsReached`
+// exception, when Bracket() is invoked from inside an ENCLOSING C# Optimizer's own
+// Optimize() (as Powell's LineMinimization does), is silently swallowed by that
+// enclosing optimizer's `catch (ArgumentException ex)` ParamName filter (see
+// optimizer.hpp's header) because it shares the `nameof(MaxIterations)` tag -- here it
+// propagates as an ordinary thrown C++ exception through Powell::optimize() and out
+// through Optimizer::maximize()/minimize()'s `catch (...)`, so it follows THAT
+// optimizer's own `report_failure` instead of always being swallowed. Neither
+// divergence is reachable by any current fixture: every existing Bracket() caller
+// (box_cox.hpp/yeo_johnson.hpp/optimizer_adapters.hpp use only minimize()/maximize()
+// with fixed bounds, never bracket(); only powell.hpp's LineMinimization calls
+// `bracket(0.1)`) supplies a smooth, bounded-below objective that brackets in a handful
+// of iterations -- the pre-2.1.4 C++ `while (true)` never hung on any of them -- so
+// max_iterations is never exhausted and every guard stays dormant.
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <stdexcept>
@@ -58,46 +104,75 @@ class BrentSearch {
     // `BestParameterSet.Fitness`. Added in B6 for Powell's LineMinimization.
     double best_fitness() const { return best_fitness_; }
 
-    // Bracket the objective function minimum (ported from BrentSearch.cs Bracket(),
-    // added in B6 for Powell's LineMinimization). Steps from the lower bound and expands
+    // The current interval bounds -- the C# BrentSearch's `LowerBound`/`UpperBound`
+    // properties. Added in Task 11 so callers (and the bracket() unit tests) can observe
+    // the bracketing interval bracket() leaves behind.
+    double lower_bound() const { return lower_bound_; }
+    double upper_bound() const { return upper_bound_; }
+
+    // Bracket the objective function minimum (ported from BrentSearch.cs Bracket();
+    // see the file header for the v2.1.4 hardening this task ports and the
+    // Status-surface divergence it necessarily carries). Steps from the lower bound and
+    // expands geometrically (multiplying the step by `k` after every unsuccessful trial)
     // downhill until the function turns back up, then replaces [lower_bound_,
     // upper_bound_] with the bracketing interval. Calls the RAW objective directly --
     // no function-scale flip, no best-tracking -- exactly as the C# calls
     // `ObjectiveFunction(...)` rather than `Evaluate(...)`.
-    //   s: starting step size (default 1E-2).
-    //   k: expansion factor (default 2). Declared-and-unused in the C# too: the C# body
-    //      never applies `k`, so the step expands linearly. Transcribed as-is.
+    //   s: starting step size (default 1E-2). Must be finite and nonzero.
+    //   k: geometric expansion factor (default 2). Must be finite and greater than one.
+    // Throws (unconditionally -- see the file header) if: `s`/`k` fail the checks above;
+    // any trial coordinate or the growing step leaves the finite range of `double`; or
+    // the objective function returns NaN. A failed call leaves lower_bound()/
+    // upper_bound() exactly as they were before the call.
     void bracket(double s = 1E-2, double k = 2.0) {
-        (void)k;  // unused upstream as well (see above)
+        if (!corehydro::numerics::is_finite(s) || s == 0.0)
+            throw std::invalid_argument("The starting step size must be finite and nonzero.");
+        if (!corehydro::numerics::is_finite(k) || k <= 1.0)
+            throw std::invalid_argument("The expansion factor must be finite and greater than one.");
+
         double a = lower_bound_, b = a + s;
+        if (!corehydro::numerics::is_finite(a) || !corehydro::numerics::is_finite(b))
+            throw std::runtime_error("The initial bracketing coordinates must be finite.");
+
         double fa = objective_(a);
         double fb = objective_(b);
-        double c, fc, temp;
+        if (std::isnan(fa) || std::isnan(fb))
+            throw std::runtime_error("The objective function returned NaN while initializing the bracket.");
+
         if (fb > fa) {
-            temp = a;
+            double temp = a;
             a = b;
             b = temp;
-            temp = fa;
-            fa = fb;
-            fb = temp;
+            fb = fa;
             s *= -1;
         }
-        while (true) {
-            c = b + s;
-            fc = objective_(c);
-            if (fc > fb) break;
+
+        for (int iteration = 0; iteration < max_iterations; ++iteration) {
+            double c = b + s;
+            if (!corehydro::numerics::is_finite(c))
+                throw std::runtime_error(
+                    "The bracketing search exceeded the finite range of double-precision coordinates.");
+
+            double fc = objective_(c);
+            if (std::isnan(fc))
+                throw std::runtime_error("The objective function returned NaN while expanding the bracket.");
+
+            if (fc >= fb) {
+                lower_bound_ = std::min(a, c);
+                upper_bound_ = std::max(a, c);
+                return;
+            }
+
             a = b;
             b = c;
-            fa = fb;
             fb = fc;
+            s *= k;
+            if (!corehydro::numerics::is_finite(s))
+                throw std::runtime_error(
+                    "The geometric bracketing step exceeded the finite range of double precision.");
         }
-        if (a < c) {
-            lower_bound_ = a;
-            upper_bound_ = c;
-        } else {
-            lower_bound_ = c;
-            upper_bound_ = a;
-        }
+
+        throw std::runtime_error("The maximum number of bracketing iterations was reached.");
     }
 
    private:
