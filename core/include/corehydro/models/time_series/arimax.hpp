@@ -14,10 +14,11 @@
 // NaN), so only the C# `!double.IsFinite(_lambda)` branch (the plain message, no solver-text
 // suffix) is reachable here. Also SKIPPED (XML/GUI-only, no oracle-visible C++ surface, not in
 // this task's scope): the XElement ctor's TrainingTimeSteps/UseDefaultTrainingSteps attribute
-// restoration + explicit SetTrainingData() call, ResetDefaultTrainingStepsForNewTimeSeries (the
-// TimeSeries-setter training-window reset), the new TimeInterval.Irregular Validate guard, and
-// the unrelated InferSeasonalPeriod OneYear cycle-length change (1 -> 10, ARIMAX.cs:880) -- not
-// in this task's scope per the census/plan.
+// restoration + explicit SetTrainingData() call. Task 21 CLOSED the three v2.0.0 deltas this note
+// previously deferred -- ResetDefaultTrainingStepsForNewTimeSeries (the TimeSeries-setter
+// training-window reset), the TimeInterval.Irregular Validate guard, and the InferSeasonalPeriod
+// OneYear cycle-length change (1 -> 10, ARIMAX.cs:880) -- all three are model-layer library
+// surface reachable from the public setters, not GUI/XML, and all three are ported below.
 //
 // AutoRegressive Integrated Moving Average with eXogenous variables (ARIMAX). The richest
 // TimeSeries ModelBase family: it extends the ARIMA (T2) differenced + transformed mean with
@@ -160,8 +161,8 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     void set_time_series(const TimeSeries& value) {
         // C# unsubscribes/subscribes CollectionChanged here -> no-op in this port.
         time_series_ = value;
-        seasonal_period_ = infer_seasonal_period();
-        if (use_default_training_steps_) set_default_training_steps();
+        seasonal_period_ = infer_seasonal_period();  // C# UpdateSeasonalPeriod().
+        reset_default_training_steps_for_new_time_series();
         set_training_data();
         // RaisePropertyChange -> no-op.
         if (use_default_flat_priors()) set_default_parameters();
@@ -1028,6 +1029,12 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             result.validation_messages.push_back(
                 "Error: Time series must have at least 10 observations.");
         }
+        if (time_series_->time_interval() == numerics::data::TimeInterval::Irregular) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: Time series analysis requires a regular time interval. Resample or "
+                "convert the series to a regular interval before estimating.");
+        }
         if (training_time_steps_ < number_of_parameters()) {
             result.is_valid = false;
             result.validation_messages.push_back(
@@ -1236,12 +1243,39 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             case numerics::data::TimeInterval::SevenDay: return 52;
             case numerics::data::TimeInterval::OneMonth: return 12;
             case numerics::data::TimeInterval::OneQuarter: return 4;
-            case numerics::data::TimeInterval::OneYear: return 1;
+            // v2.0.0 (ARIMAX.cs:880): annual records infer a DECADAL cycle. Was 1, which
+            // collapsed the Fourier pair (sin(2*pi*t) == 0, cos(2*pi*t) == 1 at integer t).
+            case numerics::data::TimeInterval::OneYear: return 10;
             default: return 12;
         }
     }
 
     // --- SetDefaultTrainingSteps (C#:569): 80% of data, min 30 or parameter count. ---
+    // --- ResetDefaultTrainingStepsForNewTimeSeries (ARIMAX.cs:591) -----------------------------------
+    //
+    // v2.0.0: attaching a DIFFERENT response series is a new calibration problem, so the setter
+    // discards any manual training-window edit and restores the default split. An empty series
+    // zeroes the window (the C# `TimeSeries = null` arm -- this port holds the series BY VALUE in
+    // a std::optional, so "no usable series" is the empty series, never a null reference).
+    // C# RaisePropertyChange calls -> no-ops here.
+    //
+    // Divergence, unavoidable and inert for this port: C# short-circuits the whole setter on
+    // `ReferenceEquals(_timeSeries, value)`, so re-assigning the SAME object preserves a manual
+    // window. Value semantics have no object identity to test, so re-assigning an equal series
+    // here resets. The public surface never re-assigns the same series (the fixture/binding
+    // builders assign once at construction), and C#'s companion CollectionChanged hook -- which
+    // preserves the manual window when the ATTACHED series is edited in place -- has no analog
+    // either, since this port hands out the series by const reference and cannot be edited in
+    // place.
+    void reset_default_training_steps_for_new_time_series() {
+        use_default_training_steps_ = true;
+        if (!time_series_ || time_series_->count() == 0) {
+            training_time_steps_ = 0;
+            return;
+        }
+        set_default_training_steps();
+    }
+
     void set_default_training_steps() {
         if (!time_series_ || time_series_->count() == 0) return;
         int min_steps = std::max(30, static_cast<int>(parameters_.size()));

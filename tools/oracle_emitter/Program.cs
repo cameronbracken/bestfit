@@ -2077,6 +2077,18 @@ static TimeSeries BuildEmitterTimeSeries(JsonElement modelSpec, double[] values)
 {
     TimeInterval interval = modelSpec.TryGetProperty("time_interval", out var ti)
         ? ParseTimeInterval(ti.GetString()!) : TimeInterval.OneDay;
+    // Irregular is rejected by the (interval, startDate, data) ctor (it walks a REGULAR step), in
+    // C# exactly as in the C++ port. Build it the way the C# regression tests do -- empty series
+    // on the interval, then one Add per value -- matching models/model_spec.hpp's build_time_series
+    // ordinate-for-ordinate. Index spacing is inert (the ARMA families index by position).
+    if (interval == TimeInterval.Irregular)
+    {
+        var irregular = new TimeSeries(interval);
+        for (int i = 0; i < values.Length; i++)
+            irregular.Add(new SeriesOrdinate<DateTime, double>(
+                EmitterSeriesEpoch().AddDays(i), values[i]));
+        return irregular;
+    }
     return new TimeSeries(interval, EmitterSeriesEpoch(), values);
 }
 

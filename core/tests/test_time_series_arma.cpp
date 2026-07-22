@@ -819,6 +819,74 @@ void test_ma_transform_training_jeffreys() {
     CHECK_TRUE(!std::isnan(prj0) && !(std::isinf(prj0) && prj0 > 0.0));
 }
 
+// v2.0.0 ResetDefaultTrainingStepsForNewTimeSeries (AutoRegressive.cs:347, MovingAverage.cs:347):
+// attaching a DIFFERENT response series is a new calibration problem, so the setter discards the
+// previous manual training-window edit and restores the default 80% split. Transcribed from the
+// new TimeSeries_NewSeries_ResetsTrainingSplitToDefault regression tests. The manual window (25)
+// is deliberately NOT the default the replacement produces (floor(0.8*50) = 40), so the check
+// fails on the pre-port code path (which kept both `use_default = false` and 25).
+//
+// The empty-series arm (C# zeroes TrainingTimeSteps when the new series is null/empty) is
+// exercised too -- the C# `TimeSeries = null` assignment maps to attaching an EMPTY series here,
+// since this port holds the series by value (std::optional), never by nullable reference.
+void test_ar_ma_new_series_resets_training_split() {
+    TimeSeries original = make_sample_series();    // 50 obs
+    TimeSeries replacement = make_trend_series();  // 50 obs, different values
+    TimeSeries empty(TimeInterval::OneYear);
+
+    AutoRegressive ar(original, 1, true);
+    ar.set_use_default_training_steps(false);
+    ar.set_training_time_steps(25);
+    CHECK_EQ(ar.training_time_steps(), 25);
+    ar.set_time_series(replacement);
+    CHECK_TRUE(ar.use_default_training_steps());
+    CHECK_EQ(ar.training_time_steps(), 40);
+
+    MovingAverage ma(original, 1, true);
+    ma.set_use_default_training_steps(false);
+    ma.set_training_time_steps(25);
+    ma.set_time_series(replacement);
+    CHECK_TRUE(ma.use_default_training_steps());
+    CHECK_EQ(ma.training_time_steps(), 40);
+
+    // Empty-series arm: attaching a series with no observations zeroes the window. Default
+    // flat priors are turned OFF first only to keep the assertion on the reset itself -- the
+    // trailing SetDefaultParameters call indexes the STALE differenced series at
+    // TrainingTimeSteps-1 == -1, which is an IndexOutOfRangeException in C# and UB here (a
+    // pre-existing shared hazard on a path the C# regression suite never drives).
+    AutoRegressive are(original, 1, true);
+    are.set_use_default_flat_priors(false);
+    are.set_use_default_training_steps(false);
+    are.set_training_time_steps(25);
+    are.set_time_series(empty);
+    CHECK_TRUE(are.use_default_training_steps());
+    CHECK_EQ(are.training_time_steps(), 0);
+}
+
+// v2.0.0 TimeInterval.Irregular Validate guard (AutoRegressive.cs:995, MovingAverage.cs:985).
+// Transcribed from the new Test_Validate_IrregularTimeSeries_ReturnsFalse regression tests. The
+// cross-language oracle lives in fixtures/estimation/time_series_irregular_interval.json; this
+// block is the C++ RED/GREEN discriminator for the two leaf families.
+void test_ar_ma_irregular_interval_validate() {
+    // C# `new TimeSeries(TimeInterval.Irregular)` + Add: the (interval, start, end) ctor
+    // rejects Irregular in BOTH C# and this port, so build it ordinate-by-ordinate with the
+    // C# test's own i*i+1 index spacing.
+    TimeSeries irregular(TimeInterval::Irregular);
+    for (int i = 0; i < 50; ++i)
+        irregular.add(TimeSeries::Ordinate(static_cast<long>(i) * i + 1, i + 1.0));
+
+    auto rar = AutoRegressive(irregular, 1, true).validate();
+    CHECK_TRUE(!rar.is_valid);
+    CHECK_TRUE(messages_contain(rar, "regular time interval"));
+
+    auto rma = MovingAverage(irregular, 1, true).validate();
+    CHECK_TRUE(!rma.is_valid);
+    CHECK_TRUE(messages_contain(rma, "regular time interval"));
+
+    // The same series on a REGULAR interval passes -- the guard is interval-specific.
+    CHECK_TRUE(AutoRegressive(make_sample_series(), 1, true).validate().is_valid);
+}
+
 }  // namespace
 
 // P4 oracles (route b): exact fixed-parameter DataLogLikelihood + Residuals dumped from the REAL
@@ -881,6 +949,9 @@ int main() {
     test_ma_set_parameter_values();
     test_ma_engineering_and_edges();
     test_ma_transform_training_jeffreys();
+
+    test_ar_ma_new_series_resets_training_split();
+    test_ar_ma_irregular_interval_validate();
 
     test_ar_ma_p4_fixed_param_oracles();
 

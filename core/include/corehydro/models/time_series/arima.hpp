@@ -13,8 +13,10 @@
 // NaN), so only the C# `!double.IsFinite(_lambda)` branch (the plain message, no solver-text
 // suffix) is reachable here. Also SKIPPED (XML/GUI-only, no oracle-visible C++ surface, not in
 // this task's scope): the XElement ctor's TrainingTimeSteps/UseDefaultTrainingSteps attribute
-// restoration + explicit SetTrainingData() call, ResetDefaultTrainingStepsForNewTimeSeries (the
-// TimeSeries-setter training-window reset), and the new TimeInterval.Irregular Validate guard.
+// restoration + explicit SetTrainingData() call. Task 21 CLOSED the two v2.0.0 deltas this note
+// previously deferred: ResetDefaultTrainingStepsForNewTimeSeries (the TimeSeries-setter
+// training-window reset) and the TimeInterval.Irregular Validate guard are both ported below --
+// both are model-layer library surface reachable from the public setters, not GUI/XML.
 //
 // AutoRegressive Integrated Moving Average ARIMA(p,d,q) time-series model:
 //   W(t) = (1-B)^d Y(t)  (d successive first-differences of the transformed series)
@@ -132,7 +134,7 @@ class ARIMA : public ModelBase, public ISimulatable<std::vector<double>> {
     void set_time_series(const TimeSeries& value) {
         // C# unsubscribes/subscribes CollectionChanged here -> no-op in this port.
         time_series_ = value;
-        if (use_default_training_steps_) set_default_training_steps();
+        reset_default_training_steps_for_new_time_series();
         set_training_data();
         // RaisePropertyChange -> no-op.
         if (use_default_flat_priors()) set_default_parameters();
@@ -657,6 +659,12 @@ class ARIMA : public ModelBase, public ISimulatable<std::vector<double>> {
             result.validation_messages.push_back(
                 "Error: Time series must have at least 10 observations.");
         }
+        if (time_series_->time_interval() == numerics::data::TimeInterval::Irregular) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: Time series analysis requires a regular time interval. Resample or "
+                "convert the series to a regular interval before estimating.");
+        }
         if (p_order_ < 0 || p_order_ > 10) {
             result.is_valid = false;
             result.validation_messages.push_back("Error: AR order (p) must be between 0 and 10.");
@@ -785,6 +793,31 @@ class ARIMA : public ModelBase, public ISimulatable<std::vector<double>> {
 
    private:
     // --- SetDefaultTrainingSteps (C#:386): 80% of data, min 30 or parameter count. ---
+    // --- ResetDefaultTrainingStepsForNewTimeSeries (ARIMA.cs:411) -----------------------------------
+    //
+    // v2.0.0: attaching a DIFFERENT response series is a new calibration problem, so the setter
+    // discards any manual training-window edit and restores the default split. An empty series
+    // zeroes the window (the C# `TimeSeries = null` arm -- this port holds the series BY VALUE in
+    // a std::optional, so "no usable series" is the empty series, never a null reference).
+    // C# RaisePropertyChange calls -> no-ops here.
+    //
+    // Divergence, unavoidable and inert for this port: C# short-circuits the whole setter on
+    // `ReferenceEquals(_timeSeries, value)`, so re-assigning the SAME object preserves a manual
+    // window. Value semantics have no object identity to test, so re-assigning an equal series
+    // here resets. The public surface never re-assigns the same series (the fixture/binding
+    // builders assign once at construction), and C#'s companion CollectionChanged hook -- which
+    // preserves the manual window when the ATTACHED series is edited in place -- has no analog
+    // either, since this port hands out the series by const reference and cannot be edited in
+    // place.
+    void reset_default_training_steps_for_new_time_series() {
+        use_default_training_steps_ = true;
+        if (!time_series_ || time_series_->count() == 0) {
+            training_time_steps_ = 0;
+            return;
+        }
+        set_default_training_steps();
+    }
+
     void set_default_training_steps() {
         if (!time_series_ || time_series_->count() == 0) return;
         int min_steps = std::max(30, static_cast<int>(parameters_.size()));

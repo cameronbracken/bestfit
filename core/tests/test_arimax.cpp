@@ -595,6 +595,88 @@ void test_arimax_p4_fixed_param_oracles() {
     CHECK_NEAR(res[7], 1.7300000000000004, 1e-9);
 }
 
+// v2.0.0 ResetDefaultTrainingStepsForNewTimeSeries (ARIMAX.cs:591). Transcribed from the new
+// TimeSeries_NewSeries_ResetsTrainingSplitToDefault regression test (which uses exactly this
+// original/replacement pair): attaching a DIFFERENT response series discards the manual
+// training-window edit and restores floor(0.8 * count) = 192 for the 240-observation monthly
+// replacement. The manual window (40) is the C# test's own value and is not the new default.
+void test_arimax_new_series_resets_training_split() {
+    TimeSeries original = make_sample_series();      // 60 annual obs
+    TimeSeries replacement = make_monthly_series();  // 240 monthly obs
+    TimeSeries empty(TimeInterval::OneYear);
+
+    ARIMAX m(original);
+    m.set_use_default_training_steps(false);
+    m.set_training_time_steps(40);
+    CHECK_EQ(m.training_time_steps(), 40);
+    m.set_time_series(replacement);
+    CHECK_TRUE(m.use_default_training_steps());
+    CHECK_EQ(m.training_time_steps(), 192);
+
+    // Empty-series arm: attaching a series with no observations zeroes the window. Default
+    // flat priors are turned OFF first only to keep the assertion on the reset itself -- the
+    // trailing SetDefaultParameters call indexes the STALE differenced series at
+    // TrainingTimeSteps-1 == -1, which is an IndexOutOfRangeException in C# and UB here (a
+    // pre-existing shared hazard on a path the C# regression suite never drives).
+    ARIMAX me(original);
+    me.set_use_default_flat_priors(false);
+    me.set_use_default_training_steps(false);
+    me.set_training_time_steps(40);
+    me.set_time_series(empty);
+    CHECK_TRUE(me.use_default_training_steps());
+    CHECK_EQ(me.training_time_steps(), 0);
+}
+
+// v2.0.0 InferSeasonalPeriod: the OneYear cycle length changed 1 -> 10 (ARIMAX.cs:880), so annual
+// records now carry a DECADAL Fourier cycle instead of a degenerate one-step cycle. Transcribed
+// from the new MonthlyTimeSeries_SeasonalPeriod_IsTwelve / AnnualTimeSeries_SeasonalPeriod_IsTen /
+// AnnualSeasonality_FourierTerms_AreNonDegenerate regression tests. At the old S = 1 the Fourier
+// pair collapses (sin(2*pi*t) == 0, cos(2*pi*t) == 1 at integer t), so the seasonality part is
+// flat and the range check below fails -- that is the RED/GREEN discriminator.
+void test_arimax_annual_seasonal_period() {
+    CHECK_EQ(ARIMAX(make_monthly_series()).seasonal_period(), 12);
+    CHECK_EQ(ARIMAX(make_sample_series()).seasonal_period(), 10);
+
+    ARIMAX annual(make_sample_series());
+    annual.set_include_seasonality(true);
+    std::vector<double> p = annual.parameter_values();
+    int sin_index = -1, cos_index = -1;
+    for (std::size_t i = 0; i < annual.parameters().size(); ++i) {
+        const std::string& name = annual.parameters()[i].name();
+        if (name.rfind("Seasonality Sin", 0) == 0) sin_index = static_cast<int>(i);
+        if (name.rfind("Seasonality Cos", 0) == 0) cos_index = static_cast<int>(i);
+    }
+    CHECK_TRUE(sin_index >= 0 && cos_index >= 0);
+    p[static_cast<std::size_t>(sin_index)] = 1.0;
+    p[static_cast<std::size_t>(cos_index)] = 0.0;
+
+    ARIMAX::PredictResult result = annual.predict_components(p, 0, -1);
+    double lo = result.seasonality_part[0], hi = result.seasonality_part[0];
+    for (int t = 0; t < 10; ++t) {
+        lo = std::min(lo, result.seasonality_part[static_cast<std::size_t>(t)]);
+        hi = std::max(hi, result.seasonality_part[static_cast<std::size_t>(t)]);
+    }
+    CHECK_TRUE(hi - lo > 1.0);
+}
+
+// v2.0.0 TimeInterval.Irregular Validate guard (ARIMAX.cs:2016). Transcribed from the new
+// Test_Validate_IrregularTimeSeries_ReturnsFalse regression test; the cross-language oracle lives
+// in fixtures/estimation/time_series_irregular_interval.json.
+void test_arimax_irregular_interval_validate() {
+    // C# `new TimeSeries(TimeInterval.Irregular)` + Add: the (interval, start, end) ctor
+    // rejects Irregular in BOTH C# and this port, so build it ordinate-by-ordinate with the
+    // C# test's own i*i+1 index spacing.
+    TimeSeries irregular(TimeInterval::Irregular);
+    for (int i = 0; i < 50; ++i)
+        irregular.add(TimeSeries::Ordinate(static_cast<long>(i) * i + 1, i + 1.0));
+
+    auto r = ARIMAX(irregular).validate();
+    CHECK_TRUE(!r.is_valid);
+    CHECK_TRUE(messages_contain(r, "regular time interval"));
+
+    CHECK_TRUE(ARIMAX(make_sample_series()).validate().is_valid);
+}
+
 }  // namespace
 
 int main() {
@@ -610,6 +692,10 @@ int main() {
     test_arimax_transform_lambda_failure();
     test_arimax_trend_seasonality_diff_transform();
     test_arimax_covariates();
+
+    test_arimax_new_series_resets_training_split();
+    test_arimax_annual_seasonal_period();
+    test_arimax_irregular_interval_validate();
 
     test_arimax_p4_fixed_param_oracles();
 
