@@ -1,7 +1,7 @@
 // Standalone tests for corehydro::numerics::BootstrapAnalysis + the IBootstrappable capability.
 //
 // Transcribed VERBATIM (oracle values unaltered) from
-//   upstream/Numerics/Test_Numerics/Distributions/Univariate/Test_BootstrapAnalysis.cs @ a2c4dbf
+//   upstream/Numerics/Test_Numerics/Distributions/Univariate/Test_BootstrapAnalysis.cs @ 2a0357a
 //
 // BootstrapAnalysis is an internal Numerics support engine (not exposed through the R/Python
 // public API), so per the tolerance/oracle policy its oracles are transcribed here in a C++-only

@@ -3,7 +3,7 @@
 // these are hand-computed oracles pinning the ported model-consumed surface.
 //
 // Ported member bodies governed by
-//   upstream/Numerics/Numerics/Data/Time Series/TimeSeries.cs @ a2c4dbf
+//   upstream/Numerics/Numerics/Data/Time Series/TimeSeries.cs @ 2a0357a
 //   (Difference 496-515, MinValue 1338, MeanValue 1370, StandardDeviation 1389) and its
 //   Series base (ValuesToArray / ValuesToList 248-259).
 #include <cmath>

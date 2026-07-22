@@ -1,7 +1,7 @@
 // Standalone tests for corehydro::numerics::distributions::UncertaintyAnalysisResults.
 //
 // Oracle for behavior is the C# source itself (upstream/Numerics/Numerics/Distributions/
-// Univariate/Uncertainty Analysis/UncertaintyAnalysisResults.cs @ a2c4dbf) and the equivalence
+// Univariate/Uncertainty Analysis/UncertaintyAnalysisResults.cs @ 2a0357a) and the equivalence
 // STRUCTURE of Test_BootstrapAnalysis.cs::Test_BootstrapAnalysis_UncertaintyAnalysisResults_
 // Equivalence. BootstrapAnalysis is not ported (Phase 9), so instead of replaying it we hand-build
 // a deterministic fixed fan of sampled Normal distributions around the same parent the C# test uses

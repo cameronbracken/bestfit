@@ -1,7 +1,7 @@
 // Standalone tests for corehydro::numerics::data::ProbabilityOrdinates.
 //
 // Oracle for behavior is the C# source itself (upstream/Numerics/Numerics/Data/Paired Data/
-// ProbabilityOrdinate.cs @ a2c4dbf) -- the 25 default exceedance probabilities, the Validate
+// ProbabilityOrdinate.cs @ 2a0357a) -- the 25 default exceedance probabilities, the Validate
 // rules/messages/short-circuit order, and the delimited-string round-trip. This is internal
 // core math not exposed to R/Python, so oracles are transcribed from the C# constants + the
 // upstream preservation-test invariant (re-expressed as value round-trips); no fixtures/ entry.

@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Gamma.log_gamma",
   "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
-  "reference": "Numerics @ a2c4dbf; Gamma.LogGamma — Spouge/Stirling Lanczos. Branch z<0.5 uses reflection; z>=0.5 uses direct series.",
+  "reference": "Numerics @ 2a0357a; Gamma.LogGamma — Spouge/Stirling Lanczos. Branch z<0.5 uses reflection; z>=0.5 uses direct series.",
   "cases": [
     {
       "name": "log_gamma_quarter_branch_reflection",

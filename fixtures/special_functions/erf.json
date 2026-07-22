@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Erf.function",
   "source": "Numerics/Mathematics/Special Functions/Erf.cs",
-  "reference": "Numerics @ a2c4dbf; Gamma.LowerIncomplete(0.5, x*x) with sign",
+  "reference": "Numerics @ 2a0357a; Gamma.LowerIncomplete(0.5, x*x) with sign",
   "cases": [
     {
       "name": "erf_zero",

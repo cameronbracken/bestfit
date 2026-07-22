@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Erf.erfc",
   "source": "Numerics/Mathematics/Special Functions/Erf.cs",
-  "reference": "Numerics @ a2c4dbf; 1 - Erf.Function(x)",
+  "reference": "Numerics @ 2a0357a; 1 - Erf.Function(x)",
   "cases": [
     {
       "name": "erfc_zero",

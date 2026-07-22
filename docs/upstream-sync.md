@@ -48,8 +48,11 @@ trust it for semantics; see the first hard-won rule below.
 ## Step 2: classify the diff
 
 The classification is the real worklist. Run one agent per repository, in parallel, read-only. The
-two prompts below are the ones actually used in the July 2026 sync, recovered from the orchestrator
-that wrote them. Archive the prompts you use; these nearly were not.
+two prompts below are the ones actually used in the July 2026 sync, re-supplied after the fact from
+the working context of the orchestrator that wrote them, not retrieved from an archived record; a
+search of the conversation history found no transcript containing them. Archive the prompts you
+use, in the repo, at the time you use them. These nearly were lost, and by this document's own
+first rule a recollection is not an artifact.
 
 Both agents got the same frame:
 
@@ -220,6 +223,11 @@ A dedicated closeout task, after the last porting task and before the docs task:
   record which upstream versions the release was validated against. Check whether any new export
   needs adding to `corehydror/_pkgdown.yml` and `site/_quarto.yml`; a sync usually adds no new
   export, but verify rather than assume.
+- Write the `CHANGELOG.md` entry, and write it for users rather than for the port. A sync is not a
+  refactor: results change. Lead with which existing calls return different numbers and why, then
+  what was added, then what was fixed, then the validation counts. The July 2026 entry lists nine
+  such changes, from the Student-t density gaining its `1/sigma` Jacobian to the rewritten censored
+  plotting positions. Anyone upgrading needs that list more than they need the commit history.
 - Push, watch CI to green on the full matrix, open the PR. Run the ship step as a fresh session
   after the last task has committed.
 
@@ -229,7 +237,12 @@ Every ported file carries `// ported from: <csharp path> @ <sha>`. Tasks re-pin 
 touch, which leaves every untouched file on the old SHA. That is a problem, because on the NEXT
 sync a stale pin is indistinguishable from a file nobody has reviewed.
 
-At closeout, re-pin every header whose upstream counterpart is byte-identical across the range.
+Sweep all three places a pin lives, not just the ported headers: `core/include`, the C# citations
+in `core/tests`, and the `source` and `reference` strings in `fixtures/*.json`. The July 2026 sweep
+initially covered only `core/include` and left 21 stale references behind in the other two, which
+is exactly the ambiguity the sweep exists to remove.
+
+At closeout, re-pin every reference whose cited upstream file is byte-identical across the range.
 The safe set is computable:
 
 ```bash
@@ -243,7 +256,17 @@ or the delta is under a documented severance. Adjudicate every one of them and w
 down. Do not re-pin them silently. Leaving them on the old pin is the correct outcome for a
 severed delta, because it makes the next sweep re-surface the severance.
 
-Note that upstream paths can contain spaces. Split those file lists on newlines.
+Three practical notes. Upstream paths can contain spaces, so split those file lists on newlines.
+The unit of the rule is the reference, not the file: one comment block can cite a library class
+that did not change and a test class that did, and only the first should move. And a pin whose
+citation names no file at all, such as a fixture reference reading "Numerics @ `<sha>`", cannot be
+decided by this rule; either leave it or re-pin it on the separate argument that the gate
+reproduces that fixture's values at the new pin, but say which argument you used.
+
+Two references can look byte-identical-safe and not be. In July 2026 four of them cited a file that
+did change, in a region the change did not touch, inside a C++ file whose primary header the owning
+task had already re-pinned. Those are safe on a different argument, and the report has to say so
+rather than let the blanket claim carry them.
 
 ## Hard-won rules
 
@@ -290,7 +313,9 @@ a port bug. The difference has to be measured:
 Step 4 is the one people skip. In this run a reviewer raised a HIGH finding that the ported BFGS
 had a defect, because the C++ stalled where C# was assumed to converge. Driving the real C# at the
 same configuration showed it stalls identically: `BFGS.cs` declares a TOLX stagnation guard at
-line 101 and never uses it, so there is no stagnation exit in either language. The reviewer
+line 101 and never references it again in that method, so there is no stagnation exit in either
+language. (Grep returns three TOLX hits in the file; the other two are a separate local in the
+Armijo line search.) The reviewer
 withdrew the finding, then independently established the inherence: a 1e-13 input perturbation
 produced a 2.4e-5 displacement, an amplification of 2.4e8, and flipped the stall, while 1e-15 was
 bit-identical and the unresampled parent fit agreed to 3e-14. The actual mechanism turned out to be
@@ -362,13 +387,15 @@ duplicated or conflicting work. Run the ship step, and any resumed phase, as a f
 Nothing here was automated in July 2026. These are the pieces that would have earned their keep,
 in the order they hurt, as requirements for a future `tools/upstream_diff.py`:
 
-1. **Provenance manifest and sweep.** Parse every `// ported from: <path> @ <sha>` in `core/`,
-   resolve the cited path against the submodule at both pins, and emit three lists: safe to
-   re-pin because the upstream file is byte-identical, changed upstream and therefore needing
-   adjudication, and unresolvable because the cited path does not exist at the tag. Apply the safe
-   set with `--apply`. This is a hundred lines and it replaces the most error-prone manual step. It
-   would also have caught a citation in this repo that pointed at a filename which has never
-   existed upstream.
+1. **Provenance manifest and sweep.** Parse every pin in `core/include`, `core/tests`, and
+   `fixtures/`, resolve the cited path against the submodule at both pins, and emit four lists:
+   safe to re-pin because the upstream file is byte-identical, changed upstream and therefore
+   needing adjudication, repo-level with no file to resolve, and unresolvable because the cited
+   path does not exist at the tag. Apply the safe set with `--apply`. This is a hundred lines and
+   it replaces the most error-prone manual step. It would also have caught a citation in this repo
+   that pointed at a filename which has never existed upstream. Two details a hand-rolled version
+   gets wrong: citations wrap across comment lines, so the path and its `@ sha` are often not on
+   the same line, and one line can carry two pins for two different files.
 2. **Cosmetic-versus-code diff classifier.** For each changed C# file, strip byte-order marks,
    comment-only lines, and pure whitespace, then report whether anything remains. In this run 27 of
    the 45 changed upstream files that kept an old pin were pure comment, BOM, XML-doc, or

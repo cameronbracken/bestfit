@@ -1,6 +1,6 @@
 // Transcribed C# oracle tests for the Numerics link-function layer (Task B1):
-//   upstream/Numerics/Test_Numerics/Functions/Test_LinkFunctions.cs   @ a2c4dbf
-//   upstream/Numerics/Test_Numerics/Functions/Test_FisherZLink.cs     @ a2c4dbf
+//   upstream/Numerics/Test_Numerics/Functions/Test_LinkFunctions.cs   @ 2a0357a
+//   upstream/Numerics/Test_Numerics/Functions/Test_FisherZLink.cs     @ 2a0357a
 //   upstream/Numerics/Test_Numerics/Functions/Test_YeoJohnsonLink.cs  @ a2c4dbf
 // plus direct tests of the YeoJohnson transform class (no upstream test file exists under
 // Test_Numerics/Data/Statistics for it; only Test_BoxCox.cs is there) and the brief-required
