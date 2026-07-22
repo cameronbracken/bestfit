@@ -17,6 +17,7 @@
 //     has no frame (see the base header's nullability note).
 //   - The degenerate-data test expects the C# ArgumentOutOfRangeException from Uniform.PDF;
 //     the C++ Uniform throws std::out_of_range from the same validity guard.
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -28,6 +29,7 @@
 
 #include "corehydro/models/data_frame/data_frame.hpp"
 #include "corehydro/models/support/model_parameter.hpp"
+#include "corehydro/models/support/prior_component.hpp"
 #include "corehydro/models/support/validation_result.hpp"
 #include "corehydro/models/univariate_distribution/mixture_model.hpp"
 #include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
@@ -35,6 +37,7 @@
 #include "corehydro/numerics/distributions/gumbel.hpp"
 #include "corehydro/numerics/distributions/mixture.hpp"
 #include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/poisson.hpp"
 #include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
@@ -42,10 +45,13 @@ using corehydro::models::DataFrame;
 using corehydro::models::ExactData;
 using corehydro::models::ExactSeries;
 using corehydro::models::MixtureModel;
+using corehydro::models::ModelParameter;
+using corehydro::models::PriorComponentType;
 using corehydro::models::ValidationResult;
 using corehydro::numerics::distributions::Gumbel;
 using corehydro::numerics::distributions::Mixture;
 using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Poisson;
 using corehydro::numerics::distributions::UnivariateDistributionBase;
 using corehydro::numerics::distributions::UnivariateDistributionType;
 
@@ -649,19 +655,66 @@ void test_clone_creates_independent_copy() {
     CHECK_TRUE(original.mixture() != clone.mixture());
 }
 
-// Test_Clone_PreservesIsZeroInflated
+// Test_Clone_PreservesIsZeroInflated (extended by BestFit v2.0.0 commit b43943c "Fix
+// BestFit port review findings" -- the C# test now additionally checks that the clone's
+// likelihood/PDF/CDF surface matches the original's and that its Parameters are
+// independent copies, beyond the original flag-equality check).
 void test_clone_preserves_is_zero_inflated() {
     DataFrame df = create_zero_inflated_data_frame();
     std::vector<UnivariateDistributionType> types{UnivariateDistributionType::Normal};
     MixtureModel original(std::move(df), types, /*is_zero_inflated=*/true);
+    std::vector<double> parameters = parameter_values(original);
+    double likelihood = original.data_log_likelihood(parameters);
+    double pdf = original.mixture()->pdf(100.0);
+    double cdf = original.mixture()->cdf(100.0);
 
     MixtureModel clone = original.clone();
 
     CHECK_EQ(clone.is_zero_inflated(), original.is_zero_inflated());
     // M9-lesson end-state check (beyond the C# test): the cloned model's wrapped mixture
     // carries the same zero-inflation state as the original's.
-    CHECK_EQ(clone.mixture()->is_zero_inflated(), original.mixture()->is_zero_inflated());
+    CHECK_TRUE(clone.mixture()->is_zero_inflated());
     CHECK_NEAR(clone.mixture()->zero_weight(), original.mixture()->zero_weight(), 0.0);
+
+    // b43943c additions: the clone's likelihood/PDF/CDF surface matches the original's
+    // (proving the re-synced mixture is functionally, not just flag-wise, identical), and
+    // its Parameters are independent (mutating the clone's copy leaves the original's
+    // untouched).
+    std::vector<double> clone_parameters = parameter_values(clone);
+    CHECK_NEAR(clone.data_log_likelihood(clone_parameters), likelihood, 1e-12);
+    CHECK_NEAR(clone.mixture()->pdf(100.0), pdf, 1e-12);
+    CHECK_NEAR(clone.mixture()->cdf(100.0), cdf, 1e-12);
+
+    double original_value = original.parameters()[0].value();
+    clone.parameters()[0].set_value(original_value + 1.0);
+    CHECK_EQ(original.parameters()[0].value(), original_value);
+}
+
+// T14 (BestFit v2.0.0, commit b43943c "Fix BestFit port review findings"): Clone's
+// zero-inflation re-sync now reads the MODEL-LEVEL `is_zero_inflated_` flag (matching the
+// C# `result.Mixture!.IsZeroInflated = result._isZeroInflated;`), not the source mixture's
+// OWN IsZeroInflated -- a distinction the C# test above never exercises because the two
+// stay in sync on every path the C# test constructs through. This model nudges the wrapped
+// Mixture's zero-inflation state out of sync with the model flag via the mutable mixture()
+// accessor (reachable in practice: `mixture()` is publicly mutable, unlike an ordinary
+// setter-guarded property) and confirms the clone follows the MODEL flag, with ZeroWeight
+// forced to 0.0 when the model flag says "not zero-inflated" (the C# `result._isZeroInflated
+// ? Mixture!.ZeroWeight : 0.0` ternary).
+void test_clone_zero_inflation_resync_uses_model_flag_not_mixture_flag() {
+    DataFrame df = create_zero_inflated_data_frame();
+    std::vector<UnivariateDistributionType> types{UnivariateDistributionType::Normal};
+    MixtureModel original(std::move(df), types, /*is_zero_inflated=*/false);
+
+    original.mixture()->set_is_zero_inflated(true);
+    original.mixture()->set_zero_weight(0.25);
+    CHECK_TRUE(!original.is_zero_inflated());          // model flag still false
+    CHECK_TRUE(original.mixture()->is_zero_inflated());  // mixture's own flag now true
+
+    MixtureModel clone = original.clone();
+
+    CHECK_EQ(clone.is_zero_inflated(), original.is_zero_inflated());  // both false
+    CHECK_TRUE(!clone.mixture()->is_zero_inflated());
+    CHECK_NEAR(clone.mixture()->zero_weight(), 0.0, 0.0);
 }
 
 // Test_Clone_PreservesQuantilePriors
@@ -920,6 +973,102 @@ void test_jeffreys_prior_affects_prior_log_likelihood() {
     CHECK_TRUE(prior_no_jeffreys != prior_with_jeffreys);
 }
 
+// T14 (BestFit v2.0.0, commit 1abe795 "Guard composite Jeffreys scale priors"): transcribes
+// MixtureModelTests.cs's `CreateModelWithManualPriors` regression-only helper. A
+// single-parameter Numerics family (e.g. Poisson) does not implement
+// IMaximumLikelihoodEstimation, so the normal BestFit setup cascade (any ctor/setter that
+// reaches SetDefaultParameters with both a Mixture and a valid DataFrame present ->
+// dynamic_cast<IMaximumLikelihoodEstimation&>) throws std::bad_cast on it -- exactly the bug
+// this task guards against, so the crash-inducing cascade cannot be the vehicle for reaching
+// it. This helper takes the same escape hatch the C# test uses (constructing before any
+// DataFrame is attached, so SetDefaultParameters' early-return guard --
+// `!has_data_frame()`, C++'s analogue of the C# `DataFrame == null` check -- short-circuits
+// before the per-component cast; the parameterless MixtureModel() ctor's own default
+// Normal-Normal set_mixture() call takes the same safe path), then adds one ModelParameter
+// per raw distribution parameter directly, mirroring the C# test's manual `Parameters.Add`
+// loop.
+MixtureModel create_model_with_manual_priors(
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> distributions) {
+    MixtureModel model;
+    model.set_use_default_flat_priors(false);
+    std::vector<double> weights(distributions.size(), 1.0 / static_cast<double>(distributions.size()));
+    model.set_mixture(std::make_unique<Mixture>(std::move(weights), std::move(distributions)));
+
+    std::vector<double> values = model.mixture()->get_parameters();
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        double value = values[i];
+        double sigma = std::max(1.0, std::abs(value) * 0.1);
+        model.parameters().push_back(ModelParameter(
+            "", "Parameter " + std::to_string(i + 1), value, -kInf, kInf,
+            std::make_unique<Normal>(value, sigma)));
+    }
+    return model;
+}
+
+// Test_JeffreysPrior_OneParameterComponent_OmitsScaleContribution
+void test_jeffreys_prior_one_parameter_component_omits_scale_contribution() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    MixtureModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+
+    double scalar = model.prior_log_likelihood(parameters);
+    auto pointwise = model.pointwise_prior_log_likelihood(parameters);
+
+    CHECK_TRUE(std::isfinite(scalar));
+    bool any_jeffreys = false;
+    for (const auto& p : pointwise)
+        if (p.type() == PriorComponentType::JeffreysScalePrior) any_jeffreys = true;
+    CHECK_TRUE(!any_jeffreys);
+
+    double sum = 0.0;
+    for (const auto& p : pointwise) sum += p.log_likelihood();
+    CHECK_NEAR(sum, scalar, 1e-12);
+}
+
+// Test_JeffreysPrior_MixedComponents_AppliesOnlyAvailableScaleContribution
+void test_jeffreys_prior_mixed_components_applies_only_available_scale_contribution() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    dists.push_back(std::make_unique<Normal>(2000.0, 500.0));
+    MixtureModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+
+    double scalar = model.prior_log_likelihood(parameters);
+    auto pointwise = model.pointwise_prior_log_likelihood(parameters);
+
+    int jeffreys_count = 0;
+    for (const auto& p : pointwise)
+        if (p.type() == PriorComponentType::JeffreysScalePrior) ++jeffreys_count;
+    CHECK_EQ(jeffreys_count, 1);
+
+    double sum = 0.0;
+    for (const auto& p : pointwise) sum += p.log_likelihood();
+    CHECK_NEAR(sum, scalar, 1e-12);
+}
+
+// T14 addition (beyond the transcribed C# tests): a non-positive scale on an
+// available-scale component returns -Inf IMMEDIATELY (an early function return out of
+// prior_log_likelihood), not a +Inf subtraction that could cancel against another +Inf term
+// into NaN (the "avoids Inf-Inf NaN" fix the task brief calls out).
+void test_jeffreys_prior_nonpositive_scale_returns_negative_infinity() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    dists.push_back(std::make_unique<Normal>(2000.0, 500.0));
+    MixtureModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+    // Weights (2 of them) come first in the flat vector, then Poisson's lambda, then Normal's
+    // (mu, sigma); the last entry is the Normal scale.
+    parameters.back() = -1.0;  // Normal's sigma -> negative (not the [0, 1e-16) clamp zone).
+
+    double scalar = model.prior_log_likelihood(parameters);
+
+    CHECK_TRUE(scalar == -kInf);
+}
+
 // ===========================================================================================
 // ISimulatable / GenerateRandomValues (no upstream MixtureModelTests method exercises the
 // stream itself; these pin the ported guards + determinism of the C# Mixture component-
@@ -1004,6 +1153,7 @@ int main() {
     // Clone tests.
     test_clone_creates_independent_copy();
     test_clone_preserves_is_zero_inflated();
+    test_clone_zero_inflation_resync_uses_model_flag_not_mixture_flag();
     test_clone_preserves_quantile_priors();
     test_clone_parameters_are_independent();
 
@@ -1028,6 +1178,9 @@ int main() {
 
     // Jeffreys prior tests.
     test_jeffreys_prior_affects_prior_log_likelihood();
+    test_jeffreys_prior_one_parameter_component_omits_scale_contribution();
+    test_jeffreys_prior_mixed_components_applies_only_available_scale_contribution();
+    test_jeffreys_prior_nonpositive_scale_returns_negative_infinity();
 
     // ISimulatable guards + seeded determinism.
     test_generate_random_values_guards_and_deterministic_seed();

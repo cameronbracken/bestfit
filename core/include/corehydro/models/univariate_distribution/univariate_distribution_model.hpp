@@ -1,5 +1,5 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/UnivariateDistribution.cs
-// @ fc28c0c -- stationary path (Phase 5, M8) + nonstationary trends, quantile priors,
+// @ c2e6192 -- stationary path (Phase 5, M8) + nonstationary trends, quantile priors,
 // Clone, and seeded simulation (M9). The Phase 4 T6 slice was exact-data-only.
 //
 // The univariate distribution model: a parent distribution plus a DataFrame of exact /
@@ -686,20 +686,19 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
             log_lh += parameters_[i].prior_distribution().log_pdf(p[i]);
         }
 
-        if (use_jeffreys_rule_for_scale()) {
-            std::vector<double> model_params = model.get_parameters();
-            std::size_t scale_index = scale_parameter_index(model);
-            // C# divergence (retained from Phase 4): for a genuine 1-parameter family C#
-            // indexes GetParameters[1] unguarded and would throw; this port skips the
-            // Jeffreys term instead (intentional, untested upstream -- see
-            // docs/upstream-csharp-issues.md).
-            if (scale_index < model_params.size()) {
-                double scale_param = model_params[scale_index];
-                // Jeffreys prior requires a positive scale parameter: return -inf directly
-                // rather than subtracting +inf (C# early-return, line 1849).
-                if (scale_param <= 0) return -std::numeric_limits<double>::infinity();
-                log_lh -= std::log(scale_param);
-            }
+        // T14 (BestFit v2.0.0, commit 1abe795): TryGetJeffreysScaleParameter reports `false`
+        // -- rather than indexing GetParameters out of range -- for a single-parameter family
+        // with no applicable scale term, in which case the Jeffreys term is skipped entirely
+        // (no contribution, positive or negative, to log_lh). This is now a straight port:
+        // the base's guard matches C#'s own guard, not a documented divergence (see the base
+        // header's T14 note).
+        double scale_param;
+        if (use_jeffreys_rule_for_scale() &&
+            try_get_jeffreys_scale_parameter(model, scale_param)) {
+            // Jeffreys prior requires a positive scale parameter: return -inf directly
+            // rather than subtracting +inf (C# early-return, line 1849).
+            if (scale_param <= 0) return -std::numeric_limits<double>::infinity();
+            log_lh -= std::log(scale_param);
         }
 
         // Quantile priors (C# 1853-1875).
@@ -731,9 +730,9 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
     // plus the quantile-prior components (single-quantile ported; multi-quantile DEFERRED,
     // see the file header). Nonstationary: the distribution parameters come from the last
     // time step (matches PriorLogLikelihood; ParameterTimeIndex is for prediction).
-    // Component label: the C# suffixes the scale ParameterNames entry ("Jeffreys Scale:
-    // {name}"); ParameterNames is not on the ported distribution base, so the label stays
-    // "Jeffreys Scale" (display-only).
+    // Component label: "Jeffreys Scale: {scaleName}", the ParameterNames entry at the scale
+    // index (C# line 1912; X1 ported ParameterNames onto the distribution base, so the name
+    // is available here too).
     std::vector<PriorComponent> pointwise_prior_log_likelihood(
         const std::vector<double>& p) const override {
         if (distribution_ == nullptr)
@@ -772,14 +771,17 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
         }
 
         // Jeffreys rule for scale parameter (only when the proposal is valid, per the C#).
+        // TryGetJeffreysScaleParameter reports `false` for a single-parameter family with no
+        // applicable scale term, in which case no component is appended (T14; see the base
+        // header's note).
         if (use_jeffreys_rule_for_scale() && valid) {
-            std::vector<double> model_params = model->get_parameters();
-            std::size_t scale_index = scale_parameter_index(*model);
-            if (scale_index < model_params.size()) {  // 1-parameter-family guard (see above)
-                double scale = model_params[scale_index];
+            double scale;
+            std::string scale_name;
+            if (try_get_jeffreys_scale_parameter(*model, scale, scale_name)) {
                 double ll =
                     scale > 0 ? -std::log(scale) : -std::numeric_limits<double>::infinity();
-                result.emplace_back("Jeffreys Scale", ll, PriorComponentType::JeffreysScalePrior);
+                result.emplace_back("Jeffreys Scale: " + scale_name, ll,
+                                    PriorComponentType::JeffreysScalePrior);
             }
         }
 
@@ -1184,15 +1186,6 @@ class UnivariateDistributionModel : public UnivariateDistributionModelBase,
         DistributionBase& model, const std::vector<double>& p) const;
     std::vector<DataComponent> nonstationary_pointwise_log_likelihood_components(
         DistributionBase& model, const std::vector<double>& p) const;
-
-    // Index of the scale parameter for the Jeffreys 1/scale prior (C# Prior_LogLikelihood,
-    // 1834-1843): Gamma/Weibull scale is parameter 0, every other family's is parameter 1.
-    static std::size_t scale_parameter_index(const DistributionBase& model) {
-        DistributionType type = model.type();
-        return (type == DistributionType::GammaDistribution || type == DistributionType::Weibull)
-                   ? 0
-                   : 1;
-    }
 
     // C# `StationaryPointwiseLogLikelihood` (line 1632).
     std::vector<double> stationary_pointwise_log_likelihood(DistributionBase& model,

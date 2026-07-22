@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Models/UnivariateDistribution/CompetingRisksModel.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Models/UnivariateDistribution/CompetingRisksModel.cs @ c2e6192
 //
 // Competing risks model for univariate distributions: a set of 1-3 competing univariate
 // parent distributions combined through a competing risks structure (for example, multiple
@@ -39,8 +39,19 @@
 // ModelParameter.Name for component parameters: the C# reads
 // `ParametersToString[j, 0]`; ParametersToString is not on the ported distribution base
 // (Phase 4 decision, display-only), so component-parameter names stay "" while OwnerName
-// ("D1", "D2", "D3") ports fully. Same reason trims the pointwise Jeffreys label
-// "Jeffreys Scale: D<j>.<scaleName>" to "Jeffreys Scale: D<j>" (ParameterNames not ported).
+// ("D1", "D2", "D3") ports fully. The pointwise Jeffreys label DOES carry the scale name
+// ("Jeffreys Scale: D<j>.<scaleName>") -- X1 ported ParameterNames onto the distribution
+// base, so it is available here despite ModelParameter.Name staying blank.
+//
+// Task T14 (BestFit v2.0.0, commit 1abe795 "Guard composite Jeffreys scale priors"): both
+// Jeffreys blocks below route through the base's `try_get_jeffreys_scale_parameter`
+// (base header note) instead of indexing GetParameters/ParameterNames directly. A component
+// with no applicable scale term (a single-parameter family, e.g. Poisson -- reachable here
+// since components are not constrained to the UnivariateDistributionModel 15-family
+// whitelist) is skipped entirely rather than indexed out of range; the scalar variant
+// additionally returns -Inf IMMEDIATELY on a non-positive scale (an early function return,
+// not merely a loop break) rather than subtracting +Inf, which could previously cancel
+// against another +Inf contribution into a NaN.
 //
 // EXCEPTION-TYPE MAPPING for THIS file: C# ArgumentNullException/ArgumentException ->
 // std::invalid_argument; ArgumentOutOfRangeException -> std::out_of_range;
@@ -577,20 +588,15 @@ class CompetingRisksModel : public UnivariateDistributionModelBase,
             log_lh += parameters_[i].prior_distribution().log_pdf(parameters[i]);
         }
 
-        // Jeffreys rule on scale parameters for each component.
+        // Jeffreys rule on scale parameters for each component (T14; see the file header).
         if (use_jeffreys_rule_for_scale()) {
             for (int j = 0; j < k; ++j) {
                 const DistributionBase& dist = model.component(j);
                 double scale;
+                if (!try_get_jeffreys_scale_parameter(dist, scale)) continue;
 
-                if (dist.type() == DistributionType::GammaDistribution ||
-                    dist.type() == DistributionType::Weibull) {
-                    scale = dist.get_parameters()[0];
-                } else {
-                    scale = dist.get_parameters()[1];
-                }
-                log_lh -= scale > 0 ? std::log(scale)
-                                    : std::numeric_limits<double>::infinity();
+                if (scale <= 0) return -std::numeric_limits<double>::infinity();
+                log_lh -= std::log(scale);
             }
         }
 
@@ -628,24 +634,22 @@ class CompetingRisksModel : public UnivariateDistributionModelBase,
                                 PriorComponentType::ParameterPrior);
         }
 
-        // Jeffreys rule on scale parameters for each component. Label: the C# appends
-        // ".<scaleName>" from dist.ParameterNames, which is not on the ported base (file
-        // header); the label carries the component tag only.
+        // Jeffreys rule on scale parameters for each component. Label: "Jeffreys Scale:
+        // D<j>.<scaleName>", the ParameterNames entry at the scale index (C# line ~745; file
+        // header). A component with no applicable scale term is skipped (no component
+        // appended, T14).
         if (use_jeffreys_rule_for_scale()) {
             for (int j = 0; j < k; ++j) {
                 const DistributionBase& dist = model.component(j);
                 double scale;
+                std::string scale_name;
+                if (!try_get_jeffreys_scale_parameter(dist, scale, scale_name)) continue;
 
-                if (dist.type() == DistributionType::GammaDistribution ||
-                    dist.type() == DistributionType::Weibull) {
-                    scale = dist.get_parameters()[0];
-                } else {
-                    scale = dist.get_parameters()[1];
-                }
                 double ll = scale > 0 ? -std::log(scale)
                                       : -std::numeric_limits<double>::infinity();
-                result.emplace_back("Jeffreys Scale: D" + std::to_string(j + 1), ll,
-                                    PriorComponentType::JeffreysScalePrior);
+                result.emplace_back(
+                    "Jeffreys Scale: D" + std::to_string(j + 1) + "." + scale_name, ll,
+                    PriorComponentType::JeffreysScalePrior);
             }
         }
 

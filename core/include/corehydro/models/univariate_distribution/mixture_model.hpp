@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Models/UnivariateDistribution/MixtureModel.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Models/UnivariateDistribution/MixtureModel.cs @ c2e6192
 //
 // Mixture model for univariate distributions, with optional zero inflation: a finite
 // mixture of 1-3 component distributions wrapped around the ported Numerics `Mixture`
@@ -34,12 +34,19 @@
 //
 // Clone(): C# aliases the DataFrame into `new MixtureModel(DataFrame, Mixture!)`; the
 // value-typed move-only C++ frame is DEEP-COPIED instead (M9 precedent), and a model with
-// no frame cannot be cloned (std::invalid_argument). M9-lesson end-state re-sync: the C#
-// object initializer writes `_isZeroInflated` DIRECTLY to the field, leaving the cloned
-// Mixture's IsZeroInflated/ZeroWeight stomped to the ctor defaults (false/0) even when the
-// original was zero-inflated -- an upstream inconsistency no C# test observes. The C++
-// clone() re-syncs the cloned mixture's zero-inflation state from the original's so the
-// clone ends in the SAME effective state as the original (documented deviation).
+// no frame cannot be cloned (std::invalid_argument). Zero-inflation re-sync: the object
+// initializer writes `_isZeroInflated` DIRECTLY to the field, and the ctor path's Mixture
+// setter runs with the DEFAULT zero-inflation state, leaving the cloned Mixture's
+// IsZeroInflated/ZeroWeight stomped to the ctor defaults (false/0) even when the original
+// was zero-inflated. Originally an untested upstream inconsistency the C++ port corrected on
+// its own (a documented deviation); BestFit v2.0.0 (commit b43943c "Fix BestFit port review
+// findings") added the SAME two-line re-sync to C# itself
+// (`result.Mixture!.IsZeroInflated = result._isZeroInflated; result.Mixture.ZeroWeight =
+// result._isZeroInflated ? Mixture!.ZeroWeight : 0.0;`), so this is now a PLAIN PORT, not a
+// divergence -- ported literally below, reading the model-level `is_zero_inflated_` flag
+// (not the source mixture's own IsZeroInflated, which a caller could in principle have
+// nudged out of sync via the mutable `mixture()` accessor) and conditionally zeroing
+// ZeroWeight to match.
 //
 // SKIPPED (project-wide deferrals): the XElement ctor (C# line 108) and ToXElement (line
 // 1302) -- XML serialization; INotifyPropertyChanged / RaisePropertyChange / event
@@ -984,7 +991,13 @@ class MixtureModel : public UnivariateDistributionModelBase,
     // NORMALIZED weights, per the C# ref side effect -- file header), the Jeffreys 1/scale
     // term per component (Gamma/Weibull carry the scale in parameter 0, all other supported
     // families in parameter 1), and the single quantile prior. Like the C#, the raw sum is
-    // returned (no finite collapse; LogLikelihood collapses).
+    // returned (no finite collapse; LogLikelihood collapses). T14 (BestFit v2.0.0, commit
+    // 1abe795): a component with no applicable scale term (a single-parameter family, e.g.
+    // Poisson -- reachable here since components are not constrained to the
+    // UnivariateDistributionModel 15-family whitelist) is skipped entirely rather than
+    // indexed out of range; a component with a non-positive scale returns -Inf IMMEDIATELY
+    // (an early function return, not merely a loop break) rather than subtracting +Inf, which
+    // could previously cancel against another +Inf contribution into a NaN.
     double prior_log_likelihood(std::vector<double>& parameters) const override {
         if (mixture_ == nullptr) return -std::numeric_limits<double>::infinity();
 
@@ -1003,20 +1016,15 @@ class MixtureModel : public UnivariateDistributionModelBase,
             log_lh += parameters_[i].prior_distribution().log_pdf(parameters[i]);
         }
 
-        // Jeffreys rule on scale parameters for each component.
+        // Jeffreys rule on scale parameters for each component (T14; see the method header).
         if (use_jeffreys_rule_for_scale()) {
             for (int j = 0; j < k; ++j) {
                 const DistributionBase& dist = model.component(j);
                 double scale;
+                if (!try_get_jeffreys_scale_parameter(dist, scale)) continue;
 
-                if (dist.type() == DistributionType::GammaDistribution ||
-                    dist.type() == DistributionType::Weibull) {
-                    scale = dist.get_parameters()[0];
-                } else {
-                    scale = dist.get_parameters()[1];
-                }
-                log_lh -= scale > 0 ? std::log(scale)
-                                    : std::numeric_limits<double>::infinity();
+                if (scale <= 0) return -std::numeric_limits<double>::infinity();
+                log_lh -= std::log(scale);
             }
         }
 
@@ -1056,18 +1064,16 @@ class MixtureModel : public UnivariateDistributionModelBase,
                                 PriorComponentType::ParameterPrior);
         }
 
-        // Jeffreys rule on scale parameters for each component.
+        // Jeffreys rule on scale parameters for each component. A component with no
+        // applicable scale term is skipped (no component appended); the scale NAME is looked
+        // up but discarded (C# `out _`) since this label numbers components positionally
+        // (T14; see the scalar prior_log_likelihood's header note).
         if (use_jeffreys_rule_for_scale()) {
             for (int j = 0; j < k; ++j) {
                 const DistributionBase& dist = model.component(j);
                 double scale;
-
-                if (dist.type() == DistributionType::GammaDistribution ||
-                    dist.type() == DistributionType::Weibull) {
-                    scale = dist.get_parameters()[0];
-                } else {
-                    scale = dist.get_parameters()[1];
-                }
+                std::string scale_name;
+                if (!try_get_jeffreys_scale_parameter(dist, scale, scale_name)) continue;
 
                 result.emplace_back("Jeffreys Scale: Component " + std::to_string(j + 1),
                                     scale > 0 ? -std::log(scale)
@@ -1137,18 +1143,21 @@ class MixtureModel : public UnivariateDistributionModelBase,
         result.parameters_ = std::move(parms);
         result.quantile_priors_ = std::move(quants);
 
-        // M9-lesson end-state re-sync (deviation from strict C#; file header): the ctor
-        // path above ran the Mixture setter with the default zero-inflation state and
-        // stomped the cloned mixture's IsZeroInflated/ZeroWeight; restore them from the
-        // original so the clone's likelihood surface matches the original's. v2.1.4 turned
-        // Mixture's IsZeroInflated/ZeroWeight into setters that renormalize component weights
-        // as a side effect (see mixture.hpp's header note), so this restore is no longer a
-        // bit-exact field copy -- it goes through set_is_zero_inflated()/set_zero_weight() in
-        // that order (matching every other IsZeroInflated-then-ZeroWeight call site) and ends
-        // up numerically equal to the original's weights to floating-point precision, not
-        // bit-identical.
-        result.mixture_->set_is_zero_inflated(mixture_->is_zero_inflated());
-        result.mixture_->set_zero_weight(mixture_->zero_weight());
+        // T14 end-state re-sync (BestFit v2.0.0, commit b43943c; file header): the ctor path
+        // above ran the Mixture setter with the default zero-inflation state and stomped the
+        // cloned mixture's IsZeroInflated/ZeroWeight; restore them from the ORIGINAL MODEL's
+        // state (`is_zero_inflated_`, matching `result._isZeroInflated` in the C# -- already
+        // copied onto `result` above) so the clone's likelihood surface matches the
+        // original's. Ported literally: `result.Mixture!.IsZeroInflated =
+        // result._isZeroInflated; result.Mixture.ZeroWeight = result._isZeroInflated ?
+        // Mixture!.ZeroWeight : 0.0;`. v2.1.4 turned Mixture's IsZeroInflated/ZeroWeight into
+        // setters that renormalize component weights as a side effect (see mixture.hpp's
+        // header note), so this restore is no longer a bit-exact field copy -- it goes
+        // through set_is_zero_inflated()/set_zero_weight() in that order (matching every
+        // other IsZeroInflated-then-ZeroWeight call site) and ends up numerically equal to
+        // the original's weights to floating-point precision, not bit-identical.
+        result.mixture_->set_is_zero_inflated(is_zero_inflated_);
+        result.mixture_->set_zero_weight(is_zero_inflated_ ? mixture_->zero_weight() : 0.0);
 
         result.process_quantile_priors();
         return result;
