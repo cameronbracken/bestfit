@@ -13,7 +13,6 @@ and accessibility of these amazing software packages (see the [Why?](#why) secti
 for more info). Currently this project has ported pieces of the following libraries/packages:
 - [RMC-BestFit](https://github.com/USACE-RMC/RMC-BestFit) (statistical engine fully ported)
 - [Numerics](https://github.com/USACE-RMC/Numerics) (probability, sampling, and estimation layers)
-- [HEC-FDA](https://github.com/HydrologicEngineeringCenter/HEC-FDA) (planned, not started)
 
 See the [porting status page](https://cameronbracken.github.io/corehydro/status.html)
 for the details of what is currently implemented in the core library and in the packages. 
@@ -194,13 +193,17 @@ pytest corehydropy/tests
 ```
 
 ## Why?
-The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assesment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers. The ported C++ code is designed to exactly reproduce the original C# code whenever possible, up to compiler and platform differences.
+The US Army Corps of Engineers Risk Management Center (USACE-RMC) has recently released open source versions of some of their core libraries for stochastic hydrology. These libraries represent the state of the art for dam safety risk assessment, flood and precip frequency analysis, and many more common engineering hydrology calculations. The goal of porting these libraries and developing the packages it to make these incredible tools available to a wider audience to enable greater adoption by both practitioners and researchers. The ported C++ code is designed to exactly reproduce the original C# code whenever possible, up to compiler and platform differences.
 
 ## AI Use Statement
 Anthropic's Claude was used to facilitate the porting process, Fable and Opus 4.8 for planning, Sonnet 5 and Haiku 4.5 for implementation.
 
 ## Credit 
 All credit for the implementation of these tools goes to [Haden Smith](https://github.com/HadenSmith) and the contributors to [Numerics](https://github.com/USACE-RMC/Numerics/graphs/contributors) and [RMC.BestFit](https://github.com/USACE-RMC/RMC.BestFit/graphs/contributors).
+
+## Other related porting projects
+
+- [hecfda](https://github.com/cameronbracken/hecfda)
 
 ## License
 The C++ core and both packages are released under the [Zero-Clause BSD (0BSD) license](https://github.com/cameronbracken/corehydro/blob/main/LICENSE), matching the USACE-RMC libraries.
