@@ -887,16 +887,45 @@ Semantics (bootstrap arm):
 - Modify: `core/include/corehydro/analyses/univariate/bulletin17c_analysis.hpp`
 - Modify: pivot/BiasCorrected B17C fixtures per census
 
-**C# ref:** `Analyses/Univariate/Bulletin17CAnalysis.cs` pivot/link-builder region
-(7efa9d0 net state).
+**C# ref:** `Analyses/Univariate/Bulletin17CAnalysis.cs` pivot/link-builder region, read at
+the SHIPPED pin (`git -C upstream/RMC-BestFit show c2e6192:src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs`).
+The shipped method is named **`GetParameterSetsFromPivotalBootstrap`** (C# 2158+).
 
-Semantics:
-- Pivot path compacts to ACCEPTED replicates before link fitting; drops z-limit rejections
-  (`zLimit = 6`, new constant) and failed transforms.
+**GROUND-TRUTH CORRECTION (established during Task 19, confirmed by review).** Earlier text in
+this plan and the spec described the bootstrap rework from commit *messages*; upstream `7efa9d0`
+(the last commit before the tag) reverted much of `1b424e3` for the PARAMETRIC arm. Do not port
+from the commit narrative — port from the shipped file. Verified facts:
+
+- The pivot arm is where discard semantics ACTUALLY shipped: Phase 3 leaves `results[idx]` unset
+  on transform failure (C# 2431-2438), and `diag.RetainedReplicates = results.Count(ps =>
+  ps.Values != null && ps.Values.Length == p && ps.Values.All(double.IsFinite))` (C# 2447-2450).
+- `IncrementTransformFailure` (C# 2434) and the `RetainedReplicates` setter (C# 2447) are the ONLY
+  two new BootstrapDiagnostics members the shipped analysis ever populates. `IncrementAttempted`,
+  `RecordGMMStatus`, and `AddOptimizerFallbacks` are never called anywhere in the file.
+
+Five deltas between shipped C# and the current C++ (`bulletin17c_analysis.hpp:885-980`):
+
+1. `maxRetries = 10` (C# 2160) vs C++ `max_retries = 5` (hpp:885).
+2. Adaptive `1 - 1/(5B)` Mahalanobis threshold (C# 2194-2195) vs C++ fixed `inverse_cdf(0.999)`
+   (hpp:915).
+3. Conditional `CloneWithDataFrame` warm-start (C# 2201-2205, 2238-2247) — absent in C++.
+4. **`PenaltyIsRandom` removed — numerically live.** At `fc28c0c:2070` the pivot arm constructed
+   `new GeneralizedMethodOfMoments(...) { PenaltyIsRandom = false }`; at `c2e6192` that
+   initializer is gone from the entire file (0 grep hits), so the GMM default `true`
+   (`GeneralizedMethodOfMoments.cs:556`) now applies. C++ still hard-sets
+   `boot_gmm.penalty_is_random = false;` (hpp:946, with a now-stale `// C# 2065` comment). This
+   changes the covariance and WILL move pivot oracles.
+5. Parent covariance now goes through `TryGetCovariance(thetaHat, true, out sigmaHat)`; on failure
+   it sets the diagnostic message "Pivot bootstrap could not compute a finite covariance
+   matrix..." and returns null (C# 2175-2181). C++ uses plain `get_covariance`.
+
+Plus the originally-planned items, to be re-verified against the shipped file rather than assumed:
+- Pivot path compacts to ACCEPTED replicates before link fitting; z-limit rejections
+  (`zLimit = 6`) and failed transforms dropped.
 - `CreatePivotYeoJohnsonLink`: validates finiteness/roundtrip, rejects lambda railed at
   `|lambda| >= 4.999`, falls back to IdentityLink. Uses the Numerics YJ link (Task 17).
-- The LinkedMultivariateNormal path's link-builder helpers pick up any adjacent diffs in
-  the same region — port whatever the v2.0.0 diff shows for the helpers, nothing more.
+- The LinkedMultivariateNormal link-builder helpers pick up any adjacent diffs in the same
+  region — port whatever the v2.0.0 diff shows, nothing more.
 
 **Interfaces:**
 - Consumes: Task 19's replicate collector; Task 17's Numerics-link routing; Task 2's
