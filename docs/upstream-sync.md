@@ -47,62 +47,67 @@ trust it for semantics; see the first hard-won rule below.
 
 ## Step 2: classify the diff
 
-The classification is the real worklist. Run one agent per repository against the library subtree
-diff, in parallel, and have each produce a ranked table. The two prompts below are reconstructed
-from what the July 2026 classification produced (the originals were not archived, which is itself
-a lesson: save the prompts). They are written to be pasted with the placeholders filled in.
+The classification is the real worklist. Run one agent per repository, in parallel, read-only. The
+two prompts below are the ones actually used in the July 2026 sync, recovered from the orchestrator
+that wrote them. Archive the prompts you use; these nearly were not.
 
-**Numerics classification prompt:**
+Both agents got the same frame:
 
-> Read the full diff of the vendored USACE-RMC Numerics submodule between `<old>` and `<newtag>`,
-> restricted to the `Numerics/` library subtree:
-> `git -C upstream/Numerics diff <old>..<newtag> -- Numerics/`.
-> Ignore the `Test_Numerics/` tree for classification, but DO read it afterwards to find new or
-> changed unit tests, because those are the oracle sources for anything you classify as a behavior
-> change.
->
-> corehydro is a faithful C++17 port of this library. Every numeric behavior change invalidates
-> pinned oracle values in `fixtures/*.json`, so I need to know exactly which changes are numeric.
->
-> Classify every changed file into exactly one of:
-> 1. BEHAVIOR CHANGE TO PORT. The output of some public method changes for some input. State the
->    class, the method, the precise change, and which inputs are affected. Say whether the change
->    is a bug fix, a new guard or validation, or a refactor with ulp-level drift.
-> 2. NEW API TO PORT. New public members with no behavior change to existing ones.
-> 3. COSMETIC. XML-doc comments, byte-order marks, whitespace, namespace moves, dead-code
->    removal with no reachable effect. Say what makes you confident it is cosmetic.
-> 4. OUT OF SCOPE. Areas this port does not cover. Name the reason.
->
-> Rank the BEHAVIOR CHANGE items by risk to existing oracles, highest first: a change that moves
-> a value every caller sees ranks above one that only fires on a degenerate input.
->
-> Cross-reference `docs/upstream-csharp-issues.md`. That file is corehydro's log of bugs found in
-> this C# library, and upstream sometimes fixes them. For every entry in that file, say whether
-> this release fixes it. Where it does, note that the C++ currently mirrors the OLD behavior
-> deliberately, so the fix will flip an oracle.
->
-> Read the SHIPPED source at `<newtag>` for anything you are unsure about. Commit messages
-> describe intent, not what shipped, and later commits in the range can revert earlier ones.
-> Quote the file and line you relied on.
+> You are scoping an upstream sync for the corehydro project at `<repo>`. The C++17 core at
+> `core/include/corehydro/` is a faithful port of the USACE-RMC C# `<library>`; each ported C++ file
+> carries a header comment like `// ported from: <csharp path> @ <sha>`. The upstream C# repo is the
+> git submodule at `upstream/<repo>`, currently pinned at `<old-sha>`, with the new release tag
+> `<tag>` fetched. Work READ-ONLY (`git log`/`diff`/`show`, grep, read files). Do not edit anything.
 
-**RMC.BestFit classification prompt:** the same, with these substitutions and additions:
+and the same task:
 
-> ... restricted to `src/RMC.BestFit/`:
-> `git -C upstream/RMC-BestFit diff <old>..<newtag> -- src/RMC.BestFit/`.
-> Ignore `src/RMC.BestFit.Tests/` for classification but read it afterwards for oracle sources.
-> Treat the `src/RMC.BestFit.App`, `.UI`, and `.Api` projects as out of scope without reading them
-> in detail; note only that they exist.
+> Classify EVERY file changed in `git diff <old>..<tag>`. For each, give:
 >
-> BestFit source files are not valid UTF-8 in the working tree. Read them with
-> `git show <newtag>:<path>`, not with a text search over the checkout, or you will get mojibake
-> and miss matches.
+> 1. The path and its rough churn.
+> 2. A classification, one of:
+>    - **PORTED.** Find the C++ counterpart by grepping `core/include` for the `ported from:` header
+>      matching the C# path. Note that C# paths contain spaces (for example "Bivariate Copulas")
+>      while the C++ files are snake_case. Give the C++ path.
+>    - **SEVERED-SKIPPED.** Surface deliberately not ported. `<list the known severances here so the
+>      agent can recognize them>`.
+>    - **NOT-PORTED-NEW.** A genuinely new C# file or feature with no counterpart yet.
+>    - **BUILD-DOCS-ONLY.**
+> 3. A one to three sentence semantic summary that distinguishes (a) behavior changes, where
+>    numerical results differ, validation is added, or exceptions change, from (b) API additions,
+>    from (c) pure refactor or doc churn. Read the actual diff hunks for this. Use
+>    `git log --oneline <old>..<tag> -- <file>` as a hint only.
+> 4. For behavior changes, whether corehydro fixtures could be affected.
 >
-> This library layers on Numerics, so flag any change whose behavior depends on a Numerics change
-> in the same release; those have to be ported second.
+> Separately, list the changed test files as potential ORACLE SOURCES, one line each on what it
+> tests, calling out new files specifically.
 >
-> Pay particular attention to the analysis orchestrators. Their diffs are dominated by GUI progress
-> reporting, report text, and XML persistence, none of which this port carries. Separate the
-> numeric changes from that churn explicitly rather than classifying a whole file at once.
+> Then read these commits in full and report what they actually say: `<named commits, chosen from
+> the commit log by subject line: the ones whose messages implied behavior change>`.
+>
+> Return raw structured markdown (this is data for a planning step, not a human-facing report): a
+> table or grouped list per classification, then the special-commit findings, then a short "highest
+> fixture risk" list.
+
+Two amendments born of hindsight. The prompts as written above are what produced the near-misport
+described in the first hard-won rule, so do not paste them unchanged:
+
+- **Demand a quote from the shipped file at the tag for every claimed semantic, and instruct the
+  agent to treat intermediate commits as superseded by default.** Asking the agent to read named
+  commits in full is exactly what carried `1b424e3`'s announced discard semantics into the spec,
+  when a later commit in the same range had reverted them. The commit log is for finding which
+  files to look at. The file at the tag is the only statement of what shipped.
+- **Read the "highest fixture risk" list as an ordering hint, never as a coverage claim.** It ranks
+  what is most likely to break an oracle, which is useful for sequencing the tasks. It says nothing
+  about what has an oracle at all, and the census later showed most of the changes landed on paths
+  no fixture exercised.
+
+Two further additions the run showed were needed. For the BestFit agent: its source files are not
+valid UTF-8 in the working tree, so instruct it to read them with `git show <tag>:<path>` rather
+than grepping the checkout, and to separate the analysis orchestrators' numeric changes from their
+GUI progress, report-text, and XML-persistence churn rather than classifying those files whole. For
+both agents: have them cross-reference `docs/upstream-csharp-issues.md` file by file, since upstream
+fixes entries from it and each such fix flips an oracle the C++ deliberately pinned to the old
+behavior.
 
 Write the merged output into a design doc with two scope sections, each carrying a ranked "behavior
 changes to port" list, a "new API" list, and an explicit "not ported (documented)" list. The
