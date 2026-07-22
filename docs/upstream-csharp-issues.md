@@ -1476,15 +1476,27 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   resamples themselves are identical across runtimes to ~1e-13, so the divergence is not in the
   seeded resampling path either.
 - **Actual mechanism.** The divergence is upstream of BFGS, in whether a **third** iterative-GMM
-  refinement pass runs at all. On these interval-censored resamples the LP3 skew direction is
-  nearly flat: at the optimum Q is ~1e-17, and BFGS's relative-function-change stop
-  (`2|df| / (|f| + |f'| + 1e-8) < 1e-8`) therefore resolves the skew only to a few 1e-6. The C++
-  and C# pass-1 fits accordingly land ~1.8e-6 apart — both fully converged, both indistinguishable
-  at the stopping criterion's resolution. `EstimateIterative` then compares consecutive passes with
-  `Tools.Distance(newValues, oldValues) < AbsoluteTolerance` (1e-8), and the two runs straddle that
-  threshold: **1.23e-8 in C++** (a third pass runs, starts at a stationary point, stalls, and the
-  replicate is retried) versus **3.3e-11 in C#** (converged at pass 2, no third pass). A knife-edge
-  stopping-rule comparison, amplified by a flat objective direction.
+  refinement pass runs at all. `EstimateIterative` compares consecutive passes with
+  `Tools.Distance(newValues, oldValues) < AbsoluteTolerance` (1e-8) — and that is the only test
+  that can stop the loop here, since the companion `relChange` test is pinned well above its
+  tolerance by the `1e-15` floor in its denominator. The C++ and C# pass-1 fits land ~1.8e-6 apart
+  and the two runs then straddle the distance threshold: **1.23e-8 in C++** (a third pass runs,
+  starts at a stationary point, stalls, and the replicate is retried) versus **3.3e-11 in C#**
+  (converged at pass 2, no third pass).
+- **Why the residual is inherent, by direct measurement (T19b).** This is NOT a flat-objective
+  story — at the converged idx=17 solution Q is 2.35e-17, and displacing the skew by 1.8e-6 raises
+  it to 1.32e-12 (dQ/Q ~ 5.6e4), so the surface is well curved at that scale. It is extreme
+  *conditioning* of the censored resample fit. Perturbing a SINGLE resampled exact value on
+  replicate idx=32 by a relative **1e-13** displaces the converged fit by **2.4e-5**
+  (amplification ~**2.4e8**) and flips the third pass from stalling to succeeding
+  (`MaximumFunctionEvaluationsReached`/4292 evaluations -> `Success`/351); the same perturbation at
+  relative **1e-15** leaves the fit **bit-identical** (same parameters, same status, same 4292
+  evaluations). Meanwhile the UNRESAMPLED parent fit on the same censored frame reproduces
+  C++-vs-C# to **3.0e-14 relative** on the location parameter (3.3e-12 relative worst-case across
+  the three parameters, 7.6e-13 Euclidean) — so there is no upstream divergence in the GMM
+  weighting, the moment conditions, or the T18 clone/ROS defaults. The ~1e-13 ULP differences that
+  are unavoidable between two runtimes sit exactly in the band where this fit's conditioning turns
+  them into an O(1e-5) parameter displacement and a different pass count.
 - **Upstream weakness this exposes.** `EstimateIterative`'s convergence test is an ABSOLUTE
   parameter distance against a tolerance that is also handed to the optimizer as a RELATIVE
   function tolerance. Whenever the objective's resolution in some parameter direction is coarser

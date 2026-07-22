@@ -638,12 +638,19 @@ void test_uncertainty_diagnostic_message_insufficient_valid_sets() {
 //      divergence: the real C# Numerics BFGS, driven at the same near-stationary warm start on the
 //      same replicate surface, stalls identically (MaximumFunctionEvaluationsReached at the 2000-
 //      evaluation cap, ~21 evaluations per outer iteration on both sides). What differs is whether
-//      a third iterative-GMM refinement pass runs at all: the LP3 skew is so flat on these
-//      interval-censored resamples that BFGS's relative-function-change stop resolves it only to a
-//      few 1e-6, so the pass-1-to-pass-2 parameter distance straddles AbsoluteTolerance 1e-8
-//      (1.23e-8 here, 3.3e-11 in C#). See docs/upstream-csharp-issues.md, "Interval-censored B17C
-//      bootstrap: GMM stopping-rule knife edge". This test covers what the fixture deliberately
-//      does NOT: that the warm-start path produces a complete, well-formed ensemble result. ----
+//      a third iterative-GMM refinement pass runs at all: EstimateIterative's pass-to-pass
+//      Tools.Distance test is the only one that can stop the loop here (the companion relChange
+//      test is pinned above tolerance by the 1e-15 floor in its denominator), and the two runtimes
+//      straddle AbsoluteTolerance 1e-8 (1.23e-8 here, 3.3e-11 in C#). The residual is inherent
+//      conditioning of the censored resample fit, measured directly: perturbing a SINGLE resampled
+//      exact value on replicate idx=32 by a relative 1e-13 displaces the converged fit by 2.4e-5
+//      (amplification ~2.4e8) and flips the third pass from stalling to succeeding, while the same
+//      perturbation at relative 1e-15 leaves the fit bit-identical; the unresampled parent fit on
+//      the same censored frame reproduces C++-vs-C# to 3.0e-14 relative on the location parameter
+//      (3.3e-12 worst-case across the three). See docs/upstream-csharp-issues.md,
+//      "Interval-censored B17C bootstrap: GMM stopping-rule knife edge". This test covers what the
+//      fixture deliberately does NOT: that the warm-start path produces a complete, well-formed
+//      ensemble result. ----
 void test_run_bootstrap_warm_start_structural() {
     auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_with_interval());
     analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
