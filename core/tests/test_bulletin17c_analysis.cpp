@@ -31,6 +31,7 @@
 // access). The C# Constructor_DefaultUncertaintyMethod_IsLinkedMultivariateNormal stays transcribed
 // as the MVN-default deviation (the shipped C++ default is still MultivariateNormal, see the header).
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <tuple>
 #include <vector>
@@ -48,6 +49,8 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "corehydro/numerics/distributions/log_normal.hpp"
 #include "corehydro/numerics/distributions/student_t.hpp"
+#include "corehydro/numerics/functions/identity_link.hpp"
+#include "corehydro/numerics/functions/yeo_johnson_link.hpp"
 #include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
@@ -269,10 +272,12 @@ void test_run_multivariate_normal_structural() {
     CHECK_TRUE(analysis->get_point_estimate_distribution() != nullptr);
 }
 
-// ---- A real run() through the BiasCorrectedBootstrap (pivot-bootstrap) UQ path (X9): after X9
-//      un-gates the last dispatch arm, run() completes (no throw) and produces a populated,
-//      structural / finite / monotone UncertaintyAnalysisResults with lower <= mode <= upper. The
-//      exact seeded pivot digest is the X12 emitter's job -- only structural invariants here. ----
+// ---- A real run() through the BiasCorrectedBootstrap (pivotal-bootstrap) UQ path (X9, reworked
+//      in T20): run() completes (no throw) and produces a populated, structural / finite /
+//      monotone UncertaintyAnalysisResults with lower <= mode <= upper. The cross-language oracle
+//      lives in the fixture (lp3_bias_corrected_bootstrap pins the ensemble-derived mean_curve and
+//      the full boot_* surface against the real C#); this covers the same-language invariants the
+//      fixture does not spell out. ----
 void test_run_pivot_bootstrap_structural() {
     auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
     analysis->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
@@ -282,8 +287,11 @@ void test_run_pivot_bootstrap_structural() {
 
     CHECK_TRUE(analysis->is_estimated());
     CHECK_TRUE(analysis->gmm() != nullptr);
+    // T20: nothing was degraded or aborted -- the ensemble published, which also proves the
+    // Phase-3 discard never tripped the T19 exact-count guard on this configuration.
+    CHECK_TRUE(analysis->uncertainty_diagnostic_message().empty());
 
-    // NOTE: unlike the LinkedMVN path, the pivot method builds a LOCAL LinkController (C# 2151) and
+    // NOTE: unlike the LinkedMVN path, the pivot method builds a LOCAL LinkController (C# 2340) and
     // never installs one on the distribution, so there is no link-controller restore to assert here.
 
     // Diagnostics populated with the replicate accounting identity (Phase 1 fits B replicates).
@@ -294,6 +302,12 @@ void test_run_pivot_bootstrap_structural() {
         // valid = total - failed by construction, so re-checking the sum against b is redundant
         // with the line above; assert instead that real fits actually succeeded (not all fell back).
         CHECK_TRUE(diag->valid_replicates() >= 1);
+        // T20: RetainedReplicates is populated BY THIS ARM (C# 2447-2450) -- it no longer reads
+        // through the legacy fallback to valid_replicates(). Every Phase-3 draw survives here.
+        CHECK_EQ(diag->retained_replicates(), b);
+        CHECK_EQ(diag->transform_failures(), 0);
+        // T20: the z-limit became a CLIP (C# 2409), so IncrementPivotRejection is called nowhere.
+        CHECK_EQ(diag->pivot_rejections(), 0);
     }
 
     // The stored posterior ensemble holds >= 2 finite parameter sets.
@@ -310,8 +324,12 @@ void test_run_pivot_bootstrap_structural() {
     if (results != nullptr) {
         std::size_t n = analysis->probability_ordinates().count();
         CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->mean_curve.size(), n);
         CHECK_EQ(results->confidence_intervals.size(), n);
-        for (std::size_t i = 0; i < n; ++i) CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+            CHECK_TRUE(std::isfinite(results->mean_curve[i]));
+        }
         // Mode curve DESCENDS on ascending exceedance ordinates (same as the MVN/Bootstrap tests).
         for (std::size_t i = 1; i < n; ++i)
             CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
@@ -698,6 +716,52 @@ void test_run_bootstrap_warm_start_structural() {
             CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
         }
     }
+}
+
+// ============================ T20: pivotal-bootstrap surface (BestFit v2.0.0 @ c2e6192) ============================
+
+// ---- CreatePivotYeoJohnsonLink, transcribed from the v2.0.0 C# Bulletin17CAnalysisTests
+//      `PivotYeoJohnsonLink_ValidSamples_UsesNumericsLink`: a well-behaved sample yields the
+//      NUMERICS YeoJohnsonLink (T17 deleted the BestFit duplicate, so there is only one). ----
+void test_pivot_yeo_johnson_link_valid_samples() {
+    auto link = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {-2.0, -1.0, -0.25, 0.0, 0.5, 1.0, 3.0}, "location");
+
+    CHECK_TRUE(link != nullptr);
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::YeoJohnsonLink*>(link.get()) !=
+               nullptr);
+}
+
+// ---- CreatePivotYeoJohnsonLink, transcribed from the C#
+//      `PivotYeoJohnsonLink_FitFailure_UsesIdentityLink`: a degenerate (finite but unfittable)
+//      sample falls back to IdentityLink, whose Link is the identity. ----
+void test_pivot_yeo_johnson_link_fit_failure_uses_identity() {
+    double max_double = std::numeric_limits<double>::max();
+    auto link = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {-max_double, -max_double / 2.0, -max_double / 4.0}, "shape");
+
+    CHECK_TRUE(link != nullptr);
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(link.get()) !=
+               nullptr);
+    CHECK_NEAR(link->link(12.5), 12.5, 1e-12);
+}
+
+// ---- CreatePivotYeoJohnsonLink guard clauses that the C# tests do not name individually but the
+//      shipped method spells out (C# 2087-2095): fewer than two samples, or any non-finite
+//      sample, both fall back to IdentityLink rather than throwing. ----
+void test_pivot_yeo_johnson_link_guard_clauses() {
+    auto too_few = Bulletin17CAnalysis::create_pivot_yeo_johnson_link({1.0}, "location");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(too_few.get()) !=
+               nullptr);
+
+    auto non_finite = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {1.0, 2.0, std::numeric_limits<double>::quiet_NaN()}, "shape");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(
+                   non_finite.get()) != nullptr);
+
+    auto empty = Bulletin17CAnalysis::create_pivot_yeo_johnson_link({}, "location");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(empty.get()) !=
+               nullptr);
 }
 
 // ============================ A9: Cohn-style delta-method confidence intervals ============================
@@ -1101,6 +1165,11 @@ int main() {
     test_run_bootstrap_structural();
     test_uncertainty_diagnostic_message_insufficient_valid_sets();
     test_run_bootstrap_warm_start_structural();
+
+    // T20: pivotal-bootstrap surface
+    test_pivot_yeo_johnson_link_valid_samples();
+    test_pivot_yeo_johnson_link_fit_failure_uses_identity();
+    test_pivot_yeo_johnson_link_guard_clauses();
 
     // A9: Cohn-style delta-method confidence intervals
     test_clamp_for_covariance();

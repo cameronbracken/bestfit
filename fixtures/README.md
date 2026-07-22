@@ -1450,8 +1450,17 @@ analyses from the same spec.
         //   GetParameterSetsFromParametricBootstrap (the plain Bootstrap arm) never populates
         //   attempted/retained/transform_failures/status_*/optimizer_fallbacks itself, so those
         //   read through their legacy-fallback defaults (attempted -> total, retained -> valid,
-        //   the rest 0) for every "Bootstrap" case; a "BiasCorrectedBootstrap" case can populate
-        //   more of them once Task 20 rewrites the pivot arm to call the new counters.
+        //   the rest 0) for every "Bootstrap" case. T20: the reworked pivot arm
+        //   (GetParameterSetsFromPivotalBootstrap) is the ONLY place the shipped analysis
+        //   populates a new counter -- it sets retained_replicates directly and increments
+        //   transform_failures per discarded Phase-3 draw; attempted / status_* /
+        //   optimizer_fallbacks are still never written anywhere in the C# file, and
+        //   pivot_rejections is now written NOWHERE (the z-limit became a clip).
+        // Bulletin17CAnalysis (T20): mode_curve [i] / mean_curve [i] / curve_length off
+        //   AnalysisResults -- the only B17C outputs that depend on uncertainty_method (the Cohn
+        //   surface above is computed off the RNG-free GMM point estimate alone). Empty when the
+        //   uncertainty run aborted or was degraded, so an assertion on them also proves the
+        //   ensemble published.
       ]
     }
   ]

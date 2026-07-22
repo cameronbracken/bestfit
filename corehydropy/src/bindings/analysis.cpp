@@ -385,6 +385,18 @@ void register_analysis(py::module_& m) {
             out["parameters"] = parameters;
             out["covariance"] = covariance;
 
+            // T20: the ensemble frequency curves off AnalysisResults -- the ONLY B17C output that
+            // depends on the uncertainty method (the Cohn surface above is computed off the
+            // RNG-free GMM point estimate alone), so the pivotal-bootstrap fixture needs them
+            // here. Empty when the ensemble was not published (an aborted / degraded run).
+            std::vector<double> mode_curve, mean_curve;
+            if (analysis.analysis_results() != nullptr) {
+                mode_curve = analysis.analysis_results()->mode_curve;
+                mean_curve = analysis.analysis_results()->mean_curve;
+            }
+            out["mode_curve"] = mode_curve;
+            out["mean_curve"] = mean_curve;
+
             // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran
             // a bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
             const auto* boot = analysis.bootstrap_results();

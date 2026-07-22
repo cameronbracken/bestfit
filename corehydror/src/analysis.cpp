@@ -261,6 +261,17 @@ list ch_analysis_b17c_run_(std::string model_json, doubles dataset, std::string 
             for (int j = 0; j < p; ++j) covariance[i * p + j] = cov(i, j);
     }
 
+    // T20: the ensemble frequency curves off AnalysisResults -- the ONLY B17C output that depends
+    // on the uncertainty method (the Cohn surface above is computed off the RNG-free GMM point
+    // estimate alone), so the pivotal-bootstrap fixture needs them here. Empty when the ensemble
+    // was not published (an aborted / degraded uncertainty run).
+    writable::doubles mode_curve, mean_curve;
+    if (analysis.analysis_results() != nullptr) {
+        const auto& ar = *analysis.analysis_results();
+        mode_curve = writable::doubles(ar.mode_curve.begin(), ar.mode_curve.end());
+        mean_curve = writable::doubles(ar.mean_curve.begin(), ar.mean_curve.end());
+    }
+
     // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran a
     // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
     const auto* boot = analysis.bootstrap_results();
@@ -309,6 +320,8 @@ list ch_analysis_b17c_run_(std::string model_json, doubles dataset, std::string 
         "parameters"_nm = parameters,
         "covariance"_nm = covariance,
         "covariance_dim"_nm = writable::integers({cov_dim}),
+        "mode_curve"_nm = mode_curve,
+        "mean_curve"_nm = mean_curve,
         "bootstrap"_nm = bootstrap,
     });
 }
