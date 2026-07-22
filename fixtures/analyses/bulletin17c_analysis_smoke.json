@@ -1,7 +1,7 @@
 {
   "target": "Bulletin17CAnalysis",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c -- A11 EXACT oracle, verified against the real RMC.BestFit Bulletin17CAnalysis by the dotnet gate. Bulletin17CAnalysis fits an LP3 model by GMM (default MultivariateNormal UQ) then computes the deterministic Cohn-style delta-method CIs (nested Gaussian quadrature over the GMM fit -- no MCMC/bootstrap seed dependence given the fitted parameters). The GMM fit uses BFGS + a numerical Jacobian (no RNG), so the parameters/point_estimates/CIs reproduce bit-identically across C++/R/Python; parameter + point_estimate match C# to rel 1e-9, the Cohn CI bounds to rel 1e-8 (the nested quadrature is a distinct summation path). confidence_level and the exceedance-probability round-trip are exact structural invariants. The 25 default exceedance ordinates ascend, so the point-estimate curve descends. X8/X9 arms: the lp3_linked_multivariate_normal and lp3_bias_corrected_bootstrap cases drive the two un-gated uncertainty methods (LinkedMultivariateNormal / BiasCorrectedBootstrap). ComputeCohnStyleConfidenceIntervals is a diagnostic delta-method computed off the RNG-free GMM point estimate ALONE (independent of UncertaintyMethod, which only governs the heavy parameter-set UQ that populates BayesianAnalysis.Results, not the Cohn curve), so those two cases assert the SAME deterministic Cohn point_estimate/CI/parameter oracle -- exercising the ParseUncertaintyMethod dispatch arms end-to-end without a chaotic seeded curve.",
+  "source": "RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ c2e6192 -- A11 EXACT oracle, verified against the real RMC.BestFit Bulletin17CAnalysis by the dotnet gate. Bulletin17CAnalysis fits an LP3 model by GMM (default MultivariateNormal UQ) then computes the deterministic Cohn-style delta-method CIs (nested Gaussian quadrature over the GMM fit -- no MCMC/bootstrap seed dependence given the fitted parameters). The GMM fit uses BFGS + a numerical Jacobian (no RNG), so the parameters/point_estimates/CIs reproduce bit-identically across C++/R/Python; parameter + point_estimate match C# to rel 1e-9, the Cohn CI bounds to rel 1e-8 (the nested quadrature is a distinct summation path). confidence_level and the exceedance-probability round-trip are exact structural invariants. The 25 default exceedance ordinates ascend, so the point-estimate curve descends. X8/X9 arms: the lp3_linked_multivariate_normal and lp3_bias_corrected_bootstrap cases drive the two un-gated uncertainty methods (LinkedMultivariateNormal / BiasCorrectedBootstrap). ComputeCohnStyleConfidenceIntervals is a diagnostic delta-method computed off the RNG-free GMM point estimate ALONE (independent of UncertaintyMethod, which only governs the heavy parameter-set UQ that populates BayesianAnalysis.Results, not the Cohn curve), so those two cases assert the SAME deterministic Cohn point_estimate/CI/parameter oracle -- exercising the ParseUncertaintyMethod dispatch arms end-to-end without a chaotic seeded curve. T19: the lp3_bootstrap case drives the plain Bootstrap uncertainty method (previously untested by this file) and pins the new BootstrapDiagnostics boot_* fields. lp3_bootstrap_warm_start additionally forces clone_with_data_frame_flag TRUE (an interval-censored observation on the parent DataFrame) to exercise the Task-18 warm-start condition; ONLY the deterministic quantities are pinned there (see that case's own note) -- the ensemble-aggregate mean_curve is NOT pinned because it is genuinely chaotic-sensitive for this dataset (documented below and covered instead by a same-language ctest, test_run_bootstrap_warm_start_structural).",
   "datasets": {
     "peaks": [12500, 15300, 8900, 22100, 18700, 14200, 9800, 28500, 17400, 11600, 19200, 13800, 25600, 10500, 16900, 21300, 14700, 8200, 23800, 15900]
   },
@@ -66,10 +66,55 @@
         { "method": "boot_valid_replicates", "expected": 200, "mode": "equal" },
         { "method": "boot_retained_replicates", "expected": 200, "mode": "equal" },
         { "method": "boot_failure_rate", "expected": 0, "mode": "abs", "tol": 1e-12 },
+        { "method": "boot_total_retries", "expected": 0, "mode": "equal" },
+        { "method": "boot_average_retries", "expected": 0, "mode": "abs", "tol": 1e-12 },
+        { "method": "boot_pivot_rejections", "expected": 0, "mode": "equal" },
         { "method": "boot_mahalanobis_rejections", "expected": 0, "mode": "equal" },
         { "method": "boot_transform_failures", "expected": 0, "mode": "equal" },
         { "method": "boot_status_success_count", "expected": 0, "mode": "equal" },
+        { "method": "boot_status_max_iterations_count", "expected": 0, "mode": "equal" },
+        { "method": "boot_status_max_function_evaluations_count", "expected": 0, "mode": "equal" },
+        { "method": "boot_status_failure_count", "expected": 0, "mode": "equal" },
+        { "method": "boot_status_none_count", "expected": 0, "mode": "equal" },
         { "method": "boot_optimizer_fallbacks", "expected": 0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "lp3_bootstrap_warm_start",
+      "construct": {
+        "model": {
+          "type": "bulletin17c",
+          "family": "LogPearsonTypeIII",
+          "data_frame": {
+            "exact": [
+              { "index": 0, "value": 12500 }, { "index": 1, "value": 15300 },
+              { "index": 2, "value": 8900 }, { "index": 3, "value": 22100 },
+              { "index": 4, "value": 18700 }, { "index": 5, "value": 14200 },
+              { "index": 6, "value": 9800 }, { "index": 7, "value": 28500 },
+              { "index": 8, "value": 17400 }, { "index": 9, "value": 11600 },
+              { "index": 10, "value": 19200 }, { "index": 11, "value": 13800 },
+              { "index": 12, "value": 25600 }, { "index": 13, "value": 10500 },
+              { "index": 14, "value": 16900 }, { "index": 15, "value": 21300 },
+              { "index": 16, "value": 14700 }, { "index": 17, "value": 8200 },
+              { "index": 18, "value": 23800 }, { "index": 19, "value": 15900 }
+            ],
+            "interval": [
+              { "index": 20, "lower": 24000, "value": 26000, "upper": 28000 }
+            ]
+          }
+        },
+        "uncertainty_method": "Bootstrap",
+        "output_length": 50,
+        "seed": 12345,
+        "confidence_level": 0.90
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 4.201372972502322, "mode": "rel", "tol": 1e-9 },
+        { "method": "boot_has_results", "expected": 1, "mode": "equal" },
+        { "method": "boot_total_replicates", "expected": 50, "mode": "equal" },
+        { "method": "boot_failed_replicates", "expected": 0, "mode": "equal" },
+        { "method": "boot_valid_replicates", "expected": 50, "mode": "equal" },
+        { "method": "boot_mahalanobis_rejections", "expected": 0, "mode": "equal" }
       ]
     },
     {

@@ -274,12 +274,25 @@ list ch_analysis_b17c_run_(std::string model_json, doubles dataset, std::string 
         "retained_replicates"_nm =
             writable::integers({boot != nullptr ? boot->retained_replicates() : 0}),
         "failure_rate"_nm = writable::doubles({boot != nullptr ? boot->failure_rate() : NA_REAL}),
+        "total_retries"_nm = writable::integers({boot != nullptr ? boot->total_retries() : 0}),
+        "average_retries"_nm =
+            writable::doubles({boot != nullptr ? boot->average_retries() : NA_REAL}),
+        "pivot_rejections"_nm =
+            writable::integers({boot != nullptr ? boot->pivot_rejections() : 0}),
         "mahalanobis_rejections"_nm =
             writable::integers({boot != nullptr ? boot->mahalanobis_rejections() : 0}),
         "transform_failures"_nm =
             writable::integers({boot != nullptr ? boot->transform_failures() : 0}),
         "status_success_count"_nm =
             writable::integers({boot != nullptr ? boot->status_success_count() : 0}),
+        "status_max_iterations_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_maximum_iterations_count() : 0}),
+        "status_max_function_evaluations_count"_nm = writable::integers(
+            {boot != nullptr ? boot->status_maximum_function_evaluations_count() : 0}),
+        "status_failure_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_failure_count() : 0}),
+        "status_none_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_none_count() : 0}),
         "optimizer_fallbacks"_nm =
             writable::integers({boot != nullptr ? boot->optimizer_fallbacks() : 0}),
     });

@@ -2322,9 +2322,16 @@ struct AnalysisResult {
     int boot_valid_replicates = 0;
     int boot_retained_replicates = 0;
     double boot_failure_rate = std::numeric_limits<double>::quiet_NaN();
+    int boot_total_retries = 0;
+    double boot_average_retries = std::numeric_limits<double>::quiet_NaN();
+    int boot_pivot_rejections = 0;
     int boot_mahalanobis_rejections = 0;
     int boot_transform_failures = 0;
     int boot_status_success_count = 0;
+    int boot_status_max_iterations_count = 0;
+    int boot_status_max_function_evaluations_count = 0;
+    int boot_status_failure_count = 0;
+    int boot_status_none_count = 0;
     int boot_optimizer_fallbacks = 0;
 };
 
@@ -2549,7 +2556,13 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
     }
 
     const json& model_spec = construct["model"];
-    std::vector<double> data = resolve_dataset(model_spec["dataset"].get<std::string>());
+    // T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+    // without a `dataset` reference -- mirrors build_and_run_estimation's guard so a
+    // Bulletin17CAnalysis case can force low outliers / censored data onto the parent frame
+    // (e.g. to exercise the parametric-bootstrap clone_with_data_frame warm-start condition).
+    std::vector<double> data;
+    if (model_spec.contains("dataset"))
+        data = resolve_dataset(model_spec["dataset"].get<std::string>());
 
     if (target == "UnivariateAnalysis") {
         auto base = corehydro::models::spec::build_model_from_json(model_spec.dump(), data);
@@ -2664,6 +2677,16 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         }
         if (analysis.gmm() != nullptr && analysis.gmm()->is_estimated())
             r.parameters = analysis.gmm()->best_parameter_set().values;
+        // T19: the genuinely ensemble-derived UncertaintyAnalysisResults surface (distinct from
+        // the RNG-free Cohn CI above) -- MeanCurve is built from the ACTUAL sampled parameter
+        // sets (BayesianAnalysis.Results.Output), so unlike the Cohn CI it DOES depend on which
+        // bootstrap replicates were drawn (hence on the parametric-bootstrap warm-start path).
+        // Reuses the generic mode_curve/mean_curve dispatch every other analysis target already
+        // shares -- no new fixture method needed.
+        if (analysis.analysis_results() != nullptr) {
+            r.mode_curve = analysis.analysis_results()->mode_curve;
+            r.mean_curve = analysis.analysis_results()->mean_curve;
+        }
         // T19: BootstrapDiagnostics slice, populated when the uncertainty method actually ran a
         // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
         if (const auto* boot = analysis.bootstrap_results(); boot != nullptr) {
@@ -2674,9 +2697,17 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
             r.boot_valid_replicates = boot->valid_replicates();
             r.boot_retained_replicates = boot->retained_replicates();
             r.boot_failure_rate = boot->failure_rate();
+            r.boot_total_retries = boot->total_retries();
+            r.boot_average_retries = boot->average_retries();
+            r.boot_pivot_rejections = boot->pivot_rejections();
             r.boot_mahalanobis_rejections = boot->mahalanobis_rejections();
             r.boot_transform_failures = boot->transform_failures();
             r.boot_status_success_count = boot->status_success_count();
+            r.boot_status_max_iterations_count = boot->status_maximum_iterations_count();
+            r.boot_status_max_function_evaluations_count =
+                boot->status_maximum_function_evaluations_count();
+            r.boot_status_failure_count = boot->status_failure_count();
+            r.boot_status_none_count = boot->status_none_count();
             r.boot_optimizer_fallbacks = boot->optimizer_fallbacks();
         }
         return r;
@@ -2768,9 +2799,18 @@ static double dispatch_analysis(const AnalysisResult& r, const std::string& m, c
     if (m == "boot_valid_replicates") return static_cast<double>(r.boot_valid_replicates);
     if (m == "boot_retained_replicates") return static_cast<double>(r.boot_retained_replicates);
     if (m == "boot_failure_rate") return r.boot_failure_rate;
+    if (m == "boot_total_retries") return static_cast<double>(r.boot_total_retries);
+    if (m == "boot_average_retries") return r.boot_average_retries;
+    if (m == "boot_pivot_rejections") return static_cast<double>(r.boot_pivot_rejections);
     if (m == "boot_mahalanobis_rejections") return static_cast<double>(r.boot_mahalanobis_rejections);
     if (m == "boot_transform_failures") return static_cast<double>(r.boot_transform_failures);
     if (m == "boot_status_success_count") return static_cast<double>(r.boot_status_success_count);
+    if (m == "boot_status_max_iterations_count")
+        return static_cast<double>(r.boot_status_max_iterations_count);
+    if (m == "boot_status_max_function_evaluations_count")
+        return static_cast<double>(r.boot_status_max_function_evaluations_count);
+    if (m == "boot_status_failure_count") return static_cast<double>(r.boot_status_failure_count);
+    if (m == "boot_status_none_count") return static_cast<double>(r.boot_status_none_count);
     if (m == "boot_optimizer_fallbacks") return static_cast<double>(r.boot_optimizer_fallbacks);
     throw std::runtime_error("unknown analysis fixture method: " + m);
 }

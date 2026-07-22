@@ -821,9 +821,16 @@ def _dispatch_analysis(result: dict, method: str, args: list):
         "boot_valid_replicates",
         "boot_retained_replicates",
         "boot_failure_rate",
+        "boot_total_retries",
+        "boot_average_retries",
+        "boot_pivot_rejections",
         "boot_mahalanobis_rejections",
         "boot_transform_failures",
         "boot_status_success_count",
+        "boot_status_max_iterations_count",
+        "boot_status_max_function_evaluations_count",
+        "boot_status_failure_count",
+        "boot_status_none_count",
         "boot_optimizer_fallbacks",
     ):
         return result["bootstrap"][method[len("boot_") :]]
@@ -880,7 +887,10 @@ def _run_analysis_case(target: str, construct: dict, assertions: list, datasets:
     elif target == "Bulletin17CAnalysis":
         model = construct["model"]
         model_json = json.dumps(model)
-        data = [float(v) for v in datasets[model["dataset"]]]
+        # T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+        # without a `dataset` reference -- mirrors the C++ runner's guard so a Bulletin17CAnalysis
+        # case can force low outliers / censored data onto the parent frame.
+        data = [float(v) for v in datasets[model["dataset"]]] if "dataset" in model else []
         result = _core.analysis_b17c_run(
             model_json,
             data,

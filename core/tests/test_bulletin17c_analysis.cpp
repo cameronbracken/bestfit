@@ -40,6 +40,8 @@
 #include "corehydro/analyses/univariate/bulletin17c_analysis.hpp"
 #include "corehydro/models/data_frame/data_frame.hpp"
 #include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/data_frame/data_collections/interval_series.hpp"
+#include "corehydro/models/data_frame/data_types/interval_data.hpp"
 #include "corehydro/models/link_functions/asinh_link.hpp"
 #include "corehydro/models/link_functions/log_asinh_link.hpp"
 #include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
@@ -124,6 +126,8 @@ using corehydro::analyses::UncertaintyMethod;
 using corehydro::models::Bulletin17CDistribution;
 using corehydro::models::DataFrame;
 using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::IntervalSeries;
 using PET = corehydro::estimation::PointEstimateType;
 using UDT = corehydro::numerics::distributions::UnivariateDistributionType;
 
@@ -138,6 +142,19 @@ std::vector<double> flood_data() {
 std::unique_ptr<Bulletin17CDistribution> make_lp3_model() {
     DataFrame df;
     df.set_exact_series(ExactSeries(flood_data()));
+    df.calculate_plotting_positions();
+    return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
+}
+
+// T19: the same flood-like data PLUS one interval-censored observation, forcing
+// get_parameter_sets_from_parametric_bootstrap()'s `clone_with_data_frame_flag` TRUE (mirrors
+// fixtures/analyses/bulletin17c_analysis_smoke.json's lp3_bootstrap_warm_start case, which pins
+// only the deterministic quantities -- see this file's header note on why the ensemble-aggregate
+// mean_curve is NOT cross-language pinned there).
+std::unique_ptr<Bulletin17CDistribution> make_lp3_model_with_interval() {
+    DataFrame df;
+    df.set_exact_series(ExactSeries(flood_data()));
+    df.set_interval_series(IntervalSeries({IntervalData(50, 2600.0, 2800.0, 3000.0)}));
     df.calculate_plotting_positions();
     return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
 }
@@ -508,10 +525,12 @@ void test_bootstrap_diagnostics_rates_redefined_over_attempted() {
     d.set_total_replicates(100);
     for (int i = 0; i < 20; i++) d.increment_attempted();  // only 20 candidates were attempted
     for (int i = 0; i < 5; i++) d.increment_failed();
+    d.add_retries(4);  // 4 retry attempts across those 20 candidates
 
     CHECK_EQ(d.attempted_replicates(), 20);
     CHECK_EQ(d.valid_replicates(), 15);              // max(0, attempted - failed) = 20 - 5
     CHECK_NEAR(d.failure_rate(), 0.25, 1e-12);       // 5 / 20, NOT 5 / 100
+    CHECK_NEAR(d.average_retries(), 0.2, 1e-12);     // 4 / 20, NOT 4 / 100
 }
 
 // ---- AccelerationConstants determinism (C++-only): deterministic given a fixed frame, finite,
@@ -579,6 +598,86 @@ void test_run_bootstrap_structural() {
         CHECK_EQ(results->confidence_intervals.size(), n);
         for (std::size_t i = 0; i < n; ++i) CHECK_TRUE(std::isfinite(results->mode_curve[i]));
         // Mode curve DESCENDS on ascending exceedance ordinates (same as the MVN test).
+        for (std::size_t i = 1; i < n; ++i)
+            CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
+        // Each CI brackets the mode curve.
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(results->confidence_intervals[i][0] <= results->mode_curve[i]);
+            CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
+        }
+    }
+}
+
+// ---- T19: run_uncertainty_quantification()'s shared-dispatch guards (C# 755-793 @ c2e6192) --
+//      previously a review gap: these were found to be a genuine v2.0.0 delta (zero occurrences
+//      of UncertaintyDiagnosticMessage at the fc28c0c pin) missed when the parametric-bootstrap
+//      arm was read in isolation. output_length=1 makes ANY uncertainty method's collector
+//      deliver exactly one (finite, right-dimension) valid parameter set -- too few to summarize
+//      -- reaching the C# 787-793 "Only N valid..." guard with an EXACT, byte-for-byte C#
+//      message. IsEstimated stays true (set before UQ runs); no MCMCResults gets published. ----
+void test_uncertainty_diagnostic_message_insufficient_valid_sets() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
+    analysis->bayesian_analysis().set_output_length(1);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Only 1 valid parameter sets out of 1 sampled realizations. "
+                         "Uncertainty analysis was skipped."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T19: a real run() through the Bootstrap UQ path with an interval-censored observation on
+//      the parent DataFrame, forcing get_parameter_sets_from_parametric_bootstrap()'s
+//      clone_with_data_frame_flag TRUE (the Task 18 warm-start condition). Same-language-only
+//      structural coverage: the fixture oracle (lp3_bootstrap_warm_start in
+//      bulletin17c_analysis_smoke.json) found that this configuration is genuinely
+//      chaos-sensitive cross-language -- interval-censored bootstrap resamples occasionally push
+//      one or two of the B replicate GMM re-fits past their retry budget on one runtime but not
+//      the other (0 Mahalanobis rejections and the deterministic parent fit match C# to rel 1e-9
+//      on both sides; only the retry COUNT and the resulting ensemble-average diverge), so the
+//      fixture pins only the deterministic quantities. This test covers what it deliberately does
+//      NOT: that the warm-start path itself produces a complete, well-formed ensemble result. ----
+void test_run_bootstrap_warm_start_structural() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_with_interval());
+    analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
+    const int b = 30;  // small replicate count keeps the re-fit loop fast
+    analysis->bayesian_analysis().set_output_length(b);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    // The interval series is genuinely on the parent frame (the condition
+    // get_parameter_sets_from_parametric_bootstrap() reads).
+    CHECK_EQ(static_cast<int>(analysis->bulletin17c_distribution().data_frame().interval_series().count()),
+             1);
+
+    const auto* diag = analysis->bootstrap_results();
+    CHECK_TRUE(diag != nullptr);
+    if (diag != nullptr) {
+        CHECK_EQ(diag->total_replicates(), b);
+        // Every replicate is delivered (fallback-to-parent semantics, T19 -- see
+        // bulletin17c_analysis.hpp's header note): valid_replicates() == b regardless of how many
+        // retries any individual replicate needed.
+        CHECK_EQ(diag->valid_replicates(), b);
+    }
+
+    const auto* results = analysis->analysis_results();
+    CHECK_TRUE(results != nullptr);
+    if (results != nullptr) {
+        std::size_t n = analysis->probability_ordinates().count();
+        CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->mean_curve.size(), n);
+        CHECK_EQ(results->confidence_intervals.size(), n);
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+            CHECK_TRUE(std::isfinite(results->mean_curve[i]));
+            CHECK_TRUE(std::isfinite(results->confidence_intervals[i][0]));
+            CHECK_TRUE(std::isfinite(results->confidence_intervals[i][1]));
+        }
+        // Mode curve DESCENDS on ascending exceedance ordinates.
         for (std::size_t i = 1; i < n; ++i)
             CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
         // Each CI brackets the mode curve.
@@ -988,6 +1087,8 @@ int main() {
     test_bootstrap_diagnostics_rates_redefined_over_attempted();
     test_acceleration_constants_deterministic();
     test_run_bootstrap_structural();
+    test_uncertainty_diagnostic_message_insufficient_valid_sets();
+    test_run_bootstrap_warm_start_structural();
 
     // A9: Cohn-style delta-method confidence intervals
     test_clamp_for_covariance();

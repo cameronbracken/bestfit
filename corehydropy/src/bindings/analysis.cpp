@@ -396,10 +396,19 @@ void register_analysis(py::module_& m) {
             bootstrap["valid_replicates"] = boot != nullptr ? boot->valid_replicates() : 0;
             bootstrap["retained_replicates"] = boot != nullptr ? boot->retained_replicates() : 0;
             bootstrap["failure_rate"] = boot != nullptr ? boot->failure_rate() : kNaN;
+            bootstrap["total_retries"] = boot != nullptr ? boot->total_retries() : 0;
+            bootstrap["average_retries"] = boot != nullptr ? boot->average_retries() : kNaN;
+            bootstrap["pivot_rejections"] = boot != nullptr ? boot->pivot_rejections() : 0;
             bootstrap["mahalanobis_rejections"] =
                 boot != nullptr ? boot->mahalanobis_rejections() : 0;
             bootstrap["transform_failures"] = boot != nullptr ? boot->transform_failures() : 0;
             bootstrap["status_success_count"] = boot != nullptr ? boot->status_success_count() : 0;
+            bootstrap["status_max_iterations_count"] =
+                boot != nullptr ? boot->status_maximum_iterations_count() : 0;
+            bootstrap["status_max_function_evaluations_count"] =
+                boot != nullptr ? boot->status_maximum_function_evaluations_count() : 0;
+            bootstrap["status_failure_count"] = boot != nullptr ? boot->status_failure_count() : 0;
+            bootstrap["status_none_count"] = boot != nullptr ? boot->status_none_count() : 0;
             bootstrap["optimizer_fallbacks"] = boot != nullptr ? boot->optimizer_fallbacks() : 0;
             out["bootstrap"] = bootstrap;
             return out;

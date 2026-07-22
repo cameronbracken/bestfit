@@ -2880,6 +2880,16 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         }
         if (analysis.GMM != null && analysis.GMM.IsEstimated)
             r.Parameters.AddRange(analysis.GMM.BestParameterSet.Values);
+        // T19: the genuinely ensemble-derived UncertaintyAnalysisResults surface (distinct from
+        // the RNG-free Cohn CI above) -- MeanCurve is built from the ACTUAL sampled parameter
+        // sets (BayesianAnalysis.Results.Output), so unlike the Cohn CI it DOES depend on which
+        // bootstrap replicates were drawn. Reuses the generic mode_curve/mean_curve dispatch
+        // every other analysis target already shares.
+        if (analysis.AnalysisResults != null)
+        {
+            if (analysis.AnalysisResults.ModeCurve != null) r.ModeCurve.AddRange(analysis.AnalysisResults.ModeCurve);
+            if (analysis.AnalysisResults.MeanCurve != null) r.MeanCurve.AddRange(analysis.AnalysisResults.MeanCurve);
+        }
         // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran a
         // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
         if (analysis.BootstrapResults != null)
@@ -2892,9 +2902,16 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
             r.BootValidReplicates = boot.ValidReplicates;
             r.BootRetainedReplicates = boot.RetainedReplicates;
             r.BootFailureRate = boot.FailureRate;
+            r.BootTotalRetries = boot.TotalRetries;
+            r.BootAverageRetries = boot.AverageRetries;
+            r.BootPivotRejections = boot.PivotRejections;
             r.BootMahalanobisRejections = boot.MahalanobisRejections;
             r.BootTransformFailures = boot.TransformFailures;
             r.BootStatusSuccessCount = boot.StatusSuccessCount;
+            r.BootStatusMaxIterationsCount = boot.StatusMaximumIterationsCount;
+            r.BootStatusMaxFunctionEvaluationsCount = boot.StatusMaximumFunctionEvaluationsCount;
+            r.BootStatusFailureCount = boot.StatusFailureCount;
+            r.BootStatusNoneCount = boot.StatusNoneCount;
             r.BootOptimizerFallbacks = boot.OptimizerFallbacks;
         }
         return r;
@@ -3410,9 +3427,16 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "boot_valid_replicates": return r.BootValidReplicates;
         case "boot_retained_replicates": return r.BootRetainedReplicates;
         case "boot_failure_rate": return r.BootFailureRate;
+        case "boot_total_retries": return r.BootTotalRetries;
+        case "boot_average_retries": return r.BootAverageRetries;
+        case "boot_pivot_rejections": return r.BootPivotRejections;
         case "boot_mahalanobis_rejections": return r.BootMahalanobisRejections;
         case "boot_transform_failures": return r.BootTransformFailures;
         case "boot_status_success_count": return r.BootStatusSuccessCount;
+        case "boot_status_max_iterations_count": return r.BootStatusMaxIterationsCount;
+        case "boot_status_max_function_evaluations_count": return r.BootStatusMaxFunctionEvaluationsCount;
+        case "boot_status_failure_count": return r.BootStatusFailureCount;
+        case "boot_status_none_count": return r.BootStatusNoneCount;
         case "boot_optimizer_fallbacks": return r.BootOptimizerFallbacks;
         default: throw new Exception($"unknown analysis fixture method: {m}");
     }
@@ -4148,7 +4172,10 @@ class AnalysisData
     // field-for-field so the same fixture drives both. ---
     public bool BootHasResults = false;
     public int BootTotalReplicates = 0, BootAttemptedReplicates = 0, BootFailedReplicates = 0,
-              BootValidReplicates = 0, BootRetainedReplicates = 0, BootMahalanobisRejections = 0,
-              BootTransformFailures = 0, BootStatusSuccessCount = 0, BootOptimizerFallbacks = 0;
-    public double BootFailureRate = double.NaN;
+              BootValidReplicates = 0, BootRetainedReplicates = 0, BootTotalRetries = 0,
+              BootPivotRejections = 0, BootMahalanobisRejections = 0, BootTransformFailures = 0,
+              BootStatusSuccessCount = 0, BootStatusMaxIterationsCount = 0,
+              BootStatusMaxFunctionEvaluationsCount = 0, BootStatusFailureCount = 0,
+              BootStatusNoneCount = 0, BootOptimizerFallbacks = 0;
+    public double BootFailureRate = double.NaN, BootAverageRetries = double.NaN;
 }

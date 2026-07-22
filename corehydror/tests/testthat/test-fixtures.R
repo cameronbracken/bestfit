@@ -828,9 +828,16 @@ dispatch_analysis <- function(result, method, args) {
     boot_valid_replicates        = result$bootstrap$valid_replicates,
     boot_retained_replicates     = result$bootstrap$retained_replicates,
     boot_failure_rate            = result$bootstrap$failure_rate,
+    boot_total_retries           = result$bootstrap$total_retries,
+    boot_average_retries         = result$bootstrap$average_retries,
+    boot_pivot_rejections        = result$bootstrap$pivot_rejections,
     boot_mahalanobis_rejections  = result$bootstrap$mahalanobis_rejections,
     boot_transform_failures      = result$bootstrap$transform_failures,
     boot_status_success_count    = result$bootstrap$status_success_count,
+    boot_status_max_iterations_count = result$bootstrap$status_max_iterations_count,
+    boot_status_max_function_evaluations_count = result$bootstrap$status_max_function_evaluations_count,
+    boot_status_failure_count    = result$bootstrap$status_failure_count,
+    boot_status_none_count       = result$bootstrap$status_none_count,
     boot_optimizer_fallbacks     = result$bootstrap$optimizer_fallbacks,
     stop(sprintf("unknown analysis fixture method: %s", method))
   )
@@ -882,7 +889,10 @@ run_analysis_case <- function(target, construct, assertions, datasets) {
   } else if (target == "Bulletin17CAnalysis") {
     model <- construct$model
     model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
-    data <- as.double(unlist(datasets[[model$dataset]]))
+    # T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+    # without a `dataset` reference -- mirrors the C++ runner's guard so a Bulletin17CAnalysis
+    # case can force low outliers / censored data onto the parent frame.
+    data <- if (!is.null(model$dataset)) as.double(unlist(datasets[[model$dataset]])) else numeric(0)
     um <- if (!is.null(construct$uncertainty_method)) construct$uncertainty_method else "MultivariateNormal"
     result <- ns$ch_analysis_b17c_run_(
       model_json, data, um, geti("output_length", 10000L), geti("seed", 12345L),

@@ -1,4 +1,4 @@
-// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c
+// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ c2e6192
 //
 // The Bulletin 17C flood-frequency analysis (GMM point estimate + uncertainty quantification).
 // This header is delivered across THREE additive slices sharing one class:
@@ -542,63 +542,124 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return model;
     }
 
-    // C# `RunUncertaintyQuantificationAsync` (C# 645), synchronous. Sets the parent distribution to
-    // thetaHat, dispatches on UncertaintyMethod to build the parameter-set ensemble, and stores it
-    // into the BayesianAnalysis results plumbing (C# 703-705). The async/Task.Run/progress/
-    // cancellation machinery is dropped.
+    // T19: mirrors C#'s `:N0` numeric format specifier (thousands-grouped, no decimal digits,
+    // invariant/en-US comma separator) for the two exact-count UncertaintyDiagnosticMessage
+    // strings below -- the only place this port needs C#-style number formatting.
+    static std::string format_n0(long long value) {
+        bool negative = value < 0;
+        unsigned long long magnitude =
+            negative ? static_cast<unsigned long long>(-value) : static_cast<unsigned long long>(value);
+        std::string digits = std::to_string(magnitude);
+        std::string grouped;
+        int since_group = 0;
+        for (auto it = digits.rbegin(); it != digits.rend(); ++it) {
+            if (since_group != 0 && since_group % 3 == 0) grouped.push_back(',');
+            grouped.push_back(*it);
+            ++since_group;
+        }
+        std::reverse(grouped.begin(), grouped.end());
+        return negative ? "-" + grouped : grouped;
+    }
+
+    // C# `RunUncertaintyQuantificationAsync` (C# 724-798 @ c2e6192), synchronous. Sets the parent
+    // distribution to thetaHat, dispatches on UncertaintyMethod to build the parameter-set
+    // ensemble, and stores it into the BayesianAnalysis results plumbing. The async/Task.Run/
+    // progress/cancellation machinery is dropped.
     void run_uncertainty_quantification() {
         if (!gmm_ || gmm_->status() == OptimizationStatus::Failure) return;
 
-        // Set parent distribution parameters to the GMM point estimate (C# 654).
+        // Set parent distribution parameters to the GMM point estimate (C# 733).
         bulletin17c_distribution_->set_parameter_values(gmm_->best_parameter_set().values);
 
-        // Dispatch (C# switch, 657-664). See the file header for the ship/defer contract.
+        // Dispatch (C# switch, 736-743). See the file header for the ship/defer contract.
         std::optional<std::vector<ParameterSet>> raw_sets;
         switch (uncertainty_method_) {
             case UncertaintyMethod::MultivariateNormal:
                 raw_sets = get_parameter_sets_from_multivariate_normal();
                 break;
             case UncertaintyMethod::Bootstrap:
-                // C# `UncertaintyMethod.Bootstrap => GetParameterSetsFromParametricBootstrap(...)`
-                // (C# 661). The parametric bootstrap re-fits the GMM on B resampled frames.
+                // C# `UncertaintyMethod.Bootstrap => GetParameterSetsFromParametricBootstrap(...)`.
+                // The parametric bootstrap re-fits the GMM on B resampled frames.
                 raw_sets = get_parameter_sets_from_parametric_bootstrap();
                 break;
             case UncertaintyMethod::LinkedMultivariateNormal:
-                // C# `UncertaintyMethod.LinkedMultivariateNormal => ...` (C# 660). On a null
-                // return (e.g. high rejection rate) the C# silently falls back to plain MVN
-                // (C# 666-671); ported inline here.
+                // C# `UncertaintyMethod.LinkedMultivariateNormal => ...`. On a null return (e.g.
+                // high rejection rate) the C# silently falls back to plain MVN (C# 746-750);
+                // ported inline here.
                 raw_sets = get_parameter_sets_from_linked_multivariate_normal();
                 if (!raw_sets) raw_sets = get_parameter_sets_from_multivariate_normal();
                 break;
             case UncertaintyMethod::BiasCorrectedBootstrap:
-                // C# `UncertaintyMethod.BiasCorrectedBootstrap => GetParameterSetsFromPivotBootstrap(...)`
-                // (C# 662). The pivot bootstrap fits B replicates, builds Yeo-Johnson/Log links, and
-                // draws pivoted parameter sets. No inline caller fallback (the Cholesky-failure
-                // fallback to the parametric path lives INSIDE the method, C# 2167-2172).
+                // C# `UncertaintyMethod.BiasCorrectedBootstrap => GetParameterSetsFromPivotBootstrap(...)`.
+                // The pivot bootstrap fits B replicates, builds Yeo-Johnson/Log links, and draws
+                // pivoted parameter sets. No inline caller fallback (the Cholesky-failure fallback
+                // to the parametric path lives INSIDE the method).
                 raw_sets = get_parameter_sets_from_pivot_bootstrap();
                 break;
         }
 
-        // Empty-result guard (C# 676-682): a non-positive-definite covariance leaves the point
-        // estimate valid but yields no CI. Silent no-throw guard (C# Debug.WriteLine dropped).
-        if (!raw_sets) return;
+        // T19 (C# 755-767): a null rawSets means either a specific diagnostic was already set
+        // deeper in the sampler (e.g. an abort) or the shared covariance path failed silently; the
+        // default message is set ONLY when nothing more specific was already recorded. Previously
+        // a silent no-throw guard with no message -- this is a genuine v2.0.0 behavioral delta (the
+        // C# has zero UncertaintyDiagnosticMessage occurrences at the fc28c0c pin).
+        if (!raw_sets) {
+            if (uncertainty_diagnostic_message_.empty()) {
+                set_uncertainty_diagnostic_message(
+                    "Uncertainty quantification failed — the covariance matrix from GMM "
+                    "estimation is not positive-definite. The point estimate is still valid but "
+                    "confidence intervals cannot be computed. Consider using a different "
+                    "distribution or the Bootstrap/Bias-Corrected Bootstrap uncertainty method.");
+            }
+            return;
+        }
 
-        // Filter unset entries (C# 687): the MVN sampler substitutes thetaHat on failure, so every
-        // slot is populated, but the filter is ported faithfully.
+        // T19 (C# 769-777): filter unset, dimensionally invalid, or non-finite entries. MVN
+        // samplers may discard invalid draws; bootstrap collectors replace failed candidates and
+        // therefore must satisfy the exact-count invariant below.
+        int expected_parameter_count = bulletin17c_distribution_->number_of_parameters();
         std::vector<ParameterSet> valid_sets;
         valid_sets.reserve(raw_sets->size());
-        for (const auto& ps : *raw_sets)
-            if (!ps.values.empty()) valid_sets.push_back(ps);
-        if (valid_sets.size() < 2) return;  // C# 688-692
+        for (const auto& ps : *raw_sets) {
+            if (!ps.values.empty() &&
+                static_cast<int>(ps.values.size()) == expected_parameter_count &&
+                std::all_of(ps.values.begin(), ps.values.end(),
+                           [](double v) { return std::isfinite(v); }))
+                valid_sets.push_back(ps);
+        }
 
-        // Sanitize non-finite Fitness/Values (C# 696) -- MVN sets Fitness = NaN by construction.
+        // T19 (C# 778-786): bootstrap methods must deliver EXACTLY OutputLength valid sets, or the
+        // ensemble is rejected wholesale (no partial publish). This is what makes a discard in the
+        // pivot arm's Phase 3 (Task 20) -- or any future discard in this arm -- user-visible.
+        bool is_bootstrap_method = uncertainty_method_ == UncertaintyMethod::Bootstrap ||
+                                   uncertainty_method_ == UncertaintyMethod::BiasCorrectedBootstrap;
+        auto output_length = static_cast<std::size_t>(bayesian_analysis_.output_length());
+        if (is_bootstrap_method && (raw_sets->size() != output_length || valid_sets.size() != output_length)) {
+            set_uncertainty_diagnostic_message(
+                "Bootstrap uncertainty requires exactly " +
+                format_n0(bayesian_analysis_.output_length()) + " valid parameter sets, but received " +
+                format_n0(static_cast<long long>(valid_sets.size())) +
+                ". No partial uncertainty result was published.");
+            return;
+        }
+
+        // T19 (C# 787-793).
+        if (valid_sets.size() < 2) {
+            set_uncertainty_diagnostic_message(
+                "Only " + format_n0(static_cast<long long>(valid_sets.size())) +
+                " valid parameter sets out of " + format_n0(static_cast<long long>(raw_sets->size())) +
+                " sampled realizations. Uncertainty analysis was skipped.");
+            return;
+        }
+
+        // Sanitize non-finite Fitness/Values (C# 796) -- MVN sets Fitness = NaN by construction.
         sanitize_parameter_sets(valid_sets);
 
-        // Sanitize the MAP (best) parameter set's Fitness (C# 699-701).
+        // Sanitize the MAP (best) parameter set's Fitness (C# 800-802).
         ParameterSet best = gmm_->best_parameter_set();
         if (!std::isfinite(best.fitness)) best = ParameterSet(best.values, 0.0);
 
-        // Store into the BayesianAnalysis results plumbing (C# 703-705).
+        // Store into the BayesianAnalysis results plumbing (C# 804-807).
         MCMCResults mcmc(std::move(best), std::move(valid_sets),
                          1.0 - bayesian_analysis_.credible_interval_width());
         bayesian_analysis_.set_custom_mcmc_results(std::move(mcmc), /*skip_information_criteria=*/true);
