@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/Spherical.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/Spherical.cs @ c2e6192
 //
 // Spherical spatial correlation function with compact support:
 //   rho(h) = 1 - 1.5(h/phi) + 0.5(h/phi)^3  for h <= phi,  0 otherwise.

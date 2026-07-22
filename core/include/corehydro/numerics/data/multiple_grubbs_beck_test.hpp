@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/MultipleGrubbsBeckTest.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/MultipleGrubbsBeckTest.cs @ 2a0357a
 //
 // The Multiple Grubbs-Beck low-outlier test (Cohn et al. 2013; Bulletin 17C), converted
 // upstream from the FORTRAN source of PeakfqSA, plus the original Grubbs-Beck test with

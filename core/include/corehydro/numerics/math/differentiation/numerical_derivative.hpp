@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Differentiation/NumericalDerivative.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Differentiation/NumericalDerivative.cs @ 2a0357a
 //
 // Only the bound-aware adaptive-step Gradient and Hessian overloads, and the private
 // helpers they call (AvailableLeft/AvailableRight/ClampInPlace), are ported -- the subset

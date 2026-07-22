@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/SinusoidalTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/SinusoidalTrend.cs @ c2e6192
 //
 // Sinusoidal trend model: y(t) = alpha + beta * sin(2*pi * gamma * (t - StartIndex) + delta).
 // The XElement constructor is deliberately not ported (XML out of scope). See

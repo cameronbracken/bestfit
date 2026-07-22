@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/Base/BivariateCopulaEstimation.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/BivariateCopulaEstimation.cs @ 2a0357a
 //
 // Free-function port of the C# `static class BivariateCopulaEstimation`: a single public
 // `estimate(copula, x, y, method)` (mirrors `Estimate(ref BivariateCopula, ...)`) dispatches

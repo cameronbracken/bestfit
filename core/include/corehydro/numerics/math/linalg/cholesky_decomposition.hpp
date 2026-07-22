@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/CholeskyDecomposition.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/CholeskyDecomposition.cs @ 2a0357a
 //
 // Cholesky decomposition A = L*L^T of a symmetric positive-definite matrix, ported
 // verbatim (loop order and epsilon checks unchanged). Member order mirrors the C# source

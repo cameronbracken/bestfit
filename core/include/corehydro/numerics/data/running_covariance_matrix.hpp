@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/RunningCovarianceMatrix.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/RunningCovarianceMatrix.cs @ 2a0357a
 //
 // Welford's online algorithm generalized to a running mean vector and covariance matrix.
 // push() updates `mean_` using the OLD mean (captured before the update) in the

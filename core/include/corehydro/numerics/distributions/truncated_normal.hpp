@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/TruncatedNormal.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/TruncatedNormal.cs @ 2a0357a
 //
 // The Truncated Normal (Gaussian) distribution with parameters mu, sigma, min, max.
 // Uses the standard normal CDF/PDF (Normal.StandardCDF / StandardPDF / StandardZ in C#).

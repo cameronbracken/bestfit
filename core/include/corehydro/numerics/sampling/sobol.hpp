@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/SobolSequence.cs @ a2c4dbf
+// ported from: Numerics/Sampling/SobolSequence.cs @ 2a0357a
 //
 // Sobol quasi-random low-discrepancy sequence. Faithful C++17 port of the C#
 // SobolSequence (itself derived from Apache Commons Math). Bit-exact with the C#

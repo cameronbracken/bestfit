@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/Correlation.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/Correlation.cs @ 2a0357a
 //
 // Pearson, Spearman, and Kendall's Tau correlation coefficients for two equal-length
 // samples. Feeds copula parameter constraint bounds and dependence estimation.

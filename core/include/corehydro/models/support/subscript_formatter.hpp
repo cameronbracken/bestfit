@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/SubscriptFormatter.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/SubscriptFormatter.cs @ c2e6192
 //
 // ToSubscript(int): maps the ASCII digits of the invariant-culture integer string to their
 // Unicode subscript counterparts U+2080..U+2089 (UTF-8 escapes); any non-digit character

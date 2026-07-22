@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Parameter Estimation/ParameterEstimationMethod.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Parameter Estimation/EstimationMethod.cs @ 2a0357a
 //
 // The parameter-estimation method passed to a distribution's Estimate(...). Shared by
 // every univariate distribution that supports fitting.

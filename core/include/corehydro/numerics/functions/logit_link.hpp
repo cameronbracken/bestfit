@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/LogitLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/LogitLink.cs @ 2a0357a
 //
 // Logit link function mapping the unit interval (0, 1) to the unconstrained real line.
 // Domain: x in (0, 1). h(x) = log(x / (1 - x)), h^-1(eta) = 1 / (1 + exp(-eta)),

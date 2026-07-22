@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/ProbitLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/ProbitLink.cs @ 2a0357a
 //
 // Probit link function mapping the unit interval (0, 1) to the unconstrained real line
 // using the standard normal quantile function. Domain: x in (0, 1). h(x) = Phi^-1(x),

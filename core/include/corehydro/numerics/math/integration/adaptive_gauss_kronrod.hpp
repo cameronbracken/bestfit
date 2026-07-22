@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Integration/AdaptiveGuassKronrod.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Integration/AdaptiveGuassKronrod.cs @ 2a0357a
 //
 // Adaptive Gauss-Kronrod integration (G10K21). Minimal port of the C# class used
 // by VonMises::CDF. The C# class inherits Integrator which carries settings

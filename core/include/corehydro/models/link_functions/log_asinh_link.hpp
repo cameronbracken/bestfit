@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/LogASinHLink.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/LogASinHLink.cs @ c2e6192
 //
 // A positive-support sinh-arcsinh link applied to log-relative scale. Maps a positive
 // parameter (a scale / standard deviation) to an unconstrained link-space variable by

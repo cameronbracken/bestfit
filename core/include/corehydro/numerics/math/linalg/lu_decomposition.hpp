@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/LUDecomposition.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/LUDecomposition.cs @ 2a0357a
 //
 // LU decomposition (Crout's algorithm with implicit partial pivoting -- Numerical
 // Recipes-style outer-product Gaussian elimination) of a square matrix A into a

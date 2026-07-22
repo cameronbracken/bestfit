@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/CachedMultivariateNormal.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/CachedMultivariateNormal.cs @ c2e6192
 //
 // Cached multivariate normal likelihood engine for the SpatialExtremes copula slice. Caches
 // the Cholesky factor L and log-determinant of the covariance matrix so repeated likelihood

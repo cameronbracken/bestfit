@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Parameter Estimation/IMaximumLikelihoodEstimation.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Parameter Estimation/IMaximumLikelihoodEstimation.cs @ 2a0357a
 //
 // Capability interface: a distribution that can report the (initials, lowers, uppers)
 // bounds used to seed constrained maximum-likelihood optimization. Phase 1 already

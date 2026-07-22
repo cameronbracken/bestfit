@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/DataComponent.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/DataComponent.cs @ c2e6192
 //
 // Represents a single data point's contribution to the log-likelihood for influence
 // diagnostics. The C# type is a `readonly struct` (no setters, value semantics, chosen

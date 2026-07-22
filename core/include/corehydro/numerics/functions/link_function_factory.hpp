@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/LinkFunctionFactory.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/LinkFunctionFactory.cs @ 2a0357a
 //
 // Factory for creating ILinkFunction instances from LinkFunctionType enum values. The
 // XElement overload (CreateFromXElement) is dropped (serialization is a desktop

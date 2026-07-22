@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/GeneralizedPareto.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/GeneralizedPareto.cs @ 2a0357a
 //
 // Generalized Pareto distribution: parameters ξ (location), α (scale), κ (shape).
 // Mirrors the C# source method-for-method. The IBootstrappable and WPF helpers are not

@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Rayleigh.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Rayleigh.cs @ 2a0357a
 //
 // The Rayleigh distribution with scale σ. Logic mirrors the C# source method-for-method.
 // The C# MLE uses Gamma.LogGamma — std::lgamma from <cmath> is used here (C++17 standard).

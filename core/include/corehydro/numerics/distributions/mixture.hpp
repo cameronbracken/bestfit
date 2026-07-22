@@ -60,7 +60,7 @@
 //     "component" with weight ZeroWeight. Replaces the base-class inverse-CDF stream so
 //     seeded mixture streams are bit-identical to the C#.
 //
-// X5 ADDITIVE PORT (Mixture.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ a2c4dbf): the
+// X5 ADDITIVE PORT (Mixture.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ 2a0357a): the
 // CompositeAnalysis aggregation builds a Mixture per posterior realisation, sets XTransform =
 // Logarithmic / ProbabilityTransform = NormalZ, and calls CreateEmpiricalCDF() so the InverseCDF
 // the UncertaintyAnalysisResults reads is the fast piecewise empirical curve. NEW methods/fields

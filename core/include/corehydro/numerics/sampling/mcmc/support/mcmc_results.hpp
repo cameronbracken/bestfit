@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Support/MCMCResults.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Support/MCMCResults.cs @ 2a0357a
 //
 // Post-processes a finished MCMCSampler run (or a raw (MAP, parameter-set list) pair) into
 // posterior summaries: cloned MarkovChains + a flattened combined Output, AcceptanceRates,

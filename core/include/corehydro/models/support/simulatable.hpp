@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/ISimulatable.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/ISimulatable.cs @ c2e6192
 //
 // Capability interface for models that can generate simulated data. Kept separate from
 // ModelBase because not every model that defines a likelihood can simulate, and the output

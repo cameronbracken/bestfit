@@ -1,7 +1,31 @@
 # Upstream sync: Numerics v2.1.4 + RMC-BestFit v2.0.0
 
-Date: 2026-07-19. Status: approved design. This is also the first live run of the recurring
-upstream-release update process; the process itself is a deliverable (see "Process capture").
+Date: 2026-07-19. Status: approved design, EXECUTED and archived. This is also the first live run
+of the recurring upstream-release update process; the process itself is a deliverable (see
+"Process capture").
+
+> **Correction, added 2026-07-22 after execution.** Section "Scope: RMC-BestFit ... 2.
+> Bulletin17CAnalysis bootstrap UQ rework" below states that failed replicates are DISCARDED with
+> no parent-parameter substitution, and that the pivot path drops z-limit rejections. Both
+> statements describe upstream commit `1b424e3`, not what shipped. The text is left as written so
+> the archived design reads as it was approved; the corrected ground truth is:
+>
+> - Upstream `7efa9d0`, the last commit before the v2.0.0 tag, REVERTED the discard semantics for
+>   the PARAMETRIC arm. Shipped v2.0.0 keeps the strict non-success gate and the parent-vector
+>   fallback there. `maxRetries` 5 -> 10 and the adaptive `1 - 1/(5B)` Mahalanobis threshold DID
+>   ship. Discard semantics shipped only in the PIVOT arm.
+> - Of the new `BootstrapDiagnostics` counters, shipped C# populates only
+>   `IncrementTransformFailure` and the `RetainedReplicates` setter. The GMM status counters and
+>   `OptimizerFallbacks` are never called.
+> - The pivot path does NOT compact to accepted replicates before link fitting: phase 1 always
+>   fills `bootTheta[idx]` and phase 2 fits over all B. The z-limit is a CLIP, not a rejection
+>   (`IncrementPivotRejection` has zero call sites), so exactly p `StandardZ` draws are taken per
+>   replicate. That last point is why the seeded pivot oracle is pinnable at all.
+>
+> The port follows the shipped source, not this text. The general rule, and the incident that
+> produced it, is written up in `docs/upstream-sync.md` under "Port from the shipped source at the
+> tag, never from a commit message". The task plan beside this file was corrected in place
+> mid-run (commit `2a47956`).
 
 ## Context
 

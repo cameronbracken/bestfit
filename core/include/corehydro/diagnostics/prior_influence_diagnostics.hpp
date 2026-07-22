@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Diagnostics/PriorInfluenceDiagnostics.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Diagnostics/PriorInfluenceDiagnostics.cs @ c2e6192
 //
 // Provides influence diagnostics for the prior components in a Bayesian analysis: how each prior
 // component (parameter prior, quantile prior, Jeffreys scale prior, ...) contributes to the

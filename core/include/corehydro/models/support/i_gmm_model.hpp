@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/IGMMModel.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/IGMMModel.cs @ c2e6192
 //
 // Model interface for the Generalized Method of Moments (GMM) estimation method -- the GMM
 // analog of IModel. Where IModel defines likelihood-based estimation contracts

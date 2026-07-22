@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/GoodnessOfFit.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/GoodnessOfFit.cs @ 2a0357a
 //
 // Goodness-of-fit measures for evaluating model performance.
 // Includes information criteria (AIC, BIC), error metrics (RMSE, MAE, MSE),

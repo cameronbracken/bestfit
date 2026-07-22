@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Paired Data/ProbabilityOrdinate.cs @ a2c4dbf
+// ported from: Numerics/Data/Paired Data/ProbabilityOrdinate.cs @ 2a0357a
 //
 // ProbabilityOrdinates: a flat collection of EXCEEDANCE probabilities at which a frequency
 // curve is tabulated. The C# file is named ProbabilityOrdinate.cs but the class inside is

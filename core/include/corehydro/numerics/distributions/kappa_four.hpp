@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/KappaFour.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/KappaFour.cs @ 2a0357a
 //
 // Kappa-4 distribution parameterized by location ξ, scale α, shape κ, shape h.
 // InverseCDF has closed form with limit branches for h→0 and κ→0 that mirror the C#

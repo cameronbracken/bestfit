@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/BootstrapAnalysis.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/BootstrapAnalysis.cs @ 2a0357a
 //
 // The standalone frequentist parametric-bootstrap uncertainty engine. Given an IBootstrappable
 // univariate distribution, a parameter-estimation method, a bootstrap sample size and a replication

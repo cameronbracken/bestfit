@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/UniformDiscrete.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/UniformDiscrete.cs @ 2a0357a
 //
 // The discrete Uniform distribution on integer support [min, max]. Logic mirrors the
 // C# source method-for-method. No estimation interfaces are implemented upstream.

@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/SpatialExtremes/SpatialGEVCrossValidationResults.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/SpatialExtremes/SpatialGEVCrossValidationResults.cs @ c2e6192
 //
 // Plain result DTO: leave-one-site-out cross-validation diagnostics produced by
 // SpatialGEVAnalysis::run_cross_validation(). Each field mirrors the C# property one-for-one

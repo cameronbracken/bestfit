@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MersenneTwister.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MersenneTwister.cs @ 2a0357a
 //
 // MT19937 PRNG (Matsumoto & Nishimura). Verbatim port of the C# MersenneTwister,
 // itself a faithful port of the reference mt19937ar.c. The uint32 state machine is

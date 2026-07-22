@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Bernoulli.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Bernoulli.cs @ 2a0357a
 //
 // The Bernoulli distribution on two-point support {0, 1}. Single parameter p (probability of 1).
 // Logic mirrors the C# source method-for-method. No estimation interfaces are implemented upstream.

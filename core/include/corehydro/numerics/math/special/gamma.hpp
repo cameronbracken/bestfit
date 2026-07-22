@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Gamma.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Special Functions/Gamma.cs @ 2a0357a
 //             + Numerics/Mathematics/Special Functions/Evaluate.cs (PolynomialRev)
 //
 // Gamma function (Cephes), Lanczos approximation, and digamma. Algorithms and

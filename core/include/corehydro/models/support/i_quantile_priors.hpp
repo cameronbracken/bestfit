@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/IQuantilePriors.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/IQuantilePriors.cs @ c2e6192
 //
 // Capability interface for models that accept quantile priors (expert judgment about flood
 // quantiles folded into the Bayesian prior). Ported as a pure-virtual mixin (the codebase's

@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/RWMH.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/RWMH.cs @ 2a0357a
 //
 // Random Walk Metropolis-Hastings (RWMH): the simplest MCMCSampler concretization, and this
 // port's end-to-end exemplar for the whole sampler family. Every chain proposes a new point

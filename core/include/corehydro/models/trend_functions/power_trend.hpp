@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/PowerTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/PowerTrend.cs @ c2e6192
 //
 // Power-law trend model: y(t) = alpha * (t - StartIndex)^beta.
 // The XElement constructor is deliberately not ported (XML out of scope). See

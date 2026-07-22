@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Multivariate/Base/MultivariateDistributionType.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/Base/MultivariateDistributionType.cs @ 2a0357a
 //
 // Multivariate distribution type tags (mirrors the C# enum members verbatim).
 #pragma once

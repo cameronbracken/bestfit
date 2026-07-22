@@ -512,3 +512,32 @@ notebooks. Notable findings recorded in the examples: C# `LnNormal` is parameter
 mean/sd; the 04 RWMH acceptance streams reproduce the real C# run bit-for-bit while the DE/MAP
 optimizer carries a ~2-ulp fitness drift (posterior tables match at displayed precision); Box-Cox/
 Yeo-Johnson fitted lambdas agree across R/Python only to ~1e-8 (Brent argmin ulp drift).
+
+The upstream sync (branch `upstream-sync-2026-07`, July 2026) re-established 1:1 parity against
+**Numerics v2.1.4 (`2a0357a`)** and **RMC.BestFit v2.0.0 (`c2e6192`)**, up from `a2c4dbf` /
+`fc28c0c`. That is the version pair the packages are now validated against, and the version bump
+to **0.2.0** records it. The repeatable release-absorption process is `docs/upstream-sync.md`;
+read it before starting the next sync. Final numbers: **ctest 78/78; oracle gate 4497 reproduced /
+0 failed / 11 skipped; testthat 4253/0; pytest 789** (pre-sync baseline 4109/0/11 at the old pins;
+the post-bump census was 4099/10/11, meaning exactly 10 pinned values moved under the new C#). The
+11 skips are unchanged and are the documented GEV standard-error set: `parameter_covariance` x6,
+`quantile_gradient` x3, `quantile_variance` x1, `quantile_se` x1.
+
+The defining property of this release pair: both incorporate fixes RMC made in response to
+corehydro's own port audit, so the ground truth flipped in two directions. Where the C++ mirrored
+an old C# bug faithfully, the C++ adopted the fix and the oracle re-pinned; where the C++ carried
+a documented intentional divergence, upstream adopted our behavior and the divergence retired.
+`docs/upstream-csharp-issues.md` now carries a per-entry **Status:** bullet plus a reconciliation
+summary: 29 entries fixed upstream and ported (1 more partly), and six intentional C++ divergences
+retired (GeneralizedLogistic κ→0, LogPearsonTypeIII large-α, MixtureModel.Clone zero-inflation,
+the MVN COVSRT bounds guard, the Jeffreys single-parameter guard, and the BivariateDistribution
+PseudoLikelihood estimate path). Everything upstream changed is either ported or covered by an
+explicit severance note; the severances are enumerated in `upstream/CLAUDE.md`, the new ones being
+`AnalysisProgress.cs` (GUI progress plumbing, which is what makes the fifteen analysis
+orchestrators' diffs look large), `Series.cs` (the observable-collection container behind the
+severed heavy TimeSeries), `TimeSeriesDownload.cs` (network gauge retrieval), and the new
+`RMC.BestFit.App` / `.UI` / `.Api` projects. `BatchAnalysisRunner` and the B17C GMM report text
+remain the only permanent presentation-only skips. Carried port-side notes: seeded DEMCz/DEMCzs
+runs with `thinning_interval > 1` are still not oracle-guaranteed (every shipped fixture uses
+thin=1), and the B17C interval-censored bootstrap carries a measured, reproducible GMM
+stopping-rule divergence documented in the issues log.

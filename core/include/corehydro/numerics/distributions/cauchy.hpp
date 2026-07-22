@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Cauchy.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Cauchy.cs @ 2a0357a
 //
 // The Cauchy distribution with location X0 and scale γ (gamma). Logic mirrors the C# source
 // method-for-method. Mean, standard deviation, skewness, and kurtosis are all undefined

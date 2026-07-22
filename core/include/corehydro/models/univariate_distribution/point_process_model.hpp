@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Models/UnivariateDistribution/PointProcessModel.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Models/UnivariateDistribution/PointProcessModel.cs @ c2e6192
 //
 // Point-process model for peaks-over-threshold (POT) data: an underlying Poisson process for
 // exceedance times and GEV (or seasonal two-GEV) models for magnitudes, wrapped around the

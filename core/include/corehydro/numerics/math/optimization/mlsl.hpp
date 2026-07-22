@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Global/MLSL.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Global/MLSL.cs @ 2a0357a
 //
 // The Multi-Level Single Linkage (MLSL) global optimization method (Kan, Boender &
 // Timmer 1985). Each iteration draws N uniform sample points over the bounded search

@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Root Finding/Brent.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Root Finding/Brent.cs @ 2a0357a
 //
 // Brent's method for root finding (Sprott, "Numerical Recipes ... in Basic", 1991).
 #pragma once

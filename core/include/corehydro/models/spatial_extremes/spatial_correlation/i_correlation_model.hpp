@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/ICorrelationModel.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/ICorrelationModel.cs @ c2e6192
 //
 // The contract every spatial correlation kernel satisfies (BasicExponential,
 // PoweredExponential, Spherical). Ported as an abstract base class -- the codebase convention

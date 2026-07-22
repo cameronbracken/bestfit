@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/StratificationBin.cs @ a2c4dbf
+// ported from: Numerics/Sampling/StratificationBin.cs @ 2a0357a
 //
 // A stratification bin: [lower_bound, upper_bound) with an associated weight
 // (defaults to the bin width) and midpoint. Feeds stratified/Latin-hypercube sampling

@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/Bootstrap/Support/BootstrapFit.cs @ a2c4dbf
+// ported from: Numerics/Sampling/Bootstrap/Support/BootstrapFit.cs @ 2a0357a
 //
 // Stores a fitted parameter vector and the covariance matrix associated with that fit. Used
 // by the covariance-aware pivotal bootstrap workflow (`Bootstrap<TData>`'s second

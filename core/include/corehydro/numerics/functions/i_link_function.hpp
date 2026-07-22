@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/ILinkFunction.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/ILinkFunction.cs @ 2a0357a
 //
 // Interface for link functions that transform parameters between real-space and
 // link-space. A link function h provides a bijective, differentiable mapping from the

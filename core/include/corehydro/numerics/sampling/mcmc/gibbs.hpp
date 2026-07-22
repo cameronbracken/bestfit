@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Gibbs.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Gibbs.cs @ 2a0357a
 //
 // Gibbs sampler: the proposal for each iteration is fully delegated to a caller-supplied
 // `Proposal` closure (C# `public delegate double[] Proposal(double[] parameters, Random

@@ -14,7 +14,7 @@
 // NOTE: set_parameters(vector) throws (mirrors C# NotImplementedException), matching
 // the fact that Empirical is constructed with structured x/p arrays, not a flat vector.
 //
-// X5 ADDITIVE PORT (Numerics EmpiricalDistribution.XTransform @ a2c4dbf): the x-value transform
+// X5 ADDITIVE PORT (Numerics EmpiricalDistribution.XTransform @ 2a0357a): the x-value transform
 // (None / Logarithmic / NormalZ) was previously hardcoded to None. It is now a settable field
 // (default None -> identical prior behavior, all existing fixtures byte-green), applied in the
 // get_y_from_x / get_x_from_y interpolation exactly as OrderedPairedData.BaseInterpolate does.

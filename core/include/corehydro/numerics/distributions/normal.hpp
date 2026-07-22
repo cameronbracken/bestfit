@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Normal.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Normal.cs @ 2a0357a
 //
 // The Normal (Gaussian) distribution, parameters µ (location) and σ (scale).
 // CDF uses std::erf (matches the C# instance Normal.CDF(x), itself erf-based -- see the

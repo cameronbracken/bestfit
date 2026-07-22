@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Base/UnivariateDistributionBase.cs @ 2a0357a
 //
 // Abstract base for every univariate distribution. Declares the distribution-core
 // surface as pure virtuals (moments, support, PDF/CDF/InverseCDF, parameters) and
@@ -103,7 +103,7 @@ class UnivariateDistributionBase {
     }
 
     // --- Censored likelihood methods (M8, additive port of UnivariateDistributionBase.cs
-    // lines 165-201 @ a2c4dbf; term-for-term, C# `long` counts -> `long long`). ---
+    // lines 165-201 @ 2a0357a; term-for-term, C# `long` counts -> `long long`). ---
 
     // C# `LogLikelihood(double value)` (line 165): single data point.
     double log_likelihood(double value) const { return log_pdf(value); }

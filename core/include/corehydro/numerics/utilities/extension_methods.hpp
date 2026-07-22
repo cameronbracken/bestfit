@@ -1,4 +1,4 @@
-// ported from: Numerics/Utilities/ExtensionMethods.cs @ a2c4dbf
+// ported from: Numerics/Utilities/ExtensionMethods.cs @ 2a0357a
 //
 // C# extends `System.Random`/arrays/`Vector`/`Matrix` with instance-style extension
 // methods; C++ has no such mechanism, so each ported member becomes a free function

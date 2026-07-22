@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/SingularValueDecomposition.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/SingularValueDecomposition.cs @ 2a0357a
 //
 // Solves sets of linear equations using Singular Value Decomposition (the Numerical
 // Recipes 3rd-edition algorithm). Ported with Task B9 because LinearRegression.FitSVD

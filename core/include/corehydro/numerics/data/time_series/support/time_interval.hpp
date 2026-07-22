@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Time Series/Support/TimeInterval.cs @ a2c4dbf
+// ported from: Numerics/Data/Time Series/Support/TimeInterval.cs @ 2a0357a
 //
 // Enumeration of available time-series time intervals, in C# declaration order. The C#
 // [Description] attributes ("1-Min", "5-Min", ...) are WPF/display metadata and are skipped

@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Global/DifferentialEvolution.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Global/DifferentialEvolution.cs @ 2a0357a
 //
 // The Differential Evolution (DE) global optimizer (Storn & Price, 1997/1998): maintains a
 // population of candidate solutions, mutates/recombines them each generation, and keeps

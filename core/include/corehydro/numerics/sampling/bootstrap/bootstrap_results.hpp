@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/Bootstrap/BootstrapResults.cs @ a2c4dbf
+// ported from: Numerics/Sampling/Bootstrap/BootstrapResults.cs @ 2a0357a
 //
 // `BootstrapCIMethod` (the confidence-interval method enum), `BootstrapStatisticResult` (a
 // single statistic/parameter's CI summary), and the aggregate `BootstrapResults` container.

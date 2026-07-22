@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/StratificationOptions.cs @ a2c4dbf
+// ported from: Numerics/Sampling/StratificationOptions.cs @ 2a0357a
 //
 // Options describing a stratification of the x-axis (or [0,1] probability axis) into
 // `number_of_bins` equal-width strata between `lower_bound` and `upper_bound`. Feeds

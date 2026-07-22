@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Local/Powell.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Local/Powell.cs @ 2a0357a
 //
 // Powell's direction-set optimization method (Numerical Recipes, Press et al.; see the
 // C# file's references): minimizes without derivatives by bi-directionally line-searching

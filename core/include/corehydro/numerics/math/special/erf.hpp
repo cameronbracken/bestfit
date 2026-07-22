@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Erf.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Special Functions/Erf.cs @ 2a0357a
 //
 // Error function and its inverse, mirroring the C# Erf class method-for-method.
 //

@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/InverseGamma.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/InverseGamma.cs @ 2a0357a
 //
 // Inverse-Gamma distribution with scale β (beta) and shape α (alpha). Logic mirrors
 // the C# source method-for-method. No estimation interfaces are implemented upstream.

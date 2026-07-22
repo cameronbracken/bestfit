@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/SESLink.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/SESLink.cs @ c2e6192
 //
 // A skew-exponential-sinh (SES) link function with tunable asymmetry and fat tails.
 // Unbounded, strictly monotone, near-linear around 0.

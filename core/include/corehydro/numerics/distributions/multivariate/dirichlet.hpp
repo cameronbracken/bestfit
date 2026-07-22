@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Multivariate/Dirichlet.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/Dirichlet.cs @ 2a0357a
 //
 // The Dirichlet distribution, a multivariate generalization of the Beta distribution,
 // defined on the (K-1)-simplex. Conjugate prior for mixture-model weights / categorical

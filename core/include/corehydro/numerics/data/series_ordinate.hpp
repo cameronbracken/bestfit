@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Time Series/Support/SeriesOrdinate.cs @ a2c4dbf
+// ported from: Numerics/Data/Time Series/Support/SeriesOrdinate.cs @ 2a0357a
 //
 // A series ordinate: a minimal generic (Index, Value) pair. The BestFit DataFrame data
 // types derive from SeriesOrdinate<int, double>; Phase 7's TimeSeries will reuse the same

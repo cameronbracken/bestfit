@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PosteriorPredictiveCheck.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PosteriorPredictiveCheck.cs @ c2e6192
 //
 // Posterior predictive checking for Bayesian models: draw parameter sets from the supplied
 // posterior samples, generate replicate datasets, and compare observed-data test statistics to

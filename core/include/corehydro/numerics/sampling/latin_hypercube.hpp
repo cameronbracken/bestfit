@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/LatinHypercube.cs @ a2c4dbf
+// ported from: Numerics/Sampling/LatinHypercube.cs @ 2a0357a
 //
 // Latin hypercube sampling (LHS): [0, 1) is stratified into sample_size equal-
 // probability bins per dimension, then bin order is shuffled with an in-place

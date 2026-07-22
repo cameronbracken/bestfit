@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/LinkFunctionType.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/LinkFunctionType.cs @ 2a0357a
 //
 // Enumeration of standard link function types for generalized linear models. Each value
 // corresponds to a canonical link for a specific GLM family; use

@@ -39,7 +39,7 @@
 // type() returns UnivariateDistributionType::CompetingRisks (mirrors C#).
 // Not wired into the flat factory (composite-only, like Mixture).
 //
-// X5 ADDITIVE PORT (CompetingRisks.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ a2c4dbf):
+// X5 ADDITIVE PORT (CompetingRisks.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ 2a0357a):
 // the CompositeAnalysis aggregation builds a CompetingRisks per posterior realisation, sets
 // XTransform = Logarithmic / ProbabilityTransform = NormalZ, and calls CreateEmpiricalCDF() so the
 // InverseCDF the UncertaintyAnalysisResults reads is the fast piecewise empirical curve. These are

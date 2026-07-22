@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/IBootstrappable.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/IBootstrappable.cs @ 2a0357a
 //
 // Capability interface: a distribution that can be parametric-bootstrapped. Mirrors the C#
 // IBootstrappable mixin (there `: IUnivariateDistribution`). Follows the same abstract,

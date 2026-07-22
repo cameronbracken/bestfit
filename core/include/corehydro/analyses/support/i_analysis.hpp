@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IAnalysis.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IAnalysis.cs @ c2e6192
 //
 // Capability interface for all analyses. Mirrors the C# IAnalysis mixin, kept as a pure-virtual
 // class with a public virtual destructor and no data (the Phase-4 interface precedent, e.g.

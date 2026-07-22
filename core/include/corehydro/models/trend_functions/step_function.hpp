@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/StepFunction.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/StepFunction.cs @ c2e6192
 //
 // Step-function trend model with a single change point: y(t) = mu_1 for t <= t_s and
 // y(t) = mu_2 for t > t_s, where t_s is the step time (the change-point index at which

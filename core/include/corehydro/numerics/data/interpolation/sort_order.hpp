@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Interpolation/Support/SortOrder.cs @ a2c4dbf
+// ported from: Numerics/Data/Interpolation/Support/SortOrder.cs @ 2a0357a
 //
 // Sort order of the x-values driving the Interpolater search machinery.
 #pragma once

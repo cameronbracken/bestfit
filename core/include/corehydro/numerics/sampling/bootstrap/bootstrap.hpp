@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/Bootstrap/Bootstrap.cs @ a2c4dbf
+// ported from: Numerics/Sampling/Bootstrap/Bootstrap.cs @ 2a0357a
 //
 // A general-purpose bootstrap class for parametric or non-parametric bootstrap analysis.
 // This port covers the REGULAR (non-pivotal) workflow only, per the task brief:
