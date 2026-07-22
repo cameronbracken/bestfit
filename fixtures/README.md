@@ -1472,6 +1472,16 @@ analyses from the same spec.
         //   transform_failures per discarded Phase-3 draw; attempted / status_* /
         //   optimizer_fallbacks are still never written anywhere in the C# file, and
         //   pivot_rejections is now written NOWHERE (the z-limit became a clip).
+        //   Task 21 coverage measurement, stated plainly: of the 18 boot_* fields asserted
+        //   across this corpus, 13 are pinned 0 in EVERY case (average_retries,
+        //   failed_replicates, failure_rate, mahalanobis_rejections, optimizer_fallbacks,
+        //   pivot_rejections, the five status_* counters, total_retries, transform_failures)
+        //   and 5 take a non-zero value somewhere (has_results, total/attempted/valid/
+        //   retained_replicates). For the GMM status counters and optimizer_fallbacks the 0 is
+        //   the CORRECT pin -- it pins the deadness T19 established from the shipped source (no
+        //   call site exists). IncrementTransformFailure and the adaptive 1-1/(5B) Mahalanobis
+        //   threshold DID ship live, and are driven non-zero only by the C++-only ctests at
+        //   core/tests/test_bulletin17c_analysis.cpp:456-527, not by any fixture here.
         // Bulletin17CAnalysis (T20): mode_curve [i] / mean_curve [i] / curve_length off
         //   AnalysisResults -- the only B17C outputs that depend on uncertainty_method (the Cohn
         //   surface above is computed off the RNG-free GMM point estimate alone). Empty when the

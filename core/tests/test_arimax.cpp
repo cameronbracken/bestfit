@@ -627,6 +627,39 @@ void test_arimax_new_series_resets_training_split() {
     CHECK_EQ(me.training_time_steps(), 0);
 }
 
+// Task 21 review item 1: the empty-series path with default flat priors LEFT ON -- the arm the
+// other empty-series blocks in this file deliberately dodge.
+// reset_default_training_steps_for_new_time_series() zeroes TrainingTimeSteps while the STALE
+// differenced series survives, so the trailing set_default_parameters() reaches the trend-scale
+// block with last_idx = min(TrainingTimeSteps - 1, count - 1) = min(-1, count - 1) = -1.
+// TimeSeries::operator[] is unchecked, so before the clamp that read ordinates_[SIZE_MAX] --
+// undefined behavior, and this test aborted (exit 139) rather than failing an assertion. C#
+// raises IndexOutOfRangeException on the same expression (ARIMAX.cs:929). With the clamp the call
+// simply completes with a zeroed training window; see the divergence note at the clamp.
+void test_arimax_empty_series_with_default_priors_is_index_safe() {
+    ARIMAX m(make_sample_series());
+    CHECK_TRUE(m.use_default_flat_priors());  // deliberately NOT disabled -- that is the point
+    m.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_TRUE(m.use_default_training_steps());
+    CHECK_EQ(m.training_time_steps(), 0);
+
+    // Trend ON drives the clamped index all the way through the delta1/delta2/delta3 trend-parameter
+    // scales, the only consumer of the clamped read.
+    ARIMAX t(make_sample_series());
+    t.set_trend_type(ARIMAX::Trend::Linear);
+    t.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_EQ(t.training_time_steps(), 0);
+
+    // A manual window on top of the same path (use_default_training_steps false -> reset forces it
+    // back on and zeroes the window), still with default flat priors on.
+    ARIMAX u(make_sample_series());
+    u.set_use_default_training_steps(false);
+    u.set_training_time_steps(40);
+    u.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_TRUE(u.use_default_training_steps());
+    CHECK_EQ(u.training_time_steps(), 0);
+}
+
 // v2.0.0 InferSeasonalPeriod: the OneYear cycle length changed 1 -> 10 (ARIMAX.cs:880), so annual
 // records now carry a DECADAL Fourier cycle instead of a degenerate one-step cycle. Transcribed
 // from the new MonthlyTimeSeries_SeasonalPeriod_IsTwelve / AnnualTimeSeries_SeasonalPeriod_IsTen /
@@ -694,6 +727,7 @@ int main() {
     test_arimax_covariates();
 
     test_arimax_new_series_resets_training_split();
+    test_arimax_empty_series_with_default_priors_is_index_safe();
     test_arimax_annual_seasonal_period();
     test_arimax_irregular_interval_validate();
 

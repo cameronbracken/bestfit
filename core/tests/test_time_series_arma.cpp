@@ -821,8 +821,15 @@ void test_ma_transform_training_jeffreys() {
 
 // v2.0.0 ResetDefaultTrainingStepsForNewTimeSeries (AutoRegressive.cs:347, MovingAverage.cs:347):
 // attaching a DIFFERENT response series is a new calibration problem, so the setter discards the
-// previous manual training-window edit and restores the default 80% split. Transcribed from the
-// new TimeSeries_NewSeries_ResetsTrainingSplitToDefault regression tests. The manual window (25)
+// previous manual training-window edit and restores the default 80% split.
+//
+// PROVENANCE, stated exactly: the C# regression test
+// TimeSeries_NewSeries_ResetsTrainingSplitToDefault exists ONLY in ARIMAXTests.cs (line 211);
+// AutoRegressiveTests.cs, MovingAverageTests.cs, ARIMATests.cs and TimeSeriesModelTests.cs have
+// no such test. The C# PRODUCTION method, by contrast, is present verbatim in all four model
+// files, so this block is an EXTRAPOLATION of the ARIMAX test to the two sibling families whose
+// production code is identical -- not a transcription of a test that exists for them. The
+// expected values follow the same C# default-split formula the ARIMAX test asserts. The manual window (25)
 // is deliberately NOT the default the replacement produces (floor(0.8*50) = 40), so the check
 // fails on the pre-port code path (which kept both `use_default = false` and 25).
 //

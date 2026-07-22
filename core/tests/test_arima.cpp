@@ -572,8 +572,15 @@ void test_arima_transform_training_jeffreys() {
 
 // v2.0.0 ResetDefaultTrainingStepsForNewTimeSeries (ARIMA.cs:411): attaching a DIFFERENT response
 // series discards the previous manual training-window edit and restores the default 80% split.
-// Transcribed from the new TimeSeries_NewSeries_ResetsTrainingSplitToDefault regression test; the
-// manual window (25) is deliberately NOT the default the 240-observation replacement produces
+//
+// PROVENANCE, stated exactly: the C# regression test
+// TimeSeries_NewSeries_ResetsTrainingSplitToDefault exists ONLY in ARIMAXTests.cs (line 211);
+// ARIMATests.cs has no such test. The C# PRODUCTION method, by contrast, is present verbatim in
+// all four model files, so this block is an EXTRAPOLATION of the ARIMAX test to ARIMA, whose
+// production code is identical -- not a transcription of a test that exists for ARIMA. The
+// expected values follow the same C# default-split formula the ARIMAX test asserts.
+//
+// The manual window (25) is deliberately NOT the default the 240-observation replacement produces
 // (floor(0.8*240) = 192), so this fails on the pre-port code path.
 void test_arima_new_series_resets_training_split() {
     TimeSeries original = make_sample_series();      // 50 annual obs

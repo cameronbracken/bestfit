@@ -334,8 +334,28 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
 
             range = max - min;
 
-            // Trend parameter scales (ARIMAX.cs:814).
-            int last_idx = std::min(training_time_steps_ - 1, diff_series_->count() - 1);
+            // Trend parameter scales (ARIMAX.cs:929).
+            //
+            // The `std::max(0, ...)` clamp is a C++-only memory-safety guard with NO effect on
+            // any path where the C# expression is itself well-defined. C# evaluates
+            // `_diffSeries[Math.Min(TrainingTimeSteps - 1, _diffSeries.Count - 1)]` unguarded;
+            // when TrainingTimeSteps is 0 the index is -1 and C# raises
+            // IndexOutOfRangeException. `TimeSeries::operator[]` here is UNCHECKED (see
+            // time_series.hpp), so the same -1 would index `ordinates_[SIZE_MAX]` -- undefined
+            // behavior, not an exception. Documented-divergence precedent: the guarded
+            // truncating casts at chi_squared.hpp / binomial.hpp / inverse_chi_squared.hpp.
+            //
+            // Reachability: TrainingTimeSteps is 0 while `diff_series_` is non-empty exactly when
+            // an EMPTY series is attached over a model that already had one --
+            // reset_default_training_steps_for_new_time_series() zeroes the window while
+            // set_training_data() returns early and leaves the previous differenced series in
+            // place. On that path the clamped read feeds `delta1 = (d[0] - d.first()) / 0`, i.e.
+            // NaN deltas, which are consumed only by add_trend_param's bounds -- and the model is
+            // already invalid (validate() rejects a null/short series), so no fit or likelihood
+            // can consume them. The divergence is therefore "C# throws where this port continues
+            // with a degenerate, unusable parameter set", never a differing NUMBER on any path a
+            // fit can reach.
+            int last_idx = std::max(0, std::min(training_time_steps_ - 1, diff_series_->count() - 1));
             delta1 = ((*diff_series_)[last_idx].value() - diff_series_->first().value()) / n_steps;
             delta2 = delta1 / n_steps;
             delta3 = delta2 / n_steps;
