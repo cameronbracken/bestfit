@@ -1,5 +1,5 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
-//              Bulletin17CDistribution.cs @ fc28c0c
+//              Bulletin17CDistribution.cs @ c2e6192
 //
 // Bulletin 17C (B17C) distribution model. Task B9 landed the CONSTRUCTION slice: the ctors,
 // the six-family distribution factory + supported-type gate, LinkController wiring,
@@ -75,6 +75,41 @@
 // yet be deep-copied (the ported ILinkFunction has no clone()), so clone() throws
 // std::logic_error if links are installed -- no B9 code path installs links; the WEDS /
 // uncertainty slice (B10+) owns the follow-up.
+//
+// CloneWithDataFrame() (v2.0.0, upstream-sync Task 18, 0dc8594 "Preserve B17C model state
+// on bootstrap clones"): C# adds `CloneWithDataFrame(DataFrame dataFrame)`, which returns
+// `new Bulletin17CDistribution(dataFrame, ToXElement())` -- the SAME XElement round trip
+// Clone() uses, so it restores Distribution/Parameters/ParameterPenalties/
+// QuantilePenalties/LinkController from the current snapshot (the XElement ctor's
+// `_isDeserializing = true` suppresses SetDefaultParameters), but binds the round trip to
+// the CALLER-SUPPLIED frame instead of the source object's own DataFrame. The port mirrors
+// this via clone_core_state(), the SAME private deep-copy helper clone() now calls,
+// followed by binding + reprocessing the supplied frame instead of the source's -- so both
+// methods share one code path for the "restore serialized state, don't rebuild it" contract
+// (the point of this task: bootstrap replicates in the T19/20 pivotal-bootstrap workflow
+// call this so each replicate estimates from the PARENT's fitted parameters and enabled
+// penalties, not from freshly-defaulted ones derived from the resampled data). Per the C#
+// doc remarks: assigning the resample through the public DataFrame setter instead would
+// invoke SetDefaultParameters, discarding the cloned initial values, disabling every
+// parameter penalty, and -- when default-parameter derivation fails for the resampled frame
+// -- emptying the parameter list entirely. `CloneWithDataFrame(null)`'s C#
+// ArgumentNullException has no port (same structurally-unrepresentable-for-a-value-typed-
+// DataFrame-argument precedent noted above for the ctors); the C++ signature takes
+// `const DataFrame&` (never null) and deep-copies it, so the caller's original frame is
+// left untouched -- matching the "supplied frame bound to the clone" observable behavior
+// even though the C# reference-sharing itself has no analog.
+//
+// SetDefaultParameters ROS-trigger narrowing (v2.0.0, upstream-sync Task 18, c420d48
+// "Improving default parameter settings for the B17 distribution"): the shared
+// compute_default_initials() helper's nonparametric-ROS-override condition narrows from
+// `NumberOfLowOutliers > 0 || UncertainSeries.Count > 0 || IntervalSeries.Count > 0 ||
+// ThresholdSeries.Count > 0` to `NumberOfLowOutliers > 0 || ThresholdSeries.Count > 0` --
+// uncertain/interval data alone no longer triggers the ROS nonparametric-moment override;
+// those fits now seed from the plain IMaximumLikelihoodEstimation constraint initials, like
+// exact-only data. GMM starting values (and, since BFGS is not path-independent for every
+// data configuration, potentially the converged fit) change for interval/uncertain-only
+// fits versus the pre-v2.0.0 port; low-outlier and threshold fits are unaffected (both
+// legs of the condition are untouched by the narrowing).
 //
 // Debug.WriteLine / swallowed-exception guards (SetInitialParameters' catch,
 // SetDefaultParameters' catch): silent no-throw guards per the repo convention -- the
@@ -351,9 +386,10 @@ class Bulletin17CDistribution : public IGMMModel,
     // invalid-DataFrame branch builds parameter NAME SHELLS (values/bounds left at
     // defaults) so the UI penalty grid has the correct row count before InputData is
     // selected; the full branch seeds values from the distribution constraints (with the
-    // nonparametric ROS override for censored/uncertain data), Uniform(lower, upper)
-    // priors, and one ParameterPenalty per parameter. The catch leaves the lists empty
-    // (silent guard; C# Debug.WriteLine dropped).
+    // nonparametric ROS override for low-outlier/threshold data -- narrowed in v2.0.0, see
+    // the file header), Uniform(lower, upper) priors, and one ParameterPenalty per
+    // parameter. The catch leaves the lists empty (silent guard; C# Debug.WriteLine
+    // dropped).
     void set_default_parameters() override {
         // (Old-handler removal for parameters and parameter penalties is INPC plumbing,
         // skipped.)
@@ -651,31 +687,30 @@ class Bulletin17CDistribution : public IGMMModel,
     // direct deep clone -- see the header note on the preserved observable behavior and
     // the two documented deviations).
     std::unique_ptr<IGMMModel> clone() const override {
-        for (const auto& link : link_controller_.links()) {
-            if (link != nullptr)
-                throw std::logic_error(
-                    "Bulletin17CDistribution::clone(): deep-copying an installed "
-                    "LinkController link is not supported yet (ILinkFunction has no "
-                    "clone(); B10+ follow-up).");
-        }
-
-        // The private raw constructor bypasses set_default_parameters(), exactly like the
-        // C# XElement ctor's _isDeserializing = true suppression: parameters and penalties
-        // are restored verbatim, not reseeded.
-        std::unique_ptr<Bulletin17CDistribution> copy(new Bulletin17CDistribution(RawTag{}));
-        copy->distribution_ = distribution_->clone();
+        std::unique_ptr<Bulletin17CDistribution> copy = clone_core_state();
         if (has_data_frame()) {
             copy->data_frame_ = data_frame().clone();
             // The C# XElement ctor's DataFrame setter reprocesses thresholds even while
             // deserializing.
             copy->data_frame_->process_threshold_series();
         }
-        copy->parameters_ = parameters_;                      // ModelParameter deep-copies
-        copy->parameter_penalties_ = parameter_penalties_;
-        copy->quantile_penalties_ = quantile_penalties_;
-        // penalty_function_ intentionally NOT carried over: the C# XElement round trip
-        // does not serialize it, so the C# clone starts with a null PenaltyFunction.
-        // link_controller_ stays default (all links verified null above).
+        return copy;
+    }
+
+    // Creates a deep clone of this model bound to the SUPPLIED data frame, preserving the
+    // current parameters, parameter penalties, quantile penalties, and link controller
+    // without any data-driven re-initialization (C# line 2451, v2.0.0 addition -- see the
+    // header note above clone() for the full rationale and the two documented deviations
+    // it shares with clone()). Shares clone_core_state() with clone(); the only difference
+    // is which frame gets bound and reprocessed -- the caller's, not this instance's own.
+    std::unique_ptr<Bulletin17CDistribution> clone_with_data_frame(
+        const DataFrame& data_frame) const {
+        std::unique_ptr<Bulletin17CDistribution> copy = clone_core_state();
+        copy->data_frame_ = data_frame.clone();
+        // Mirrors the C# DataFrame setter's ProcessThresholdSeries call; SetDefaultParameters
+        // stays suppressed by the RawTag ctor's deserialization-equivalent bypass, exactly
+        // like clone().
+        copy->data_frame_->process_threshold_series();
         return copy;
     }
 
@@ -862,6 +897,32 @@ class Bulletin17CDistribution : public IGMMModel,
     struct RawTag {};
     explicit Bulletin17CDistribution(RawTag) {}
 
+    // The shared body of clone() / clone_with_data_frame() (C# line 2413 / 2451): both round
+    // trip through the SAME "restore the serialized snapshot" contract, differing only in
+    // which DataFrame gets bound afterward. Deep-copies Distribution/Parameters/
+    // ParameterPenalties/QuantilePenalties via the RawTag ctor (bypassing
+    // set_default_parameters(), exactly like the C# XElement ctor's
+    // `_isDeserializing = true` suppression). DataFrame, PenaltyFunction, and LinkController
+    // are the caller's responsibility: PenaltyFunction is never carried over (the C# XElement
+    // round trip does not serialize it) and link_controller_ stays default-constructed after
+    // the guard below verifies no link is installed (a non-empty LinkController cannot yet be
+    // deep-copied -- the ported ILinkFunction has no clone(); B10+ follow-up).
+    std::unique_ptr<Bulletin17CDistribution> clone_core_state() const {
+        for (const auto& link : link_controller_.links()) {
+            if (link != nullptr)
+                throw std::logic_error(
+                    "Bulletin17CDistribution: deep-copying an installed LinkController link "
+                    "is not supported yet (ILinkFunction has no clone(); B10+ follow-up).");
+        }
+
+        std::unique_ptr<Bulletin17CDistribution> copy(new Bulletin17CDistribution(RawTag{}));
+        copy->distribution_ = distribution_->clone();
+        copy->parameters_ = parameters_;                      // ModelParameter deep-copies
+        copy->parameter_penalties_ = parameter_penalties_;
+        copy->quantile_penalties_ = quantile_penalties_;
+        return copy;
+    }
+
     // Sets up the single default quantile penalty (C# line 817; the handler rewiring is
     // INPC plumbing, skipped).
     void set_up_quantile_penalties() { quantile_penalties_.emplace_back(); }
@@ -880,9 +941,11 @@ class Bulletin17CDistribution : public IGMMModel,
     // The shared body of SetInitialParameters / SetDefaultParameters (C# duplicates it
     // verbatim in both methods): collect the explicit data values, get the distribution's
     // MLE parameter constraints, and override the initials with nonparametric ROS moment
-    // estimates when censored/uncertain data exists. Throws (into the callers' silent
-    // catch guards) when the frame is absent or a capability cast fails -- the C#
-    // NullReference/InvalidCast exceptions those same catches swallow.
+    // estimates when low outliers or a threshold series are present (v2.0.0, upstream-sync
+    // Task 18, c420d48 -- narrowed from also firing on bare uncertain/interval data; see the
+    // file header). Throws (into the callers' silent catch guards) when the frame is absent
+    // or a capability cast fails -- the C# NullReference/InvalidCast exceptions those same
+    // catches swallow.
     void compute_default_initials(std::vector<double>& initials, std::vector<double>& lowers,
                                   std::vector<double>& uppers) const {
         if (!has_data_frame())
@@ -907,12 +970,12 @@ class Bulletin17CDistribution : public IGMMModel,
                 "Distribution does not implement IMaximumLikelihoodEstimation.");
         ml_estimator->get_parameter_constraints(data, initials, lowers, uppers);
 
-        // Override initials with nonparametric moment estimates when censored/uncertain
-        // data exists. Use ROS (Regression on Order Statistics) to impute low-outlier
-        // values, which avoids the severe moment distortion caused by log-transforming
-        // near-zero or zero flows.
-        if (df.number_of_low_outliers() > 0 || df.uncertain_series().count() > 0 ||
-            df.interval_series().count() > 0 || df.threshold_series().count() > 0) {
+        // Override initials with nonparametric moment estimates when low outliers or a
+        // threshold series are present (v2.0.0: uncertain/interval data ALONE no longer
+        // triggers this -- see the file header). Use ROS (Regression on Order Statistics)
+        // to impute low-outlier values, which avoids the severe moment distortion caused by
+        // log-transforming near-zero or zero flows.
+        if (df.number_of_low_outliers() > 0 || df.threshold_series().count() > 0) {
             bool use_log10 = distribution_type() == DistributionType::LogNormal ||
                              distribution_type() == DistributionType::LogPearsonTypeIII;
             std::optional<std::vector<double>> np_moments =

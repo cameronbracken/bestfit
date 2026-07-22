@@ -60,6 +60,7 @@ set(BF_TESTS
   test_singular_value_decomposition
   test_linear_regression
   test_bulletin17c
+  test_bulletin17c_clone_with_data_frame
   test_p1_iunivariate_model
   test_box_cox
   test_time_series

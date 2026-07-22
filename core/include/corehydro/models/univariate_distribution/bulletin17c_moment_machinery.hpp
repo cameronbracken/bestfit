@@ -1,5 +1,13 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
-//              Bulletin17CDistribution.cs @ fc28c0c
+//              Bulletin17CDistribution.cs @ c2e6192
+//
+// v2.0.0 (upstream-sync Task 18): re-verified against c2e6192 -- `git diff fc28c0c..v2.0.0`
+// over this region (MomentConditions through QuantileVariance) is mojibake-only doc-comment
+// re-encoding (stray UTF-8 math glyphs like mu/sigma/times collapsed to '?'/'�' by a
+// non-UTF-8-safe commit somewhere in the file's history) plus one stale parameter-name doc
+// fix (SetPenaltyFunction's `seed` -> `prng`, in the companion class header, not this
+// file). No method body in this slice changed; the provenance bump records re-verification,
+// not a port.
 //
 // The Bulletin17CDistribution MOMENT MACHINERY (Task B10): the out-of-line bodies of the
 // methods declared in bulletin17c_distribution.hpp -- MomentConditions (C# 1043),
