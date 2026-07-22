@@ -1451,6 +1451,64 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   accessors on the ensemble CI (`analysis_results_`) plus a chaotic-sensitivity check on that band
   before pinning it, the same treatment applied to the seeded analysis curves.
 
+## FIDELITY (T19b) — Interval-censored B17C bootstrap: GMM stopping-rule knife edge, not a BFGS port divergence
+
+- **Where:** `RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs` `EstimateIterative` (@ c2e6192)
+  driving `Numerics/Mathematics/Optimization/Local/BFGS.cs` (@ 2a0357a), reached through
+  `Bulletin17CAnalysis.GetParameterSetsFromParametricBootstrap`'s warm-start arm
+  (`cloneWithDataFrame == true`). Ported at
+  `core/include/corehydro/estimation/generalized_method_of_moments.hpp` and
+  `core/include/corehydro/numerics/math/optimization/bfgs.hpp`.
+- **Symptom:** for the `lp3_bootstrap_warm_start` fixture configuration (20 exact peaks + 1
+  interval-censored observation, B = 50, seed 12345) the C++ core reports
+  `boot_total_retries = 2` where the real C# reports `0`. Two replicates (idx 17 and 32) exhaust
+  the 2000-evaluation BFGS budget and are retried. The resulting ensemble `mean_curve` differs
+  from C# by ~1.4e-4 relative, so it is not pinned.
+- **What was ruled out.** The BFGS transcription is faithful: `BFGS.cs`, `Optimizer.cs`,
+  `NumericalDerivative.Gradient`, and `Tools.SumProduct`/`Sqr`/`Distance` were compared
+  line-for-line against the 2a0357a pin with no difference. Decisively, the **real C# BFGS
+  reproduces the stall**: driven through the emitter at the same near-stationary warm start on the
+  same replicate surface (idx 32, the pass-2 point, same analytic GMM gradient, same bounds, same
+  2000-evaluation cap and 1e-8 tolerances) it terminates `MaximumFunctionEvaluationsReached` after
+  95 outer iterations and 2000 evaluations, moving Q only from 5.386e-16 to 5.113e-16. The
+  per-iteration cost matches the C++ core exactly (~21 evaluations: one trial step plus 20 failed
+  Zoom bisections), i.e. both runtimes enter the same non-progressing outer loop. The bootstrap
+  resamples themselves are identical across runtimes to ~1e-13, so the divergence is not in the
+  seeded resampling path either.
+- **Actual mechanism.** The divergence is upstream of BFGS, in whether a **third** iterative-GMM
+  refinement pass runs at all. On these interval-censored resamples the LP3 skew direction is
+  nearly flat: at the optimum Q is ~1e-17, and BFGS's relative-function-change stop
+  (`2|df| / (|f| + |f'| + 1e-8) < 1e-8`) therefore resolves the skew only to a few 1e-6. The C++
+  and C# pass-1 fits accordingly land ~1.8e-6 apart — both fully converged, both indistinguishable
+  at the stopping criterion's resolution. `EstimateIterative` then compares consecutive passes with
+  `Tools.Distance(newValues, oldValues) < AbsoluteTolerance` (1e-8), and the two runs straddle that
+  threshold: **1.23e-8 in C++** (a third pass runs, starts at a stationary point, stalls, and the
+  replicate is retried) versus **3.3e-11 in C#** (converged at pass 2, no third pass). A knife-edge
+  stopping-rule comparison, amplified by a flat objective direction.
+- **Upstream weakness this exposes.** `EstimateIterative`'s convergence test is an ABSOLUTE
+  parameter distance against a tolerance that is also handed to the optimizer as a RELATIVE
+  function tolerance. Whenever the objective's resolution in some parameter direction is coarser
+  than `AbsoluteTolerance`, the pass-to-pass distance is dominated by optimizer stopping noise and
+  the number of GMM passes becomes runtime-dependent. Additionally, BFGS has no stagnation exit:
+  when a line search returns the starting point, `xi` and `dg` both become zero, the inverse-Hessian
+  update is skipped, the search direction is unchanged, and the outer loop repeats identically until
+  the evaluation cap. The Numerical Recipes `dfpmin` this is derived from guards exactly that case
+  with a `TOLX` parameter-change test — `TOLX` is declared in `BFGS.Optimize` but never used.
+- **What the fixtures assert:** per the binding rule, the retry counters and the ensemble
+  `mean_curve` for `lp3_bootstrap_warm_start` are **not pinned** — no `oracle_skip`, no loosened
+  tolerance. The deterministic quantities that DO reproduce (the parent GMM `parameter`, the
+  replicate/valid/failed counts, zero Mahalanobis rejections) stay pinned to real C#. Same-language
+  completeness is covered by `core/tests/test_bulletin17c_analysis.cpp`
+  `test_run_bootstrap_warm_start_structural`.
+- **Suggested action:** none required for correctness — the port is faithful and both runtimes
+  produce equally converged fits. If cross-language retry parity is wanted later, the fix belongs
+  upstream: give `EstimateIterative` a scale-relative parameter-convergence test (or a separate
+  parameter tolerance), and/or restore the `dfpmin` `TOLX` stagnation exit in `BFGS.Optimize` so a
+  stationary warm start returns immediately instead of burning the evaluation budget. Either change
+  would alter oracle values and must be paired with a re-pin.
+
+---
+
 ---
 
 ## How to work this list later
