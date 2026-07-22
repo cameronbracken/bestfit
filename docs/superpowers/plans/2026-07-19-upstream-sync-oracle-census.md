@@ -309,3 +309,61 @@ ctest --test-dir core/build -R fixtures --output-on-failure
 
 Confirms the C++ core still matches the OLD (unmodified) fixtures bit-for-bit; only the C# side
 moved under the submodule bump, exactly as expected before any porting begins.
+
+---
+
+# Closeout (Task 21): final oracle census
+
+Date: 2026-07-21. All 21 porting tasks landed; submodules still pinned at Numerics `v2.1.4`
+(`2a0357a`) and RMC-BestFit `v2.0.0` (`c2e6192`), both working trees clean. Measured on the
+final tree.
+
+## Before / after
+
+| Stage | Gate reproduced | Gate failed | Gate skipped | ctest | testthat | pytest |
+|---|---|---|---|---|---|---|
+| Pre-sync baseline (OLD pins: Numerics `a2c4dbf`, BestFit `fc28c0c`) | 4109 | 0 | 11 | 69/69 | not recorded | not recorded |
+| T0 census (pins bumped, **no fixture edited**) | 4099 | 10 | 11 | 69/69 | not run | not run |
+| Final, after T1-T21 | **4497** | **0** | **11** | **78/78** | **4253** | **789** |
+
+Reading the table: the bump moved exactly 10 previously-reproducing values (4109 = 4099 + 10, the
+assertion total unchanged because no fixture was touched in T0). Every one of those 10 was
+re-pinned against the real v2.1.4/v2.0.0 libraries by the task that owned it, and the corpus then
+grew by 388 assertions of NEW coverage for the ported deltas (4497 - 4109). Nothing was masked to
+get there: no `oracle_skip` flag exists anywhere in `fixtures/` (the four `oracle_skip` string hits
+are prose in `source` notes saying the opposite -- "never oracle_skip-masked"), and no tolerance was
+loosened. Where a seeded short-chain curve could not be pinned C#-vs-C++ (the documented chaotic
+short-chain sensitivity), the fixture asserts the deterministic structural invariants instead.
+
+## The 11 skips
+
+Unchanged from the pre-sync baseline, and they are all one case: the
+`generalized_extreme_value.json` `standard_error` case's bespoke GEV standard-error assertions --
+`parameter_covariance` (6), `quantile_gradient` (3), `quantile_variance` (1), `quantile_se` (1).
+The emitter returns `null` for those four fixture methods (`tools/oracle_emitter/Program.cs`, the
+"GEV bespoke standard-error methods -- validated in Phase 0, not re-checked here" switch arm), and
+`null` is what the gate counts as a skip. They are validated in C++ by
+`core/tests/test_gev_estimation.cpp`. No new skip appeared during the sync -- the count is 11 at
+the old pins, 11 at the T0 census, and 11 on the final tree, and the `quantile_variance`
+assertions in `gmm_bulletin17c_smoke.json` are NOT skipped (they route through the GMM dispatcher,
+not the univariate one), which is why the fixture corpus contains 13 assertions with those method
+names but the gate reports 11.
+
+## Task 21's own additions
+
+Three C# deltas in the four TimeSeries model files were found by the Task 16 review, left
+header-severed, and owned by no task. All three are model-layer library surface reachable from the
+public setters (not GUI/XML/async), so all three were ported here:
+
+1. `ResetDefaultTrainingStepsForNewTimeSeries` -- attaching a different response series now
+   discards a manual training-window edit and restores the default 80% split (all four families).
+2. The `TimeInterval.Irregular` `Validate` guard (all four families). New cross-language oracle:
+   `fixtures/estimation/time_series_irregular_interval.json`.
+3. ARIMAX `InferSeasonalPeriod` `OneYear` 1 -> 10. New cross-language oracle:
+   `fixtures/estimation/time_series_arimax_seasonal_sim.json` (the same model/parameters/seed on
+   OneYear vs OneMonth, so the two cases differ ONLY through the inferred period).
+
+Plus the Validate fixture-surface symmetry fix: the emitter's older
+`BuildEstimation`/`DispatchEstimation` path (`UnivariateDistributionModelBase` families) gained the
+`Validate` target and the two dispatch methods the `IModel` path already had, exercised by
+`fixtures/estimation/univariate_model_validate.json`. See `fixtures/README.md`.

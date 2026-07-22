@@ -1983,6 +1983,12 @@ static (BestFitModels.UnivariateDistributionModelBase model, object? estimator, 
             construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
         return (model, null, draws);
     }
+    // Validate (Task 16 on the IModel path; widened to this path in Task 21): builds the model
+    // and stops -- no estimator, no seeded draw.
+    if (target == "Validate")
+    {
+        return (model, null, null);
+    }
     if (target == "MaximumLikelihood")
     {
         var method = construct.TryGetProperty("optimizer", out var o)
@@ -2527,6 +2533,16 @@ static double DispatchEstimation(
     // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
     if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
         return DispatchModelDataFrame(ec.model, m, a);
+    // The Validate surface (Task 16, widened to this path in Task 21 so the older
+    // UnivariateDistributionModelBase families reach the same oracle the IModel path already had
+    // -- see DispatchEstimationGeneral's identical arm for the semantics).
+    if (m == "is_valid" || m == "validation_message_contains")
+    {
+        var (isValid, messages) = ec.model.Validate();
+        if (m == "is_valid") return isValid ? 1.0 : 0.0;
+        string needle = a[0].GetString()!;
+        return messages.Any(msg => msg.Contains(needle)) ? 1.0 : 0.0;
+    }
     switch (ec.estimator)
     {
         case MaximumLikelihood mle:

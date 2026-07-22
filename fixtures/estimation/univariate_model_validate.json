@@ -1,0 +1,68 @@
+{
+  "target": "Validate",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task 21): RMC.BestFit UnivariateDistributionModel.Validate() driven on the real library (Numerics @ 2a0357a, RMC-BestFit @ c2e6192) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. Task 16 introduced the Validate target but wired it only on the IModel/Phase-7a families; this file closes the asymmetry by exercising the same is_valid / validation_message_contains surface on the OLDER UnivariateDistributionModelBase build+dispatch path (the emitter's BuildEstimation/DispatchEstimation, widened in Task 21 to match BuildEstimationGeneral/DispatchEstimationGeneral). The assertion pinned is the log-support check: a log-family parent rejects a non-positive exact observation, the same data passes under a non-log family, and the same family passes on all-positive data -- so the check is discriminating in all three directions. Structural check only: validation_message_contains is a substring probe, not a byte-exact pin of the message text.",
+  "datasets": {
+    "positive": [
+      12.4, 15.1, 9.8, 22.0, 18.3, 11.6, 25.7, 14.2, 19.9, 16.5,
+      13.1, 21.4, 17.8, 10.3, 23.6
+    ],
+    "with_non_positive": [
+      12.4, 15.1, 9.8, 22.0, 18.3, 11.6, 25.7, 14.2, 19.9, 16.5,
+      13.1, 21.4, 17.8, 0.0, 23.6
+    ]
+  },
+  "cases": [
+    {
+      "name": "log_normal_non_positive_data_invalid",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "LogNormal",
+          "dataset": "with_non_positive"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["Log based distributions cannot be used"],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "log_normal_positive_data_valid",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "LogNormal",
+          "dataset": "positive"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 1, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["Log based distributions cannot be used"],
+          "expected": 0,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "normal_non_positive_data_valid",
+      "construct": {
+        "model": {
+          "type": "univariate_distribution",
+          "family": "Normal",
+          "dataset": "with_non_positive"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 1, "mode": "equal" }
+      ]
+    }
+  ]
+}

@@ -250,7 +250,12 @@ hardcoded literal, so there is no literal to transcribe. Methods:
   `core/tests/test_multivariate_normal_api.cpp`, which also covers the stateful
   `TrySetParameters`/`TrySetCovariance`/`IsDensityValid` non-throwing-mutation sequence (each
   assertion depends on the PRECEDING one having mutated the SAME object, which doesn't fit this
-  kind's per-case-not-per-assertion statefulness contract below).
+  kind's per-case-not-per-assertion statefulness contract below). Task 21 completeness note: the
+  C++ runner and the emitter carry an `is_density_valid []` dispatch arm that NO committed case
+  uses, and that is deliberate -- a freshly constructed MultivariateNormal always reports `true`
+  (a non-positive-definite covariance throws at construction), so a stateless assertion would be
+  vacuous rather than discriminating. The arm is only meaningful after a failed
+  `try_set_covariance`, which is exactly the ctest sequence above.
 - `cdf_xy_after_set_parameters [[x1_new...], [x2_new...], [[p_row0...], ...], x1_eval, x2_eval]`
   (BivariateEmpirical only; v2.1.4) -- verifies the `SetParameters` stale-Bilinear-cache fix in
   ONE self-contained call: `cdf(x1_eval, x2_eval)` once against the CURRENT grid (forces the
@@ -1290,11 +1295,22 @@ estimator):
 
 C++/the emitter dispatch these straight off the cached model; R (`ch_model_validate_`) and Python
 (`model_validate`) lazily build + memoize one `validate()` call per case (the DataFrame/`bic`
-lazy-rebuild precedent -- `validate()` is a pure function of the constructed model). Currently
-wired only on the `BuildEstimationGeneral`/`DispatchEstimationGeneral` (`IModel`) path the four
-Phase 7a families use (`time_series`/`spatial_gev`/`rating_curve`/`bivariate`); the
-`UnivariateDistributionModelBase`-only `BuildEstimation`/`DispatchEstimation` path does not (yet)
-expose it.
+lazy-rebuild precedent -- `validate()` is a pure function of the constructed model).
+
+**Task 21 made the surface symmetric across BOTH estimation paths.** The C++, R and Python runners
+were always symmetric (all three route every `model_estimation` construct through the one shared
+spec builder, so `ch_model_validate_` / `model_validate` / `dispatch_model_validate` covered every
+model type it can build). Only the emitter was split: Task 16 wired the target and the two methods
+into `BuildEstimationGeneral`/`DispatchEstimationGeneral` (the `IModel` path the four Phase 7a
+families use -- `time_series`/`spatial_gev`/`rating_curve`/`bivariate`) but not into the older
+`BuildEstimation`/`DispatchEstimation` path (`UnivariateDistributionModelBase`: `univariate_distribution`,
+`mixture`, `competing_risks`, `point_process`). Task 21 added the same `Validate` target arm and
+the same two dispatch methods there, and `fixtures/estimation/univariate_model_validate.json`
+exercises them so the widened arm carries a real oracle rather than sitting dead. The one model
+type still outside the Validate surface is `bulletin17c`: its GMM construct path returns a concrete
+`Bulletin17CDistribution` and no `ModelBase`/`IModel` handle (see `model_spec.hpp`'s
+`build_bulletin17c_model` note), so there is nothing for the shared dispatcher to call
+`validate()` on; the B17C validation surface is covered by `core/tests/test_bulletin17c.cpp`.
 
 **Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
 port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of
