@@ -622,6 +622,18 @@ def _dispatch_estimation(
             # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain".
             return frame[f"pp_{args[0]}"][int(args[1])]
         return frame[method]
+    # The Validate surface (Task 16, works under any target -- it reads the model, not the
+    # estimator): lazily build + memoize _core.model_validate's result in the case's result
+    # dict (the _data_frame lazy-rebuild precedent). validation_message_contains is a
+    # structural substring check, not a byte-exact C# message pin (see test_fixtures.cpp's
+    # dispatch_model_validate for the rationale).
+    if method in ("is_valid", "validation_message_contains"):
+        if "_validate" not in result:
+            result["_validate"] = _core.model_validate(model_json, data)
+        validation = result["_validate"]
+        if method == "is_valid":
+            return 1.0 if validation["is_valid"] else 0.0
+        return 1.0 if any(args[0] in m for m in validation["messages"]) else 0.0
     raise KeyError(f"unknown model_estimation fixture method: {method}")
 
 
@@ -636,6 +648,11 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
             model_json, data, int(construct["sample_size"]), int(construct.get("seed", -1))
         )
         result = {"simulated": draws}
+        optimizer = ""
+    elif target == "Validate":
+        # Builds the model only (no estimator, no draw); every assertion reads the
+        # lazily-memoized _validate entry (see _dispatch_estimation above).
+        result = {}
         optimizer = ""
     elif target == "BayesianAnalysis":
         sampler = construct.get("sampler", "DEMCzs")

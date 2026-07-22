@@ -228,6 +228,10 @@ ch_model_data_frame_ <- function(model_json, dataset) {
   .Call(`_corehydror_ch_model_data_frame_`, model_json, dataset)
 }
 
+ch_model_validate_ <- function(model_json, dataset) {
+  .Call(`_corehydror_ch_model_validate_`, model_json, dataset)
+}
+
 ch_model_simulate_ <- function(model_json, dataset, sample_size, seed) {
   .Call(`_corehydror_ch_model_simulate_`, model_json, dataset, sample_size, seed)
 }

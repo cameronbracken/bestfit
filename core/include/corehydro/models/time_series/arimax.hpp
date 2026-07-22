@@ -1,4 +1,23 @@
-// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Models/TimeSeries/ARIMAX.cs @ fc28c0c
+// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Models/TimeSeries/ARIMAX.cs @ c2e6192
+//
+// v2.0.0 (upstream-sync Task 16, f140c4d + 0d6821d): SetTrainingData's BoxCox/YeoJohnson
+// branches (Step 1, transforming the whole raw series) now guard against a non-finite fitted
+// lambda (Task 2's hardened fit_lambda already returns NaN instead of throwing for a
+// degenerate/unsupported sample -- see box_cox.hpp / yeo_johnson.hpp). On failure:
+// lambda_/log_jacobian_ reset to 0, transformed_time_series_/diff_series_/training_time_series_
+// ALL replaced with an empty series, transform_fit_validation_message_ set to the C#-exact
+// message text, and the branch returns early (Steps 2-4 -- differencing, the training-series
+// slice, and the raw-value log-jacobian -- never run). Validate appends that message (and flips
+// is_valid false) as the LAST check, mirroring the C# ordering. Deliberately NOT ported: the C#
+// `catch (ArithmeticException)` branch around FitLambda (with its "Solver message: ..." suffix)
+// has no C++ analog -- the ported fit_lambda never throws, it always returns a double (possibly
+// NaN), so only the C# `!double.IsFinite(_lambda)` branch (the plain message, no solver-text
+// suffix) is reachable here. Also SKIPPED (XML/GUI-only, no oracle-visible C++ surface, not in
+// this task's scope): the XElement ctor's TrainingTimeSteps/UseDefaultTrainingSteps attribute
+// restoration + explicit SetTrainingData() call, ResetDefaultTrainingStepsForNewTimeSeries (the
+// TimeSeries-setter training-window reset), the new TimeInterval.Irregular Validate guard, and
+// the unrelated InferSeasonalPeriod OneYear cycle-length change (1 -> 10, ARIMAX.cs:880) -- not
+// in this task's scope per the census/plan.
 //
 // AutoRegressive Integrated Moving Average with eXogenous variables (ARIMAX). The richest
 // TimeSeries ModelBase family: it extends the ARIMA (T2) differenced + transformed mean with
@@ -1119,6 +1138,10 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
                         "characteristic equation roots.");
             }
         }
+        if (transform_fit_validation_message_) {
+            result.is_valid = false;
+            result.validation_messages.push_back(*transform_fit_validation_message_);
+        }
         return result;
     }
 
@@ -1230,6 +1253,7 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     //     via the P2 TimeSeries.Difference(1, d); training series is the first
     //     effectiveTrainingSteps of _diffSeries. Jacobian window: max(0, d + maxOrder) .. TTS-1. ---
     void set_training_data() {
+        transform_fit_validation_message_.reset();
         if (!time_series_ || training_time_steps_ == 0) return;
 
         int max_order = std::max(ar_order_p_, std::max(ma_order_q_, x_order_b_));
@@ -1248,6 +1272,17 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             }
         } else if (transform_type_ == Transform::BoxCox) {
             lambda_ = numerics::data::BoxCox::fit_lambda(time_series_->values_to_list());
+            if (!numerics::is_finite(lambda_)) {
+                lambda_ = 0;
+                log_jacobian_ = 0;
+                transformed_time_series_ = TimeSeries(time_series_->time_interval());
+                diff_series_ = TimeSeries(time_series_->time_interval());
+                training_time_series_ = TimeSeries(time_series_->time_interval());
+                transform_fit_validation_message_ =
+                    "Error: Box-Cox lambda estimation failed. Select a different transform or "
+                    "revise the time-series data.";
+                return;
+            }
             for (int i = 0; i < time_series_->count(); ++i) {
                 transformed.add((*time_series_)[i].clone());
                 transformed[i].set_value(
@@ -1255,6 +1290,17 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             }
         } else if (transform_type_ == Transform::YeoJohnson) {
             lambda_ = numerics::data::YeoJohnson::fit_lambda(time_series_->values_to_list());
+            if (!numerics::is_finite(lambda_)) {
+                lambda_ = 0;
+                log_jacobian_ = 0;
+                transformed_time_series_ = TimeSeries(time_series_->time_interval());
+                diff_series_ = TimeSeries(time_series_->time_interval());
+                training_time_series_ = TimeSeries(time_series_->time_interval());
+                transform_fit_validation_message_ =
+                    "Error: Yeo-Johnson lambda estimation failed. Select a different transform "
+                    "or revise the time-series data.";
+                return;
+            }
             for (int i = 0; i < time_series_->count(); ++i) {
                 transformed.add((*time_series_)[i].clone());
                 transformed[i].set_value(
@@ -1318,6 +1364,9 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     double lambda_ = 0;
     double lambda2_ = 0;
     double log_jacobian_ = 0;
+    // v2.0.0: set by set_training_data() when BoxCox/YeoJohnson FitLambda returns a non-finite
+    // lambda; surfaced by validate() (C# _transformFitValidationMessage).
+    std::optional<std::string> transform_fit_validation_message_;
     bool include_intercept_ = true;
     bool include_seasonality_ = false;
     int seasonal_period_ = 12;

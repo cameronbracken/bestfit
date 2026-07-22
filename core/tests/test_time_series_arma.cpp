@@ -127,6 +127,24 @@ bool messages_contain(const corehydro::models::ValidationResult& r, const std::s
     return false;
 }
 
+// 60 annual observations (1960-2019 by index) that make the Box-Cox lambda objective
+// non-finite: a zero at index 0 fails can_fit_lambda's positivity requirement (mirrors C#'s
+// CreateBoxCoxLambdaFailureTimeSeries).
+TimeSeries make_box_cox_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(i == 0 ? 0.0 : 10.0);
+    return ts;
+}
+
+// 60 annual observations, all -DBL_MAX: a degenerate constant sample fails can_fit_lambda's
+// non-degeneracy requirement for Yeo-Johnson (mirrors C#'s
+// CreateYeoJohnsonLambdaFailureTimeSeries).
+TimeSeries make_yeo_johnson_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(-std::numeric_limits<double>::max());
+    return ts;
+}
+
 // ============================ AutoRegressive ============================
 
 void test_ar_constructors() {
@@ -384,6 +402,24 @@ void test_ar_validate() {
     ns.parameters()[1].set_value(1.5);
     auto rns = ns.validate();
     CHECK_TRUE(messages_contain(rns, "stationar"));
+}
+
+// Transcribes AutoRegressiveTests.cs's Test_{BoxCoxTransform,YeoJohnsonTransform}Transform_
+// LambdaFitFailure_ReturnsValidationError (BestFit v2.0.0, f140c4d): a degenerate series that
+// makes FitLambda return a non-finite value must be captured as a validation error message
+// (not a crash or a silently-NaN-propagating fit).
+void test_ar_transform_lambda_failure() {
+    AutoRegressive bc(make_box_cox_lambda_failure_series(), 1);
+    bc.set_transform_type(Transform::BoxCox);
+    auto rbc = bc.validate();
+    CHECK_TRUE(!rbc.is_valid);
+    CHECK_TRUE(messages_contain(rbc, "Box-Cox lambda estimation failed"));
+
+    AutoRegressive yj(make_yeo_johnson_lambda_failure_series(), 1);
+    yj.set_transform_type(Transform::YeoJohnson);
+    auto ryj = yj.validate();
+    CHECK_TRUE(!ryj.is_valid);
+    CHECK_TRUE(messages_contain(ryj, "Yeo-Johnson lambda estimation failed"));
 }
 
 void test_ar_set_parameter_values() {
@@ -690,6 +726,22 @@ void test_ma_validate() {
     CHECK_TRUE(messages_contain(ns.validate(), "invertibility"));
 }
 
+// Transcribes MovingAverageTests.cs's Test_{BoxCoxTransform,YeoJohnsonTransform}Transform_
+// LambdaFitFailure_ReturnsValidationError (BestFit v2.0.0, f140c4d).
+void test_ma_transform_lambda_failure() {
+    MovingAverage bc(make_box_cox_lambda_failure_series(), 1);
+    bc.set_transform_type(Transform::BoxCox);
+    auto rbc = bc.validate();
+    CHECK_TRUE(!rbc.is_valid);
+    CHECK_TRUE(messages_contain(rbc, "Box-Cox lambda estimation failed"));
+
+    MovingAverage yj(make_yeo_johnson_lambda_failure_series(), 1);
+    yj.set_transform_type(Transform::YeoJohnson);
+    auto ryj = yj.validate();
+    CHECK_TRUE(!ryj.is_valid);
+    CHECK_TRUE(messages_contain(ryj, "Yeo-Johnson lambda estimation failed"));
+}
+
 void test_ma_set_parameter_values() {
     TimeSeries ts = make_sample_series();
     MovingAverage m(ts, 1);
@@ -812,6 +864,7 @@ int main() {
     test_ar_generate_random_values();
     test_ar_stationarity();
     test_ar_validate();
+    test_ar_transform_lambda_failure();
     test_ar_set_parameter_values();
     test_ar_engineering_and_edges();
     test_ar_transform_training_jeffreys();
@@ -824,6 +877,7 @@ int main() {
     test_ma_generate_random_values();
     test_ma_invertibility();
     test_ma_validate();
+    test_ma_transform_lambda_failure();
     test_ma_set_parameter_values();
     test_ma_engineering_and_edges();
     test_ma_transform_training_jeffreys();

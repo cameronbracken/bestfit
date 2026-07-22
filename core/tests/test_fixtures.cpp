@@ -2048,6 +2048,12 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
                                                   construct.value("seed", -1));
         return EstimationCase{std::move(model), std::monostate{}, std::move(draws)};
     }
+    // Validate (Task 16): builds the model and stops -- no estimator, no seeded draw. Lets a
+    // case assert `is_valid`/`validation_message_contains` (below) against ModelBase::validate()
+    // without needing to fit or simulate, e.g. the TimeSeries transform-lambda-failure cases.
+    if (target == "Validate") {
+        return EstimationCase{std::move(model), std::monostate{}, {}};
+    }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori") {
         auto method = construct.contains("optimizer")
                           ? parse_optimization_method(construct["optimizer"].get<std::string>())
@@ -2133,6 +2139,26 @@ static double dispatch_model_data_frame(corehydro::models::ModelBase& model, con
     throw std::runtime_error("unknown plotting_position series kind: " + kind);
 }
 
+// The Validate surface (Task 16): works under ANY target (it reads the model, not the
+// estimator), mirroring the M14 DataFrame surface. `is_valid` returns ModelBase::validate()'s
+// bool as 1.0/0.0 (the `converged_within_tolerance` boolean-as-double precedent);
+// `validation_message_contains [substring]` returns 1.0 if any validation message contains the
+// given substring, else 0.0 -- a structural check (not a byte-exact C# message pin), since the
+// fixture-checkable contract here is "the failure is captured as a message", not the message's
+// literal text (the C++ message text itself is hand-verified against C# in the model headers).
+static double dispatch_model_validate(corehydro::models::ModelBase& model, const std::string& m,
+                                      const json& a) {
+    auto result = model.validate();
+    if (m == "is_valid") return result.is_valid ? 1.0 : 0.0;
+    if (m == "validation_message_contains") {
+        std::string needle = a[0].get<std::string>();
+        for (const auto& msg : result.validation_messages)
+            if (msg.find(needle) != std::string::npos) return 1.0;
+        return 0.0;
+    }
+    throw std::runtime_error("unknown validate fixture method: " + m);
+}
+
 // GMM shares an accessor family with ML/MAP but its accessors are non-const (they cache Sigma
 // on demand), so dispatch takes a non-const EstimationCase& (the caller's `ec` is a non-const
 // local). quantile_variance lives on the B17C MODEL, not the estimator, so its arm recovers the
@@ -2145,11 +2171,13 @@ static double dispatch_estimation(EstimationCase& ec, const std::string& m, cons
     // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
     if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
         return dispatch_model_data_frame(*ec.model, m, a);
+    if (m == "is_valid" || m == "validation_message_contains")
+        return dispatch_model_validate(*ec.model, m, a);
     return std::visit(
         [&](auto& est) -> double {
             using Held = std::decay_t<decltype(est)>;
             if constexpr (std::is_same_v<Held, std::monostate>) {
-                throw std::runtime_error("unknown Simulation fixture method: " + m);
+                throw std::runtime_error("unknown Simulation/Validate fixture method: " + m);
             } else {
                 using Estimator = std::decay_t<decltype(*est)>;
                 if constexpr (std::is_same_v<Estimator,

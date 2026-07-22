@@ -967,7 +967,8 @@ do not paper over it with a looser tolerance.
 {
   "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" |
                                             // "BayesianAnalysis" | "Simulation" |
-                                            // "GeneralizedMethodOfMoments" (B11)
+                                            // "GeneralizedMethodOfMoments" (B11) |
+                                            // "Validate" (Task 16)
   "kind":    "model_estimation",
   "source":  "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs ; core/tests/test_maximum_likelihood.cpp",
   "datasets": { "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600] },
@@ -1272,6 +1273,28 @@ C++/the emitter dispatch these straight off the cached model's frame; R
 case through the shared spec builder and memoize it (a rebuild is byte-identical -- the frame
 surface is a pure function of the construct, never of the fit -- the `bic` lazy-rebuild
 precedent).
+
+**Validate surface + `"Validate"` target (Task 16):** `target: "Validate"` builds the model and
+stops -- no estimator, no seeded draw -- for cases that only need to assert `ModelBase::validate()`
+(added for the TimeSeries BoxCox/YeoJohnson transform-lambda-failure fixtures, whose failure is
+oracle-visible ONLY through `Validate()`, not through any numeric estimator surface). Two methods,
+readable under ANY target (mirroring the DataFrame surface above -- they read the model, not the
+estimator):
+
+- `is_valid []` -- `validate().is_valid` as `1.0`/`0.0` (the `converged_within_tolerance`
+  boolean-as-double precedent).
+- `validation_message_contains [substring]` -- `1.0` if any validation message contains
+  `substring`, else `0.0`. This is a STRUCTURAL check, not a byte-exact pin of the C# message
+  text -- the fixture-checkable contract is "the failure is captured as a message", and the C++
+  message text itself is hand-verified against the C# source in the model headers.
+
+C++/the emitter dispatch these straight off the cached model; R (`ch_model_validate_`) and Python
+(`model_validate`) lazily build + memoize one `validate()` call per case (the DataFrame/`bic`
+lazy-rebuild precedent -- `validate()` is a pure function of the constructed model). Currently
+wired only on the `BuildEstimationGeneral`/`DispatchEstimationGeneral` (`IModel`) path the four
+Phase 7a families use (`time_series`/`spatial_gev`/`rating_curve`/`bivariate`); the
+`UnivariateDistributionModelBase`-only `BuildEstimation`/`DispatchEstimation` path does not (yet)
+expose it.
 
 **Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
 port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of

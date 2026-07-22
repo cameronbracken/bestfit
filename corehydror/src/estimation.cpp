@@ -346,6 +346,27 @@ list ch_model_data_frame_(std::string model_json, doubles dataset) {
     });
 }
 
+// --- Validate (Task 16) -----------------------------------------------------------------
+//
+// The estimator-less `Validate` target: builds the model through the shared spec builder and
+// calls `ModelBase::validate()` ONCE (a pure function of the constructed model, so a rebuild
+// is fine -- the `bic`/DataFrame lazy-rebuild precedent). Returns `is_valid` + the flat message
+// list; test-fixtures.R's `is_valid`/`validation_message_contains` dispatch arms read it. Added
+// for the TimeSeries transform-lambda-failure fixtures (BestFit v2.0.0): the failure is only
+// oracle-visible through Validate(), not through any numeric estimator surface.
+[[cpp11::register]]
+list ch_model_validate_(std::string model_json, doubles dataset) {
+    std::unique_ptr<models::ModelBase> model = build_spec_model(model_json, dataset);
+    models::ValidationResult result = model->validate();
+    writable::strings messages(static_cast<R_xlen_t>(result.validation_messages.size()));
+    for (std::size_t i = 0; i < result.validation_messages.size(); ++i)
+        messages[static_cast<R_xlen_t>(i)] = result.validation_messages[i];
+    return writable::list({
+        "is_valid"_nm = writable::logicals({cpp11::r_bool(result.is_valid)}),
+        "messages"_nm = messages,
+    });
+}
+
 // --- Simulation (M13) -----------------------------------------------------------------
 //
 // The estimator-less `Simulation` target: builds the model through the shared spec builder,

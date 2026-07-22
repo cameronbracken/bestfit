@@ -659,6 +659,12 @@ dispatch_estimation <- function(result, method, args, ctx) {
     low_outlier_threshold = ctx$df_fn()$low_outlier_threshold[[1]],
     # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain", in spec order.
     plotting_position = ctx$df_fn()[[paste0("pp_", args[[1]])]][[i1(args[[2]])]],
+    # The Validate surface (Task 16, works under any target): ctx$validate_fn() lazily builds +
+    # memoizes ch_model_validate_'s result once per case (the df_fn/bic lazy-rebuild precedent).
+    # validation_message_contains is a structural substring check, not a byte-exact message pin
+    # (see test_fixtures.cpp's dispatch_model_validate for the rationale).
+    is_valid = as.numeric(ctx$validate_fn()$is_valid[[1]]),
+    validation_message_contains = as.numeric(any(grepl(args[[1]], ctx$validate_fn()$messages, fixed = TRUE))),
     stop(sprintf("unknown model_estimation fixture method: %s", method))
   )
 }
@@ -677,11 +683,22 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     if (is.null(df_env$df)) df_env$df <- ns$ch_model_data_frame_(model_json, data)
     df_env$df
   }
+  # The Validate surface (Task 16): lazily build + memoize ch_model_validate_'s result (only
+  # cases that actually assert is_valid/validation_message_contains pay for the call).
+  validate_env <- new.env(parent = emptyenv())
+  validate_fn <- function() {
+    if (is.null(validate_env$v)) validate_env$v <- ns$ch_model_validate_(model_json, data)
+    validate_env$v
+  }
 
   if (target == "Simulation") {
     seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
     draws <- ns$ch_model_simulate_(model_json, data, as.integer(construct$sample_size), seed)
     result <- list(simulated = draws)
+    ctx <- list()
+  } else if (target == "Validate") {
+    # Builds the model only (no estimator, no draw) -- every assertion reads ctx$validate_fn().
+    result <- list()
     ctx <- list()
   } else if (target == "BayesianAnalysis") {
     sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
@@ -715,6 +732,7 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     ctx <- list(bic_fn = function(n) ns$ch_estimation_bic_(target, model_json, data, optimizer, n))
   }
   ctx$df_fn <- df_fn
+  ctx$validate_fn <- validate_fn
 
   for (a in assertions) {
     args <- if (is.null(a$args)) list() else a$args

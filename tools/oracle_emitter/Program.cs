@@ -2291,6 +2291,13 @@ static (BestFitModels.IModel model, object? estimator, double[]? simulated)
             construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
         return (model, null, draws);
     }
+    // Validate (Task 16): builds the model and stops -- no estimator, no seeded draw. Lets a
+    // case assert `is_valid`/`validation_message_contains` (below) against IModel.Validate()
+    // without needing to fit or simulate, e.g. the TimeSeries transform-lambda-failure cases.
+    if (target == "Validate")
+    {
+        return (model, null, null);
+    }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori")
     {
         var method = construct.TryGetProperty("optimizer", out var o)
@@ -2394,6 +2401,18 @@ static double DispatchEstimationGeneral(
             _ => throw new Exception($"residual not supported for {ec.model.GetType().Name}")
         };
         return res[a[0].GetInt32()];
+    }
+    // The Validate surface (Task 16): works under ANY target (it reads the model, not the
+    // estimator). `is_valid` mirrors the `converged_within_tolerance` boolean-as-double
+    // precedent; `validation_message_contains [substring]` is a structural substring check
+    // (the fixture-checkable contract is "the failure is captured as a message", not a
+    // byte-exact pin of the message text -- see the C++/R/Python dispatchers' identical note).
+    if (m == "is_valid" || m == "validation_message_contains")
+    {
+        var (isValid, messages) = ec.model.Validate();
+        if (m == "is_valid") return isValid ? 1.0 : 0.0;
+        string needle = a[0].GetString()!;
+        return messages.Any(msg => msg.Contains(needle)) ? 1.0 : 0.0;
     }
     switch (ec.estimator)
     {

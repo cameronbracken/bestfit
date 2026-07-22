@@ -113,6 +113,24 @@ bool messages_contain(const corehydro::models::ValidationResult& r, const std::s
     return false;
 }
 
+// 60 annual observations that make the Box-Cox lambda objective non-finite: a zero at index 0
+// fails can_fit_lambda's positivity requirement (mirrors C#'s
+// CreateBoxCoxLambdaFailureTimeSeries).
+TimeSeries make_box_cox_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(i == 0 ? 0.0 : 10.0);
+    return ts;
+}
+
+// 60 annual observations, all -DBL_MAX: a degenerate constant sample fails can_fit_lambda's
+// non-degeneracy requirement for Yeo-Johnson (mirrors C#'s
+// CreateYeoJohnsonLambdaFailureTimeSeries).
+TimeSeries make_yeo_johnson_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(-std::numeric_limits<double>::max());
+    return ts;
+}
+
 // ============================ Constructors ============================
 
 void test_arima_constructors() {
@@ -397,6 +415,22 @@ void test_arima_validate() {
     CHECK_TRUE(messages_contain(ns.validate(), "stationar"));
 }
 
+// Transcribes ARIMATests.cs's Test_{BoxCoxTransform,YeoJohnsonTransform}Transform_
+// LambdaFitFailure_ReturnsValidationError (BestFit v2.0.0, f140c4d).
+void test_arima_transform_lambda_failure() {
+    ARIMA bc(make_box_cox_lambda_failure_series(), 1, 0, 0);
+    bc.set_transform_type(Transform::BoxCox);
+    auto rbc = bc.validate();
+    CHECK_TRUE(!rbc.is_valid);
+    CHECK_TRUE(messages_contain(rbc, "Box-Cox lambda estimation failed"));
+
+    ARIMA yj(make_yeo_johnson_lambda_failure_series(), 1, 0, 0);
+    yj.set_transform_type(Transform::YeoJohnson);
+    auto ryj = yj.validate();
+    CHECK_TRUE(!ryj.is_valid);
+    CHECK_TRUE(messages_contain(ryj, "Yeo-Johnson lambda estimation failed"));
+}
+
 // ============================ SetParameterValues ============================
 
 void test_arima_set_parameter_values() {
@@ -567,6 +601,7 @@ int main() {
     test_arima_generate_random_values();
     test_arima_stationarity_invertibility();
     test_arima_validate();
+    test_arima_transform_lambda_failure();
     test_arima_set_parameter_values();
     test_arima_engineering_and_edges();
     test_arima_dorder();
