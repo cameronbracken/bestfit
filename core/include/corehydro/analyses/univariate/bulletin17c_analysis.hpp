@@ -73,6 +73,45 @@
 //     report generator, C# 3168-3785 -- GenerateGMMReport + its ReportAppend* / covariance-table
 //     StringBuilder helpers (pure plain-text formatting, no compute content). AFormulaOverride is a
 //     deferred A9-adjacent member (not declared here).
+//   * T19 UPDATE (this header; upstream-sync, BestFit v2.0.0 @ c2e6192, commits 1b424e3 "Discard
+//     failed bootstrap replicates instead of substituting parent parameters" + 71b7d4b "Extend
+//     bootstrap diagnostics, report, and persistence for discard semantics" + 7efa9d0 "Improving
+//     the bootstrap for B17C" -- the parametric-bootstrap arm ONLY):
+//       - `get_parameter_sets_from_parametric_bootstrap` now matches the NET v2.0.0 C# exactly:
+//         `maxRetries` 5 -> 10; the Mahalanobis rejection threshold is the ADAPTIVE
+//         `ChiSquared(p).InverseCDF(1 - 1/(5B))` (was the fixed 0.9999); and each replicate warm-
+//         starts via Task 18's `clone_with_data_frame()` + `set_parameter_values(thetaHat)` when
+//         low outliers / uncertain / interval / threshold series are present on the parent
+//         DataFrame (the C# `cloneWithDataFrame` local, mirrored EXACTLY) -- otherwise it clones
+//         via the plain `clone()` + `set_data_frame()` path, unchanged from A8.
+//       - IMPORTANT GROUND-TRUTH NOTE (the shipped v2.0.0 C# does NOT match every planning-doc
+//         summary of 1b424e3's *commit message*): 1b424e3 introduced true discard-without-
+//         substitution semantics (a null parameter-set slot, filtered downstream) plus a relaxed
+//         "reject only hard Failure / non-finite" acceptance gate and a >50%-discarded abort
+//         guard, but 7efa9d0 ("Improving the bootstrap for B17C", the LAST commit on this method
+//         before the v2.0.0 tag) REVERTED both of those for GetParameterSetsFromParametricBootstrap
+//         specifically -- the shipped acceptance gate is still the strict `!= Success`, and a
+//         replicate that exhausts every retry still falls back to the parent vector `thetaHat`
+//         (never discarded), so every bootstrap replicate slot is always populated and there is no
+//         abort-on-high-discard-rate path in this arm. This port reproduces the ACTUAL shipped
+//         behavior (verified by re-reading `Bulletin17CAnalysis.cs` at the `c2e6192` pin
+//         byte-for-byte, not the commit message), since that is what the dotnet oracle gate
+//         replays against. The per-replicate retry loop is factored into the new private
+//         `collect_bootstrap_replicate_fit` helper (BootstrapReplicateFit) so Task 20's
+//         pivot-bootstrap Phase 1 rewrite (which the SAME two 7efa9d0 changes above also apply to
+//         -- see `get_parameter_sets_from_pivot_bootstrap`, deliberately left UNCHANGED here) can
+//         reuse it rather than re-deriving it.
+//       - `BootstrapDiagnostics` gained `AttemptedReplicates` / `RetainedReplicates` (legacy
+//         fallback to `TotalReplicates` / `ValidReplicates`) / `TransformFailures` / the five GMM
+//         `OptimizationStatus` counters / `OptimizerFallbacks` (see its own header); NONE of these
+//         are populated by this arm (the shipped C# never calls their increment/record methods
+//         from GetParameterSetsFromParametricBootstrap), so a diagnostics object built by this
+//         method always reads them through their legacy-fallback defaults.
+//       - `UncertaintyDiagnosticMessage` (C# 409, a plain read-only string property + private
+//         setter): ported as a class member/accessor for API completeness, but NOT populated by
+//         this arm either (the shipped GetParameterSetsFromParametricBootstrap never calls
+//         `SetUncertaintyDiagnosticMessage`); the other uncertainty paths that DO call it keep
+//         their existing "silent no-throw guard" ports, unwired here.
 //
 // `EvaluateLogQuantileSafe` (C# 856-880) IS ported below per the A7 brief, though the shipped MVN
 // path does not itself call it (the C# MVN sampler validates via ValidateParameters); it is the
@@ -84,6 +123,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -243,16 +283,26 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return bootstrap_results_ ? &*bootstrap_results_ : nullptr;
     }
 
+    // C# `UncertaintyDiagnosticMessage` (T19, C# 409): a user-facing description of why the most
+    // recent uncertainty quantification was degraded or aborted; empty when no issue occurred. NOT
+    // populated by A8's get_parameter_sets_from_parametric_bootstrap() -- see the file header's T19
+    // note; the accessor exists for the other uncertainty paths' existing (unwired) guards.
+    const std::string& uncertainty_diagnostic_message() const {
+        return uncertainty_diagnostic_message_;
+    }
+
     // --- Lifecycle -------------------------------------------------------------------------
 
     // C# `ClearResults` (C# 488): resets the fit + results to the un-estimated state; the model is
-    // preserved. RaisePropertyChange / ElapsedTime dropped; BootstrapResults reset (C# 500).
+    // preserved. RaisePropertyChange / ElapsedTime dropped; BootstrapResults + (T19)
+    // UncertaintyDiagnosticMessage reset (C# 500-501).
     void clear_results() {
         set_is_estimated(false);
         bayesian_analysis_.clear_results();
         gmm_.reset();
         analysis_results_.reset();
         bootstrap_results_.reset();
+        uncertainty_diagnostic_message_.clear();
         distribution_cache_.clear();
     }
 
@@ -620,35 +670,135 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return results;
     }
 
-    // C# `GetParameterSetsFromParametricBootstrap` (C# 1855-1967): the parametric-bootstrap UQ
-    // path. Draws B resampled data frames from the fitted parent distribution, re-fits the GMM on
-    // each, and keeps the accepted parameter vectors. A degenerate fit (GMM failure, or a
-    // Mahalanobis distance from thetaHat beyond the chi2(p, 0.9999) threshold) is retried up to
-    // maxRetries times before falling back to the parent vector. The up-front seed cascade
-    // (masterPRNG(PRNGSeed) -> B integer seeds -> a per-replicate MersenneTwister) is IDENTICAL to
-    // the ported Bootstrap and is load-bearing for MersenneTwister parity with the A11 emitter --
-    // do NOT reorder. The C# Parallel.For -> a serial loop; per-index writes are independent, so
-    // the serial counts/results match. Progress/cancellation/stopwatch lines dropped.
-    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_parametric_bootstrap() {
-        const int max_retries = 5;                                   // C# 1857
-        int b = bayesian_analysis_.output_length();                  // C# 1858
-        int p = bulletin17c_distribution_->number_of_parameters();   // C# 1859
-        std::vector<ParameterSet> results(static_cast<std::size_t>(b));  // C# 1860
+    // T19: one accepted bootstrap-replicate fit, returned by collect_bootstrap_replicate_fit().
+    struct BootstrapReplicateFit {
+        std::vector<double> params;
+        int function_evaluations = 0;
+    };
 
-        // Up-front seed cascade (C# 1861-1862): master PRNG seeds B per-replicate integers.
+    // T19: the shared per-replicate bootstrap-fit attempt loop, factored out of
+    // GetParameterSetsFromParametricBootstrap (C# 1892-1955-equivalent body) so Task 20's
+    // pivot-bootstrap Phase 1 rewrite -- which the SAME v2.0.0 changes (maxRetries 10, the
+    // adaptive Mahalanobis threshold, the conditional clone_with_data_frame warm start) also
+    // apply to, per the 7efa9d0 diff -- can reuse it rather than re-deriving it (see the file
+    // header's T19 note; get_parameter_sets_from_pivot_bootstrap below is deliberately left
+    // UNCHANGED for now).
+    //
+    // Resamples a bootstrap data frame from `parent_distribution` via the parent's
+    // BootstrapDataFrame, warm-starts the B17C clone through Task 18's `clone_with_data_frame()` +
+    // `set_parameter_values(theta_hat)` when `clone_with_data_frame_flag` is set (mirroring the C#
+    // `cloneWithDataFrame` local EXACTLY -- see the caller), otherwise clones via the plain
+    // `clone()` + `set_data_frame()` path; sets a randomized penalty function; re-fits via GMM
+    // (`penalty_is_random` forwarded to the GMM's own flag -- A8 uses the GMM default `true`; the
+    // pivot bootstrap sets `false`, C# 2065); and retries up to `max_retries` times on any
+    // exception (a non-Success GMM status, or a Mahalanobis distance from `theta_hat` beyond
+    // `mahal_threshold`), incrementing `diag`'s Mahalanobis-rejection / retry counters exactly as
+    // the C#. Returns the accepted parameter vector + its GMM function-evaluation count on
+    // success; nullopt when every attempt failed -- the CALLER decides fallback-vs-discard
+    // semantics for its own arm (A8 falls back to theta_hat; see the caller below).
+    std::optional<BootstrapReplicateFit> collect_bootstrap_replicate_fit(
+        corehydro::numerics::sampling::MersenneTwister& prng,
+        const UnivariateDistributionBase& parent_distribution,
+        const std::vector<double>& theta_hat,
+        const corehydro::numerics::math::linalg::Matrix& sigma_inv, double mahal_threshold,
+        bool clone_with_data_frame_flag, bool penalty_is_random, int max_retries,
+        BootstrapDiagnostics& diag) {
+        int p = static_cast<int>(theta_hat.size());
+        std::optional<std::vector<double>> accepted_params;
+        int accepted_fn_evals = 0;
+
+        for (int attempt = 0; attempt < max_retries && !accepted_params; ++attempt) {
+            try {
+                // Resample a bootstrap frame from the parent (clone used only for sampling).
+                std::unique_ptr<UnivariateDistributionBase> sampling_dist =
+                    parent_distribution.clone();
+                corehydro::models::DataFrame boot_data_frame =
+                    bulletin17c_distribution_->data_frame().BootstrapDataFrame(*sampling_dist,
+                                                                               prng);
+
+                std::unique_ptr<Bulletin17CDistribution> boot_b17c;
+                if (clone_with_data_frame_flag) {
+                    // Warm start at the parent fit: preserves parameter bounds/priors/penalty
+                    // configuration instead of re-deriving defaults from the boot data.
+                    boot_b17c = bulletin17c_distribution_->clone_with_data_frame(boot_data_frame);
+                    boot_b17c->set_parameter_values(theta_hat);
+                } else {
+                    std::unique_ptr<corehydro::models::IGMMModel> cloned =
+                        bulletin17c_distribution_->clone();
+                    boot_b17c.reset(static_cast<Bulletin17CDistribution*>(cloned.release()));
+                    boot_b17c->set_data_frame(std::move(boot_data_frame));
+                }
+                boot_b17c->set_random_penalty_function(theta_hat, &prng);
+
+                GeneralizedMethodOfMoments boot_gmm(*boot_b17c);
+                boot_gmm.penalty_is_random = penalty_is_random;
+                boot_gmm.estimate();
+                if (boot_gmm.status() != OptimizationStatus::Success)
+                    throw std::runtime_error("bootstrap GMM solver failed");
+
+                // Mahalanobis distance of the bootstrap fit from theta_hat.
+                const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
+                double mahal_dist = 0.0;
+                for (int j = 0; j < p; ++j) {
+                    double tmp = 0.0;
+                    for (int k = 0; k < p; ++k)
+                        tmp += sigma_inv(j, k) * (boot_params[static_cast<std::size_t>(k)] -
+                                                  theta_hat[static_cast<std::size_t>(k)]);
+                    mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
+                                   theta_hat[static_cast<std::size_t>(j)]) *
+                                  tmp;
+                }
+                if (mahal_dist > mahal_threshold) {
+                    diag.increment_mahalanobis_rejection();
+                    throw std::runtime_error("bootstrap replicate rejected: Mahalanobis");
+                }
+
+                accepted_params = boot_params;
+                accepted_fn_evals = boot_gmm.total_function_evaluations();
+            } catch (...) {
+                // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
+                if (attempt < max_retries - 1) diag.add_retries(1);
+            }
+        }
+
+        if (!accepted_params) return std::nullopt;
+        return BootstrapReplicateFit{std::move(*accepted_params), accepted_fn_evals};
+    }
+
+    // C# `GetParameterSetsFromParametricBootstrap` (C# 1941-2073 @ c2e6192): the parametric-
+    // bootstrap UQ path. Draws B resampled data frames from the fitted parent distribution,
+    // re-fits the GMM on each via collect_bootstrap_replicate_fit() (T19), and keeps the accepted
+    // parameter vectors. A degenerate fit (GMM failure, or a Mahalanobis distance from thetaHat
+    // beyond the ADAPTIVE `chi2(p, 1 - 1/(5B))` threshold, T19: was the fixed 0.9999) is retried
+    // up to maxRetries (T19: 10, was 5) times before falling back to the parent vector -- the
+    // shipped v2.0.0 C# still falls back rather than discarding; see the file header's T19 note
+    // for why. The up-front seed cascade (masterPRNG(PRNGSeed) -> B integer seeds -> a
+    // per-replicate MersenneTwister) is IDENTICAL to the ported Bootstrap and is load-bearing for
+    // MersenneTwister parity with the emitter -- do NOT reorder. The C# Parallel.For -> a serial
+    // loop; per-index writes are independent, so the serial counts/results match.
+    // Progress/cancellation/stopwatch lines dropped.
+    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_parametric_bootstrap() {
+        const int max_retries = 10;                                   // T19: 5 -> 10
+        int b = bayesian_analysis_.output_length();
+        int p = bulletin17c_distribution_->number_of_parameters();
+        std::vector<ParameterSet> results(static_cast<std::size_t>(b));
+
+        // Up-front seed cascade: master PRNG seeds B per-replicate integers, keyed to the
+        // ORIGINAL replicate index (load-bearing for MT parity -- do NOT reorder).
         corehydro::numerics::sampling::MersenneTwister master_prng(
             static_cast<std::uint32_t>(bayesian_analysis_.prng_seed()));
         std::vector<int> seeds = corehydro::numerics::utilities::next_integers(master_prng, b);
 
-        // Parent distribution cloned + set to thetaHat as the data-generating model (C# 1863-1865).
+        // Parent distribution cloned + set to thetaHat as the data-generating model.
         const std::vector<double> theta_hat = gmm_->best_parameter_set().values;
         std::unique_ptr<UnivariateDistributionBase> parent_distribution =
             bulletin17c_distribution_->distribution()->clone();
         parent_distribution->set_parameters(theta_hat);
 
-        // Sandwich covariance + inverse for the Mahalanobis rejection (C# 1867-1876). On a singular
-        // inverse the C# regularizes; port as a try/catch falling back to the regularized inverse
-        // (the C# Debug.WriteLine is a dropped silent guard).
+        // Sandwich covariance + inverse for the Mahalanobis rejection. On a singular inverse the
+        // C# regularizes via MatrixRegularization instead of aborting; ported as a try/catch
+        // falling back to the regularized inverse (the C# Debug.WriteLine is a dropped silent
+        // guard).
         corehydro::numerics::math::linalg::Matrix sigma_hat = gmm_->get_covariance(theta_hat);
         corehydro::numerics::math::linalg::Matrix sigma_inv(p);
         try {
@@ -658,76 +808,50 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                             make_symmetric_positive_definite(sigma_hat)
                                 .inverse();
         }
+        // T19: adaptive Mahalanobis threshold ChiSq(p) at 1 - 1/(5B) (was the fixed 0.9999) --
+        // rejects extreme draws with p-value < 1/(5B).
+        double mahal_pvalue = 1.0 - 1.0 / (b * 5.0);
         double mahal_threshold =
-            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(0.9999);  // C# 1876
+            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(mahal_pvalue);
 
-        // Diagnostics (C# 1879): TotalReplicates = B.
+        // Diagnostics: TotalReplicates = B.
         BootstrapDiagnostics diag;
         diag.set_total_replicates(b);
 
-        // Serial replicate loop (C# Parallel.For 1892-1955).
+        // T19: warm-start every replicate via clone_with_data_frame() (Task 18) when low
+        // outliers / uncertain / interval / threshold series are present on the parent DataFrame
+        // -- mirrors the C# `cloneWithDataFrame` local EXACTLY (C# "Determine if we should clone
+        // with the parent data frame or not").
+        bool clone_with_data_frame_flag =
+            bulletin17c_distribution_->data_frame().number_of_low_outliers() > 0 ||
+            bulletin17c_distribution_->data_frame().uncertain_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().interval_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().threshold_series().count() > 0;
+
+        // Serial replicate loop (C# Parallel.For).
         for (int idx = 0; idx < b; ++idx) {
             corehydro::numerics::sampling::MersenneTwister prng(
-                static_cast<std::uint32_t>(seeds[static_cast<std::size_t>(idx)]));  // C# 1896
-            std::optional<std::vector<double>> accepted_params;
+                static_cast<std::uint32_t>(seeds[static_cast<std::size_t>(idx)]));
+            std::optional<BootstrapReplicateFit> fit = collect_bootstrap_replicate_fit(
+                prng, *parent_distribution, theta_hat, sigma_inv, mahal_threshold,
+                clone_with_data_frame_flag, /*penalty_is_random=*/true, max_retries, diag);
 
-            for (int attempt = 0; attempt < max_retries && !accepted_params; ++attempt) {  // C# 1899
-                try {
-                    // Resample a bootstrap frame from the parent (clone used only for sampling),
-                    // clone the B17C model onto it, and set a randomized penalty (C# 1905-1909).
-                    std::unique_ptr<UnivariateDistributionBase> sampling_dist =
-                        parent_distribution->clone();
-                    corehydro::models::DataFrame boot_data_frame =
-                        bulletin17c_distribution_->data_frame().BootstrapDataFrame(*sampling_dist,
-                                                                                   prng);
-                    std::unique_ptr<corehydro::models::IGMMModel> boot_model =
-                        bulletin17c_distribution_->clone();
-                    auto* boot_b17c = static_cast<Bulletin17CDistribution*>(boot_model.get());
-                    boot_b17c->set_data_frame(std::move(boot_data_frame));
-                    boot_b17c->set_random_penalty_function(theta_hat, &prng);
-
-                    GeneralizedMethodOfMoments boot_gmm(*boot_b17c);  // C# 1910
-                    boot_gmm.estimate();                              // C# 1911
-                    if (boot_gmm.status() != OptimizationStatus::Success)
-                        throw std::runtime_error("bootstrap GMM solver failed");  // C# 1912-1913
-
-                    // Mahalanobis distance of the bootstrap fit from thetaHat (C# 1916-1924).
-                    const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
-                    double mahal_dist = 0.0;
-                    for (int j = 0; j < p; ++j) {
-                        double tmp = 0.0;
-                        for (int k = 0; k < p; ++k)
-                            tmp += sigma_inv(j, k) *
-                                   (boot_params[static_cast<std::size_t>(k)] -
-                                    theta_hat[static_cast<std::size_t>(k)]);
-                        mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
-                                       theta_hat[static_cast<std::size_t>(j)]) *
-                                      tmp;
-                    }
-                    if (mahal_dist > mahal_threshold) {  // C# 1925-1929
-                        diag.increment_mahalanobis_rejection();
-                        throw std::runtime_error("bootstrap replicate rejected: Mahalanobis");
-                    }
-
-                    accepted_params = boot_params;                                   // C# 1931
-                    diag.add_function_evaluations(boot_gmm.total_function_evaluations());  // C# 1932
-                } catch (...) {
-                    // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
-                    if (attempt < max_retries - 1) diag.add_retries(1);  // C# 1937
-                }
-            }
-
-            // Fall back to the parent vector after all retries fail (C# 1944-1948).
-            if (!accepted_params) {
+            // Fall back to the parent vector after all retries fail -- the shipped v2.0.0 C#
+            // does NOT discard (see the file header's T19 note).
+            std::vector<double> accepted_params;
+            if (fit) {
+                diag.add_function_evaluations(fit->function_evaluations);
+                accepted_params = std::move(fit->params);
+            } else {
                 diag.increment_failed();
                 accepted_params = theta_hat;
             }
 
-            results[static_cast<std::size_t>(idx)] = ParameterSet(
-                std::move(*accepted_params), std::numeric_limits<double>::quiet_NaN());  // C# 1950
+            results[static_cast<std::size_t>(idx)] =
+                ParameterSet(std::move(accepted_params), std::numeric_limits<double>::quiet_NaN());
         }
 
-        // Persist the diagnostics on the analysis and return the sets (C# 1959-1961).
+        // Persist the diagnostics on the analysis and return the sets.
         bootstrap_results_ = std::move(diag);
         return results;
     }
@@ -1920,6 +2044,18 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     std::optional<UncertaintyAnalysisResults> analysis_results_;
     // C# nullable `BootstrapResults` (A8): populated by the parametric-bootstrap UQ path.
     std::optional<BootstrapDiagnostics> bootstrap_results_;
+    // C# `UncertaintyDiagnosticMessage` (T19); empty string default matches the C# field
+    // initializer.
+    std::string uncertainty_diagnostic_message_;
+
+    // C# `SetUncertaintyDiagnosticMessage(string)` (T19, C# 421): records the reason the most
+    // recent uncertainty quantification was degraded or aborted. RaisePropertyChange /
+    // Debug.WriteLine dropped (WPF binding / trace-only). Not currently called by
+    // get_parameter_sets_from_parametric_bootstrap (see the file header's T19 note); kept for the
+    // other uncertainty paths' existing (unwired) guards and for Task 20.
+    void set_uncertainty_diagnostic_message(const std::string& message) {
+        uncertainty_diagnostic_message_ = message;
+    }
 
     // Test-only access to the private acceleration_constants() (see the forward-declared struct).
     friend struct Bulletin17CAnalysisTestAccess;

@@ -44,6 +44,35 @@
       ]
     },
     {
+      "name": "lp3_bootstrap",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },
+        "uncertainty_method": "Bootstrap",
+        "output_length": 200,
+        "seed": 12345,
+        "confidence_level": 0.90
+      },
+      "assertions": [
+        { "method": "confidence_level", "expected": 0.90, "mode": "abs", "tol": 1e-12 },
+        { "method": "exceedance_probability", "args": [18], "expected": 0.5, "mode": "abs", "tol": 1e-15 },
+        { "method": "point_estimate", "args": [18], "expected": 4.1944719079793105, "mode": "rel", "tol": 1e-9 },
+        { "method": "lower_ci", "args": [18], "expected": 13499.17657441065, "mode": "rel", "tol": 1e-8 },
+        { "method": "upper_ci", "args": [18], "expected": 18150.55871527481, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [0], "expected": 4.1909286502166205, "mode": "rel", "tol": 1e-9 },
+        { "method": "boot_has_results", "expected": 1, "mode": "equal" },
+        { "method": "boot_total_replicates", "expected": 200, "mode": "equal" },
+        { "method": "boot_attempted_replicates", "expected": 200, "mode": "equal" },
+        { "method": "boot_failed_replicates", "expected": 0, "mode": "equal" },
+        { "method": "boot_valid_replicates", "expected": 200, "mode": "equal" },
+        { "method": "boot_retained_replicates", "expected": 200, "mode": "equal" },
+        { "method": "boot_failure_rate", "expected": 0, "mode": "abs", "tol": 1e-12 },
+        { "method": "boot_mahalanobis_rejections", "expected": 0, "mode": "equal" },
+        { "method": "boot_transform_failures", "expected": 0, "mode": "equal" },
+        { "method": "boot_status_success_count", "expected": 0, "mode": "equal" },
+        { "method": "boot_optimizer_fallbacks", "expected": 0, "mode": "equal" }
+      ]
+    },
+    {
       "name": "lp3_bias_corrected_bootstrap",
       "construct": {
         "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "peaks" },

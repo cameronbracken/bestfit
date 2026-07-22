@@ -423,6 +423,97 @@ void test_bootstrap_diagnostics_mahalanobis_rejection() {
     CHECK_NEAR(d.mahalanobis_rejection_rate(), 0.02, 1e-12);
 }
 
+// ---- T19 additions (transcribed from the v2.0.0 BootstrapDiagnosticsTests.cs) ----
+
+// C# FreshInstance_AllCountersZero_RatesSafe (T19 slice: the new counters default to zero too).
+void test_bootstrap_diagnostics_t19_new_counters_default_zero() {
+    BootstrapDiagnostics d;
+    CHECK_EQ(d.transform_failures(), 0);
+    CHECK_EQ(d.status_success_count(), 0);
+    CHECK_EQ(d.status_maximum_iterations_count(), 0);
+    CHECK_EQ(d.status_maximum_function_evaluations_count(), 0);
+    CHECK_EQ(d.status_failure_count(), 0);
+    CHECK_EQ(d.status_none_count(), 0);
+    CHECK_EQ(d.optimizer_fallbacks(), 0);
+}
+
+// C# (implicit in AttemptedReplicates' doc remarks): the -1 "not recorded" sentinel falls back to
+// TotalReplicates when never explicitly incremented; explicit increments win.
+void test_bootstrap_diagnostics_attempted_replicates_fallback() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(50);
+    CHECK_EQ(d.attempted_replicates(), 50);  // never incremented -> falls back to total
+    d.increment_attempted();
+    d.increment_attempted();
+    CHECK_EQ(d.attempted_replicates(), 2);  // an explicit count wins over the fallback
+}
+
+// C# RetainedReplicates_NotRecorded_FallsBackToValidReplicates.
+void test_bootstrap_diagnostics_retained_replicates_fallback() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(50);
+    for (int i = 0; i < 8; i++) d.increment_failed();
+
+    CHECK_EQ(d.retained_replicates(), 42);  // unset retained count falls back to valid_replicates()
+
+    d.set_retained_replicates(40);
+    CHECK_EQ(d.retained_replicates(), 40);  // an explicit retained count wins over the fallback
+}
+
+// C# RecordGMMStatus_RoutesEveryStatusToItsCounter.
+void test_bootstrap_diagnostics_record_gmm_status_routes_every_status() {
+    using corehydro::numerics::math::optimization::OptimizationStatus;
+    BootstrapDiagnostics d;
+
+    d.record_gmm_status(OptimizationStatus::Success);
+    d.record_gmm_status(OptimizationStatus::MaximumIterationsReached);
+    d.record_gmm_status(OptimizationStatus::MaximumIterationsReached);
+    d.record_gmm_status(OptimizationStatus::MaximumFunctionEvaluationsReached);
+    d.record_gmm_status(OptimizationStatus::Failure);
+    d.record_gmm_status(OptimizationStatus::None);
+
+    CHECK_EQ(d.status_success_count(), 1);
+    CHECK_EQ(d.status_maximum_iterations_count(), 2);
+    CHECK_EQ(d.status_maximum_function_evaluations_count(), 1);
+    CHECK_EQ(d.status_failure_count(), 1);
+    CHECK_EQ(d.status_none_count(), 1);
+}
+
+// C# IncrementTransformFailure_IndependentOfPivotRejections.
+void test_bootstrap_diagnostics_transform_failure_independent_of_pivot_rejection() {
+    BootstrapDiagnostics d;
+    d.increment_transform_failure();
+    d.increment_transform_failure();
+    d.increment_pivot_rejection();
+
+    CHECK_EQ(d.transform_failures(), 2);
+    CHECK_EQ(d.pivot_rejections(), 1);
+}
+
+// AddOptimizerFallbacks: accumulates like AddRetries/AddFunctionEvaluations; a non-positive count
+// is a no-op (C# `if (count > 0) Interlocked.Add(...)`).
+void test_bootstrap_diagnostics_add_optimizer_fallbacks_accumulates() {
+    BootstrapDiagnostics d;
+    d.add_optimizer_fallbacks(2);
+    d.add_optimizer_fallbacks(3);
+    d.add_optimizer_fallbacks(0);
+    d.add_optimizer_fallbacks(-1);
+    CHECK_EQ(d.optimizer_fallbacks(), 5);
+}
+
+// C# ValidReplicates/FailureRate/AverageRetries redefinition: these now read over
+// attempted_replicates() rather than total_replicates(), and diverge once attempted != total.
+void test_bootstrap_diagnostics_rates_redefined_over_attempted() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(100);
+    for (int i = 0; i < 20; i++) d.increment_attempted();  // only 20 candidates were attempted
+    for (int i = 0; i < 5; i++) d.increment_failed();
+
+    CHECK_EQ(d.attempted_replicates(), 20);
+    CHECK_EQ(d.valid_replicates(), 15);              // max(0, attempted - failed) = 20 - 5
+    CHECK_NEAR(d.failure_rate(), 0.25, 1e-12);       // 5 / 20, NOT 5 / 100
+}
+
 // ---- AccelerationConstants determinism (C++-only): deterministic given a fixed frame, finite,
 //      length p (no PRNG in the jackknife). ----
 void test_acceleration_constants_deterministic() {
@@ -464,7 +555,21 @@ void test_run_bootstrap_structural() {
         // valid = total - failed by construction, so re-checking the sum against b is redundant
         // with the line above; assert instead that real fits actually succeeded (not all fell back).
         CHECK_TRUE(diag->valid_replicates() >= 1);
+
+        // T19: get_parameter_sets_from_parametric_bootstrap() never calls increment_attempted /
+        // set_retained_replicates / record_gmm_status / add_optimizer_fallbacks /
+        // increment_transform_failure -- so every new T19 counter reads through its
+        // legacy-fallback default for this arm (see the header's T19 note).
+        CHECK_EQ(diag->attempted_replicates(), diag->total_replicates());
+        CHECK_EQ(diag->retained_replicates(), diag->valid_replicates());
+        CHECK_EQ(diag->transform_failures(), 0);
+        CHECK_EQ(diag->status_success_count(), 0);
+        CHECK_EQ(diag->optimizer_fallbacks(), 0);
     }
+
+    // T19: UncertaintyDiagnosticMessage is never set by this arm either (see the header's T19
+    // note); the plain accessor stays at its C# field-initializer default.
+    CHECK_TRUE(analysis->uncertainty_diagnostic_message().empty());
 
     const auto* results = analysis->analysis_results();
     CHECK_TRUE(results != nullptr);
@@ -874,6 +979,13 @@ int main() {
     test_bootstrap_diagnostics_add_function_evaluations_accumulates();
     test_bootstrap_diagnostics_pivot_rejection();
     test_bootstrap_diagnostics_mahalanobis_rejection();
+    test_bootstrap_diagnostics_t19_new_counters_default_zero();
+    test_bootstrap_diagnostics_attempted_replicates_fallback();
+    test_bootstrap_diagnostics_retained_replicates_fallback();
+    test_bootstrap_diagnostics_record_gmm_status_routes_every_status();
+    test_bootstrap_diagnostics_transform_failure_independent_of_pivot_rejection();
+    test_bootstrap_diagnostics_add_optimizer_fallbacks_accumulates();
+    test_bootstrap_diagnostics_rates_redefined_over_attempted();
     test_acceleration_constants_deterministic();
     test_run_bootstrap_structural();
 

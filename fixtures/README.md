@@ -1423,9 +1423,9 @@ analyses from the same spec.
                                              //   issues.md); pin 1 for an exact reproducible oracle.
         // "number_of_chains", "initial_iterations": also honored (integers; absent -> default)
         // -- Bulletin17CAnalysis knobs (all optional):
-        "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) | Bootstrap
-                                             //   (LinkedMultivariateNormal / BiasCorrectedBootstrap
-                                             //   are deferred to Phase 9 and rejected)
+        "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) |
+                                             //   LinkedMultivariateNormal | Bootstrap |
+                                             //   BiasCorrectedBootstrap
         "confidence_level": 0.90,            // Cohn-CI confidence level (== credible width)
         // -- shared, optional:
         "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]  // strictly-increasing grid;
@@ -1440,6 +1440,18 @@ analyses from the same spec.
         // Bulletin17CAnalysis: exceedance_probability [i], point_estimate [i] (log10 space),
         //   lower_ci [i], upper_ci [i] (discharge space), beta1 [i], nu [i],
         //   quantile_variance [i], confidence_level, parameter [i] (fitted GMM params).
+        // Bulletin17CAnalysis (T19; Bootstrap / BiasCorrectedBootstrap only -- every other
+        //   uncertainty_method leaves BootstrapResults null and these read their zero defaults):
+        //   boot_has_results (bool), boot_total_replicates, boot_attempted_replicates,
+        //   boot_failed_replicates, boot_valid_replicates, boot_retained_replicates,
+        //   boot_failure_rate, boot_mahalanobis_rejections, boot_transform_failures,
+        //   boot_status_success_count, boot_optimizer_fallbacks -- mirror
+        //   BootstrapDiagnostics's snake_case accessors 1:1 (see its header for the C# mapping).
+        //   GetParameterSetsFromParametricBootstrap (the plain Bootstrap arm) never populates
+        //   attempted/retained/transform_failures/status_*/optimizer_fallbacks itself, so those
+        //   read through their legacy-fallback defaults (attempted -> total, retained -> valid,
+        //   the rest 0) for every "Bootstrap" case; a "BiasCorrectedBootstrap" case can populate
+        //   more of them once Task 20 rewrites the pivot arm to call the new counters.
       ]
     }
   ]

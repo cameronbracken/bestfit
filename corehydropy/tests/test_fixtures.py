@@ -811,6 +811,22 @@ def _dispatch_analysis(result: dict, method: str, args: list):
         return result["summary_min_quantiles"][int(args[0])]
     if method == "summary_max_quantile":
         return result["summary_max_quantiles"][int(args[0])]
+    # T19: BootstrapDiagnostics (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    if method == "boot_has_results":
+        return 1.0 if result["bootstrap"]["has_results"] else 0.0
+    if method in (
+        "boot_total_replicates",
+        "boot_attempted_replicates",
+        "boot_failed_replicates",
+        "boot_valid_replicates",
+        "boot_retained_replicates",
+        "boot_failure_rate",
+        "boot_mahalanobis_rejections",
+        "boot_transform_failures",
+        "boot_status_success_count",
+        "boot_optimizer_fallbacks",
+    ):
+        return result["bootstrap"][method[len("boot_") :]]
     raise KeyError(f"unknown analysis fixture method: {method}")
 
 

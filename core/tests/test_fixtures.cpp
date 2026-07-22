@@ -2310,6 +2310,22 @@ struct AnalysisResult {
     // --- X11 extended-analysis slice (the five new analyses + bootstrap + predictive checks).
     // Populated only by the run_extended_analysis targets; every other target leaves it empty. ---
     corehydro::analyses::support::ExtendedAnalysisResult ext;
+
+    // --- T19: BootstrapDiagnostics slice (target == "Bulletin17CAnalysis" with
+    // uncertainty_method "Bootstrap"/"BiasCorrectedBootstrap"). Populated from
+    // Bulletin17CAnalysis::bootstrap_results() when non-null; every other uncertainty_method
+    // leaves these at their defaults. ---
+    bool boot_has_results = false;
+    int boot_total_replicates = 0;
+    int boot_attempted_replicates = 0;
+    int boot_failed_replicates = 0;
+    int boot_valid_replicates = 0;
+    int boot_retained_replicates = 0;
+    double boot_failure_rate = std::numeric_limits<double>::quiet_NaN();
+    int boot_mahalanobis_rejections = 0;
+    int boot_transform_failures = 0;
+    int boot_status_success_count = 0;
+    int boot_optimizer_fallbacks = 0;
 };
 
 // Applies the shared Bayesian MCMC knobs from a construct object (D5; mirrors the R/Python
@@ -2648,6 +2664,21 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         }
         if (analysis.gmm() != nullptr && analysis.gmm()->is_estimated())
             r.parameters = analysis.gmm()->best_parameter_set().values;
+        // T19: BootstrapDiagnostics slice, populated when the uncertainty method actually ran a
+        // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+        if (const auto* boot = analysis.bootstrap_results(); boot != nullptr) {
+            r.boot_has_results = true;
+            r.boot_total_replicates = boot->total_replicates();
+            r.boot_attempted_replicates = boot->attempted_replicates();
+            r.boot_failed_replicates = boot->failed_replicates();
+            r.boot_valid_replicates = boot->valid_replicates();
+            r.boot_retained_replicates = boot->retained_replicates();
+            r.boot_failure_rate = boot->failure_rate();
+            r.boot_mahalanobis_rejections = boot->mahalanobis_rejections();
+            r.boot_transform_failures = boot->transform_failures();
+            r.boot_status_success_count = boot->status_success_count();
+            r.boot_optimizer_fallbacks = boot->optimizer_fallbacks();
+        }
         return r;
     }
 
@@ -2729,6 +2760,18 @@ static double dispatch_analysis(const AnalysisResult& r, const std::string& m, c
     if (m == "summary_sd_quantile") return r.ext.summary_sd_quantiles.at(idx(0));
     if (m == "summary_min_quantile") return r.ext.summary_min_quantiles.at(idx(0));
     if (m == "summary_max_quantile") return r.ext.summary_max_quantiles.at(idx(0));
+    // T19: BootstrapDiagnostics dispatch (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    if (m == "boot_has_results") return r.boot_has_results ? 1.0 : 0.0;
+    if (m == "boot_total_replicates") return static_cast<double>(r.boot_total_replicates);
+    if (m == "boot_attempted_replicates") return static_cast<double>(r.boot_attempted_replicates);
+    if (m == "boot_failed_replicates") return static_cast<double>(r.boot_failed_replicates);
+    if (m == "boot_valid_replicates") return static_cast<double>(r.boot_valid_replicates);
+    if (m == "boot_retained_replicates") return static_cast<double>(r.boot_retained_replicates);
+    if (m == "boot_failure_rate") return r.boot_failure_rate;
+    if (m == "boot_mahalanobis_rejections") return static_cast<double>(r.boot_mahalanobis_rejections);
+    if (m == "boot_transform_failures") return static_cast<double>(r.boot_transform_failures);
+    if (m == "boot_status_success_count") return static_cast<double>(r.boot_status_success_count);
+    if (m == "boot_optimizer_fallbacks") return static_cast<double>(r.boot_optimizer_fallbacks);
     throw std::runtime_error("unknown analysis fixture method: " + m);
 }
 

@@ -2880,6 +2880,23 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         }
         if (analysis.GMM != null && analysis.GMM.IsEstimated)
             r.Parameters.AddRange(analysis.GMM.BestParameterSet.Values);
+        // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran a
+        // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+        if (analysis.BootstrapResults != null)
+        {
+            var boot = analysis.BootstrapResults;
+            r.BootHasResults = true;
+            r.BootTotalReplicates = boot.TotalReplicates;
+            r.BootAttemptedReplicates = boot.AttemptedReplicates;
+            r.BootFailedReplicates = boot.FailedReplicates;
+            r.BootValidReplicates = boot.ValidReplicates;
+            r.BootRetainedReplicates = boot.RetainedReplicates;
+            r.BootFailureRate = boot.FailureRate;
+            r.BootMahalanobisRejections = boot.MahalanobisRejections;
+            r.BootTransformFailures = boot.TransformFailures;
+            r.BootStatusSuccessCount = boot.StatusSuccessCount;
+            r.BootOptimizerFallbacks = boot.OptimizerFallbacks;
+        }
         return r;
     }
 
@@ -3385,6 +3402,18 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "summary_sd_quantile": return r.SummarySdQuantile[I(0)];
         case "summary_min_quantile": return r.SummaryMinQuantile[I(0)];
         case "summary_max_quantile": return r.SummaryMaxQuantile[I(0)];
+        // --- T19: BootstrapDiagnostics dispatch (names match test_fixtures.cpp). ---
+        case "boot_has_results": return r.BootHasResults ? 1.0 : 0.0;
+        case "boot_total_replicates": return r.BootTotalReplicates;
+        case "boot_attempted_replicates": return r.BootAttemptedReplicates;
+        case "boot_failed_replicates": return r.BootFailedReplicates;
+        case "boot_valid_replicates": return r.BootValidReplicates;
+        case "boot_retained_replicates": return r.BootRetainedReplicates;
+        case "boot_failure_rate": return r.BootFailureRate;
+        case "boot_mahalanobis_rejections": return r.BootMahalanobisRejections;
+        case "boot_transform_failures": return r.BootTransformFailures;
+        case "boot_status_success_count": return r.BootStatusSuccessCount;
+        case "boot_optimizer_fallbacks": return r.BootOptimizerFallbacks;
         default: throw new Exception($"unknown analysis fixture method: {m}");
     }
 }
@@ -4113,4 +4142,13 @@ class AnalysisData
                   MinPValue = double.NaN, MaxPValue = double.NaN, HasMisfit = double.NaN;
     public List<double> SummaryMeanQuantile = new(), SummarySdQuantile = new(),
                         SummaryMinQuantile = new(), SummaryMaxQuantile = new();
+
+    // --- T19 BootstrapDiagnostics surface (target == "Bulletin17CAnalysis", Bootstrap /
+    // BiasCorrectedBootstrap). Mirrors test_fixtures.cpp's AnalysisResult boot_* slice
+    // field-for-field so the same fixture drives both. ---
+    public bool BootHasResults = false;
+    public int BootTotalReplicates = 0, BootAttemptedReplicates = 0, BootFailedReplicates = 0,
+              BootValidReplicates = 0, BootRetainedReplicates = 0, BootMahalanobisRejections = 0,
+              BootTransformFailures = 0, BootStatusSuccessCount = 0, BootOptimizerFallbacks = 0;
+    public double BootFailureRate = double.NaN;
 }

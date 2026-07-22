@@ -820,6 +820,18 @@ dispatch_analysis <- function(result, method, args) {
     summary_sd_quantile   = result$summary_sd_quantiles[[i1(args[[1]])]],
     summary_min_quantile  = result$summary_min_quantiles[[i1(args[[1]])]],
     summary_max_quantile  = result$summary_max_quantiles[[i1(args[[1]])]],
+    # T19: BootstrapDiagnostics (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    boot_has_results             = as.numeric(result$bootstrap$has_results),
+    boot_total_replicates        = result$bootstrap$total_replicates,
+    boot_attempted_replicates    = result$bootstrap$attempted_replicates,
+    boot_failed_replicates       = result$bootstrap$failed_replicates,
+    boot_valid_replicates        = result$bootstrap$valid_replicates,
+    boot_retained_replicates     = result$bootstrap$retained_replicates,
+    boot_failure_rate            = result$bootstrap$failure_rate,
+    boot_mahalanobis_rejections  = result$bootstrap$mahalanobis_rejections,
+    boot_transform_failures      = result$bootstrap$transform_failures,
+    boot_status_success_count    = result$bootstrap$status_success_count,
+    boot_optimizer_fallbacks     = result$bootstrap$optimizer_fallbacks,
     stop(sprintf("unknown analysis fixture method: %s", method))
   )
 }

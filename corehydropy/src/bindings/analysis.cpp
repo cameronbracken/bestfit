@@ -384,6 +384,24 @@ void register_analysis(py::module_& m) {
             out["quantile_variance"] = quantile_variance;
             out["parameters"] = parameters;
             out["covariance"] = covariance;
+
+            // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran
+            // a bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+            const auto* boot = analysis.bootstrap_results();
+            py::dict bootstrap;
+            bootstrap["has_results"] = boot != nullptr;
+            bootstrap["total_replicates"] = boot != nullptr ? boot->total_replicates() : 0;
+            bootstrap["attempted_replicates"] = boot != nullptr ? boot->attempted_replicates() : 0;
+            bootstrap["failed_replicates"] = boot != nullptr ? boot->failed_replicates() : 0;
+            bootstrap["valid_replicates"] = boot != nullptr ? boot->valid_replicates() : 0;
+            bootstrap["retained_replicates"] = boot != nullptr ? boot->retained_replicates() : 0;
+            bootstrap["failure_rate"] = boot != nullptr ? boot->failure_rate() : kNaN;
+            bootstrap["mahalanobis_rejections"] =
+                boot != nullptr ? boot->mahalanobis_rejections() : 0;
+            bootstrap["transform_failures"] = boot != nullptr ? boot->transform_failures() : 0;
+            bootstrap["status_success_count"] = boot != nullptr ? boot->status_success_count() : 0;
+            bootstrap["optimizer_fallbacks"] = boot != nullptr ? boot->optimizer_fallbacks() : 0;
+            out["bootstrap"] = bootstrap;
             return out;
         },
         py::arg("model_json"), py::arg("dataset"), py::arg("uncertainty_method"),
