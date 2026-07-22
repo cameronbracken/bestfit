@@ -26,7 +26,7 @@
 //
 // UNCERTAINTY-METHOD DISPATCH (C# switch, lines 657-664):
 //   * MultivariateNormal       -> SHIPPED here (get_parameter_sets_from_multivariate_normal).
-//   * Bootstrap                -> ships in A8 (dispatch arm throws until then; clearly marked).
+//   * Bootstrap                -> SHIPPED in A8 (get_parameter_sets_from_parametric_bootstrap).
 //   * LinkedMultivariateNormal -> SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal).
 //   * BiasCorrectedBootstrap   -> SHIPPED (X9, reworked in T20:
 //                                 get_parameter_sets_from_pivotal_bootstrap). After X9, the B17C
@@ -140,6 +140,8 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -306,9 +308,9 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     }
 
     // C# `UncertaintyDiagnosticMessage` (T19, C# 409): a user-facing description of why the most
-    // recent uncertainty quantification was degraded or aborted; empty when no issue occurred. NOT
-    // populated by A8's get_parameter_sets_from_parametric_bootstrap() -- see the file header's T19
-    // note; the accessor exists for the other uncertainty paths' existing (unwired) guards.
+    // recent uncertainty quantification was degraded or aborted; empty when no issue occurred.
+    // Written by run_uncertainty_quantification's shared guards (T19), the pivotal-bootstrap arm
+    // (T20), and the MultivariateNormal arm's two aborts (T20b).
     const std::string& uncertainty_diagnostic_message() const {
         return uncertainty_diagnostic_message_;
     }
@@ -583,6 +585,63 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return negative ? "-" + grouped : grouped;
     }
 
+    // T20b: mirrors C#'s `:P0` percent format specifier for the MVN arm's rejection-rate abort
+    // message (C# 947). Two behaviours have to be reproduced exactly:
+    //   * The en-US `n%` pattern (digits, then '%', no space). This is a REAL culture difference,
+    //     not a formality: InvariantCulture's PercentPositivePattern is `n %` WITH a space, so
+    //     `0.6.ToString("P0")` is "60 %" invariant but "60%" under en-US. A dotnet 10 probe on the
+    //     machine the oracle emitter runs on reports CurrentCulture = en-US, and string
+    //     interpolation formats with CurrentCulture -- so "60%" is what the shipped message
+    //     contains. (`:N0` above is unaffected; the two cultures agree there.)
+    //   * .NET scales the EXACT decimal expansion of the double by 100 and rounds half-to-EVEN.
+    //     A naive `value * 100.0` followed by rounding gets this wrong: 0.505 is really
+    //     50.500000000000000444...% and must print "51%", but the double product `0.505 * 100`
+    //     rounds back to exactly 50.5 and would print "50%". So the expansion is taken from
+    //     printf and the decimal point is shifted on the digit string instead. 60 places is exact
+    //     for every value this is called with: the caller has already established
+    //     rejection_rate > 0.50, and a double in (0.5, 1] has ulp 2^-53 or larger, so its decimal
+    //     expansion terminates within 53 places.
+    static std::string format_p0(double value) {
+        if (!std::isfinite(value)) return "NaN";
+        bool negative = value < 0.0;
+        char buffer[512];
+        std::snprintf(buffer, sizeof buffer, "%.60f", negative ? -value : value);
+        std::string text(buffer);
+        std::size_t dot = text.find('.');
+        std::string whole = text.substr(0, dot);
+        std::string fraction = text.substr(dot + 1);
+
+        // Multiply by 100: shift the decimal point two places right.
+        if (fraction.size() < 2) fraction.append(2 - fraction.size(), '0');
+        whole += fraction.substr(0, 2);
+        fraction.erase(0, 2);
+
+        // Round half-to-even at the integer boundary.
+        std::size_t first_nonzero = fraction.find_first_not_of('0');
+        bool above_half = false, exactly_half = false;
+        if (first_nonzero != std::string::npos) {
+            if (fraction[0] > '5') {
+                above_half = true;
+            } else if (fraction[0] == '5') {
+                exactly_half = fraction.find_first_not_of('0', 1) == std::string::npos;
+                above_half = !exactly_half;
+            }
+        }
+        bool round_up = above_half || (exactly_half && (whole.back() - '0') % 2 == 1);
+        if (round_up) {
+            int carry = 1;
+            for (auto it = whole.rbegin(); it != whole.rend() && carry != 0; ++it) {
+                int digit = (*it - '0') + carry;
+                carry = digit / 10;
+                *it = static_cast<char>('0' + digit % 10);
+            }
+            if (carry != 0) whole.insert(whole.begin(), '1');
+        }
+        std::size_t lead = whole.find_first_not_of('0');
+        whole = (lead == std::string::npos) ? "0" : whole.substr(lead);
+        return (negative ? "-" + whole : whole) + "%";
+    }
+
     // C# `RunUncertaintyQuantificationAsync` (C# 724-798 @ c2e6192), synchronous. Sets the parent
     // distribution to thetaHat, dispatches on UncertaintyMethod to build the parameter-set
     // ensemble, and stores it into the BayesianAnalysis results plumbing. The async/Task.Run/
@@ -689,12 +748,24 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         bayesian_analysis_.set_custom_mcmc_results(std::move(mcmc), /*skip_information_criteria=*/true);
     }
 
-    // C# `GetParameterSetsFromMultivariateNormal` (C# 763-848): draws B parameter sets from
-    // MVN(thetaHat, sigmaHat) via Latin Hypercube (seeded by the BayesianAnalysis PRNG seed),
-    // validating each draw and retrying / falling back exactly as the C#. Returns nullopt when the
-    // GMM sandwich covariance is not positive-definite (C# `return null`). The C# Parallel.For ->
-    // a serial loop (independent per-index writes; identical results). Progress/cancellation
+    // C# `GetParameterSetsFromMultivariateNormal` (C# 865-967 @ c2e6192): draws B parameter sets
+    // from MVN(thetaHat, sigmaHat) via Latin Hypercube (seeded by the BayesianAnalysis PRNG seed),
+    // validating each draw and retrying exactly as the C#. Returns nullopt when the GMM sandwich
+    // covariance is not positive-definite, when the rejection rate exceeds 50%, or when fewer than
+    // two draws survive (C# `return null` in all three cases). The C# Parallel.For -> a serial loop
+    // (independent per-index writes; the Interlocked rejection counter and the per-index retry
+    // seeds make the result order-independent, so serial and parallel agree). Progress/cancellation
     // dropped.
+    //
+    // T20b (v2.0.0 delta): the `acceptedTheta ??= thetaHat` parent substitution the pre-2.0.0
+    // method ended its retry loop with is DELETED upstream, and the shipped source states why
+    // verbatim -- rejected draws "stay as default(ParameterSet) (Values == null) and are filtered
+    // below -- no parent fallback, which would inject zero-variance mass at the parent fit and bias
+    // the uncertainty bounds narrow." So a slot that fails its LHS draw and all ten retries is
+    // counted, left unset, and dropped, and the RETURNED ARRAY IS THE FILTERED ONE (C# 956) -- it
+    // can be shorter than B. That is safe downstream because MultivariateNormal is not in
+    // run_uncertainty_quantification's `is_bootstrap_method` set, so the exact-count guard there is
+    // bypassed and only the shared `< 2` guard applies.
     std::optional<std::vector<ParameterSet>> get_parameter_sets_from_multivariate_normal() {
         int b = bayesian_analysis_.output_length();
         std::vector<ParameterSet> results(static_cast<std::size_t>(b));
@@ -728,13 +799,15 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
             }
         };
 
+        int rejection_count = 0;  // C# 891 (`Interlocked.Increment`-guarded there)
+
         for (int idx = 0; idx < b; ++idx) {
             std::optional<std::vector<double>> accepted;
 
-            // First try: the LHS draw (best space coverage) (C# 805-811).
+            // First try: the LHS draw (best space coverage) (C# 902-909).
             if (accepts(draws[static_cast<std::size_t>(idx)])) accepted = draws[static_cast<std::size_t>(idx)];
 
-            // Retry with fresh MVN draws seeded per-index (C# 814-833).
+            // Retry with fresh MVN draws seeded per-index (C# 912-929).
             if (!accepted) {
                 corehydro::numerics::sampling::MersenneTwister prng(
                     static_cast<std::uint32_t>(seed + b + idx));
@@ -744,15 +817,46 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                     std::vector<double> candidate = mvn->inverse_cdf(u);
                     if (accepts(candidate)) accepted = std::move(candidate);
                 }
-                // Fall back to the parent vector after 10 rejected retries (C# 832).
-                if (!accepted) accepted = theta_hat;
+                // T20b (C# 927-928): count the abandoned draw. NO parent substitution.
+                if (!accepted) ++rejection_count;
             }
 
-            results[static_cast<std::size_t>(idx)] =
-                ParameterSet(std::move(*accepted), std::numeric_limits<double>::quiet_NaN());
+            // T20b (C# 931-935): a rejected slot stays default-constructed (empty `values`, the
+            // port's equivalent of C#'s `default(ParameterSet)` with `Values == null`).
+            if (accepted)
+                results[static_cast<std::size_t>(idx)] =
+                    ParameterSet(std::move(*accepted), std::numeric_limits<double>::quiet_NaN());
         }
 
-        return results;
+        // T20b (C# 941-951): persistent rejection means the MVN approximation places most of its
+        // mass outside the valid parameter space, not sampling noise -- abort rather than publish
+        // an ensemble drawn from a region the distribution cannot represent.
+        double rejection_rate = static_cast<double>(rejection_count) / static_cast<double>(b);
+        if (rejection_rate > 0.50) {
+            set_uncertainty_diagnostic_message(
+                "Multivariate Normal sampling: " + format_n0(rejection_count) + " of " +
+                format_n0(b) + " requested draws were rejected as invalid parameter sets (" +
+                format_p0(rejection_rate) +
+                " rejection rate). Uncertainty quantification was aborted. Consider the Bootstrap "
+                "uncertainty method, which does not rely on the asymptotic covariance.");
+            return std::nullopt;
+        }
+
+        // T20b (C# 953-964): drop the rejected slots and return the FILTERED array. The predicate
+        // is `Values != null` ONLY -- the stricter length/finiteness filter lives in the caller
+        // (C# 769-777, run_uncertainty_quantification above).
+        std::vector<ParameterSet> valid_results;
+        valid_results.reserve(results.size());
+        for (auto& ps : results)
+            if (!ps.values.empty()) valid_results.push_back(std::move(ps));
+        if (valid_results.size() < 2) {
+            set_uncertainty_diagnostic_message(
+                "Multivariate Normal sampling: only " +
+                format_n0(static_cast<long long>(valid_results.size())) + " of " + format_n0(b) +
+                " requested draws were valid. Uncertainty quantification was aborted.");
+            return std::nullopt;
+        }
+        return valid_results;
     }
 
     // T19: one accepted bootstrap-replicate fit, returned by collect_bootstrap_replicate_fit().

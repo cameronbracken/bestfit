@@ -64,6 +64,9 @@ struct Bulletin17CAnalysisTestAccess {
         return a.acceleration_constants(theta_hats);
     }
 
+    // T20b: the C# `:P0` percent formatter (private static; the MVN arm's abort message needs it).
+    static std::string format_p0(double value) { return Bulletin17CAnalysis::format_p0(value); }
+
     // A9 Cohn CI building blocks (private in the class; reached here without widening the API).
     static std::vector<double> clamp_for_covariance(const std::vector<double>& p) {
         return Bulletin17CAnalysis::clamp_for_covariance(p);
@@ -646,6 +649,139 @@ void test_uncertainty_diagnostic_message_insufficient_valid_sets() {
     CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
 }
 
+// ---- T20b: the MVN arm's rejection accounting + the two abort branches (C# 891 / 927-928 /
+//      934-935 / 944-951 / 955-964 @ c2e6192). The shipped v2.0.0 method DELETED the
+//      `acceptedTheta ??= thetaHat` parent substitution: a draw that fails all 10 retries now
+//      leaves its slot at default(ParameterSet) (Values == null), is counted, and is filtered out
+//      of the returned array, "no parent fallback, which would inject zero-variance mass at the
+//      parent fit and bias the uncertainty bounds narrow" (the shipped comment, verbatim).
+//
+//      Reaching a rejection at all takes a frame whose GMM sandwich covariance is wide enough
+//      that MVN draws leave the LP3 validity region (sigma > 0, |gamma| <= 6) more often than not
+//      -- the retry loop only gives up after ELEVEN consecutive invalid draws, so a per-draw
+//      rejection probability near 0.6 is needed before a single slot is ever abandoned. This frame
+//      delivers it: 35 near-identical annual peaks plus one 5x outlier drive the fitted log-space
+//      skew to the +6 validity boundary (gamma_hat = 5.9867) while the near-degenerate cluster
+//      inflates SD(gamma) to ~8.7, so roughly 55% of draws fall outside |gamma| <= 6. The same
+//      frame backs the lp3_multivariate_normal_rejected_draws fixture case, whose ensemble-derived
+//      mean_curve is the cross-language oracle for the SHORT return. ----
+std::unique_ptr<Bulletin17CDistribution> make_lp3_model_wide_covariance() {
+    std::vector<double> peaks;
+    for (int i = 0; i < 35; ++i) peaks.push_back(1000.0 + i);
+    peaks.push_back(5000.0);
+    DataFrame df;
+    df.set_exact_series(ExactSeries(peaks));
+    df.calculate_plotting_positions();
+    return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
+}
+
+// ---- T20b: the rate <= 50% path -- rejected slots are DROPPED, so the published ensemble is
+//      SHORTER than OutputLength and no diagnostic message is set (C# 955-964 returns the
+//      filtered array). Pre-T20b this returned exactly OutputLength sets with 4 copies of
+//      thetaHat substituted in. MultivariateNormal is not a bootstrap method, so the shared
+//      exact-count guard in run_uncertainty_quantification is bypassed and the short array is
+//      published normally. ----
+void test_mvn_rejected_draws_shorten_ensemble() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(1000);
+    analysis->bayesian_analysis().set_prng_seed(12345);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    // No abort: 4 of 1000 rejected is a 0.4% rate, far under the 50% threshold.
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(), std::string(""));
+    CHECK_TRUE(analysis->bayesian_analysis().results().has_value());
+    if (analysis->bayesian_analysis().results().has_value()) {
+        // The discriminating assertion: 996, NOT 1000. Every dropped slot is a draw that failed
+        // its LHS sample and all ten retries.
+        CHECK_EQ(analysis->bayesian_analysis().results()->output.size(), std::size_t{996});
+        // Every published set is a real draw with three finite parameters (nothing default-built
+        // leaked through the filter).
+        for (const auto& ps : analysis->bayesian_analysis().results()->output) {
+            CHECK_EQ(ps.values.size(), std::size_t{3});
+            CHECK_TRUE(std::isfinite(ps.values[0]) && std::isfinite(ps.values[1]) &&
+                       std::isfinite(ps.values[2]));
+        }
+    }
+    CHECK_TRUE(analysis->analysis_results() != nullptr);
+}
+
+// ---- T20b: the > 50% abort (C# 944-951). B = 3 with two rejected draws is a 66.67% rate, which
+//      exercises the `:P0` rounding (66.666...% -> "67%") as well as `:N0`. Returns null, so no
+//      MCMCResults is published and the specific message wins over the shared covariance default
+//      (the caller's `if (uncertainty_diagnostic_message_.empty())` precedence, C# 757-767). ----
+void test_mvn_rejection_rate_abort_two_of_three() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(3);
+    analysis->bayesian_analysis().set_prng_seed(13476);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: 2 of 3 requested draws were rejected as "
+                         "invalid parameter sets (67% rejection rate). Uncertainty quantification "
+                         "was aborted. Consider the Bootstrap uncertainty method, which does not "
+                         "rely on the asymptotic covariance."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: the same abort at a 100% rate (every draw rejected). ----
+void test_mvn_rejection_rate_abort_all_rejected() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(2);
+    analysis->bayesian_analysis().set_prng_seed(13477);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: 2 of 2 requested draws were rejected as "
+                         "invalid parameter sets (100% rejection rate). Uncertainty quantification "
+                         "was aborted. Consider the Bootstrap uncertainty method, which does not "
+                         "rely on the asymptotic covariance."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: the `validResults.Length < 2` abort (C# 955-964). One rejection out of two is a rate
+//      of EXACTLY 0.50, which is not `> 0.50`, so the rate check passes and the second guard is
+//      the one that fires -- the only configuration that reaches this branch of the MVN arm. ----
+void test_mvn_insufficient_valid_draws_abort() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(2);
+    analysis->bayesian_analysis().set_prng_seed(74);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: only 1 of 2 requested draws were valid. "
+                         "Uncertainty quantification was aborted."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: format_p0 reproduces C#'s `:P0` specifier under the en-US culture the oracle emitter
+//      runs in. Oracles transcribed from a direct dotnet 10 probe of `v.ToString("P0", enUS)`:
+//      en-US uses the `n%` pattern (no space before the sign, unlike InvariantCulture's `n %`),
+//      and .NET rounds the EXACT decimal value of the double half-to-even. That makes 0.625 (which
+//      IS exactly 62.5%) print "62%" while 0.505 (whose double is 50.500000000000000444...%)
+//      prints "51%" -- a plain `value * 100` would collapse the latter back to exactly 50.5 and
+//      print "50%". ----
+void test_format_p0_matches_dotnet() {
+    using TA = corehydro::analyses::Bulletin17CAnalysisTestAccess;
+    CHECK_EQ(TA::format_p0(0.0), std::string("0%"));
+    CHECK_EQ(TA::format_p0(0.004), std::string("0%"));
+    CHECK_EQ(TA::format_p0(0.5), std::string("50%"));
+    CHECK_EQ(TA::format_p0(0.505), std::string("51%"));
+    CHECK_EQ(TA::format_p0(0.5051), std::string("51%"));
+    CHECK_EQ(TA::format_p0(0.6), std::string("60%"));
+    CHECK_EQ(TA::format_p0(0.625), std::string("62%"));
+    CHECK_EQ(TA::format_p0(2.0 / 3.0), std::string("67%"));
+    CHECK_EQ(TA::format_p0(0.675), std::string("68%"));
+    CHECK_EQ(TA::format_p0(1.0), std::string("100%"));
+}
+
 // ---- T19: a real run() through the Bootstrap UQ path with an interval-censored observation on
 //      the parent DataFrame, forcing get_parameter_sets_from_parametric_bootstrap()'s
 //      clone_with_data_frame_flag TRUE (the Task 18 warm-start condition). Same-language-only
@@ -1165,6 +1301,13 @@ int main() {
     test_run_bootstrap_structural();
     test_uncertainty_diagnostic_message_insufficient_valid_sets();
     test_run_bootstrap_warm_start_structural();
+
+    // T20b: MVN-arm rejection accounting + the two abort branches
+    test_mvn_rejected_draws_shorten_ensemble();
+    test_mvn_rejection_rate_abort_two_of_three();
+    test_mvn_rejection_rate_abort_all_rejected();
+    test_mvn_insufficient_valid_draws_abort();
+    test_format_p0_matches_dotnet();
 
     // T20: pivotal-bootstrap surface
     test_pivot_yeo_johnson_link_valid_samples();
