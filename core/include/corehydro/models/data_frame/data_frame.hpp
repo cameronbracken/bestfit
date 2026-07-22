@@ -224,6 +224,22 @@ class DataFrame {
     // strategy already requires an explicit calculate_plotting_positions() call after any
     // mutation (see the file header), so bumping there alone is sufficient and observably
     // equivalent for every caller that follows the documented invalidation contract.
+    //
+    // CORRECTION (Task 15 finding): the "WPF/XML-only" characterization above is NOT
+    // fully accurate -- the C# `ExactDataChanged`/`UncertainDataChanged`/`IntervalDataChanged`/
+    // `ThresholdDataChanged` handlers ALSO bump `_plottingPositionVersion` (via
+    // `Interlocked.Increment`, no recalculation) whenever a bare `Data.PlottingPosition`
+    // property write fires `PropertyChanged`, independent of any WPF binding -- so in the
+    // real C#, directly mutating a single `ExactData.PlottingPosition` (bypassing
+    // `CalculatePlottingPositions()` entirely) DOES invalidate a version-keyed cache such as
+    // `BivariateDistribution`'s PseudoLikelihood validation cache
+    // (bivariate_distribution.hpp). This port's version counter does NOT catch that specific
+    // bare-mutation case (`Data::set_plotting_position()` has no back-pointer to bump its
+    // owning DataFrame's counter), so a caller here MUST re-run
+    // `calculate_plotting_positions()` explicitly for a version-keyed cache to observe the
+    // change -- a real, documented behavior gap versus the C#, not exercised by any current
+    // fixture (BivariateDistribution's only oracle-verified PseudoLikelihood scenario is the
+    // first-validation auto-repair, which this counter handles correctly).
     std::int64_t plotting_position_version() const { return plotting_position_version_; }
 
     // The average number of events per index (C# line 273).
