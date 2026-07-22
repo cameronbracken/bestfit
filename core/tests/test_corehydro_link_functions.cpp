@@ -4,10 +4,19 @@
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/LinkFunctions/LogSESLinkTests.cs       @ fc28c0c
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/LinkFunctions/LogASinHLinkTests.cs     @ fc28c0c
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/LinkFunctions/CenteredLinkTests.cs     @ fc28c0c
-//   upstream/RMC-BestFit/src/RMC.BestFit.Tests/LinkFunctions/YeoJohnsonLinkTests.cs   @ fc28c0c
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/LinkFunctions/LinkFunctionSerializationTests.cs
-//     @ fc28c0c (non-XML factory assertions only)
+//     @ c2e6192 (non-XML factory assertions only)
 // plus brief-required supplements (SES/LogSES Newton-convergence diagnostics).
+//
+// v2.0.0 (upstream-sync Task 17, 68b07a8): upstream deleted
+// RMC.BestFit.Tests/LinkFunctions/YeoJohnsonLinkTests.cs whole-file, alongside the
+// BestFit-local YeoJohnsonLink it tested (RMC.BestFit.Models.LinkFunctions.YeoJohnsonLink
+// -- a CS0104 name-collision leftover of the Numerics
+// numerics::functions::YeoJohnsonLink). This port mirrors that: the transcribed
+// "YeoJohnsonLinkTests.cs" test block below is removed (its oracle coverage already
+// exists in full against the Numerics link in test_link_functions.cpp), and
+// test_factory_all_types asserts BestFitLinkFunctionType::YeoJohnson now constructs a
+// corehydro::numerics::functions::YeoJohnsonLink.
 //
 // Skipped upstream test methods (exhaustive; all are XML-serialization surface unless
 // noted -- the port drops ToXElement / the XElement constructors / CreateFromXElement
@@ -22,18 +31,15 @@
 //     BestFitFactory_CreatesLogASinHLink (XElement-based; enum factory covered below).
 //   CenteredLinkTests.cs: none skipped. Test_Constructor_NullInner_Throws is
 //     transcribed (nullptr unique_ptr maps the C# null reference).
-//   YeoJohnsonLinkTests.cs: Constructor_Values_Null_ThrowsArgumentNullException (a C++
-//     std::vector cannot be null -- no ArgumentNullException analog),
-//     Constructor_XElement_Null_ThrowsArgumentNullException, XmlRoundTrip_PreservesLambda,
-//     ToXElement_ElementNameIsYeoJohnsonLink, XmlRoundTrip_ThenLinkInverse_RecoverX (XML).
 //   LinkFunctionSerializationTests.cs: SESLink_RoundTrip, SESLink_ToXElement_ElementName,
 //     LogSESLink_RoundTrip, LogSESLink_ToXElement_ElementName, LogASinHLink_RoundTrip,
 //     LogASinHLink_ToXElement_ElementName, CenteredLink_RoundTrip_WithSESInner,
 //     CenteredLink_RoundTrip_WithIdentityInner, CenteredLink_ToXElement_ElementName,
-//     LinkController_RoundTrip_WithBestFitLinks, LinkController_RoundTrip_NullSlots (all
-//     XML round-trips). The non-XML type-dispatch assertions of
-//     BestFitLinkFunctionFactory_AllTypes and BestFitLinkFunctionFactory_UnknownType_Throws
-//     are transcribed against the enum factory below.
+//     LinkController_RoundTrip_WithBestFitLinks, LinkController_RoundTrip_NullSlots,
+//     BestFitLinkFunctionFactory_LegacyYeoJohnsonXml_ReturnsIdentity (all XML). The
+//     non-XML type-dispatch assertions of BestFitLinkFunctionFactory_AllTypes and
+//     BestFitLinkFunctionFactory_UnknownType_Throws are transcribed against the enum
+//     factory below.
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -46,13 +52,13 @@
 #include "corehydro/models/link_functions/log_asinh_link.hpp"
 #include "corehydro/models/link_functions/log_ses_link.hpp"
 #include "corehydro/models/link_functions/ses_link.hpp"
-#include "corehydro/models/link_functions/yeo_johnson_link.hpp"
 #include "corehydro/numerics/functions/identity_link.hpp"
 #include "corehydro/numerics/functions/link_function_type.hpp"
 #include "corehydro/numerics/functions/log_link.hpp"
 #include "corehydro/numerics/functions/logit_link.hpp"
 #include "corehydro/numerics/functions/probit_link.hpp"
 #include "corehydro/numerics/functions/complementary_log_log_link.hpp"
+#include "corehydro/numerics/functions/yeo_johnson_link.hpp"
 #include "check.hpp"
 
 using corehydro::models::link_functions::ASinHLink;
@@ -66,9 +72,9 @@ using corehydro::numerics::functions::IdentityLink;
 using corehydro::numerics::functions::ILinkFunction;
 using corehydro::numerics::functions::LinkFunctionType;
 using corehydro::numerics::functions::LogLink;
-// The two YeoJohnsonLink classes collide by simple name; keep both fully qualified via
-// namespace aliases (the B2 brief calls out this coexistence explicitly).
-namespace ch_models = corehydro::models::link_functions;
+// BestFitLinkFunctionType::YeoJohnson constructs the Numerics link directly (68b07a8);
+// keep it fully qualified via this alias, alongside the other Numerics-only link types
+// referenced below (LogitLink, ProbitLink, ComplementaryLogLogLink).
 namespace ch_numfun = corehydro::numerics::functions;
 
 namespace {
@@ -77,7 +83,6 @@ namespace {
 const double kDeltaH = 1e-7;         // finite-difference step (all files)
 const double kRoundTripTol = 1e-10;  // ASinH / SES / LogASinH / Centered round-trip tol
 const double kLogSesRoundTripTol = 1e-8;  // LogSESLinkTests.RoundTripTol
-const double kYjRoundTripTol = 1e-9;      // YeoJohnsonLinkTests.RoundTripTol
 const double kDerivativeTol = 1e-4;       // all files
 
 // ══════════════════════════════════════════════
@@ -923,106 +928,6 @@ void test_centered_scale_affects_spread() {
 }
 
 // ══════════════════════════════════════════════
-//  YeoJohnsonLinkTests.cs (the models-layer YeoJohnsonLink)
-// ══════════════════════════════════════════════
-
-void test_yj_constructor_default_lambda_is_one() {
-    ch_models::YeoJohnsonLink link;
-    CHECK_NEAR(link.lambda(), 1.0, 1e-10);
-}
-
-void test_yj_constructor_lambda_stores_value() {
-    ch_models::YeoJohnsonLink link(0.5);
-    CHECK_NEAR(link.lambda(), 0.5, 1e-10);
-}
-
-void test_yj_constructor_lambda_two_stores_value() {
-    ch_models::YeoJohnsonLink link(2.0);
-    CHECK_NEAR(link.lambda(), 2.0, 1e-10);
-}
-
-void test_yj_constructor_values_single_element_throws() {
-    CHECK_THROWS(ch_models::YeoJohnsonLink(std::vector<double>{1.0}));
-}
-
-void test_yj_constructor_values_two_elements_produces_finite_lambda() {
-    ch_models::YeoJohnsonLink link(std::vector<double>{1.0, 2.0, 3.0, 4.0, 5.0});
-    CHECK_TRUE(std::isfinite(link.lambda()));
-}
-
-void test_yj_link_lambda_one_positive_x_is_identity() {
-    ch_models::YeoJohnsonLink link(1.0);
-    double positive_values[] = {0.5, 1.0, 2.0, 5.0, 10.0};
-    for (double x : positive_values) CHECK_NEAR(link.link(x), x, 1e-10);
-}
-
-void test_yj_link_lambda_one_at_zero_is_zero() {
-    ch_models::YeoJohnsonLink link(1.0);
-    CHECK_NEAR(link.link(0.0), 0.0, 1e-10);
-}
-
-void test_yj_d_link_lambda_one_is_one() {
-    ch_models::YeoJohnsonLink link(1.0);
-    double test_points[] = {-5.0, -1.0, 0.0, 1.0, 5.0};
-    for (double x : test_points) CHECK_NEAR(link.d_link(x), 1.0, 1e-10);
-}
-
-void test_yj_round_trip_positive_x_lambda_half() {
-    ch_models::YeoJohnsonLink link(0.5);
-    double values[] = {0.1, 0.5, 1.0, 2.0, 5.0, 10.0};
-    for (double x : values) CHECK_NEAR(link.inverse_link(link.link(x)), x, kYjRoundTripTol);
-}
-
-void test_yj_round_trip_negative_x_lambda_half() {
-    ch_models::YeoJohnsonLink link(0.5);
-    double values[] = {-10.0, -5.0, -2.0, -1.0, -0.5, -0.1};
-    for (double x : values) CHECK_NEAR(link.inverse_link(link.link(x)), x, kYjRoundTripTol);
-}
-
-void test_yj_round_trip_lambda_two_positive_x() {
-    ch_models::YeoJohnsonLink link(2.0);
-    double values[] = {0.5, 1.0, 2.0, 5.0};
-    for (double x : values) CHECK_NEAR(link.inverse_link(link.link(x)), x, kYjRoundTripTol);
-}
-
-void test_yj_round_trip_lambda_zero_positive_x() {
-    ch_models::YeoJohnsonLink link(0.0);
-    double values[] = {0.5, 1.0, 2.0, 5.0, 10.0};
-    for (double x : values) CHECK_NEAR(link.inverse_link(link.link(x)), x, kYjRoundTripTol);
-}
-
-void test_yj_d_link_lambda_half_positive_x_finite_difference() {
-    ch_models::YeoJohnsonLink link(0.5);
-    double test_points[] = {0.5, 1.0, 2.0, 5.0};
-    for (double x : test_points) {
-        double analytic = link.d_link(x);
-        double fd = (link.link(x + kDeltaH) - link.link(x - kDeltaH)) / (2.0 * kDeltaH);
-        CHECK_NEAR(analytic, fd, kDerivativeTol);
-    }
-}
-
-void test_yj_d_link_lambda_half_negative_x_finite_difference() {
-    ch_models::YeoJohnsonLink link(0.5);
-    double test_points[] = {-5.0, -2.0, -1.0, -0.5};
-    for (double x : test_points) {
-        double analytic = link.d_link(x);
-        double fd = (link.link(x + kDeltaH) - link.link(x - kDeltaH)) / (2.0 * kDeltaH);
-        CHECK_NEAR(analytic, fd, kDerivativeTol);
-    }
-}
-
-void test_yj_d_link_at_zero_lambda_one_is_one() {
-    ch_models::YeoJohnsonLink link(1.0);
-    CHECK_NEAR(link.d_link(0.0), 1.0, 1e-10);
-}
-
-void test_yj_d_link_positive_x_always_positive() {
-    ch_models::YeoJohnsonLink link(0.5);
-    double test_points[] = {0.1, 0.5, 1.0, 2.0, 10.0};
-    for (double x : test_points) CHECK_TRUE(link.d_link(x) > 0);
-}
-
-// ══════════════════════════════════════════════
 //  BestFitLinkFunctionFactory (non-XML dispatch assertions transcribed from
 //  LinkFunctionSerializationTests.cs BestFitLinkFunctionFactory_AllTypes /
 //  BestFitLinkFunctionFactory_UnknownType_Throws)
@@ -1061,8 +966,10 @@ void test_factory_all_types() {
     CHECK_TRUE(dynamic_cast<ASinHLink*>(
                    BestFitLinkFunctionFactory::create(BestFitLinkFunctionType::ASinH).get()) !=
                nullptr);
+    // 68b07a8: BestFitLinkFunctionType::YeoJohnson constructs the Numerics link
+    // directly (the BestFit-local duplicate is deleted).
     CHECK_TRUE(
-        dynamic_cast<ch_models::YeoJohnsonLink*>(
+        dynamic_cast<ch_numfun::YeoJohnsonLink*>(
             BestFitLinkFunctionFactory::create(BestFitLinkFunctionType::YeoJohnson).get()) !=
         nullptr);
 
@@ -1182,23 +1089,8 @@ int main() {
     test_centered_link_at_mu0_maps_to_inner_link_of_zero();
     test_centered_inverse_link_at_zero_maps_through_inner();
     test_centered_scale_affects_spread();
-    // YeoJohnsonLinkTests.cs
-    test_yj_constructor_default_lambda_is_one();
-    test_yj_constructor_lambda_stores_value();
-    test_yj_constructor_lambda_two_stores_value();
-    test_yj_constructor_values_single_element_throws();
-    test_yj_constructor_values_two_elements_produces_finite_lambda();
-    test_yj_link_lambda_one_positive_x_is_identity();
-    test_yj_link_lambda_one_at_zero_is_zero();
-    test_yj_d_link_lambda_one_is_one();
-    test_yj_round_trip_positive_x_lambda_half();
-    test_yj_round_trip_negative_x_lambda_half();
-    test_yj_round_trip_lambda_two_positive_x();
-    test_yj_round_trip_lambda_zero_positive_x();
-    test_yj_d_link_lambda_half_positive_x_finite_difference();
-    test_yj_d_link_lambda_half_negative_x_finite_difference();
-    test_yj_d_link_at_zero_lambda_one_is_one();
-    test_yj_d_link_positive_x_always_positive();
+    // YeoJohnsonLinkTests.cs was deleted upstream at 68b07a8 (see file header); its
+    // coverage lives in test_link_functions.cpp against the Numerics link.
     // LinkFunctionSerializationTests.cs (non-XML factory assertions)
     test_factory_all_types();
     test_factory_unknown_type_throws();
