@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/ARWMH.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/ARWMH.cs @ 2a0357a
 //
 // Adaptive Random Walk Metropolis-Hastings (ARWMH): like RWMH, but the proposal covariance
 // adapts online from the chain's own history via a per-chain RunningCovarianceMatrix (P3.2),

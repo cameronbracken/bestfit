@@ -1,12 +1,32 @@
-// ported from: Numerics/Distributions/Multivariate/MultivariateNormal.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/MultivariateNormal.cs @ 2a0357a
 //
 // The Multivariate Normal (Gaussian) distribution, dimensions >= 1, mean vector mu and
-// covariance matrix Sigma. This is the phase's heavyweight port (~2150 LOC of C#): the
-// deterministic core (ctors, PDF/LogPDF/CDF for dim 1-2, Mahalanobis distance, sampling,
-// the closed-form bivariate CDF machinery) lands first; the Genz-Bretz MVNDST
-// quasi-Monte-Carlo integrator that backs the CDF for dim >= 3 lands in a second commit
-// (this header's `mvndst()` is a throwing stub until then -- see the comment on that
-// method). Member order mirrors the C# source throughout.
+// covariance matrix Sigma: the deterministic core (ctors, PDF/LogPDF/CDF for dim 1-2,
+// Mahalanobis distance, sampling, the closed-form bivariate CDF machinery), the
+// Genz-Bretz MVNDST quasi-Monte-Carlo integrator backing the CDF for dim >= 3, and (this
+// task, v2.1.4) the Try/Marginal/Conditional API. Member order mirrors the C# source
+// throughout.
+//
+// v2.1.4 additions (this task):
+//   - `validate_parameters` gained finite-mean/finite-covariance checks (NaN/Inf rejected
+//     BEFORE the square/dimension/positive-definite checks, exact C# order).
+//   - `try_set_parameters`/`try_set_covariance`: non-throwing mutable-covariance setters
+//     for samplers/likelihood loops that swap covariances per evaluation -- an infeasible
+//     proposal marks `is_density_valid() == false` (PDF -> 0, LogPDF -> -inf) instead of
+//     throwing. Mirrors C# `TrySetParameters`/`TrySetCovariance`/`IsDensityValid`.
+//   - `marginal(indices)`: the sub-mean/sub-covariance at the given dimension indices (the
+//     marginal of a joint Gaussian is the corresponding sub-Gaussian).
+//   - `conditional(observed_indices, observed_values)`: the Schur-complement conditional
+//     distribution of the unobserved dimensions given fixed values at the observed ones.
+//   - COVSRT's degenerate-diagonal "permute limits and/or rows" loop was FIXED upstream
+//     (loop bounds `j >= 0`/`l <= j`/`l <= i-1`, packed-index `l*(l+1)/2`, the swap-offset
+//     `-1`, and the `IJ` decrement `- k - 1`) -- transcribed verbatim from the fixed C#;
+//     see the `covsrt` method comment (the old bounds-guard divergence note is retired,
+//     since the fixed loop no longer produces an out-of-range access on this port's
+//     fixture-exercised singular/rank-deficient inputs).
+//   - `MVNDNT` changed from `private double` (always returning the dead constant `0.0`) to
+//     `private void`, with `MVNDST` now setting `INFORM = 0` explicitly before calling it --
+//     a pure shape mirror with no behavior change (see the `mvndst`/`mvndnt` comments).
 //
 // Divergence notes (see also docs/upstream-csharp-issues.md for the running log):
 //   - `Variance`/`StandardDeviation` are computed on every call rather than lazily cached
@@ -181,10 +201,19 @@ class MultivariateNormal : public MultivariateDistribution {
     }
 
     // Validate the parameters. Returns nullopt if valid; if `throw_exception` is false and
-    // invalid, returns the error message instead of throwing.
+    // invalid, returns the error message instead of throwing. v2.1.4: the mean/covariance
+    // finiteness checks (below) respect `throw_exception` faithfully -- unlike the
+    // Cholesky-based check further down, which always throws regardless (see that check's
+    // own comment).
     std::optional<std::string> validate_parameters(const std::vector<double>& mean,
                                                      const std::vector<std::vector<double>>& covariance,
                                                      bool throw_exception) const {
+        for (double v : mean) {
+            if (!std::isfinite(v)) {
+                if (throw_exception) throw std::out_of_range("Mean values must be finite.");
+                return "Mean values must be finite.";
+            }
+        }
         la::Matrix m(covariance);
         if (!m.is_square()) {
             if (throw_exception) throw std::out_of_range("Covariance matrix must be square.");
@@ -194,6 +223,14 @@ class MultivariateNormal : public MultivariateDistribution {
             if (throw_exception) throw std::out_of_range("Mean length must match covariance dimension.");
             return "Mean length must match covariance dimension.";
         }
+        for (int i = 0; i < m.number_of_rows(); ++i) {
+            for (int j = 0; j < m.number_of_columns(); ++j) {
+                if (!std::isfinite(m(i, j))) {
+                    if (throw_exception) throw std::out_of_range("Covariance values must be finite.");
+                    return "Covariance values must be finite.";
+                }
+            }
+        }
         // Cholesky try/propagate quirk: the C# source constructs `new
         // CholeskyDecomposition(m)` directly here, with no try/catch. This port's
         // CholeskyDecomposition ctor (like the C# one) unconditionally THROWS on a
@@ -202,7 +239,8 @@ class MultivariateNormal : public MultivariateDistribution {
         // validate_parameters regardless of `throw_exception`, and the
         // `!chol.is_positive_definite()` check below never actually fires (construction
         // already succeeded by the time it runs). Ported verbatim anyway for structural
-        // fidelity with the C# source.
+        // fidelity with the C# source. `try_set_parameters` below absorbs this always-throw
+        // behavior in its own try/catch, exactly mirroring C#'s `TrySetParameters`.
         la::CholeskyDecomposition chol(m);
         if (!chol.is_positive_definite()) {
             if (throw_exception) throw std::out_of_range("Covariance matrix is not positive-definite.");
@@ -211,15 +249,158 @@ class MultivariateNormal : public MultivariateDistribution {
         return std::nullopt;
     }
 
+    // Attempts to set mean+covariance without throwing: the covariance is factorized
+    // eagerly, and when it is not positive-definite (or otherwise invalid) the density is
+    // marked invalid -- `log_pdf()` returns -inf and `pdf()` returns 0 until a valid
+    // covariance is set. Mirrors C# `TrySetParameters` (the non-throwing mutable path for
+    // samplers/likelihood loops that swap covariances per evaluation, e.g. MCMC proposals
+    // of correlation parameters: an infeasible proposal scores -inf and is rejected instead
+    // of raising an exception). `set_parameters()` keeps its throwing contract.
+    bool try_set_parameters(std::vector<double> mean, std::vector<std::vector<double>> covariance) {
+        try {
+            // validate_parameters(..., false) still THROWS on a non-positive-definite
+            // covariance (the Cholesky-unconditional-throw quirk noted above) -- this
+            // try/catch absorbs that, mirroring C#'s own `try { if (ValidateParameters(...)
+            // is null) {...} } catch (Exception) {...}`.
+            if (!validate_parameters(mean, covariance, false).has_value()) {
+                set_parameters(std::move(mean), std::move(covariance));
+                density_valid_ = true;
+                return true;
+            }
+        } catch (...) {
+            // Swallowed exactly like C#'s catch(Exception) -- falls through to the
+            // invalid-density return below.
+        }
+        density_valid_ = false;
+        return false;
+    }
+
+    // Attempts to swap the covariance matrix in place (the mean is kept) without throwing;
+    // see `try_set_parameters` for the invalid-density contract. Mirrors C#
+    // `TrySetCovariance`.
+    bool try_set_covariance(std::vector<std::vector<double>> covariance) {
+        return try_set_parameters(mean_, std::move(covariance));
+    }
+
+    // Whether the current covariance factorization supports density evaluation. False
+    // after a failed try_set_parameters()/try_set_covariance() until a valid covariance is
+    // set. Mirrors C# `IsDensityValid`.
+    bool is_density_valid() const { return density_valid_; }
+
+    // Returns the marginal distribution over a subset of the dimensions -- the sub-mean
+    // and sub-covariance at the given indices (the marginal of a joint Gaussian is the
+    // corresponding sub-Gaussian). `indices` must be non-empty, in range, and without
+    // repeats (see validate_indices()). Mirrors C# `Marginal(params int[] indices)`.
+    MultivariateNormal marginal(const std::vector<int>& indices) const {
+        validate_indices(indices, dimension_);
+        std::vector<double> sub_mean(indices.size());
+        std::vector<std::vector<double>> sub_covariance(indices.size(),
+                                                          std::vector<double>(indices.size()));
+        for (std::size_t i = 0; i < indices.size(); ++i) {
+            sub_mean[i] = mean_[static_cast<std::size_t>(indices[i])];
+            for (std::size_t j = 0; j < indices.size(); ++j)
+                sub_covariance[i][j] = covariance_(indices[i], indices[j]);
+        }
+        return MultivariateNormal(std::move(sub_mean), std::move(sub_covariance));
+    }
+
+    // Returns the conditional distribution of the remaining dimensions given observed
+    // values at a subset of the dimensions: mu_c = mu1 + Sigma12*Sigma22^-1*(x2 - mu2) and
+    // Sigma_c = Sigma11 - Sigma12*Sigma22^-1*Sigma21 (the Schur complement), with Sigma22
+    // solved through its Cholesky factorization. `observed_indices` must be non-empty, in
+    // range, without repeats, and leave at least one dimension unobserved;
+    // `observed_values` must parallel `observed_indices`. Mirrors C#
+    // `Conditional(int[] observedIndices, double[] observedValues)`.
+    // Reference: Eaton, M.L. (1983). Multivariate Statistics: A Vector Space Approach.
+    // Wiley. (The Gaussian conditioning identities.)
+    MultivariateNormal conditional(const std::vector<int>& observed_indices,
+                                    const std::vector<double>& observed_values) const {
+        validate_indices(observed_indices, dimension_);
+        if (observed_values.size() != observed_indices.size())
+            throw std::out_of_range("The observed values must parallel the observed indices.");
+        if (static_cast<int>(observed_indices.size()) >= dimension_)
+            throw std::out_of_range("At least one dimension must remain unobserved.");
+
+        // The remaining (free) dimensions in ascending order.
+        std::vector<bool> is_observed(static_cast<std::size_t>(dimension_), false);
+        for (int index : observed_indices) is_observed[static_cast<std::size_t>(index)] = true;
+        std::vector<int> free;
+        free.reserve(static_cast<std::size_t>(dimension_) - observed_indices.size());
+        for (int i = 0; i < dimension_; ++i)
+            if (!is_observed[static_cast<std::size_t>(i)]) free.push_back(i);
+
+        // Partition: Sigma22 (observed), Sigma12 (free x observed), and the innovation
+        // z = x2 - mu2.
+        int n_observed = static_cast<int>(observed_indices.size());
+        int n_free = static_cast<int>(free.size());
+        la::Matrix sigma22(n_observed, n_observed);
+        for (int i = 0; i < n_observed; ++i)
+            for (int j = 0; j < n_observed; ++j)
+                sigma22(i, j) = covariance_(observed_indices[static_cast<std::size_t>(i)],
+                                            observed_indices[static_cast<std::size_t>(j)]);
+        // Cholesky-throws-unconditionally quirk (see validate_parameters' comment above):
+        // a non-positive-definite Sigma22 throws out of the CholeskyDecomposition ctor
+        // itself, so `!cholesky22.is_positive_definite()` below is dead code (construction
+        // would already have thrown) -- ported verbatim for structural fidelity with C#,
+        // whose own `!cholesky22.IsPositiveDefinite` check is equally unreachable there.
+        la::CholeskyDecomposition cholesky22(sigma22);
+        if (!cholesky22.is_positive_definite())
+            throw std::out_of_range("The observed sub-covariance is not positive-definite.");
+
+        std::vector<double> z(static_cast<std::size_t>(n_observed));
+        for (int i = 0; i < n_observed; ++i)
+            z[static_cast<std::size_t>(i)] =
+                observed_values[static_cast<std::size_t>(i)] -
+                mean_[static_cast<std::size_t>(observed_indices[static_cast<std::size_t>(i)])];
+        la::Vector solved_z = cholesky22.solve(la::Vector(z));
+
+        // Solve Sigma22^-1*Sigma21 column-by-column (Sigma21 columns are the free rows of
+        // Sigma12^T).
+        std::vector<la::Vector> solved_columns;
+        solved_columns.reserve(static_cast<std::size_t>(n_free));
+        for (int i = 0; i < n_free; ++i) {
+            std::vector<double> column(static_cast<std::size_t>(n_observed));
+            for (int j = 0; j < n_observed; ++j)
+                column[static_cast<std::size_t>(j)] =
+                    covariance_(observed_indices[static_cast<std::size_t>(j)], free[static_cast<std::size_t>(i)]);
+            solved_columns.push_back(cholesky22.solve(la::Vector(column)));
+        }
+
+        std::vector<double> conditional_mean(static_cast<std::size_t>(n_free));
+        std::vector<std::vector<double>> conditional_covariance(
+            static_cast<std::size_t>(n_free), std::vector<double>(static_cast<std::size_t>(n_free)));
+        for (int i = 0; i < n_free; ++i) {
+            double mean_adjustment = 0.0;
+            for (int j = 0; j < n_observed; ++j)
+                mean_adjustment += covariance_(free[static_cast<std::size_t>(i)],
+                                                observed_indices[static_cast<std::size_t>(j)]) *
+                                    solved_z[j];
+            conditional_mean[static_cast<std::size_t>(i)] =
+                mean_[static_cast<std::size_t>(free[static_cast<std::size_t>(i)])] + mean_adjustment;
+            for (int k = 0; k < n_free; ++k) {
+                double schur = 0.0;
+                for (int j = 0; j < n_observed; ++j)
+                    schur += covariance_(free[static_cast<std::size_t>(i)],
+                                          observed_indices[static_cast<std::size_t>(j)]) *
+                             solved_columns[static_cast<std::size_t>(k)][j];
+                conditional_covariance[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)] =
+                    covariance_(free[static_cast<std::size_t>(i)], free[static_cast<std::size_t>(k)]) - schur;
+            }
+        }
+        return MultivariateNormal(std::move(conditional_mean), std::move(conditional_covariance));
+    }
+
     // --- Distribution functions ---
 
     // The Probability Density Function (PDF) of the distribution evaluated at a point X.
     double pdf(const std::vector<double>& x) const override {
+        if (!density_valid_) return 0.0;
         return std::exp(-0.5 * mahalanobis(x) + lnconstant_);
     }
 
     // Returns the natural log of the PDF.
     double log_pdf(const std::vector<double>& x) const override {
+        if (!density_valid_) return -kInf;
         double f = -0.5 * mahalanobis(x) + lnconstant_;
         if (std::isnan(f) || std::isinf(f)) return -kInf;
         return f;
@@ -922,10 +1103,13 @@ class MultivariateNormal : public MultivariateDistribution {
     // in Alan Genz, "Numerical Computation of Multivariate Normal Probabilities", J. of
     // Computational and Graphical Stat., 1(1992), pp. 141-149.
     //
-    // Divergence note: `MVNDNT`'s C# return value is always 0 (the local `result` is
-    // never reassigned) -- `INFORM` is therefore always initialized to 0 by this call and
-    // only reassigned by `dkbvrc` in the N-INFIS>=2 branch below. Ported verbatim
-    // (`mvndnt` always returns 0.0); see the comment on `mvndnt` itself.
+    // v2.1.4 shape note: `MVNDNT` is `void` (no return value at all -- see the comment on
+    // `mvndnt` itself); `INFORM` is set to 0 explicitly here immediately before calling it,
+    // mirroring the C# source exactly (`INFORM = 0; MVNDNT(...);` in place of the old
+    // `INFORM = (int)MVNDNT(...)`). `INFORM` is only reassigned afterward by `dkbvrc` in
+    // the N-INFIS>=2 branch below -- purely a shape mirror, no behavior change (the old
+    // cast always evaluated to 0 too, since `MVNDNT`'s local `result` was never
+    // reassigned).
     void mvndst(int N, const std::vector<double>& LOWER, const std::vector<double>& UPPER,
                 const std::vector<int>& INFIN, const std::vector<double>& CORREL, int MAXPTS,
                 double ABSEPS, double RELEPS, double& ERROR, double& VALUE, int& INFORM) const {
@@ -938,7 +1122,8 @@ class MultivariateNormal : public MultivariateDistribution {
             VALUE = 0;
             ERROR = 1;
         } else {
-            INFORM = static_cast<int>(mvndnt(N, CORREL, LOWER, UPPER, INFIN, INFIS, D, E, Y));
+            INFORM = 0;
+            mvndnt(N, CORREL, LOWER, UPPER, INFIN, INFIS, D, E, Y);
             if (N - INFIS == 0) {
                 VALUE = 1;
                 ERROR = 0;
@@ -985,6 +1170,21 @@ class MultivariateNormal : public MultivariateDistribution {
    private:
     // Private parameterless ctor for clone() (matches the C# `private MultivariateNormal()`).
     MultivariateNormal() = default;
+
+    // Validates a dimension-index subset: non-null, non-empty, in range, and without
+    // repeats. Mirrors C# `ValidateIndices` (a private static helper on this class).
+    static void validate_indices(const std::vector<int>& indices, int dimension) {
+        if (indices.empty())
+            throw std::out_of_range("At least one dimension index is required.");
+        std::vector<bool> seen(static_cast<std::size_t>(dimension), false);
+        for (int index : indices) {
+            if (index < 0 || index >= dimension)
+                throw std::out_of_range("A dimension index is out of range.");
+            if (seen[static_cast<std::size_t>(index)])
+                throw std::out_of_range("Dimension indices must not repeat.");
+            seen[static_cast<std::size_t>(index)] = true;
+        }
+    }
 
     static double gauss(double t) {
         // GAUSS returns the area of the lower tail of the normal curve.
@@ -1089,16 +1289,14 @@ class MultivariateNormal : public MultivariateDistribution {
         return result;
     }
 
-    // Divergence note: the C# `MVNDNT`'s local `result` is initialized to 0 and never
-    // reassigned anywhere in the method body -- it always returns 0.0. `mvndst` casts
-    // this return straight into `INFORM`, so `INFORM` is always (re)initialized to 0
-    // here regardless of what COVSRT/MVNLMS/BVNMVN computed; only the N-INFIS>=2 branch
-    // in `mvndst` (via `dkbvrc`) can set INFORM to anything else. Ported verbatim.
-    double mvndnt(int N, const std::vector<double>& CORREL, const std::vector<double>& LOWER,
-                  const std::vector<double>& UPPER, const std::vector<int>& INFIN, int& INFIS,
-                  double& D, double& E, std::vector<double>& Y) const {
-        double result = 0;
-
+    // v2.1.4 shape note: changed from `private double MVNDNT(...)` (a local `result`
+    // initialized to 0 and never reassigned -- i.e. always returning the dead constant
+    // 0.0) to `private void MVNDNT(...)`; the caller (`mvndst` above) now sets
+    // `INFORM = 0` explicitly instead of casting this method's old always-0 return value.
+    // No behavior change -- see the comment on `mvndst`'s call site.
+    void mvndnt(int N, const std::vector<double>& CORREL, const std::vector<double>& LOWER,
+                const std::vector<double>& UPPER, const std::vector<int>& INFIN, int& INFIS,
+                double& D, double& E, std::vector<double>& Y) const {
         covsrt(N, LOWER, UPPER, CORREL, INFIN, Y, INFIS, mvndfn_a_, mvndfn_b_, mvndfn_cov_, mvndfn_infi_);
 
         if (N - INFIS == 1) {
@@ -1142,8 +1340,6 @@ class MultivariateNormal : public MultivariateDistribution {
             }
             INFIS++;
         }
-
-        return result;
     }
 
     void mvnlms(double A, double B, int INFIN, double& LOWER, double& UPPER) const {
@@ -1162,20 +1358,22 @@ class MultivariateNormal : public MultivariateDistribution {
 
     // Subroutine to sort integration limits and determine Cholesky factor.
     //
-    // Divergence note (see docs/upstream-csharp-issues.md): the "permute limits and/or
-    // rows" loop below (`for (int j = i - 1; j < 0; j--)`) has an inverted loop condition
-    // -- for `i >= 1` the initial `j = i-1 >= 0` already fails `j < 0`, so the loop body
-    // never runs; it only runs (once) when `i == 0`, with `j == -1`, immediately indexing
-    // `COV[II + j]` with `II==0` and `j==-1`, i.e. `COV[-1]`. In C# this throws
-    // `IndexOutOfRangeException`. `std::vector::operator[]` performs no bounds check, so a
-    // verbatim transcription of the C# indexing would be undefined behavior (a heap-
-    // corrupting write) in C++ instead of a catchable exception -- that fails the fidelity
-    // rule, since the C# source's *observable behavior* here is a thrown exception. The
-    // loop body below therefore has a minimal bounds guard that throws
-    // `std::out_of_range` before the first out-of-range access, reproducing the C#
-    // observable behavior without restructuring the loop. This path requires a degenerate
-    // zero (sub-EPS) effective covariance diagonal at the very first sorted pivot (i==0)
-    // after RCSWP; none of this task's fixture cases reach it.
+    // v2.1.4 COVSRT repair (RESOLVED -- see docs/upstream-csharp-issues.md for the
+    // pre-fix history): the "permute limits and/or rows" degenerate-diagonal branch below
+    // (reached when a covariance diagonal entry is zero after RCSWP) previously had
+    // multiple inverted/off-by-one loop bounds -- `for (int j = i - 1; j < 0; j--)` (never
+    // iterated for `i >= 1`; at `i == 0` it indexed `COV[-1]`, UB in C++ / a caught
+    // `IndexOutOfRangeException` in C#, which this port worked around with a bounds
+    // guard), `for (int l = 0; l < j; l++)`, `for (int l = j + 1; l < i - 1; l++)` with the
+    // packed index `(l - 1) * l / 2 + j + 1`, `for (int k = i - 1; k < l; k--)`, and
+    // `for (int m = 0; m < k; m++)` with the swap offset `IJ - k + m` / decrement
+    // `IJ = IJ - k`. Upstream fixed ALL of these in the same commit (bounds `j >= 0`,
+    // `l <= j`, `l <= i - 1`, `k >= l`, `m <= k`; packed index `l * (l + 1) / 2 + j + 1`;
+    // swap offset `IJ - k + m - 1`; decrement `IJ - k - 1`) -- transcribed verbatim below
+    // from the fixed C#, replacing the whole region wholesale rather than patching the old
+    // loops incrementally. The old bounds-guard divergence note is retired: the fixed loop
+    // does not produce an out-of-range access on this port's fixture-exercised
+    // singular/rank-deficient inputs.
     void covsrt(int N, const std::vector<double>& LOWER, const std::vector<double>& UPPER,
                 const std::vector<double>& CORREL, const std::vector<int>& INFIN, std::vector<double>& Y,
                 int& INFIS, std::vector<double>& A, std::vector<double>& B, std::vector<double>& COV,
@@ -1318,21 +1516,10 @@ class MultivariateNormal : public MultivariateDistribution {
                     }
 
                     // If the covariance matrix diagonal entry is zero, permute limits
-                    // and/or rows, if necessary. (See the divergence-risk note above this
-                    // method -- this loop's condition never lets it iterate for i >= 1.)
+                    // and/or rows, if necessary. (FIXED loop bounds -- see the v2.1.4
+                    // COVSRT repair note above this method.)
 
-                    for (int j = i - 1; j < 0; j--) {
-                        // Verbatim C# indexing (`COV[II + j]`, with `II==0`/`j==-1` on
-                        // this branch's only firing case) would be UB in C++, since
-                        // std::vector::operator[] performs no bounds check; C# throws
-                        // IndexOutOfRangeException here (upstream bug, see
-                        // docs/upstream-csharp-issues.md). This guard reproduces the C#
-                        // observable behavior (a thrown exception) instead.
-                        if (II + j < 0) {
-                            throw std::out_of_range(
-                                "MultivariateNormal::covsrt: COV index out of range "
-                                "(mirrors C# IndexOutOfRangeException)");
-                        }
+                    for (int j = i - 1; j >= 0; j--) {
                         if (std::fabs(COV[static_cast<std::size_t>(II + j)]) > EPS) {
                             A[static_cast<std::size_t>(i)] = A[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];
                             B[static_cast<std::size_t>(i)] = B[static_cast<std::size_t>(i)] / COV[static_cast<std::size_t>(II + j)];
@@ -1340,16 +1527,16 @@ class MultivariateNormal : public MultivariateDistribution {
                                 std::swap(A[static_cast<std::size_t>(i)], B[static_cast<std::size_t>(i)]);
                                 if (INFI[static_cast<std::size_t>(i)] != 2) INFI[static_cast<std::size_t>(i)] = 1 - INFI[static_cast<std::size_t>(i)];
                             }
-                            for (int l = 0; l < j; l++) {
+                            for (int l = 0; l <= j; l++) {
                                 COV[static_cast<std::size_t>(II + l)] =
                                     COV[static_cast<std::size_t>(II + l)] / COV[static_cast<std::size_t>(II + j)];
                             }
-                            for (int l = j + 1; l < i - 1; l++) {
-                                if (COV[static_cast<std::size_t>((l - 1) * l / 2 + j + 1)] > 0) {
+                            for (int l = j + 1; l <= i - 1; l++) {
+                                if (COV[static_cast<std::size_t>(l * (l + 1) / 2 + j + 1)] > 0) {
                                     IJ = II;
-                                    for (int k = i - 1; k < l; k--) {
-                                        for (int m = 0; m < k; m++) {
-                                            std::swap(COV[static_cast<std::size_t>(IJ - k + m)],
+                                    for (int k = i - 1; k >= l; k--) {
+                                        for (int m = 0; m <= k; m++) {
+                                            std::swap(COV[static_cast<std::size_t>(IJ - k + m - 1)],
                                                       COV[static_cast<std::size_t>(IJ + m)]);
                                         }
                                         std::swap(A[static_cast<std::size_t>(k)], A[static_cast<std::size_t>(k + 1)]);
@@ -1357,7 +1544,7 @@ class MultivariateNormal : public MultivariateDistribution {
                                         M = INFI[static_cast<std::size_t>(k)];
                                         INFI[static_cast<std::size_t>(k)] = INFI[static_cast<std::size_t>(k + 1)];
                                         INFI[static_cast<std::size_t>(k + 1)] = M;
-                                        IJ = IJ - k;
+                                        IJ = IJ - k - 1;
                                     }
                                     goto twenty;
                                 }
@@ -1648,6 +1835,11 @@ class MultivariateNormal : public MultivariateDistribution {
     std::optional<la::CholeskyDecomposition> cholesky_;
     double lnconstant_ = 0.0;
     // (`_variance`/`_standardDeviation` lazy-cache fields omitted -- see file header note)
+
+    // Tracks the non-throwing mutable-covariance state (v2.1.4). NOT copied by clone() --
+    // matches C#'s Clone(), which likewise omits `_densityValid` (a fresh clone always
+    // starts density-valid, regardless of the original's state).
+    bool density_valid_ = true;
 
     // Variables required for the multivariate CDF. `mutable`: MultivariateDistribution's
     // `cdf()` is `const`, but MVNDST-backed evaluation genuinely mutates the correlation

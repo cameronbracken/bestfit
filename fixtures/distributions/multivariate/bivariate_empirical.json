@@ -61,6 +61,47 @@
       "assertions": [
         { "method": "cdf_xy", "args": [3.22, 8.15], "expected": 0.386806419, "mode": "abs", "tol": 1e-6 }
       ]
+    },
+    {
+      "name": "set_parameters_invalidates_bilinear_interpolator",
+      "note": "Test_BivariateEmpirical.SetParametersInvalidatesBilinearInterpolator: verifies the v2.1.4 stale-cache fix (SetParameters now nulls the cached bilinear interpolator instead of leaving CDF interpolating against the OLD grid). sqrt(10) is the exact midpoint of the log-spaced [1,10] extent under the Logarithmic transform on both axes, landing exactly on the bilinear average of the four corner probabilities -- 0.25 for the original grid, 0.75 for the replacement.",
+      "construct": {
+        "x1": [1.0, 10.0],
+        "x2": [1.0, 10.0],
+        "p": [[0.1, 0.2], [0.3, 0.4]],
+        "x1_transform": "Logarithmic",
+        "x2_transform": "Logarithmic"
+      },
+      "assertions": [
+        { "method": "cdf_xy", "args": [3.1622776601683795, 3.1622776601683795], "expected": 0.25, "mode": "abs", "tol": 1e-12 },
+        { "method": "cdf_xy_after_set_parameters",
+          "args": [[1.0, 10.0], [1.0, 10.0], [[0.6, 0.7], [0.8, 0.9]], 3.1622776601683795, 3.1622776601683795],
+          "expected": 0.75, "mode": "abs", "tol": 1e-12 }
+      ]
+    },
+    {
+      "name": "primary_values_non_finite_invalid",
+      "note": "v2.1.4: a NaN/Inf entry in X1 now fails validate_parameters, checked BEFORE the ascending-order comparison -- previously a NaN silently passed the ascending check undetected (NaN compares false in both directions) and reported parameters_valid() == true.",
+      "construct": { "x1": [1.0, "nan"], "x2": [1.0, 2.0], "p": [[0.1, 0.2], [0.3, 0.4]] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "secondary_values_non_finite_invalid",
+      "note": "v2.1.4: same finiteness guard on X2 (checked before X2's own ascending-order comparison).",
+      "construct": { "x1": [1.0, 2.0], "x2": [1.0, "inf"], "p": [[0.1, 0.2], [0.3, 0.4]] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "probability_values_non_finite_invalid",
+      "note": "v2.1.4: the probability-grid range check gained a NaN/Inf-first OR clause (double.IsNaN(pValues[i,j]) || double.IsInfinity(pValues[i,j]) || pValues[i,j] < 0 || > 1), rather than only the 0..1 range check.",
+      "construct": { "x1": [1.0, 2.0], "x2": [1.0, 2.0], "p": [[0.1, 0.2], ["nan", 0.4]] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
     }
   ]
 }

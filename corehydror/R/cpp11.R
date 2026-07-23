@@ -64,6 +64,10 @@ ch_dist_linear_moments_ <- function(target, params) {
   .Call(`_corehydror_ch_dist_linear_moments_`, target, params)
 }
 
+ch_dist_gamma_partial_kp_ <- function(skewness, probability) {
+  .Call(`_corehydror_ch_dist_gamma_partial_kp_`, skewness, probability)
+}
+
 ch_dist_random_ <- function(target, params, sample_size, seed) {
   .Call(`_corehydror_ch_dist_random_`, target, params, sample_size, seed)
 }
@@ -116,24 +120,24 @@ ch_trunc_valid_ <- function(base_target, base_params, lo, hi) {
   .Call(`_corehydror_ch_trunc_valid_`, base_target, base_params, lo, hi)
 }
 
-ch_emp_moments_ <- function(x_vals, p_vals, p_transform) {
-  .Call(`_corehydror_ch_emp_moments_`, x_vals, p_vals, p_transform)
+ch_emp_moments_ <- function(x_vals, p_vals, p_transform, p_descending) {
+  .Call(`_corehydror_ch_emp_moments_`, x_vals, p_vals, p_transform, p_descending)
 }
 
-ch_emp_pdf_ <- function(x_vals, p_vals, p_transform, x) {
-  .Call(`_corehydror_ch_emp_pdf_`, x_vals, p_vals, p_transform, x)
+ch_emp_pdf_ <- function(x_vals, p_vals, p_transform, p_descending, x) {
+  .Call(`_corehydror_ch_emp_pdf_`, x_vals, p_vals, p_transform, p_descending, x)
 }
 
-ch_emp_cdf_ <- function(x_vals, p_vals, p_transform, x) {
-  .Call(`_corehydror_ch_emp_cdf_`, x_vals, p_vals, p_transform, x)
+ch_emp_cdf_ <- function(x_vals, p_vals, p_transform, p_descending, x) {
+  .Call(`_corehydror_ch_emp_cdf_`, x_vals, p_vals, p_transform, p_descending, x)
 }
 
-ch_emp_quantile_ <- function(x_vals, p_vals, p_transform, prob) {
-  .Call(`_corehydror_ch_emp_quantile_`, x_vals, p_vals, p_transform, prob)
+ch_emp_quantile_ <- function(x_vals, p_vals, p_transform, p_descending, prob) {
+  .Call(`_corehydror_ch_emp_quantile_`, x_vals, p_vals, p_transform, p_descending, prob)
 }
 
-ch_emp_valid_ <- function(x_vals, p_vals, p_transform) {
-  .Call(`_corehydror_ch_emp_valid_`, x_vals, p_vals, p_transform)
+ch_emp_valid_ <- function(x_vals, p_vals, p_transform, p_descending) {
+  .Call(`_corehydror_ch_emp_valid_`, x_vals, p_vals, p_transform, p_descending)
 }
 
 ch_kde_moments_ <- function(data, kernel, bandwidth, bounded_by_data) {
@@ -156,24 +160,28 @@ ch_kde_valid_ <- function(data, kernel, bandwidth, bounded_by_data) {
   .Call(`_corehydror_ch_kde_valid_`, data, kernel, bandwidth, bounded_by_data)
 }
 
-ch_mix_moments_ <- function(comp_targets, comp_params_list, weights) {
-  .Call(`_corehydror_ch_mix_moments_`, comp_targets, comp_params_list, weights)
+ch_mix_moments_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_moments_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
 }
 
-ch_mix_pdf_ <- function(comp_targets, comp_params_list, weights, x) {
-  .Call(`_corehydror_ch_mix_pdf_`, comp_targets, comp_params_list, weights, x)
+ch_mix_pdf_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x) {
+  .Call(`_corehydror_ch_mix_pdf_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x)
 }
 
-ch_mix_cdf_ <- function(comp_targets, comp_params_list, weights, x) {
-  .Call(`_corehydror_ch_mix_cdf_`, comp_targets, comp_params_list, weights, x)
+ch_mix_cdf_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x) {
+  .Call(`_corehydror_ch_mix_cdf_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, x)
 }
 
-ch_mix_quantile_ <- function(comp_targets, comp_params_list, weights, prob) {
-  .Call(`_corehydror_ch_mix_quantile_`, comp_targets, comp_params_list, weights, prob)
+ch_mix_quantile_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight, prob) {
+  .Call(`_corehydror_ch_mix_quantile_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight, prob)
 }
 
-ch_mix_valid_ <- function(comp_targets, comp_params_list, weights) {
-  .Call(`_corehydror_ch_mix_valid_`, comp_targets, comp_params_list, weights)
+ch_mix_valid_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_valid_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+}
+
+ch_mix_params_ <- function(comp_targets, comp_params_list, weights, zero_inflated, zero_weight) {
+  .Call(`_corehydror_ch_mix_params_`, comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
 }
 
 ch_cr_moments_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependency, correlation) {
@@ -200,6 +208,10 @@ ch_cr_valid_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependen
   .Call(`_corehydror_ch_cr_valid_`, comp_targets, comp_params_list, minimum_of_rv, dependency, correlation)
 }
 
+ch_cr_dependency_change_ <- function(comp_targets, comp_params_list, minimum_of_rv, dependency, dependency2, correlation, x, field, i, j) {
+  .Call(`_corehydror_ch_cr_dependency_change_`, comp_targets, comp_params_list, minimum_of_rv, dependency, dependency2, correlation, x, field, i, j)
+}
+
 ch_estimation_run_ <- function(target, model_json, dataset, optimizer, sample_size, seed) {
   .Call(`_corehydror_ch_estimation_run_`, target, model_json, dataset, optimizer, sample_size, seed)
 }
@@ -214,6 +226,10 @@ ch_estimation_bayes_run_ <- function(model_json, dataset, sampler, seed, iterati
 
 ch_model_data_frame_ <- function(model_json, dataset) {
   .Call(`_corehydror_ch_model_data_frame_`, model_json, dataset)
+}
+
+ch_model_validate_ <- function(model_json, dataset) {
+  .Call(`_corehydror_ch_model_validate_`, model_json, dataset)
 }
 
 ch_model_simulate_ <- function(model_json, dataset, sample_size, seed) {
@@ -284,8 +300,40 @@ ch_bve_cdf_ <- function(method, x1, x2, p_flat, nrow, transforms, args) {
   .Call(`_corehydror_ch_bve_cdf_`, method, x1, x2, p_flat, nrow, transforms, args)
 }
 
+ch_bve_cdf_after_set_parameters_ <- function(x1, x2, p_flat, nrow, transforms, x1_new, x2_new, p_new_flat, nrow_new, x1_eval, x2_eval) {
+  .Call(`_corehydror_ch_bve_cdf_after_set_parameters_`, x1, x2, p_flat, nrow, transforms, x1_new, x2_new, p_new_flat, nrow_new, x1_eval, x2_eval)
+}
+
 ch_mvn_val_ <- function(method, mean, cov_flat, args) {
   .Call(`_corehydror_ch_mvn_val_`, method, mean, cov_flat, args)
+}
+
+ch_mvn_marginal_mean_ <- function(mean, cov_flat, indices, idx) {
+  .Call(`_corehydror_ch_mvn_marginal_mean_`, mean, cov_flat, indices, idx)
+}
+
+ch_mvn_marginal_covariance_ <- function(mean, cov_flat, indices, i, j) {
+  .Call(`_corehydror_ch_mvn_marginal_covariance_`, mean, cov_flat, indices, i, j)
+}
+
+ch_mvn_marginal_log_pdf_ <- function(mean, cov_flat, indices, point) {
+  .Call(`_corehydror_ch_mvn_marginal_log_pdf_`, mean, cov_flat, indices, point)
+}
+
+ch_mvn_marginal_dimension_ <- function(mean, cov_flat, indices) {
+  .Call(`_corehydror_ch_mvn_marginal_dimension_`, mean, cov_flat, indices)
+}
+
+ch_mvn_conditional_mean_ <- function(mean, cov_flat, obs_indices, obs_values, idx) {
+  .Call(`_corehydror_ch_mvn_conditional_mean_`, mean, cov_flat, obs_indices, obs_values, idx)
+}
+
+ch_mvn_conditional_covariance_ <- function(mean, cov_flat, obs_indices, obs_values, i, j) {
+  .Call(`_corehydror_ch_mvn_conditional_covariance_`, mean, cov_flat, obs_indices, obs_values, i, j)
+}
+
+ch_mvn_conditional_dimension_ <- function(mean, cov_flat, obs_indices, obs_values) {
+  .Call(`_corehydror_ch_mvn_conditional_dimension_`, mean, cov_flat, obs_indices, obs_values)
 }
 
 ch_mvn_cdf_seq_ <- function(mean, cov_flat, seed, xs_flat, k) {

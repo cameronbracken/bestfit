@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Geometric.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Geometric.cs @ 2a0357a
 //
 // The Geometric distribution (number of failures before first success), support {0,1,2,...}.
 // Single parameter p = probability of success. Logic mirrors the C# source method-for-method.

@@ -138,9 +138,10 @@
             "exact",
             0
           ],
-          "expected": 0.6956162117452439,
+          "expected": 0.69892473118279574,
           "mode": "rel",
-          "tol": 1e-09
+          "tol": 1e-09,
+          "note": "BestFit v2.0.0 Hirsch-Stedinger ARRANGE2/PPLOT2/PLPOS rewrite (T12); re-pinned from emitter-dumped real C#, matches the T0 census's predicted value exactly"
         },
         {
           "method": "plotting_position",
@@ -148,9 +149,10 @@
             "exact",
             6
           ],
-          "expected": 0.005376344086021506,
+          "expected": 0.014336917562724039,
           "mode": "rel",
-          "tol": 1e-09
+          "tol": 1e-09,
+          "note": "BestFit v2.0.0 Hirsch-Stedinger rewrite (T12); re-pinned, see the exact/0 case note"
         },
         {
           "method": "plotting_position",
@@ -158,9 +160,10 @@
             "interval",
             0
           ],
-          "expected": 0.543424317617866,
+          "expected": 0.54838709677419351,
           "mode": "rel",
-          "tol": 1e-09
+          "tol": 1e-09,
+          "note": "BestFit v2.0.0 Hirsch-Stedinger rewrite (T12); re-pinned, see the exact/0 case note"
         },
         {
           "method": "plotting_position",
@@ -168,9 +171,10 @@
             "uncertain",
             0
           ],
-          "expected": 0.391232423490488,
+          "expected": 0.39784946236559138,
           "mode": "rel",
-          "tol": 1e-09
+          "tol": 1e-09,
+          "note": "BestFit v2.0.0 Hirsch-Stedinger rewrite (T12); re-pinned, see the exact/0 case note"
         }
       ]
     },

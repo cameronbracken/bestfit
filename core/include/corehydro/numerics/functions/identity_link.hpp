@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/IdentityLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/IdentityLink.cs @ 2a0357a
 //
 // Identity link function: h(x) = x. No transformation is applied; the canonical link
 // for the Normal (Gaussian) GLM family. Domain: all real numbers.

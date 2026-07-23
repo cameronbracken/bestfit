@@ -1,5 +1,5 @@
 // ported from: RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/Base/
-//              UnivariateDistributionModelBase.cs @ fc28c0c
+//              UnivariateDistributionModelBase.cs @ c2e6192
 //
 // Abstract base for univariate distribution models: a shared DataFrame input used for
 // likelihood evaluation, the Jeffreys-rule-for-scale toggle, and the IQuantilePriors state
@@ -32,13 +32,20 @@
 //      variants, StationaryData_LogLikelihood) NEVER call ProcessThresholdSeries. The
 //      C# guard tests rely on this: they overwrite threshold counts after model
 //      construction, and the likelihood must not reprocess/overwrite them.
-// Because the C++ DataFrame (M4) replaced INPC with explicit invalidation -- and
-// ProcessThresholdSeries is NOT idempotent when explicit points exactly cover
-// Duration - NumberAbove -- this base calls process_threshold_series() exactly ONCE per
-// model-boundary assignment, in set_data_frame(), and never before likelihood evaluation.
-// Callers that mutate the held frame's series in place afterwards own the C# "event"
-// obligation: call data_frame().process_threshold_series() themselves (or re-set the frame)
-// -- mirroring the upstream once-per-mutation cadence.
+// Because the C++ DataFrame (M4) replaced INPC with explicit invalidation, this base calls
+// process_threshold_series() exactly ONCE per model-boundary assignment, in
+// set_data_frame(), and never before likelihood evaluation. Callers that mutate the held
+// frame's series in place afterwards own the C# "event" obligation: call
+// data_frame().process_threshold_series() themselves (or re-set the frame) -- mirroring the
+// upstream once-per-mutation cadence. (Historical note: prior to BestFit v2.0.0's
+// ThresholdData source/effective count split, ProcessThresholdSeries was NOT idempotent --
+// a second call re-derived NumberAbove from an already-reduced NumberAbove rather than the
+// original user input, so a caller invoking it twice could permanently lose the original
+// exceedance count. That is fixed now: process_threshold_series() always recomputes from
+// ThresholdData::source_number_above(), so calling it more than once, or re-processing
+// after the series are further mutated, is harmless. This base still calls it only once at
+// the model boundary, matching the C#'s own once-per-mutation event cadence, not because a
+// second call would be unsafe.)
 //
 // The C# DataFrame_PropertyChanged handler (lines 234-249: ignore PlottingParameter /
 // PlottingPosition changes, else ProcessThresholdSeries + SetDefaultParameters-if-flat)
@@ -55,8 +62,33 @@
 // SKIPPED (project-wide deferrals): INotifyPropertyChanged / RaisePropertyChange /
 // event (un)subscription bodies, and the [Category]/[DisplayName]/[Description]/[Browsable]
 // attributes (WPF display concerns).
+//
+// Task T14 (BestFit v2.0.0, commit 1abe795 "Guard composite Jeffreys scale priors") added
+// the two `TryGetJeffreysScaleParameter` overloads below: the shared scale-parameter lookup
+// for the Jeffreys 1/scale prior term, used by every concrete model that implements it
+// (UnivariateDistributionModel, MixtureModel, CompetingRisksModel). Before this commit, each
+// of those three call sites duplicated the same Gamma/Weibull-index-0-else-1 branch and
+// indexed GetParameters (and, for the pointwise variants, ParameterNames) UNGUARDED --
+// correct for every 2+-parameter supported family, but a genuine one-parameter family (e.g.
+// Poisson, reachable through Mixture/CompetingRisks component lists, which are not
+// constrained to the UnivariateDistributionModel 15-family whitelist) indexed one past the
+// end: C# threw IndexOutOfRangeException. UnivariateDistributionModel's own copy of this
+// logic happened to carry an accidental bounds check already (a Phase-4-retained deviation,
+// now resolved -- see that file's header), so it degraded gracefully; MixtureModel's and
+// CompetingRisksModel's copies had no such guard and hit genuine `std::vector::operator[]`
+// undefined behavior on a one-parameter component -- confirmed empirically while adding this
+// task's regression tests (`core/tests/test_mixture_model.cpp` /
+// `test_competing_risks_model.cpp`): reverting this fix does not crash (no bounds-checked
+// build was in use), it silently returns non-finite/NaN-tainted prior likelihoods instead.
+// `try_get_jeffreys_scale_parameter` reports `false` instead of indexing out of range, and
+// every caller `continue`s past (or, for the single scalar-likelihood caller, no-ops) an
+// unavailable scale term.
 #pragma once
+#include <cctype>
+#include <cstddef>
+#include <limits>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -64,6 +96,8 @@
 #include "corehydro/models/support/i_quantile_priors.hpp"
 #include "corehydro/models/support/model_base.hpp"
 #include "corehydro/models/support/quantile_prior.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_base.hpp"
+#include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 
 namespace corehydro::models {
 
@@ -146,12 +180,75 @@ class UnivariateDistributionModelBase : public ModelBase, public IQuantilePriors
         if (use_default_flat_priors()) set_default_parameters();
     }
 
+    // C# `TryGetJeffreysScaleParameter(distribution, out scale)` (T14, base file header):
+    // Gamma/Weibull expose scale at parameter index 0; every other supported scale family
+    // exposes it at index 1. Reports `false` -- instead of indexing out of range -- for a
+    // single-parameter family with no applicable scale term.
+    static bool try_get_jeffreys_scale_parameter(
+        const numerics::distributions::UnivariateDistributionBase& distribution, double& scale) {
+        std::size_t scale_index = jeffreys_scale_index(distribution);
+        std::vector<double> parameter_values = distribution.get_parameters();
+
+        if (scale_index >= parameter_values.size()) {
+            scale = std::numeric_limits<double>::quiet_NaN();
+            return false;
+        }
+
+        scale = parameter_values[scale_index];
+        return true;
+    }
+
+    // C# `TryGetJeffreysScaleParameter(distribution, out scale, out scaleName)` (T14): the
+    // pointwise-diagnostics overload, additionally reporting the scale parameter's name.
+    // Reports `false` when either the scale value is unavailable (delegates to the two-out
+    // overload) or the name at that index is missing/blank (C# string.IsNullOrWhiteSpace).
+    static bool try_get_jeffreys_scale_parameter(
+        const numerics::distributions::UnivariateDistributionBase& distribution, double& scale,
+        std::string& scale_name) {
+        if (!try_get_jeffreys_scale_parameter(distribution, scale)) {
+            scale_name.clear();
+            return false;
+        }
+
+        std::size_t scale_index = jeffreys_scale_index(distribution);
+        std::vector<std::string> parameter_names = distribution.parameter_names();
+        if (scale_index >= parameter_names.size() ||
+            is_null_or_whitespace(parameter_names[scale_index])) {
+            scale = std::numeric_limits<double>::quiet_NaN();
+            scale_name.clear();
+            return false;
+        }
+
+        scale_name = parameter_names[scale_index];
+        return true;
+    }
+
     std::optional<DataFrame> data_frame_;          // C# _dataFrame (line 43)
     std::vector<QuantilePrior> quantile_priors_;   // C# _quantilePriors (line 48)
     std::vector<QuantilePrior> quantile_priors_true_;  // C# _quantilePriorsTrue (line 55)
     bool use_jeffreys_rule_for_scale_ = true;      // C# _useJeffreysRuleForScale (line 60)
     bool enable_quantile_priors_ = false;          // C# _enableQuantilePriors (line 65)
     bool use_single_quantile_ = false;             // C# _useSingleQuantile (line 70)
+
+   private:
+    // Shared by both TryGetJeffreysScaleParameter overloads (C# repeats the ternary inline
+    // in each; hoisted here to avoid the duplication -- same 0-vs-1 result either way).
+    static std::size_t jeffreys_scale_index(
+        const numerics::distributions::UnivariateDistributionBase& distribution) {
+        using DistributionType = numerics::distributions::UnivariateDistributionType;
+        return (distribution.type() == DistributionType::GammaDistribution ||
+                distribution.type() == DistributionType::Weibull)
+                   ? 0
+                   : 1;
+    }
+
+    // Mirrors C# `string.IsNullOrWhiteSpace`: true for an empty or all-whitespace string.
+    static bool is_null_or_whitespace(const std::string& value) {
+        for (char c : value) {
+            if (!std::isspace(static_cast<unsigned char>(c))) return false;
+        }
+        return true;
+    }
 };
 
 }  // namespace corehydro::models

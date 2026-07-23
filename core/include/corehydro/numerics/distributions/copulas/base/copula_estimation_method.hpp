@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/Base/CopulaEstimationMethod.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/CopulaEstimationMethod.cs @ 2a0357a
 //
 // The three copula parameter-estimation methods mirrored by bivariate_copula_estimation.hpp's
 // free `estimate(copula, x, y, method)` (the C# BivariateCopulaEstimation.Estimate static).

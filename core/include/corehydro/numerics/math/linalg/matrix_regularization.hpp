@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/MatrixRegularization.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/MatrixRegularization.cs @ 2a0357a
 //
 // Phase 1 ported ONLY `MakeSymmetricPositiveDefinite` -- the sole member the then-in-scope
 // BestFit Estimation layer (MaximumLikelihood covariance/sandwich estimator,

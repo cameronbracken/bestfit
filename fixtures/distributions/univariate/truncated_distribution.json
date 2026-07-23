@@ -50,6 +50,43 @@
         { "method": "maximum",  "args": [], "expected": 1, "mode": "equal" },
         { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" }
       ]
+    },
+    {
+      "name": "sequential_setparameters_recovery",
+      "note": "Mirrors Test_ParameterValidity.cs's SpecializedUnivariateSettersTrackFinalState (TruncatedDistribution section): a valid instance's SetParameters(flat) call with min >= max goes invalid; a later valid SetParameters recovers and GetParameters echoes the restored tuple. NOTE: this case only exercises the min>=max bounds check, which the pre-2a0357a C++ already validated correctly too (it directly checked `min_ < max_` in validate_and_set() after mutating the real base) -- it does NOT discriminate the ported ValidateParametersCore delta (transactional validate-on-clone of the BASE parameters); see setparameters_invalid_base_parameters_recovery below for that. See fixtures/README.md's set_parameters note and truncated_distribution.hpp's v2.1.4 header note.",
+      "construct": {
+        "base": { "target": "Normal", "params": [0.0, 1.0] },
+        "bounds": [-1.0, 1.0]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "set_parameters", "args": [0.0, 1.0, 2.0, 1.0], "expected": 0, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" },
+        { "method": "set_parameters", "args": [2.0, 3.0, -1.0, 1.0], "expected": 0, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "param", "args": [0], "expected": 2.0, "mode": "equal" },
+        { "method": "param", "args": [1], "expected": 3.0, "mode": "equal" },
+        { "method": "param", "args": [2], "expected": -1.0, "mode": "equal" },
+        { "method": "param", "args": [3], "expected": 1.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "setparameters_invalid_base_parameters_recovery",
+      "note": "Discriminates the ported delta specifically: SetParameters with an INVALID BASE parameter (ChiSquared dof=0) and otherwise-sane bounds. Empirically verified (standalone build of the pre-task-3 header, git rev 32f07f0) that the OLD C++ does NOT gracefully catch this -- it mutates the real base_dist_ to the invalid params, then update_cached_cdfs() calls base_dist_->cdf(min_) DIRECTLY on the now-invalid base BEFORE validate_and_set() ever runs; ChiSquared::cdf() itself throws when parameters_valid_ is false, so the OLD SetParameters call throws uncaught (std::invalid_argument 'ChiSquared: invalid parameters') instead of leaving parameters_valid()==false. The NEW validate_parameters_core validates the candidate base params on a scratch CLONE and checks candidate->parameters_valid() BEFORE ever calling candidate->cdf(...), so it returns false gracefully with no throw (also empirically confirmed against the current header) -- matching C#'s ValidateParametersCore, which likewise checks `_baseDist.ValidateParameters(baseParameters, false)` before ever evaluating CDF on the candidate.",
+      "construct": {
+        "base": { "target": "ChiSquared", "params": [5.0] },
+        "bounds": [0.5, 3.0]
+      },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "set_parameters", "args": [0.0, 0.5, 3.0], "expected": 0, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" },
+        { "method": "set_parameters", "args": [7.0, 0.5, 3.0], "expected": 0, "mode": "equal" },
+        { "method": "parameters_valid", "args": [], "expected": true, "mode": "bool" },
+        { "method": "param", "args": [0], "expected": 7.0, "mode": "equal" },
+        { "method": "param", "args": [1], "expected": 0.5, "mode": "equal" },
+        { "method": "param", "args": [2], "expected": 3.0, "mode": "equal" }
+      ]
     }
   ]
 }

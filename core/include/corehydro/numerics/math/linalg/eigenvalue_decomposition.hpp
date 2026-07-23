@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/EigenValueDecomposition.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/EigenValueDecomposition.cs @ 2a0357a
 //
 // Computes all eigenvalues and eigenvectors of a real SYMMETRIC matrix using the classic
 // Jacobi rotation method: A = V * D * V^T, where D contains the eigenvalues and the columns

@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/GeneralizedExtremeValue.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/GeneralizedExtremeValue.cs @ 2a0357a
 //
 // Generalized Extreme Value distribution: parameters ξ (location), α (scale),
 // κ (shape). Distribution-core surface (moments, PDF/CDF/InverseCDF, log-likelihood).

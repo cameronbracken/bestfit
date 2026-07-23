@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/LogisticTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/LogisticTrend.cs @ c2e6192
 //
 // Logistic (sigmoid) trend model: y(t) = alpha / (1 + exp(-beta * (t - StartIndex))).
 // The XElement constructor is deliberately not ported (XML out of scope). See

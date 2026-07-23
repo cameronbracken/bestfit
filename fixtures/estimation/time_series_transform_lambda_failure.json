@@ -1,0 +1,155 @@
+{
+  "target": "Validate",
+  "kind": "model_estimation",
+  "source": "BestFit v2.0.0 (f140c4d + 0d6821d), transcribed from the new Test_{BoxCoxTransform,YeoJohnsonTransform}Transform_LambdaFitFailure_ReturnsValidationError tests in src/RMC.BestFit.Tests/TimeSeriesModels/{AutoRegressive,MovingAverage,ARIMA,ARIMAX}Tests.cs, and reproduced against the real Numerics/RMC.BestFit libraries by tools/oracle_emitter's Validate target (Task 16). CanFitLambda (Task 2, 2a0357a) makes FitLambda return NaN -- no throw -- for these degenerate series, so the model must capture the failure as a validation error (is_valid=false) carrying the C#-exact message text, instead of crashing or silently fitting a NaN lambda. Structural check only: validation_message_contains is a substring probe, not a byte-exact oracle pin of the message (the C++ message text itself is hand-verified against the C# source in the model headers).",
+  "datasets": {
+    "box_cox_lambda_failure": [0.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+    "yeo_johnson_lambda_failure": [-1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308, -1.7976931348623157e+308]
+  },
+  "cases": [
+    {
+      "name": "ar_box_cox_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ar",
+          "dataset": "box_cox_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1 },
+          "include_intercept": true,
+          "transform": "BoxCox"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Box-Cox lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "ar_yeo_johnson_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ar",
+          "dataset": "yeo_johnson_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1 },
+          "include_intercept": true,
+          "transform": "YeoJohnson"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Yeo-Johnson lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "ma_box_cox_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ma",
+          "dataset": "box_cox_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "q": 1 },
+          "include_intercept": true,
+          "transform": "BoxCox"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Box-Cox lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "ma_yeo_johnson_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ma",
+          "dataset": "yeo_johnson_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "q": 1 },
+          "include_intercept": true,
+          "transform": "YeoJohnson"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Yeo-Johnson lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "arima_box_cox_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arima",
+          "dataset": "box_cox_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1, "d": 0, "q": 0 },
+          "include_intercept": true,
+          "transform": "BoxCox"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Box-Cox lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "arima_yeo_johnson_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arima",
+          "dataset": "yeo_johnson_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1, "d": 0, "q": 0 },
+          "include_intercept": true,
+          "transform": "YeoJohnson"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Yeo-Johnson lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "arimax_box_cox_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "box_cox_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },
+          "include_intercept": true,
+          "transform": "BoxCox"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Box-Cox lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "arimax_yeo_johnson_lambda_failure",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "yeo_johnson_lambda_failure",
+          "time_interval": "OneYear",
+          "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },
+          "include_intercept": true,
+          "transform": "YeoJohnson"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "validation_message_contains", "args": ["Yeo-Johnson lambda estimation failed"], "expected": 1, "mode": "equal" }
+      ]
+    }
+  ]
+}

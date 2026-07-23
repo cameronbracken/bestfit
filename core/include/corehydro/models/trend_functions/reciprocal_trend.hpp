@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ReciprocalTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ReciprocalTrend.cs @ c2e6192
 //
 // Reciprocal trend model: y(t) = 1 / (alpha + beta * (t - StartIndex)).
 // The XElement constructor is deliberately not ported (XML out of scope). See

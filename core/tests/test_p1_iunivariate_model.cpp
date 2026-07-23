@@ -11,7 +11,7 @@
 //     Anything asserting on BivariateDistribution construction or copula LL (the
 //     Construct_WithMixedMarginalTypes / SwapMarginal methods) is DEFERRED to B1.
 //   - maximum: transcribed from
-//     upstream/Numerics/Test_Numerics/Data/Statistics/Test_Statistics.cs @ a2c4dbf
+//     upstream/Numerics/Test_Numerics/Data/Statistics/Test_Statistics.cs @ 2a0357a
 //     (Test_Maximum: max(_sample1) == 337.0 vs R base::max), plus hand-authored empty-input
 //     and NaN-propagation cases pinning the C# guard semantics
 //     (Numerics/Data/Statistics/Statistics.cs:90-105).

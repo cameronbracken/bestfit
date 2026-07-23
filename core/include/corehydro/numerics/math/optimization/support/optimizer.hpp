@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Support/Optimizer.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Support/Optimizer.cs @ 2a0357a
 //
 // Abstract base class for all optimization methods: inputs (tolerances, iteration/
 // evaluation caps, ReportFailure/RecordTraces/ComputeHessian flags), outputs

@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/BivariateDistribution/BivariateDistribution.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/BivariateDistribution/BivariateDistribution.cs @ c2e6192
 //
 // A bivariate joint-distribution model: two pre-fit univariate marginals (X and Y) plus a
 // BivariateCopula describing their dependence. The estimators (MLE/MAP/Bayesian) fit ONLY the
@@ -41,6 +41,20 @@
 // `CreateCopula` and the ported factory both default-construct the concrete copula per type
 // with identical seed parameters, so there is nothing extra to reproduce.
 //
+// PseudoLikelihood auto-plotting (v2.0.0, this class's only behavior change since fc28c0c):
+// SetSampleData now validates the paired PSEUDO observations (each marginal's
+// PlottingPositionComplement) strictly inside (0, 1) whenever CopulaEstimationMethod is
+// PseudoLikelihood. A freshly-built marginal's exact data carries the un-computed default
+// plotting position (0.0 -> complement 1.0, NOT interior), so the very first PseudoLikelihood
+// SetSampleData call is always invalid; on invalidity, the affected marginal's
+// DataFrame::calculate_plotting_positions() is run once and the paired sample is rebuilt from
+// the recomputed positions. The result is cached per marginal DataFrame identity + Task 12's
+// data_frame().plotting_position_version(), so an unchanged sample skips re-validation on every
+// subsequent call (the IFM/hot-path cost is untouched). RETIRES the audit finding this port
+// carried since P4/P5 (docs/upstream-csharp-issues.md, reconciled by Task 22): a model-level
+// PseudoLikelihood MLE fit previously could never succeed in EITHER language because the shared
+// build path never triggered CalculatePlottingPositions -- it now does, faithfully, in both.
+//
 // SKIPPED (C# line spans + reason):
 //   - XML ctor (C# 60-95), ToXElement (698-718): XML serialization is a project-wide non-port.
 //     The XElement-round-trip tests are consequently not transcribed.
@@ -49,6 +63,10 @@
 //     [Browsable] attributes: WPF data-binding, not ported (matching every other ported model).
 //   - ParameterNameFor's generic fallback (355) is reachable only by a hypothetical
 //     3+-parameter copula; kept verbatim for fidelity.
+//   - GetSampleDataAlignmentCounts (v2.0.0 addition) + its CountPairedExactData helper: a
+//     GUI-only diagnostic (reports X/Y/paired observation counts for a properties panel), never
+//     consumed by the likelihood/estimation surface. Not ported (matching the RatingCurve
+//     GetDataAlignmentCounts precedent in rating_curve.hpp).
 //
 // EXCEPTION-TYPE MAPPING for this file: C# ArgumentNullException/ArgumentException ->
 // std::invalid_argument; ArgumentOutOfRangeException -> std::out_of_range;
@@ -57,10 +75,13 @@
 #pragma once
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "corehydro/models/data_frame/data_frame.hpp"
@@ -158,58 +179,76 @@ class BivariateDistribution : public ModelBase,
         }
     }
 
-    // --- SetSampleData (C# line 388). ----------------------------------------------------
+    // --- SetSampleData (C# line 394, v2.0.0). ---------------------------------------------
     // Two-pointer index merge of the two marginals' non-low-outlier exact series (both sorted
-    // by index first). PseudoLikelihood stores PlottingPositionComplement pairs (unit
-    // interval); every other method (IFM) stores raw Value pairs.
+    // by index first, via get_eligible_exact_data()). PseudoLikelihood stores
+    // PlottingPositionComplement pairs (unit interval); every other method (IFM) stores raw
+    // Value pairs. Under PseudoLikelihood, the pseudo sample is validated strictly inside
+    // (0, 1) once per distinct (marginal DataFrame identity, plotting_position_version()) pair;
+    // an invalid marginal gets CalculatePlottingPositions() run once and the sample rebuilt.
     void set_sample_data() {
+        bool use_pseudo_likelihood =
+            copula_estimation_method_ == CopulaEstimationMethod::PseudoLikelihood;
+
         sample_data_x_.clear();
         sample_data_y_.clear();
 
+        // DEVIATION (raw-pointer nullability, documented): the C# `MarginalX!.DataFrame!`
+        // null-forgiving access assumes both marginals are already set (and carry a DataFrame)
+        // whenever SetSampleData runs -- true on every path the C# actually reaches (the
+        // two-marginal ctor, SetDefaultParameters' own null-guarded call, CopulaEstimationMethod's
+        // setter after construction), though even the real C# would NRE on a marginal with a
+        // NULL DataFrame under PseudoLikelihood (the null flows through GetEligibleExactData's
+        // guard unharmed, but is deref'd unconditionally at the bottom via
+        // `dataFrameX.PlottingPositionVersion`). A raw IUnivariateModel* CAN be null here (e.g.
+        // the parameterless ctor followed directly by set_copula_estimation_method()), and
+        // `data_frame()` is an UNGUARDED dereference of a possibly-absent optional (see
+        // i_univariate_model.hpp / the base header's nullability note) -- calling it before
+        // confirming a frame is attached would be undefined behavior, not a catchable C# NRE.
+        // validate() safely reports invalid (without touching data_frame()) when none is
+        // attached, so gate on it here -- same guard the OLD (pre-v2.0.0) SetSampleData used,
+        // now hoisted above the DataFrame identity/version-cache access this port also needs.
         if (marginal_x_ == nullptr || !marginal_x_->validate().is_valid) return;
         if (marginal_y_ == nullptr || !marginal_y_->validate().is_valid) return;
 
-        // Sort each series by index (C# ExactSeries.SortByIndex).
-        marginal_x_->data_frame().exact_series().sort_by_index();
-        marginal_y_->data_frame().exact_series().sort_by_index();
+        DataFrame* data_frame_x = &marginal_x_->data_frame();
+        DataFrame* data_frame_y = &marginal_y_->data_frame();
 
-        // Filter out low outliers (C# .Where(IsLowOutlier == false).ToList()).
-        std::vector<const ExactData*> data_x = non_low_outlier(marginal_x_->data_frame().exact_series());
-        std::vector<const ExactData*> data_y = non_low_outlier(marginal_y_->data_frame().exact_series());
+        std::vector<const ExactData*> data_x, data_y;
+        std::tie(data_x, data_y) = get_eligible_exact_data();
 
-        // Two-pointer linear merge -- both filtered lists are index-sorted (C# 403-438).
-        if (copula_estimation_method_ == CopulaEstimationMethod::PseudoLikelihood) {
-            std::size_t i = 0, j = 0;
-            while (i < data_x.size() && j < data_y.size()) {
-                int idx_x = data_x[i]->index();
-                int idx_y = data_y[j]->index();
-                if (idx_x == idx_y) {
-                    sample_data_x_.push_back(data_x[i]->plotting_position_complement());
-                    sample_data_y_.push_back(data_y[j]->plotting_position_complement());
-                    ++i;
-                    ++j;
-                } else if (idx_x < idx_y) {
-                    ++i;
-                } else {
-                    ++j;
-                }
-            }
+        bool requires_pseudo_validation =
+            use_pseudo_likelihood &&
+            (validated_pseudo_data_frame_x_ != data_frame_x ||
+             validated_pseudo_version_x_ != data_frame_x->plotting_position_version() ||
+             validated_pseudo_data_frame_y_ != data_frame_y ||
+             validated_pseudo_version_y_ != data_frame_y->plotting_position_version());
+
+        bool invalid_x = false, invalid_y = false;
+        if (requires_pseudo_validation) {
+            std::tie(invalid_x, invalid_y) =
+                add_paired_sample_data_and_validate(data_x, data_y, sample_data_x_, sample_data_y_);
         } else {
-            std::size_t i = 0, j = 0;
-            while (i < data_x.size() && j < data_y.size()) {
-                int idx_x = data_x[i]->index();
-                int idx_y = data_y[j]->index();
-                if (idx_x == idx_y) {
-                    sample_data_x_.push_back(data_x[i]->value());
-                    sample_data_y_.push_back(data_y[j]->value());
-                    ++i;
-                    ++j;
-                } else if (idx_x < idx_y) {
-                    ++i;
-                } else {
-                    ++j;
-                }
-            }
+            add_paired_sample_data(data_x, data_y, use_pseudo_likelihood, sample_data_x_,
+                                   sample_data_y_);
+        }
+
+        if (use_pseudo_likelihood && (invalid_x || invalid_y)) {
+            if (invalid_x) data_frame_x->calculate_plotting_positions();
+            if (invalid_y && (data_frame_x != data_frame_y || !invalid_x))
+                data_frame_y->calculate_plotting_positions();
+
+            sample_data_x_.clear();
+            sample_data_y_.clear();
+            std::tie(data_x, data_y) = get_eligible_exact_data();
+            add_paired_sample_data(data_x, data_y, true, sample_data_x_, sample_data_y_);
+        }
+
+        if (use_pseudo_likelihood) {
+            validated_pseudo_data_frame_x_ = data_frame_x;
+            validated_pseudo_data_frame_y_ = data_frame_y;
+            validated_pseudo_version_x_ = data_frame_x->plotting_position_version();
+            validated_pseudo_version_y_ = data_frame_y->plotting_position_version();
         }
     }
 
@@ -600,6 +639,78 @@ class BivariateDistribution : public ModelBase,
         return result;
     }
 
+    // C# GetEligibleExactData (line 491, v2.0.0): sorted, non-low-outlier exact data from both
+    // marginals. Empty pairs when either marginal is missing or invalid (folds the C#
+    // `MarginalX.DataFrame is null` half of the guard into validate(), same as before -- see
+    // the file header).
+    std::pair<std::vector<const ExactData*>, std::vector<const ExactData*>>
+    get_eligible_exact_data() const {
+        if (marginal_x_ == nullptr || !marginal_x_->validate().is_valid) return {};
+        if (marginal_y_ == nullptr || !marginal_y_->validate().is_valid) return {};
+
+        marginal_x_->data_frame().exact_series().sort_by_index();
+        marginal_y_->data_frame().exact_series().sort_by_index();
+
+        return {non_low_outlier(marginal_x_->data_frame().exact_series()),
+                non_low_outlier(marginal_y_->data_frame().exact_series())};
+    }
+
+    // C# AddPairedSampleData (line 558, v2.0.0): two-pointer index merge; adds
+    // PlottingPositionComplement pairs under PseudoLikelihood, raw Value pairs otherwise. No
+    // validation -- the hot path for an already-validated pseudo sample (or any IFM sample).
+    static void add_paired_sample_data(const std::vector<const ExactData*>& data_x,
+                                       const std::vector<const ExactData*>& data_y,
+                                       bool use_pseudo_likelihood,
+                                       std::vector<double>& sample_data_x,
+                                       std::vector<double>& sample_data_y) {
+        std::size_t i = 0, j = 0;
+        while (i < data_x.size() && j < data_y.size()) {
+            int idx_x = data_x[i]->index();
+            int idx_y = data_y[j]->index();
+            if (idx_x == idx_y) {
+                sample_data_x.push_back(use_pseudo_likelihood ? data_x[i]->plotting_position_complement()
+                                                              : data_x[i]->value());
+                sample_data_y.push_back(use_pseudo_likelihood ? data_y[j]->plotting_position_complement()
+                                                              : data_y[j]->value());
+                ++i;
+                ++j;
+            } else if (idx_x < idx_y) {
+                ++i;
+            } else {
+                ++j;
+            }
+        }
+    }
+
+    // C# AddPairedSampleDataAndValidate (line 602, v2.0.0): same merge, but always adds pseudo
+    // (PlottingPositionComplement) pairs and flags whether either marginal supplied a paired
+    // value outside the open interval (0, 1).
+    static std::pair<bool, bool> add_paired_sample_data_and_validate(
+        const std::vector<const ExactData*>& data_x, const std::vector<const ExactData*>& data_y,
+        std::vector<double>& sample_data_x, std::vector<double>& sample_data_y) {
+        std::size_t i = 0, j = 0;
+        bool invalid_x = false, invalid_y = false;
+        while (i < data_x.size() && j < data_y.size()) {
+            int idx_x = data_x[i]->index();
+            int idx_y = data_y[j]->index();
+            if (idx_x == idx_y) {
+                double value_x = data_x[i]->plotting_position_complement();
+                double value_y = data_y[j]->plotting_position_complement();
+                invalid_x = invalid_x || !(value_x > 0.0 && value_x < 1.0);
+                invalid_y = invalid_y || !(value_y > 0.0 && value_y < 1.0);
+                sample_data_x.push_back(value_x);
+                sample_data_y.push_back(value_y);
+                ++i;
+                ++j;
+            } else if (idx_x < idx_y) {
+                ++i;
+            } else {
+                ++j;
+            }
+        }
+        return {invalid_x, invalid_y};
+    }
+
     std::unique_ptr<BivariateCopula> copula_;
     IUnivariateModel* marginal_x_ = nullptr;
     IUnivariateModel* marginal_y_ = nullptr;
@@ -607,6 +718,27 @@ class BivariateDistribution : public ModelBase,
     std::vector<double> sample_data_y_;
     CopulaEstimationMethod copula_estimation_method_ =
         CopulaEstimationMethod::InferenceFromMargins;
+
+    // Pseudo-likelihood validation cache (C# `_validatedPseudoDataFrameX/Y` +
+    // `_validatedPseudoVersionX/Y`, v2.0.0): identity of the last-validated marginal DataFrame
+    // plus its plotting_position_version() at validation time, so an unchanged sample skips
+    // re-validation on every subsequent SetSampleData call. Reset to defaults on Clone() (a
+    // fresh clone re-validates once, matching the C#: Clone() never copies these fields).
+    //
+    // KNOWN GAP (see data_frame.hpp's plotting_position_version() accessor comment for detail):
+    // in the real C#, a BARE `ExactData.PlottingPosition = x` mutation (bypassing
+    // CalculatePlottingPositions entirely) also bumps the target DataFrame's version stamp via
+    // an INPC handler, so this cache correctly detects it as stale on the next SetSampleData
+    // call. This port's `Data::set_plotting_position()` has no back-pointer to its owning
+    // DataFrame, so it cannot bump plotting_position_version() here -- a caller who bypasses
+    // calculate_plotting_positions() this way will NOT see this cache invalidate. No fixture
+    // exercises that specific sequence; the oracle-verified PseudoLikelihood scenario is the
+    // first-validation auto-repair from never-computed (default 0.0) positions, which this
+    // cache handles identically to the C#.
+    DataFrame* validated_pseudo_data_frame_x_ = nullptr;
+    DataFrame* validated_pseudo_data_frame_y_ = nullptr;
+    std::int64_t validated_pseudo_version_x_ = -1;
+    std::int64_t validated_pseudo_version_y_ = -1;
 };
 
 }  // namespace corehydro::models

@@ -1,7 +1,17 @@
-// ported from: Numerics/Distributions/Univariate/ChiSquared.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/ChiSquared.cs @ 2a0357a
 //
 // Chi-Squared (χ²) distribution with degrees of freedom ν. Logic mirrors the C# source
 // method-for-method. The WPF helpers are not ported (desktop concerns).
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters now assigns `_degreesOfFreedom` directly (bypassing the DegreesOfFreedom
+// property setter) and gained an explicit `!IsNaN(v) && !IsInfinity(v)` short-circuit --
+// previously ValidateParameters(int, bool) only checked `dof < 1.0d` on the ALREADY
+// TRUNCATED value, which is false for both NaN and +Infinity (`(int)NaN`/`(int)Infinity`
+// truncate to some finite int that may itself be `>= 1`), so a non-finite ν could silently
+// read as valid. set_parameters below mirrors the fix: dof_ is assigned via a UB-safe
+// guarded truncation (`static_cast<int>` of a non-finite double is undefined behavior in
+// C++), and parameters_valid_ short-circuits on the RAW `v` being NaN/Infinity before
+// falling back to the pre-existing truncated-int `dof >= 1` bound check.
 #pragma once
 #include <string>
 #include <cmath>
@@ -39,8 +49,11 @@ class ChiSquared : public UnivariateDistributionBase {
     }
 
     void set_parameters(double v) {
-        dof_ = static_cast<int>(v);
-        parameters_valid_ = validate(dof_);
+        // Guard the truncating cast: static_cast<int> of a non-finite double is undefined
+        // behavior. Leave dof_ unchanged when v is non-finite (parameters_valid_ below will
+        // be false either way, so the stale value is never consulted).
+        dof_ = std::isfinite(v) ? static_cast<int>(v) : dof_;
+        parameters_valid_ = !std::isnan(v) && !std::isinf(v) && validate(dof_);
     }
     void set_parameters(const std::vector<double>& p) override { set_parameters(p[0]); }
 

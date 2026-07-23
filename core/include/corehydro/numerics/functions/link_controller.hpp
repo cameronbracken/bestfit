@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/LinkController.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/LinkController.cs @ 2a0357a
 //
 // Controller for managing independent link functions applied to each element of a
 // parameter vector. Each parameter index can have its own link function, or null for no

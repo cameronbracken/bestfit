@@ -22,10 +22,16 @@ using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
 using Numerics.Sampling.MCMC;
 // Task T12: the real RMC.BestFit estimation path (subset-compiled -- see OracleEmitter.csproj).
-// `RMC.BestFit` holds ExactSeries; `RMC.BestFit.Models` holds DataFrame + the UnivariateDistribution
-// model; `RMC.BestFit.Estimation` holds MaximumLikelihood / MaximumAPosteriori / BayesianAnalysis /
-// OptimizationMethod. None of these names clash with Numerics (verified), so plain usings are safe.
-using RMC.BestFit;
+// `RMC.BestFit.Models` holds the DataFrame series/data types (ExactSeries/ExactData/etc.) AND
+// DataFrame + the UnivariateDistribution model; `RMC.BestFit.Estimation` holds MaximumLikelihood /
+// MaximumAPosteriori / BayesianAnalysis / OptimizationMethod. v2.0.0 moved the DataFrame series
+// classes out of the bare `RMC.BestFit` namespace and into `RMC.BestFit.Models` (upstream commit
+// range fc28c0c..c2e6192, `namespace RMC.BestFit` -> `namespace RMC.BestFit.Models` across
+// Models/DataFrame/**); a plain `using RMC.BestFit;` no longer resolves the unqualified series/data
+// type names used below, so it's replaced by a plain `using RMC.BestFit.Models;` (verified: still no
+// clash with Numerics). The `BestFitModels` alias is kept for the explicitly-qualified
+// `BestFitModels.DataFrame` call sites already in this file.
+using RMC.BestFit.Models;
 using RMC.BestFit.Estimation;
 using BestFitModels = RMC.BestFit.Models;
 // Task A11: the real RMC.BestFit user-facing Analyses layer (subset-compiled -- see
@@ -61,9 +67,10 @@ static UnivariateDistributionBase BuildComponent(JsonElement desc,
 {
     var compTarget = desc.GetProperty("target").GetString()!;
     var compType = Enum.Parse<UnivariateDistributionType>(compTarget);
-    UnivariateDistributionBase compDist = compTarget == "VonMises"
-        ? new VonMises()
-        : UnivariateDistributionFactory.CreateDistribution(compType);
+    // v2.1.4: the C# factory switch now has an explicit VonMises case (previously it fell
+    // through the old if/else chain to `new Deterministic()`), so the bypass this repo used to
+    // need is retired -- see docs/upstream-csharp-issues.md and the T7 factory header note.
+    UnivariateDistributionBase compDist = UnivariateDistributionFactory.CreateDistribution(compType);
     if (desc.TryGetProperty("params", out var compPs))
     {
         compDist.SetParameters(compPs.EnumerateArray().Select(ParseNum).ToArray());
@@ -97,14 +104,26 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
     {
         var xArr = construct.GetProperty("x").EnumerateArray().Select(ParseNum).ToArray();
         var pArr = construct.GetProperty("p").EnumerateArray().Select(ParseNum).ToArray();
-        var emp = new EmpiricalDistribution(xArr, pArr);
+        // v2.1.4: p_descending DECLARES the probability order via the 4-arg SetParameters
+        // overload (SortOrder.Ascending/Descending) rather than the 2-arg overload's hardcoded
+        // SortOrder.Ascending -- probabilityOrder is NOT auto-detected from the data (an
+        // earlier corehydro auto-detect design reproduced a false positive this gate caught;
+        // see empirical_distribution.hpp's header note). The two overloads are equivalent when
+        // p_descending is false, so this always goes through the 4-arg one.
+        bool pDescending = construct.TryGetProperty("p_descending", out var pdEl) && pdEl.GetBoolean();
+        var emp = new EmpiricalDistribution(xArr, pArr, Numerics.Data.SortOrder.Ascending,
+            pDescending ? Numerics.Data.SortOrder.Descending : Numerics.Data.SortOrder.Ascending);
         // Optional p_transform: "None" or "NormalZ" (default NormalZ)
+        // Fully qualified: v2.0.0 moved the RMC.BestFit DataFrame series/data types into the
+        // `RMC.BestFit.Models` namespace (see the `using RMC.BestFit.Models;` note above), which
+        // now also owns a `Transform` enum (the TimeSeries None/Logarithmic/BoxCox/YeoJohnson
+        // transform) that collides with this `Numerics.Data.Transform` (None/Logarithmic/NormalZ).
         if (construct.TryGetProperty("p_transform", out var pt))
         {
             emp.ProbabilityTransform = pt.GetString() switch
             {
-                "None"    => Transform.None,
-                "NormalZ" => Transform.NormalZ,
+                "None"    => Numerics.Data.Transform.None,
+                "NormalZ" => Numerics.Data.Transform.NormalZ,
                 var s     => throw new Exception($"unknown p_transform: {s}")
             };
         }
@@ -122,8 +141,10 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
             "Uniform"      => KernelDensity.KernelType.Uniform,
             var s          => throw new Exception($"unknown kernel type: {s}")
         };
+        // ParseNum (not bw.GetDouble()) so a "nan"/"inf" string literal (the v2.1.4
+        // Bandwidth NaN/Infinity-rejection case) parses instead of throwing.
         KernelDensity kde = construct.TryGetProperty("bandwidth", out var bw)
-            ? new KernelDensity(data, kernelType, bw.GetDouble())
+            ? new KernelDensity(data, kernelType, ParseNum(bw))
             : new KernelDensity(data, kernelType);
         if (construct.TryGetProperty("bounded_by_data", out var bd))
             kde.BoundedByData = bd.GetBoolean();
@@ -135,7 +156,16 @@ static UnivariateDistributionBase BuildComposite(string target, JsonElement cons
             .Select(c => BuildComponent(c, datasets)).ToArray();
         var wts = construct.GetProperty("weights").EnumerateArray()
             .Select(e => e.GetDouble()).ToArray();
-        return new Mixture(wts, comps);
+        var mix = new Mixture(wts, comps);
+        // Optional zero-inflation (v2.1.4): "zero_inflated" (default false) / "zero_weight"
+        // (default 0.0). IsZeroInflated set before ZeroWeight, matching Clone()'s object
+        // initializer order and every other call site (mixture.hpp's header note) -- the
+        // setters renormalize component weights as a side effect.
+        mix.IsZeroInflated = construct.TryGetProperty("zero_inflated", out var ziEl)
+            && ziEl.GetBoolean();
+        mix.ZeroWeight = construct.TryGetProperty("zero_weight", out var zwEl)
+            ? ParseNum(zwEl) : 0.0;
+        return mix;
     }
     if (target == "CompetingRisks")
     {
@@ -182,10 +212,9 @@ static UnivariateDistributionBase Build(string target, JsonElement construct,
 
     // Empirical is constructed from x/p arrays, not flat params -- handled above as composite.
     var type = Enum.Parse<UnivariateDistributionType>(target);
-    // VonMises is in the C# enum but not in the upstream factory yet -- construct directly.
-    UnivariateDistributionBase dist = target == "VonMises"
-        ? new VonMises()
-        : UnivariateDistributionFactory.CreateDistribution(type);
+    // v2.1.4: the C# factory switch now has an explicit VonMises case (see BuildComponent's
+    // matching note above), so this no longer needs to bypass the factory.
+    UnivariateDistributionBase dist = UnivariateDistributionFactory.CreateDistribution(type);
     if (construct.TryGetProperty("params", out var ps))
     {
         var p = ps.EnumerateArray().Select(ParseNum).ToArray();
@@ -206,6 +235,45 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
 {
     switch (m)
     {
+        // Mutates the already-built `d` in place with a new flat parameter vector -- lets a
+        // case exercise a "construct valid -> SetParameters invalid -> recheck ->
+        // SetParameters valid -> recheck" sequence on ONE persistent object (mirrors
+        // test_fixtures.cpp's dispatch_generic; needed for TruncatedDistribution's
+        // parameter-validity fixture). Returns a dummy value; pair with a
+        // mode:"equal", expected:0 assertion.
+        case "set_parameters": d.SetParameters(a.Select(ParseNum).ToArray()); return 0;
+        // CompetingRisks-only: verifies the v2.1.4 Dependency setter fix (changing
+        // Dependency mid-lifetime invalidates the cached MVN) and that PerfectlyNegative no
+        // longer zeroes the public CorrelationMatrix. ONE self-contained call (mirrors
+        // test_fixtures.cpp's dispatch_generic "dependency_change" branch -- works
+        // identically whether a runner holds the persistent `d` across a case's
+        // assertions or rebuilds fresh per dispatch, like R/Python): CDF under the CURRENT
+        // dependency, read back CorrelationMatrix[i, j], switch to args[1], CDF again --
+        // returns the value named by args[4] ("cdf1"/"correlation"/"cdf2").
+        // args = [x, dependency2, i, j, field].
+        case "dependency_change":
+        {
+            var cr = (CompetingRisks)d;
+            double x = a[0].GetDouble();
+            double cdf1 = cr.CDF(x);
+            double corrIj = cr.CorrelationMatrix[a[2].GetInt32(), a[3].GetInt32()];
+            cr.Dependency = a[1].GetString() switch
+            {
+                "Independent" => Probability.DependencyType.Independent,
+                "PerfectlyPositive" => Probability.DependencyType.PerfectlyPositive,
+                "PerfectlyNegative" => Probability.DependencyType.PerfectlyNegative,
+                "CorrelationMatrix" => Probability.DependencyType.CorrelationMatrix,
+                var s => throw new Exception($"unknown dependency type: {s}")
+            };
+            double cdf2 = cr.CDF(x);
+            return a[4].GetString() switch
+            {
+                "cdf1" => cdf1,
+                "correlation" => corrIj,
+                "cdf2" => cdf2,
+                var f => throw new Exception($"unknown dependency_change field: {f}")
+            };
+        }
         case "mean": return d.Mean;
         case "median": return d.Median;
         case "mode": return d.Mode;
@@ -231,6 +299,9 @@ static double? Dispatch(UnivariateDistributionBase d, string m, JsonElement[] a)
             throw new Exception("distribution has no L-moments");
         // args: [sample_size, seed, index] -- one draw from the seeded MT stream.
         case "random_value": return d.GenerateRandomValues(a[0].GetInt32(), a[1].GetInt32())[a[2].GetInt32()];
+        // Static GammaDistribution utility, not tied to `d`'s own parameters -- args:
+        // [skewness, probability].
+        case "partial_kp": return GammaDistribution.PartialKp(a[0].GetDouble(), a[1].GetDouble());
         // GEV bespoke standard-error methods -- validated in Phase 0, not re-checked here.
         case "quantile_gradient":
         case "parameter_covariance":
@@ -545,6 +616,16 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "RunningStatistics.combined_coefficient_of_variation" => a => RunningStatisticsCombined(a).CoefficientOfVariation,
     "RunningStatistics.combined_skewness" => a => RunningStatisticsCombined(a).Skewness,
     "RunningStatistics.combined_kurtosis" => a => RunningStatisticsCombined(a).Kurtosis,
+    "RunningStatistics.combined_count" => a => (double)RunningStatisticsCombined(a).Count,
+    // RunningStatistics.clone_* family (args: the flat sample -- see RunningStatisticsClone()
+    // below and fixtures/special_functions/running_statistics.json)
+    "RunningStatistics.clone_mean" => a => RunningStatisticsClone(a).Mean,
+    "RunningStatistics.clone_variance" => a => RunningStatisticsClone(a).Variance,
+    "RunningStatistics.clone_skewness" => a => RunningStatisticsClone(a).Skewness,
+    "RunningStatistics.clone_kurtosis" => a => RunningStatisticsClone(a).Kurtosis,
+    "RunningStatistics.clone_minimum" => a => RunningStatisticsClone(a).Minimum,
+    "RunningStatistics.clone_maximum" => a => RunningStatisticsClone(a).Maximum,
+    "RunningStatistics.clone_count" => a => (double)RunningStatisticsClone(a).Count,
     // Fourier family (see Fourier*At() below for the args conventions -- mirrors
     // fourier_*_at() in core/tests/test_fixtures.cpp exactly)
     "Fourier.fft_at" => FourierFftAt,
@@ -576,6 +657,15 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     "Histogram.bin_upper_bound_at" => a => HistogramBuild(a, 1)[(int)a[^1]].UpperBound,
     "Histogram.bin_frequency_at" => a => (double)HistogramBuild(a, 1)[(int)a[^1]].Frequency,
     "Histogram.get_bin_index_of" => a => (double)HistogramBuild(a, 1).GetBinIndexOf(a[^1]),
+    // Histogram.adapt_* family (args: [explicit_bins, num_adds, data..., adds...] -- see
+    // HistogramBuildAdapt() below and fixtures/special_functions/histogram.json)
+    "Histogram.adapt_lower_bound" => a => HistogramBuildAdapt(a).LowerBound,
+    "Histogram.adapt_upper_bound" => a => HistogramBuildAdapt(a).UpperBound,
+    "Histogram.adapt_bin_first_lower_bound" => a => HistogramBuildAdapt(a)[0].LowerBound,
+    "Histogram.adapt_bin_last_upper_bound" => a => { var h = HistogramBuildAdapt(a); return h[h.NumberOfBins - 1].UpperBound; },
+    "Histogram.adapt_bin_first_frequency" => a => (double)HistogramBuildAdapt(a)[0].Frequency,
+    "Histogram.adapt_bin_last_frequency" => a => { var h = HistogramBuildAdapt(a); return (double)h[h.NumberOfBins - 1].Frequency; },
+    "Histogram.adapt_data_count" => a => (double)HistogramBuildAdapt(a).DataCount,
     // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
     // weibull_at -- see fixtures/special_functions/plotting_positions.json)
     "PlottingPositions.function_at" => a => PlottingPositions.Function((int)a[0], a[1])[(int)a[2]],
@@ -586,6 +676,20 @@ static Func<double[], double>? ResolveSpecialFunction(string target) => target s
     // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] -- see
     // fixtures/special_functions/mcmc_diagnostics.json)
     "MCMCDiagnostics.minimum_sample_size" => a => MCMCDiagnostics.MinimumSampleSize(a[0], a[1], a[2]),
+    // Search.*_descending family (args: [values..., x, start], same convention as
+    // Search.sequential/bisection above but with SortOrder.Descending -- MUST match
+    // core/tests/test_fixtures.cpp's Search.*_descending entries)
+    "Search.sequential_descending" => a => Search.Sequential(a[^2], a[..^2], (int)a[^1], SortOrder.Descending),
+    "Search.bisection_descending" => a => Search.Bisection(a[^2], a[..^2], (int)a[^1], SortOrder.Descending),
+    // Bilinear.log_floor_value (args: [x1_query, x2_query] -- see BilinearLogFloorValue()
+    // below and fixtures/special_functions/bilinear.json)
+    "Bilinear.log_floor_value" => BilinearLogFloorValue,
+    // Probability.hpcm_* family (args: see ProbabilityHpcmJoint()/
+    // ProbabilityHpcmConditionalAt() below and fixtures/special_functions/probability.json)
+    "Probability.hpcm_joint" => a => ProbabilityHpcmJoint(a),
+    "Probability.hpcm_conditional_at" => ProbabilityHpcmConditionalAt,
+    // Tools.log10 (args: [x] -- see fixtures/special_functions/tools.json)
+    "Tools.log10" => a => Tools.Log10(a[0]),
     _ => null,
 };
 
@@ -619,6 +723,10 @@ static RunningStatistics RunningStatisticsCombined(double[] a)
     var sample2 = a[(1 + n1)..];
     return new RunningStatistics(sample1) + new RunningStatistics(sample2);
 }
+
+// RunningStatistics.clone_* fixture args convention -- MUST mirror running_statistics_clone()
+// in core/tests/test_fixtures.cpp: args = the flat sample.
+static RunningStatistics RunningStatisticsClone(double[] a) => new RunningStatistics(a).Clone();
 
 // Fourier fixture args conventions -- MUST mirror fourier_*_at() in
 // core/tests/test_fixtures.cpp exactly (see fixtures/special_functions/fourier.json).
@@ -742,6 +850,68 @@ static Histogram HistogramBuild(double[] a, int trailing)
     return explicitBins > 0 ? new Histogram(data, explicitBins) : new Histogram(data);
 }
 
+// Histogram.adapt_* fixture args convention -- MUST mirror histogram_build_adapt() in
+// core/tests/test_fixtures.cpp exactly: args = [explicit_bins, num_adds, data..., adds...].
+static Histogram HistogramBuildAdapt(double[] a)
+{
+    int explicitBins = (int)a[0];
+    int numAdds = (int)a[1];
+    var data = a[2..(a.Length - numAdds)];
+    var h = explicitBins > 0 ? new Histogram(data, explicitBins) : new Histogram(data);
+    foreach (var value in a[^numAdds..]) h.AddData(value);
+    return h;
+}
+
+// Bilinear.log_floor_value fixture args convention -- MUST mirror bilinear_log_floor_value()
+// in core/tests/test_fixtures.cpp: args = [x1_query, x2_query] against a FIXED 3x3 identity
+// grid ({0, 1E-15, 1} on both axes) with X1Transform/X2Transform/YTransform all Logarithmic.
+static double BilinearLogFloorValue(double[] a)
+{
+    var coords = new[] { 0d, 1e-15, 1d };
+    var y = new[,] { { 0d, 0d, 0d }, { 1e-15, 1e-15, 1e-15 }, { 1d, 1d, 1d } };
+    var bilinear = new Bilinear(coords, coords, y)
+    {
+        X1Transform = Numerics.Data.Transform.Logarithmic,
+        X2Transform = Numerics.Data.Transform.Logarithmic,
+        YTransform = Numerics.Data.Transform.Logarithmic
+    };
+    return bilinear.Interpolate(a[0], a[1]);
+}
+
+// Probability.hpcm_* fixture args convention -- MUST mirror probability_hpcm_n()/
+// probability_hpcm_joint() in core/tests/test_fixtures.cpp: args = [p_0..p_(n-1),
+// ind_0..ind_(n-1), corr(n*n flattened row-major)] for hpcm_joint; hpcm_conditional_at
+// appends one trailing 0-based component index.
+static int ProbabilityHpcmN(int len)
+{
+    for (int n = 1; n <= 20; n++)
+        if (2 * n + n * n == len) return n;
+    throw new Exception("cannot infer n for Probability.hpcm args");
+}
+
+static double ProbabilityHpcmJoint(double[] a, double[]? conditional = null)
+{
+    int n = ProbabilityHpcmN(a.Length);
+    var probabilities = a[..n];
+    var indicators = new int[n];
+    for (int i = 0; i < n; i++) indicators[i] = (int)a[n + i];
+    var corr = new double[n, n];
+    int baseIdx = 2 * n;
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            corr[i, j] = a[baseIdx + i * n + j];
+    return Probability.JointProbabilityHPCM(probabilities, indicators, corr, conditional);
+}
+
+static double ProbabilityHpcmConditionalAt(double[] a)
+{
+    int idx = (int)a[^1];
+    var body = a[..^1];
+    var cond = new double[ProbabilityHpcmN(body.Length)];
+    ProbabilityHpcmJoint(body, cond);
+    return cond[idx];
+}
+
 // --- multivariate_distribution branch -----------------------------------------------------
 // Mirrors the univariate Build/Dispatch split. Dirichlet/Multinomial/BivariateEmpirical have
 // no common Mean/Variance/Covariance signature (unlike UnivariateDistributionBase), so
@@ -773,15 +943,15 @@ static MultivariateDistribution BuildMultivariate(string target, JsonElement con
             var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
             for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
         }
-        Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
+        Numerics.Data.Transform ParseT(string key) => construct.TryGetProperty(key, out var t)
             ? t.GetString() switch
             {
-                "None" => Transform.None,
-                "Logarithmic" => Transform.Logarithmic,
-                "NormalZ" => Transform.NormalZ,
+                "None" => Numerics.Data.Transform.None,
+                "Logarithmic" => Numerics.Data.Transform.Logarithmic,
+                "NormalZ" => Numerics.Data.Transform.NormalZ,
                 var s => throw new Exception($"unknown transform: {s}")
             }
-            : Transform.None;
+            : Numerics.Data.Transform.None;
         return new BivariateEmpirical(x1, x2, p, ParseT("x1_transform"), ParseT("x2_transform"),
                                        ParseT("p_transform"));
     }
@@ -877,6 +1047,25 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
     {
         var bb = (BivariateEmpirical)d;
         if (m == "cdf_xy") return bb.CDF(a[0].GetDouble(), a[1].GetDouble());
+        // v2.1.4: verifies the stale-cache fix in ONE self-contained call -- CDF() once
+        // (forces the bilinear cache to build against the CURRENT grid), SetParameters()
+        // with a REPLACEMENT grid, then CDF() again. args = [[x1_new...], [x2_new...],
+        // [[p_row0...], ...], x1_eval, x2_eval].
+        if (m == "cdf_xy_after_set_parameters")
+        {
+            bb.CDF(a[3].GetDouble(), a[4].GetDouble());
+            var x1 = a[0].EnumerateArray().Select(ParseNum).ToArray();
+            var x2 = a[1].EnumerateArray().Select(ParseNum).ToArray();
+            var pRows = a[2].EnumerateArray().ToArray();
+            var p = new double[pRows.Length, x2.Length];
+            for (int i = 0; i < pRows.Length; i++)
+            {
+                var row = pRows[i].EnumerateArray().Select(ParseNum).ToArray();
+                for (int j = 0; j < row.Length; j++) p[i, j] = row[j];
+            }
+            bb.SetParameters(x1, x2, p);
+            return bb.CDF(a[3].GetDouble(), a[4].GetDouble());
+        }
     }
     else if (target == "MultivariateNormal")
     {
@@ -922,6 +1111,77 @@ static double DispatchMultivariate(MultivariateDistribution d, string target, st
             }
             case "random_value": return SampleValueAt(nn.GenerateRandomValues, a);
             case "lhs_value": return SampleValueAt(nn.LatinHypercubeRandomValues, a);
+            // v2.1.4: MVNDST status-code cases assert INFORM/ERROR alongside VALUE
+            // (same args shape as "mvndst" above; a separate case since DispatchMultivariate
+            // returns one double per call).
+            case "mvndst_inform":
+            case "mvndst_error":
+            {
+                int n = a[0].GetInt32();
+                var lower = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var upper = a[2].EnumerateArray().Select(ParseNum).ToArray();
+                var infin = a[3].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var correl = a[4].EnumerateArray().Select(ParseNum).ToArray();
+                int maxpts = a[5].GetInt32();
+                double abseps = a[6].GetDouble();
+                double releps = a[7].GetDouble();
+                double error = 0, val = 0;
+                int inform = 0;
+                nn.MVNDST(n, lower, upper, infin, correl, maxpts, abseps, releps, ref error, ref val, ref inform);
+                return m == "mvndst_inform" ? inform : error;
+            }
+            // v2.1.4: IsDensityValid, as a double (1.0/0.0) for the uniform dispatch shape.
+            case "is_density_valid": return nn.IsDensityValid ? 1.0 : 0.0;
+            // v2.1.4: Marginal(indices)/Conditional(observedIndices, observedValues) --
+            // args = [[indices...], out_index] / [[obs_indices...], [obs_values...], out_index]
+            // (mean/dimension) or [[indices...], i, j] (covariance) or
+            // [[indices...], [x...]] (log_pdf). Every case constructs the marginal/
+            // conditional distribution fresh from `nn` and reads one scalar off it --
+            // stateless, matching every other MultivariateNormal dispatch method here.
+            case "marginal_mean":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                return marginal.Mean[a[1].GetInt32()];
+            }
+            case "marginal_covariance":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                return marginal.Covariance[a[1].GetInt32(), a[2].GetInt32()];
+            }
+            case "marginal_log_pdf":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var marginal = nn.Marginal(indices);
+                var x = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return marginal.LogPDF(x);
+            }
+            case "marginal_dimension":
+            {
+                var indices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                return nn.Marginal(indices).Dimension;
+            }
+            case "conditional_mean":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var conditional = nn.Conditional(obsIndices, obsValues);
+                return conditional.Mean[a[2].GetInt32()];
+            }
+            case "conditional_covariance":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                var conditional = nn.Conditional(obsIndices, obsValues);
+                return conditional.Covariance[a[2].GetInt32(), a[3].GetInt32()];
+            }
+            case "conditional_dimension":
+            {
+                var obsIndices = a[0].EnumerateArray().Select(x => x.GetInt32()).ToArray();
+                var obsValues = a[1].EnumerateArray().Select(ParseNum).ToArray();
+                return nn.Conditional(obsIndices, obsValues).Dimension;
+            }
         }
     }
     else if (target == "MultivariateStudentT")
@@ -1093,12 +1353,12 @@ static double DispatchCopula(BivariateCopula c, string m, JsonElement[] a)
 // --- mcmc_sampler helpers (Task P3.5 / P3.6) ----------------------------------------------
 //
 // The model builder mirrors Test_RWMH.cs's Test_RWMH_NormalDist_RStan construction VERBATIM
-// for "uniform_constraints", and Test_Gibbs.cs's Test_Gibbs_NormalDist_RStan VERBATIM for
-// "normal_conjugate_gibbs" -- see model_registry.hpp's header comment for the prior-aliasing
-// rationale this mirrors (both `muPrior`/`sigmaPrior` here and the C++ port's `mu_prior`/
-// `sigma_prior` are the SAME reference-type object the proposal closure and `priors` both
-// point at -- ordinary C# object references already give this for free, no `shared_ptr`
-// analog needed on this side).
+// for "uniform_constraints", and Test_Gibbs.cs's Test_Gibbs_NormalDist_RStan (v2.1.4 rework:
+// ConditionalMeanParameters/ConditionalVarianceParameters) for "normal_conjugate_gibbs" -- see
+// model_registry.hpp's header comment for the v2.1.4 split this mirrors: `muInitializationPrior`/
+// `sigmaInitializationPrior` seed only `priors` (feasibility bounds), while `conditionalMean`/
+// `conditionalVariance` are separate, freshly constructed locals the proposal closure alone
+// mutates every Gibbs step.
 static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs.Proposal? proposal) BuildMcmcModel(
     string name, string family, double[] data)
 {
@@ -1135,10 +1395,17 @@ static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs
         int n = data.Length;
         var mu = Statistics.Mean(data);
         double mu0 = 0, sigma0 = 5E5;
-        var muPrior = new Normal(mu0, sigma0);
-        double alpha0 = 2, beta0 = 0.001;
-        var sigmaPrior = new InverseGamma(beta0, alpha0);
-        var priors = new List<IUnivariateDistribution> { muPrior, sigmaPrior };
+        // Preserve the reference model's limiting non-informative inverse-gamma prior for
+        // the conditional variance update.
+        double variancePriorShape = 0d, variancePriorScale = 0d;
+        // Proper distributions used SOLELY to initialize the sampler state (feasibility
+        // bounds / initial draws) -- see model_registry.hpp's v2.1.4 split note.
+        double initializationShape = 2d, initializationScale = 0.001d;
+        var muInitializationPrior = new Normal(mu0, sigma0);
+        var sigmaInitializationPrior = new InverseGamma(initializationScale, initializationShape);
+        var conditionalMean = new Normal();
+        var conditionalVariance = new InverseGamma();
+        var priors = new List<IUnivariateDistribution> { muInitializationPrior, sigmaInitializationPrior };
 
         double LogLH(double[] x)
         {
@@ -1148,20 +1415,28 @@ static (List<IUnivariateDistribution> priors, LogLikelihood logLikelihood, Gibbs
 
         double[] Proposal(double[] x, Random random)
         {
-            // Sample mu.
-            double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));
-            double sigma2 = (x[1] * x[1]) / (n + (x[1] * x[1]) / (sigma0 * sigma0));
-            muPrior.SetParameters(mun, Math.Sqrt(sigma2));
-            double mup = muPrior.InverseCDF(random.NextDouble());
+            // Sample the conditional mean given the current standard deviation
+            // (ConditionalMeanParameters): the corrected conjugate-Normal posterior
+            // mean/variance, replacing the pre-v2.1.4 `mu0 / 2` bug.
+            double likelihoodVariance = x[1] * x[1];
+            double priorVariance = sigma0 * sigma0;
+            double posteriorVariance = 1d / (n / likelihoodVariance + 1d / priorVariance);
+            double posteriorMean = posteriorVariance * (n * mu / likelihoodVariance + mu0 / priorVariance);
+            conditionalMean.SetParameters(posteriorMean, Math.Sqrt(posteriorVariance));
+            double mup = conditionalMean.InverseCDF(random.NextDouble());
 
-            // Sample sigma.
-            double alpha1 = n / 2d;
-            double sse = 0;
+            // Sample the conditional variance (ConditionalVarianceParameters), then return
+            // its square root as sigma.
+            double sumOfSquaredErrors = 0;
             for (int i = 0; i < data.Length; i++)
-                sse += Math.Pow(data[i] - mup, 2);
-            double beta1 = sse / 2d;
-            sigmaPrior.SetParameters(new double[] { beta1, alpha1 });
-            double sig2p = sigmaPrior.InverseCDF(random.NextDouble());
+            {
+                double residual = data[i] - mup;
+                sumOfSquaredErrors += residual * residual;
+            }
+            double scale = variancePriorScale + sumOfSquaredErrors / 2d;
+            double shape = variancePriorShape + n / 2d;
+            conditionalVariance.SetParameters(new double[] { scale, shape });
+            double sig2p = conditionalVariance.InverseCDF(random.NextDouble());
 
             return new double[] { mup, Math.Sqrt(sig2p) };
         }
@@ -1512,6 +1787,13 @@ static double DispatchGmm(BestFitModels.Bulletin17CDistribution b17c, Generalize
         case "correlation": return gmm.GetCorrelationMatrix()[I(0), I(1)];
         case "j_stat": return gmm.JStat;
         case "j_stat_pval": return gmm.JStatPval;
+        // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+        // OptimizerFallbackCount (sticky BFGS->NelderMead fallback; internal, accessible here
+        // because Program.cs compiles into the same subset assembly as the real
+        // GeneralizedMethodOfMoments.cs -- see OracleEmitter.csproj's B12 note).
+        case "gmm_iterations": return gmm.GMMIterations;
+        case "converged_within_tolerance": return gmm.ConvergedWithinTolerance ? 1.0 : 0.0;
+        case "optimizer_fallback_count": return gmm.OptimizerFallbackCount;
         case "quantile_variance":
             return b17c.QuantileVariance(1.0 - a[0].GetDouble(), gmm.BestParameterSet.Values,
                 gmm.GetCovarianceMatrix().ToArray());
@@ -1701,6 +1983,12 @@ static (BestFitModels.UnivariateDistributionModelBase model, object? estimator, 
             construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
         return (model, null, draws);
     }
+    // Validate (Task 16 on the IModel path; widened to this path in Task 21): builds the model
+    // and stops -- no estimator, no seeded draw.
+    if (target == "Validate")
+    {
+        return (model, null, null);
+    }
     if (target == "MaximumLikelihood")
     {
         var method = construct.TryGetProperty("optimizer", out var o)
@@ -1795,6 +2083,18 @@ static TimeSeries BuildEmitterTimeSeries(JsonElement modelSpec, double[] values)
 {
     TimeInterval interval = modelSpec.TryGetProperty("time_interval", out var ti)
         ? ParseTimeInterval(ti.GetString()!) : TimeInterval.OneDay;
+    // Irregular is rejected by the (interval, startDate, data) ctor (it walks a REGULAR step), in
+    // C# exactly as in the C++ port. Build it the way the C# regression tests do -- empty series
+    // on the interval, then one Add per value -- matching models/model_spec.hpp's build_time_series
+    // ordinate-for-ordinate. Index spacing is inert (the ARMA families index by position).
+    if (interval == TimeInterval.Irregular)
+    {
+        var irregular = new TimeSeries(interval);
+        for (int i = 0; i < values.Length; i++)
+            irregular.Add(new SeriesOrdinate<DateTime, double>(
+                EmitterSeriesEpoch().AddDays(i), values[i]));
+        return irregular;
+    }
     return new TimeSeries(interval, EmitterSeriesEpoch(), values);
 }
 
@@ -2009,6 +2309,13 @@ static (BestFitModels.IModel model, object? estimator, double[]? simulated)
             construct.TryGetProperty("seed", out var se) ? se.GetInt32() : -1);
         return (model, null, draws);
     }
+    // Validate (Task 16): builds the model and stops -- no estimator, no seeded draw. Lets a
+    // case assert `is_valid`/`validation_message_contains` (below) against IModel.Validate()
+    // without needing to fit or simulate, e.g. the TimeSeries transform-lambda-failure cases.
+    if (target == "Validate")
+    {
+        return (model, null, null);
+    }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori")
     {
         var method = construct.TryGetProperty("optimizer", out var o)
@@ -2113,6 +2420,18 @@ static double DispatchEstimationGeneral(
         };
         return res[a[0].GetInt32()];
     }
+    // The Validate surface (Task 16): works under ANY target (it reads the model, not the
+    // estimator). `is_valid` mirrors the `converged_within_tolerance` boolean-as-double
+    // precedent; `validation_message_contains [substring]` is a structural substring check
+    // (the fixture-checkable contract is "the failure is captured as a message", not a
+    // byte-exact pin of the message text -- see the C++/R/Python dispatchers' identical note).
+    if (m == "is_valid" || m == "validation_message_contains")
+    {
+        var (isValid, messages) = ec.model.Validate();
+        if (m == "is_valid") return isValid ? 1.0 : 0.0;
+        string needle = a[0].GetString()!;
+        return messages.Any(msg => msg.Contains(needle)) ? 1.0 : 0.0;
+    }
     switch (ec.estimator)
     {
         case MaximumLikelihood mle:
@@ -2214,6 +2533,16 @@ static double DispatchEstimation(
     // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
     if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
         return DispatchModelDataFrame(ec.model, m, a);
+    // The Validate surface (Task 16, widened to this path in Task 21 so the older
+    // UnivariateDistributionModelBase families reach the same oracle the IModel path already had
+    // -- see DispatchEstimationGeneral's identical arm for the semantics).
+    if (m == "is_valid" || m == "validation_message_contains")
+    {
+        var (isValid, messages) = ec.model.Validate();
+        if (m == "is_valid") return isValid ? 1.0 : 0.0;
+        string needle = a[0].GetString()!;
+        return messages.Any(msg => msg.Contains(needle)) ? 1.0 : 0.0;
+    }
     switch (ec.estimator)
     {
         case MaximumLikelihood mle:
@@ -2579,6 +2908,40 @@ static AnalysisData BuildAndRunAnalysis(string target, JsonElement construct,
         }
         if (analysis.GMM != null && analysis.GMM.IsEstimated)
             r.Parameters.AddRange(analysis.GMM.BestParameterSet.Values);
+        // T19: the genuinely ensemble-derived UncertaintyAnalysisResults surface (distinct from
+        // the RNG-free Cohn CI above) -- MeanCurve is built from the ACTUAL sampled parameter
+        // sets (BayesianAnalysis.Results.Output), so unlike the Cohn CI it DOES depend on which
+        // bootstrap replicates were drawn. Reuses the generic mode_curve/mean_curve dispatch
+        // every other analysis target already shares.
+        if (analysis.AnalysisResults != null)
+        {
+            if (analysis.AnalysisResults.ModeCurve != null) r.ModeCurve.AddRange(analysis.AnalysisResults.ModeCurve);
+            if (analysis.AnalysisResults.MeanCurve != null) r.MeanCurve.AddRange(analysis.AnalysisResults.MeanCurve);
+        }
+        // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran a
+        // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+        if (analysis.BootstrapResults != null)
+        {
+            var boot = analysis.BootstrapResults;
+            r.BootHasResults = true;
+            r.BootTotalReplicates = boot.TotalReplicates;
+            r.BootAttemptedReplicates = boot.AttemptedReplicates;
+            r.BootFailedReplicates = boot.FailedReplicates;
+            r.BootValidReplicates = boot.ValidReplicates;
+            r.BootRetainedReplicates = boot.RetainedReplicates;
+            r.BootFailureRate = boot.FailureRate;
+            r.BootTotalRetries = boot.TotalRetries;
+            r.BootAverageRetries = boot.AverageRetries;
+            r.BootPivotRejections = boot.PivotRejections;
+            r.BootMahalanobisRejections = boot.MahalanobisRejections;
+            r.BootTransformFailures = boot.TransformFailures;
+            r.BootStatusSuccessCount = boot.StatusSuccessCount;
+            r.BootStatusMaxIterationsCount = boot.StatusMaximumIterationsCount;
+            r.BootStatusMaxFunctionEvaluationsCount = boot.StatusMaximumFunctionEvaluationsCount;
+            r.BootStatusFailureCount = boot.StatusFailureCount;
+            r.BootStatusNoneCount = boot.StatusNoneCount;
+            r.BootOptimizerFallbacks = boot.OptimizerFallbacks;
+        }
         return r;
     }
 
@@ -3084,6 +3447,25 @@ static double DispatchAnalysis(AnalysisData r, string m, JsonElement[] a)
         case "summary_sd_quantile": return r.SummarySdQuantile[I(0)];
         case "summary_min_quantile": return r.SummaryMinQuantile[I(0)];
         case "summary_max_quantile": return r.SummaryMaxQuantile[I(0)];
+        // --- T19: BootstrapDiagnostics dispatch (names match test_fixtures.cpp). ---
+        case "boot_has_results": return r.BootHasResults ? 1.0 : 0.0;
+        case "boot_total_replicates": return r.BootTotalReplicates;
+        case "boot_attempted_replicates": return r.BootAttemptedReplicates;
+        case "boot_failed_replicates": return r.BootFailedReplicates;
+        case "boot_valid_replicates": return r.BootValidReplicates;
+        case "boot_retained_replicates": return r.BootRetainedReplicates;
+        case "boot_failure_rate": return r.BootFailureRate;
+        case "boot_total_retries": return r.BootTotalRetries;
+        case "boot_average_retries": return r.BootAverageRetries;
+        case "boot_pivot_rejections": return r.BootPivotRejections;
+        case "boot_mahalanobis_rejections": return r.BootMahalanobisRejections;
+        case "boot_transform_failures": return r.BootTransformFailures;
+        case "boot_status_success_count": return r.BootStatusSuccessCount;
+        case "boot_status_max_iterations_count": return r.BootStatusMaxIterationsCount;
+        case "boot_status_max_function_evaluations_count": return r.BootStatusMaxFunctionEvaluationsCount;
+        case "boot_status_failure_count": return r.BootStatusFailureCount;
+        case "boot_status_none_count": return r.BootStatusNoneCount;
+        case "boot_optimizer_fallbacks": return r.BootOptimizerFallbacks;
         default: throw new Exception($"unknown analysis fixture method: {m}");
     }
 }
@@ -3260,7 +3642,12 @@ foreach (var file in Directory.EnumerateFiles(fixturesDir, "*.json", SearchOptio
                 "MGBT" => () => MultipleGrubbsBeckTest.Function(duData),
                 "BoxCoxLambda" => () => { BoxCox.FitLambda(duData, out double lam); return lam; },
                 "BoxCoxTransform" => () => BoxCox.Transform(duData, duArgs[0])[(int)duArgs[1]],
-                "YeoJohnsonLambda" => () => YeoJohnson.FitLambda(duData),
+                // Use the (values, out lambda) overload, matching Test_YeoJohnson.cs's
+                // Test_FitLambda_InvalidSamples_ReturnsNaN and BoxCoxLambda above -- the
+                // single-arg YeoJohnson.FitLambda(values) overload instead THROWS
+                // ArgumentException for < 2 points, which is a different C# method (not
+                // what the CanFitLambda-hardened NaN semantics being pinned here exercise).
+                "YeoJohnsonLambda" => () => { YeoJohnson.FitLambda(duData, out double yjLam); return yjLam; },
                 "YeoJohnsonTransform" => () => YeoJohnson.Transform(duData, duArgs[0])[(int)duArgs[1]],
                 "PlottingPosition" => () => PlottingPositions.Function((int)duArgs[0], duArgs[1])[(int)duArgs[2]],
                 // args: [sample_size, dimension, seed, row, col]
@@ -3807,4 +4194,16 @@ class AnalysisData
                   MinPValue = double.NaN, MaxPValue = double.NaN, HasMisfit = double.NaN;
     public List<double> SummaryMeanQuantile = new(), SummarySdQuantile = new(),
                         SummaryMinQuantile = new(), SummaryMaxQuantile = new();
+
+    // --- T19 BootstrapDiagnostics surface (target == "Bulletin17CAnalysis", Bootstrap /
+    // BiasCorrectedBootstrap). Mirrors test_fixtures.cpp's AnalysisResult boot_* slice
+    // field-for-field so the same fixture drives both. ---
+    public bool BootHasResults = false;
+    public int BootTotalReplicates = 0, BootAttemptedReplicates = 0, BootFailedReplicates = 0,
+              BootValidReplicates = 0, BootRetainedReplicates = 0, BootTotalRetries = 0,
+              BootPivotRejections = 0, BootMahalanobisRejections = 0, BootTransformFailures = 0,
+              BootStatusSuccessCount = 0, BootStatusMaxIterationsCount = 0,
+              BootStatusMaxFunctionEvaluationsCount = 0, BootStatusFailureCount = 0,
+              BootStatusNoneCount = 0, BootOptimizerFallbacks = 0;
+    public double BootFailureRate = double.NaN, BootAverageRetries = double.NaN;
 }

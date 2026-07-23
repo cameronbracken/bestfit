@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/BasicExponential.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/BasicExponential.cs @ c2e6192
 //
 // Exponential spatial correlation function: rho(h) = exp(-h / range). One parameter, Range.
 // See i_correlation_model.hpp for the base-vs-impl DRY decision (parameters()/

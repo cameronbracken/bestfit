@@ -1,11 +1,14 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/FrankCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/FrankCopula.cs @ 2a0357a
 //
 // The Frank copula. theta unbounded (-inf, +inf); custom closed-form PDF/CDF/InverseCDF
 // (all five generator functions also have closed forms, including generator_prime_inverse
 // -- no Brent root-solve is needed anywhere in this file, unlike AMH/Gumbel/Joe). Like
 // AMHCopula, FrankCopula OVERRIDES ValidateParameter with a CORRECT implementation (`return
 // null;` in range) -- it does NOT inherit ArchimedeanCopula's "always-false ParametersValid"
-// bug (see amh_copula.hpp / clayton_copula.hpp / docs/upstream-csharp-issues.md).
+// bug, RESOLVED upstream in v2.1.4 (see amh_copula.hpp / clayton_copula.hpp /
+// docs/upstream-csharp-issues.md). v2.1.4 also added a NaN/Inf check ahead of the range check
+// here (mirrored below). Clone() deep-copies attached marginals via
+// BivariateCopula::clone_marginal (v2.1.4, Task 8).
 //
 // The C# FrankCopula class has NO SetThetaFromTau method (unlike Clayton/AMH/Gumbel) --
 // its ParameterConstraints computes Kendall's tau from the sample data purely to pick the
@@ -49,10 +52,15 @@ class FrankCopula : public ArchimedeanCopula {
     double theta_minimum() const override { return -std::numeric_limits<double>::infinity(); }
     double theta_maximum() const override { return std::numeric_limits<double>::infinity(); }
 
-    // Correct override (does NOT reproduce ArchimedeanCopula's ParametersValid bug -- see
-    // file header).
+    // Correct override (does NOT reproduce ArchimedeanCopula's now-resolved ParametersValid
+    // bug -- see file header).
     std::optional<std::string> validate_parameter(double parameter,
                                                     bool throw_exception) const override {
+        if (std::isnan(parameter) || std::isinf(parameter)) {
+            std::string msg = "The dependency parameter must be finite.";
+            if (throw_exception) throw std::out_of_range(msg);
+            return msg;
+        }
         if (parameter < theta_minimum()) {
             std::string msg = "The dependency parameter theta (theta) must be greater than or "
                                "equal to " +
@@ -126,7 +134,8 @@ class FrankCopula : public ArchimedeanCopula {
     double lower_tail_dependence() const override { return 0.0; }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<FrankCopula>(theta(), marginal_distribution_x, marginal_distribution_y);
+        return std::make_unique<FrankCopula>(theta(), clone_marginal(marginal_distribution_x),
+                                              clone_marginal(marginal_distribution_y));
     }
 
     math::linalg::Matrix2D parameter_constraints(const std::vector<double>& sample_data_x,

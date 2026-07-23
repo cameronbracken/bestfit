@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs @ c2e6192
 //
 // GMM parameter estimation: minimizes the quadratic form Q(theta) = g(theta)' W g(theta),
 // where g(theta) is the sample mean of moment conditions and W is a weighting matrix.
@@ -66,7 +66,48 @@
 // (ToXElement/RestoreFromXElement/DeserializeParameterSet/DeserializeMatrix, C# 2446+;
 // desktop persistence) and the INotifyPropertyChanged plumbing (PropertyChanged event +
 // RaisePropertyChange; the INPC properties are ported as plain get/set accessors that
-// keep the C# "only assign when changed" guard).
+// keep the C# "only assign when changed" guard). RestoreFromXElement's new
+// ConvergedWithinTolerance restoral (added alongside the T13 fix below) is therefore also
+// skipped -- it lives entirely inside the un-ported XML region.
+//
+// Task T13 (BestFit v2.0.0, 5e1877f..b43943c) reworked optimizer-result acceptance and
+// fixed a real ConvergedWithinTolerance bug:
+//   - `minimize_with_fallback` now accepts the primary optimizer's result on ANY
+//     non-failure termination (`is_non_failure_termination`: status is neither None nor
+//     Failure -- so MaximumIterationsReached/MaximumFunctionEvaluationsReached now count)
+//     as long as it produced a finite, correctly-sized best point
+//     (`has_usable_best_parameter_set` / `try_capture_best_parameter_set`). Previously only
+//     a strict `Status == Success` was accepted, so hitting the iteration/evaluation cap
+//     with an otherwise-good point needlessly fell through to the NelderMead fallback.
+//   - The BFGS->NelderMead fallback is now STICKY across an Iterative run:
+//     `use_nelder_mead_for_remaining_iterations_` latches to true and
+//     `optimizer_fallback_count_` increments the first time BFGS fails within an estimate()
+//     call, so every SUBSEQUENT `minimize_with_fallback` pass in that same run goes straight
+//     to NelderMead instead of re-trying (and re-failing) BFGS. Both reset at the top of
+//     `estimate()`. `optimizer_fallback_count()` mirrors the C# `internal` accessor as
+//     `public` -- widened for the same reason as `DataFrame::shift_distribution`'s C#
+//     `internal`/`private` widening (access modifier only, no numerical deviation) -- so
+//     Tasks 19-20's bootstrap collectors can read it.
+//   - `try_get_covariance` mirrors the C# `internal bool TryGetCovariance(...)`: computes
+//     `get_covariance` inside a try/catch and additionally gates on every entry being
+//     finite (`matrix_is_finite`) and the diagonal being finite AND strictly positive
+//     (`has_positive_finite_diagonal`), returning a zero matrix on any failure. Lets a
+//     bootstrap collector (Tasks 19-20) reject a degenerate covariance without disturbing
+//     the existing public `get_covariance`/`get_covariance_matrix` behavior.
+//   - `converged_within_tolerance()`'s off-by-one FIX (retiring the audit finding in
+//     docs/upstream-csharp-issues.md's "GMM's iterative loop overshoots GMMIterations by
+//     one on exhaustion" entry): it now reads a tracked `converged_within_tolerance_` flag
+//     instead of the old `is_estimated_ && gmm_iterations_ < max_gmm_iterations_` strict
+//     inequality. The flag is set true ONLY on the iterative loop's tolerance-convergence
+//     branch (so a fit that converges on exactly the LAST permitted iteration now correctly
+//     reports true, fixing the old boundary bug) and stays false for OneStep/TwoStep (which
+//     have no comparison pass) and for an iterative run that exhausts
+//     max_gmm_iterations_ without converging. `estimate_iterative` also now clamps
+//     `gmm_iterations_` to `max_gmm_iterations_` on exhaustion (`if (gmm_iterations_ >
+//     max_gmm_iterations_) gmm_iterations_ = max_gmm_iterations_;`) instead of leaving the
+//     old `max_gmm_iterations_ + 1` for-loop overshoot, and `gmm_iterations_` is now set to
+//     1 (not left at 0/skipped straight to 2) before each strategy's first optimizer pass,
+//     so it always names "the pass currently being attempted" per the C# doc update.
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -363,11 +404,21 @@ class GeneralizedMethodOfMoments {
     // The number of iterations used for iterative estimation.
     int gmm_iterations() const { return gmm_iterations_; }
 
-    // True only when the most recent estimate() run reached the convergence tolerance
-    // before max_gmm_iterations() (C# ConvergedWithinTolerance).
-    bool converged_within_tolerance() const {
-        return is_estimated_ && gmm_iterations_ < max_gmm_iterations_;
-    }
+    // True only when the most recent iterative estimate() run reached a convergence
+    // criterion (C# ConvergedWithinTolerance, T13-fixed). Reads a tracked flag set ONLY on
+    // the iterative loop's tolerance-convergence branch -- including convergence on the
+    // final permitted iteration, which the old strict `gmm_iterations_ <
+    // max_gmm_iterations_` boundary under-reported (see this file's header). Exhaustion,
+    // optimizer failure, and the one-step/two-step strategies (no comparison pass) all
+    // report false.
+    bool converged_within_tolerance() const { return is_estimated_ && converged_within_tolerance_; }
+
+    // The number of optimizer fallback transitions (BFGS -> NelderMead) recorded by the
+    // current estimate() run (C# `internal int OptimizerFallbackCount`, widened to public --
+    // see this file's header). Increments the first time a BFGS pass fails within an
+    // estimate() call; every subsequent pass in that same run uses NelderMead directly
+    // (sticky), so this saturates at 1 for a single estimate() run.
+    int optimizer_fallback_count() const { return optimizer_fallback_count_; }
 
     // The total number of function evaluations required to estimate the model.
     int total_function_evaluations() const { return total_function_evaluations_; }
@@ -538,6 +589,23 @@ class GeneralizedMethodOfMoments {
             // C# logs "Failed to compute GMM covariance matrix: ..." via Debug.WriteLine;
             // silent no-throw guard here -- fall back to a zero matrix.
             return Matrix(number_of_parameters_, number_of_parameters_);
+        }
+    }
+
+    // Attempts to compute a finite, non-degenerate parameter covariance matrix (C# `internal
+    // bool TryGetCovariance`, widened to public -- see this file's header T13 note; T19-20
+    // consume this). Wraps get_covariance in a try/catch and additionally gates on every
+    // entry being finite AND the diagonal being finite and strictly positive, so a bootstrap
+    // collector can reject a degenerate covariance without disturbing the existing public
+    // get_covariance/get_covariance_matrix behavior. `covariance` is a zero matrix on any
+    // failure (C# `out Matrix covariance`).
+    bool try_get_covariance(const std::vector<double>& parameters, bool sandwich, Matrix& covariance) {
+        try {
+            covariance = get_covariance(parameters, sandwich);
+            return matrix_is_finite(covariance) && has_positive_finite_diagonal(covariance);
+        } catch (const std::exception&) {
+            covariance = Matrix(number_of_parameters_, number_of_parameters_);
+            return false;
         }
     }
 
@@ -1048,6 +1116,14 @@ class GeneralizedMethodOfMoments {
     bool estimate() {
         is_estimated_ = false;
 
+        converged_within_tolerance_ = false;
+        use_nelder_mead_for_remaining_iterations_ = false;
+        optimizer_fallback_count_ = 0;
+        // Reset prior outputs so a failed run can never return a stale solution from an
+        // earlier estimate() call on the same instance (T13).
+        status_ = OptimizationStatus::None;
+        best_parameter_set_ = ParameterSet();
+
         // Validation.
         if (identification_status_ == GMMIdentificationStatus::UnderIdentified &&
             !penalty_function_)
@@ -1116,6 +1192,9 @@ class GeneralizedMethodOfMoments {
         status_ = OptimizationStatus::None;
         gmm_iterations_ = 0;
         total_function_evaluations_ = 0;
+        converged_within_tolerance_ = false;
+        use_nelder_mead_for_remaining_iterations_ = false;
+        optimizer_fallback_count_ = 0;
         jstat_ = std::numeric_limits<double>::quiet_NaN();
         jstat_pval_ = std::numeric_limits<double>::quiet_NaN();
         w_.reset();
@@ -1168,6 +1247,25 @@ class GeneralizedMethodOfMoments {
     }
 
    private:
+    // Determines whether every matrix entry is finite (C# `MatrixIsFinite`; T13, used by
+    // try_get_covariance).
+    static bool matrix_is_finite(const Matrix& matrix) {
+        for (int i = 0; i < matrix.number_of_rows(); ++i)
+            for (int j = 0; j < matrix.number_of_columns(); ++j)
+                if (!corehydro::numerics::is_finite(matrix(i, j))) return false;
+        return true;
+    }
+
+    // Determines whether a covariance matrix has positive finite diagonal entries (C#
+    // `HasPositiveFiniteDiagonal`; T13, used by try_get_covariance).
+    static bool has_positive_finite_diagonal(const Matrix& matrix) {
+        int count = std::min(matrix.number_of_rows(), matrix.number_of_columns());
+        if (count == 0) return false;
+        for (int i = 0; i < count; ++i)
+            if (!corehydro::numerics::is_finite(matrix(i, i)) || matrix(i, i) <= 0.0) return false;
+        return true;
+    }
+
     // Computes the identification status from parameter and moment condition counts
     // (C# 187).
     void compute_identification_status() {
@@ -1437,38 +1535,40 @@ class GeneralizedMethodOfMoments {
 
     // --- Optimization helpers ---------------------------------------------------------------
 
-    // Configures the optimizer based on the selected optimization method (C# 2068). All
-    // six OptimizationMethod branches mirror the C# constructions (BFGS gets the analytic
+    // Configures the optimizer based on the selected optimization method (C# 2068, T13
+    // takes an explicit `optimizer_method` parameter instead of always reading
+    // optimizer_method_ -- see minimize_with_fallback's sticky-NelderMead note). All six
+    // OptimizationMethod branches mirror the C# constructions (BFGS gets the analytic
     // get_gradient; MLSL gets LocalMethod::NelderMead explicitly since the C++ ctor default
     // is BFGS; the C# NelderMead branch's `EnableStartPointProbe = true` is a documented
     // no-op -- see this file's header deviation note).
-    void set_up_optimizer() {
+    void set_up_optimizer(OptimizationMethod optimizer_method) {
         Optimizer::Objective objective = [this](std::vector<double>& parms) { return q(parms); };
 
-        if (optimizer_method_ == OptimizationMethod::Brent) {
+        if (optimizer_method == OptimizationMethod::Brent) {
             // C# `new BrentSearch(x => Q(new[] { x }), LowerBounds[0], UpperBounds[0])`;
             // the C# BrentSearch base is a 1-parameter optimizer.
             optimizer_ = std::make_unique<detail::BrentOptimizerAdapter>(
                 objective, 1, lower_bounds_[0], upper_bounds_[0]);
-        } else if (optimizer_method_ == OptimizationMethod::BFGS) {
+        } else if (optimizer_method == OptimizationMethod::BFGS) {
             optimizer_ = std::make_unique<corehydro::numerics::math::optimization::BFGS>(
                 objective, number_of_parameters_, initial_values_, lower_bounds_,
                 upper_bounds_,
                 [this](const std::vector<double>& x) { return get_gradient(x).to_array(); });
-        } else if (optimizer_method_ == OptimizationMethod::NelderMead) {
+        } else if (optimizer_method == OptimizationMethod::NelderMead) {
             optimizer_ = std::make_unique<detail::NelderMeadOptimizerAdapter>(
                 objective, number_of_parameters_, initial_values_, lower_bounds_,
                 upper_bounds_);
             // C# `{ EnableStartPointProbe = true }`: no-op in this port (header note).
-        } else if (optimizer_method_ == OptimizationMethod::Powell) {
+        } else if (optimizer_method == OptimizationMethod::Powell) {
             optimizer_ = std::make_unique<corehydro::numerics::math::optimization::Powell>(
                 objective, number_of_parameters_, initial_values_, lower_bounds_,
                 upper_bounds_);
-        } else if (optimizer_method_ == OptimizationMethod::DifferentialEvolution) {
+        } else if (optimizer_method == OptimizationMethod::DifferentialEvolution) {
             optimizer_ =
                 std::make_unique<corehydro::numerics::math::optimization::DifferentialEvolution>(
                     objective, number_of_parameters_, lower_bounds_, upper_bounds_);
-        } else if (optimizer_method_ == OptimizationMethod::MultilevelSingleLinkage) {
+        } else if (optimizer_method == OptimizationMethod::MultilevelSingleLinkage) {
             optimizer_ = std::make_unique<corehydro::numerics::math::optimization::MLSL>(
                 objective, number_of_parameters_, initial_values_, lower_bounds_,
                 upper_bounds_, corehydro::numerics::math::optimization::LocalMethod::NelderMead);
@@ -1482,21 +1582,61 @@ class GeneralizedMethodOfMoments {
         optimizer_->compute_hessian = false;
     }
 
-    // Runs the primary optimizer with the optional BFGS-to-NelderMead fallback (C# 2108).
-    // enable_start_point_probe mirrors the C# parameter shape; it is a documented no-op in
-    // this port (header deviation note).
+    // Copies an optimizer's best finite parameter set onto the GMM result state (C#
+    // `TryCaptureBestParameterSet`; T13).
+    bool try_capture_best_parameter_set(const Optimizer* optimizer) {
+        if (!has_usable_best_parameter_set(optimizer)) return false;
+        best_parameter_set_ = optimizer->best_parameter_set().clone();
+        return true;
+    }
+
+    // Determines whether an optimizer has a finite best parameter set that matches this
+    // GMM problem: correctly sized, finite fitness strictly below double.max, and every
+    // value finite (C# `HasUsableBestParameterSet`; T13).
+    bool has_usable_best_parameter_set(const Optimizer* optimizer) const {
+        if (optimizer == nullptr ||
+            static_cast<int>(optimizer->best_parameter_set().values.size()) != number_of_parameters_)
+            return false;
+        if (!corehydro::numerics::is_finite(optimizer->best_parameter_set().fitness) ||
+            optimizer->best_parameter_set().fitness >= std::numeric_limits<double>::max())
+            return false;
+        for (double value : optimizer->best_parameter_set().values)
+            if (!corehydro::numerics::is_finite(value)) return false;
+        return true;
+    }
+
+    // Determines whether an optimizer termination status can supply a usable best-effort
+    // result: neither None nor Failure (C# `IsNonFailureTermination`; T13 -- this is what
+    // now accepts MaximumIterationsReached/MaximumFunctionEvaluationsReached as usable
+    // rather than requiring strict Success).
+    static bool is_non_failure_termination(OptimizationStatus status) {
+        return status != OptimizationStatus::None && status != OptimizationStatus::Failure;
+    }
+
+    // Runs the primary optimizer with the optional BFGS-to-NelderMead fallback (C# 2108,
+    // T13-reworked acceptance). enable_start_point_probe mirrors the C# parameter shape; it
+    // is a documented no-op in this port (header deviation note). GMM now keeps the best
+    // finite optimizer point from every pass: hitting maximum function evaluations or
+    // maximum iterations is no longer treated as a failed pass when a finite best point is
+    // available (is_non_failure_termination + try_capture_best_parameter_set replace the
+    // old strict `Status == Success` gate). The BFGS->NelderMead fallback is STICKY across
+    // an Iterative run: once BFGS fails once, use_nelder_mead_for_remaining_iterations_
+    // latches true and every subsequent pass in the same estimate() call runs NelderMead
+    // directly as the "primary" optimizer (optimizer_fallback_count_ increments only on
+    // that first transition).
     bool minimize_with_fallback(bool enable_start_point_probe = true) {
+        OptimizationMethod primary_method =
+            use_nelder_mead_for_remaining_iterations_ ? OptimizationMethod::NelderMead : optimizer_method_;
+
         // Run the primary optimizer.
-        set_up_optimizer();
+        set_up_optimizer(primary_method);
         // C# `if (Optimizer is NelderMead nm) nm.EnableStartPointProbe =
         // enableStartPointProbe;` -- no-op (no start-point probe in the ported NelderMead).
         (void)enable_start_point_probe;
 
-        bool primary_succeeded = false;
         try {
             optimizer_->minimize();
             status_ = optimizer_->status();
-            primary_succeeded = optimizer_->status() == OptimizationStatus::Success;
         } catch (const std::exception&) {
             status_ = OptimizationStatus::Failure;
             // C# logs "Primary optimizer threw exception" via Debug.WriteLine; silent
@@ -1505,21 +1645,20 @@ class GeneralizedMethodOfMoments {
 
         total_function_evaluations_ += optimizer_->function_evaluations();
 
-        if (primary_succeeded) return true;
+        if (try_capture_best_parameter_set(optimizer_.get()) && is_non_failure_termination(status_))
+            return true;
 
         // Fallback only if enabled and the primary was BFGS.
-        if (!use_fallback_optimizer_ || optimizer_method_ != OptimizationMethod::BFGS)
-            return false;
+        if (!use_fallback_optimizer_ || primary_method != OptimizationMethod::BFGS) return false;
 
         // C# logs "BFGS failed, falling back to NelderMead with start-point probe."
+        use_nelder_mead_for_remaining_iterations_ = true;
+        ++optimizer_fallback_count_;
 
-        // Use the BFGS best point if it found anything reasonable, otherwise InitialValues.
+        // Use the BFGS best point if it found a finite candidate, otherwise InitialValues.
         std::vector<double> fallback_initials =
-            (!optimizer_->best_parameter_set().values.empty() &&
-             corehydro::numerics::is_finite(optimizer_->best_parameter_set().fitness) &&
-             optimizer_->best_parameter_set().fitness < std::numeric_limits<double>::max())
-                ? optimizer_->best_parameter_set().values
-                : initial_values_;
+            has_usable_best_parameter_set(optimizer_.get()) ? optimizer_->best_parameter_set().values
+                                                             : initial_values_;
 
         auto fallback = std::make_unique<detail::NelderMeadOptimizerAdapter>(
             [this](std::vector<double>& parms) { return q(parms); }, number_of_parameters_,
@@ -1543,29 +1682,32 @@ class GeneralizedMethodOfMoments {
         }
 
         total_function_evaluations_ += fallback->function_evaluations();
+        optimizer_ = std::move(fallback);
 
-        if (fallback->status() == OptimizationStatus::Success) {
-            optimizer_ = std::move(fallback);
-            return true;
-        }
-
-        return false;
+        return try_capture_best_parameter_set(optimizer_.get()) && is_non_failure_termination(status_);
     }
 
     // --- Estimation strategies --------------------------------------------------------------
 
-    // Performs the one-step optimization (C# 2201).
+    // Performs the one-step optimization (C# 2201; T13 now records gmm_iterations_ = 1 for
+    // the single pass).
     void estimate_one_step() {
+        gmm_iterations_ = 1;
+
         if (!minimize_with_fallback()) return;
+
         best_parameter_set_ = optimizer_->best_parameter_set().clone();
     }
 
-    // Performs the two-step optimization using the updated weighting matrix (C# 2211).
+    // Performs the two-step optimization using the updated weighting matrix (C# 2211; T13
+    // records gmm_iterations_ as 1 for the first pass and 2 for the second, and no longer
+    // resets it to 0 up front). Non-failure optimizer terminations retain the best finite
+    // parameter set even when strict convergence tolerance was not reached.
     void estimate_two_step() {
-        gmm_iterations_ = 0;
         total_function_evaluations_ = 0;
 
         // Perform the 1st optimization step.
+        gmm_iterations_ = 1;
         if (!minimize_with_fallback()) return;
 
         // Update results.
@@ -1574,17 +1716,24 @@ class GeneralizedMethodOfMoments {
         w_ = s_->inverse();
 
         // Perform the 2nd optimization step.
+        gmm_iterations_ = 2;
         initial_values_ = optimizer_->best_parameter_set().values;
         if (!minimize_with_fallback()) return;
+
         best_parameter_set_ = optimizer_->best_parameter_set().clone();
     }
 
     // Performs the 'iterative method' that improves the weighting matrix until parameter
-    // convergence (C# 2235). NOTE (C# fidelity): a loop that exhausts max_gmm_iterations
-    // leaves gmm_iterations_ == max_gmm_iterations_ + 1 (the for-loop increment), which is
-    // what makes converged_within_tolerance() false for a best-effort run.
+    // convergence (C# 2235, T13-fixed). gmm_iterations_ now records the optimizer pass
+    // CURRENTLY being attempted (set to 1 before the first pass, matching the for-loop's
+    // own 2, 3, ... afterward). converged_within_tolerance_ is set true ONLY on the
+    // tolerance-convergence branch below (fixing the old off-by-one -- see this file's
+    // header). On exhaustion (never converging), gmm_iterations_ is now clamped back to
+    // max_gmm_iterations_ instead of overshooting by one from the for-loop's final
+    // post-increment.
     void estimate_iterative() {
         convergence_history_.clear();
+        gmm_iterations_ = 1;
 
         // Perform the 1st optimization step.
         if (!minimize_with_fallback(/*enable_start_point_probe=*/true)) return;
@@ -1617,6 +1766,7 @@ class GeneralizedMethodOfMoments {
             double rel_change = std::fabs(new_q - old_q) / (std::fabs(old_q) + 1e-15);
 
             if (distance < absolute_tolerance_ || rel_change < relative_tolerance_) {
+                converged_within_tolerance_ = true;
                 best_parameter_set_ = optimizer_->best_parameter_set().clone();
                 return;
             }
@@ -1625,6 +1775,8 @@ class GeneralizedMethodOfMoments {
             old_values = new_values;
             old_q = new_q;
         }
+
+        if (gmm_iterations_ > max_gmm_iterations_) gmm_iterations_ = max_gmm_iterations_;
     }
 
     // Elementwise scalar division, standing in for the C# `Matrix / double` operator
@@ -1660,6 +1812,11 @@ class GeneralizedMethodOfMoments {
     double relative_tolerance_ = 1E-8;
     int max_function_evaluations_ = 2000;
     bool use_fallback_optimizer_ = true;
+    // T13: sticky BFGS->NelderMead fallback state, tracked convergence flag, and the
+    // fallback-transition counter -- all reset at the top of estimate() / clear_results().
+    bool use_nelder_mead_for_remaining_iterations_ = false;
+    int optimizer_fallback_count_ = 0;
+    bool converged_within_tolerance_ = false;
 
     std::unique_ptr<Optimizer> optimizer_;  // transient; null before estimation
     OptimizationStatus status_ = OptimizationStatus::None;

@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/SpatialExtremes/SpatialGEVSiteResults.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/SpatialExtremes/SpatialGEVSiteResults.cs @ c2e6192
 //
 // Plain result DTO: the GEV (location/scale/shape) parameters and quantile curves for a single site
 // (or, when site_index == -1, an ungauged prediction location) produced by SpatialGEVAnalysis. Each

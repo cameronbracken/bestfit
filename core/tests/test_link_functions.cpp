@@ -1,6 +1,6 @@
 // Transcribed C# oracle tests for the Numerics link-function layer (Task B1):
-//   upstream/Numerics/Test_Numerics/Functions/Test_LinkFunctions.cs   @ a2c4dbf
-//   upstream/Numerics/Test_Numerics/Functions/Test_FisherZLink.cs     @ a2c4dbf
+//   upstream/Numerics/Test_Numerics/Functions/Test_LinkFunctions.cs   @ 2a0357a
+//   upstream/Numerics/Test_Numerics/Functions/Test_FisherZLink.cs     @ 2a0357a
 //   upstream/Numerics/Test_Numerics/Functions/Test_YeoJohnsonLink.cs  @ a2c4dbf
 // plus direct tests of the YeoJohnson transform class (no upstream test file exists under
 // Test_Numerics/Data/Statistics for it; only Test_BoxCox.cs is there) and the brief-required
@@ -553,6 +553,14 @@ void test_yj_constructor_values_single_element_throws() {
     CHECK_THROWS(YeoJohnsonLink(std::vector<double>{1.0}));
 }
 
+// v2.1.4: a constant sample of size >= 2 passes the ctor's own size/finite pre-checks but
+// YeoJohnson::fit_lambda now returns NaN for it (CanFitLambda's degenerate-sample guard),
+// so the ctor's post-fit NaN check must throw (numerics/functions/yeo_johnson_link.hpp).
+void test_yj_constructor_values_constant_sample_throws() {
+    CHECK_THROWS(YeoJohnsonLink(std::vector<double>{2.0, 2.0}));
+    CHECK_THROWS(YeoJohnsonLink(std::vector<double>{-1.0, -1.0, -1.0}));
+}
+
 void test_yj_constructor_values_non_finite_value_throws() {
     CHECK_THROWS(YeoJohnsonLink(std::vector<double>{1.0, kNaN}));
     CHECK_THROWS(YeoJohnsonLink(std::vector<double>{1.0, -kInf}));
@@ -678,8 +686,29 @@ void test_yeo_johnson_log_likelihood_degenerate_is_neg_infinity() {
     CHECK_TRUE(YeoJohnson::log_likelihood(values, 1.0) < 0.0);
 }
 
-void test_yeo_johnson_fit_lambda_throws_for_degenerate_input() {
-    CHECK_THROWS(YeoJohnson::fit_lambda(std::vector<double>{1.0}));
+// v2.1.4: FitLambda reports invalid/degenerate samples with NaN instead of throwing
+// (Test_YeoJohnson.cs Test_FitLambda_InvalidSamples_ReturnsNaN, minus the null case --
+// a std::vector reference can't be null).
+void test_yeo_johnson_fit_lambda_returns_nan_for_invalid_samples() {
+    CHECK_TRUE(std::isnan(YeoJohnson::fit_lambda(std::vector<double>{1.0})));
+    CHECK_TRUE(std::isnan(YeoJohnson::fit_lambda(std::vector<double>{1.0, 1.0, 1.0})));
+    CHECK_TRUE(std::isnan(YeoJohnson::fit_lambda(std::vector<double>{1.0, kNaN, 2.0})));
+    CHECK_TRUE(std::isnan(YeoJohnson::fit_lambda(std::vector<double>{1.0, kInf, 2.0})));
+    const double huge = std::numeric_limits<double>::max();
+    CHECK_TRUE(std::isnan(
+        YeoJohnson::fit_lambda(std::vector<double>{-huge, -huge / 2.0, -huge / 4.0})));
+}
+
+// v2.1.4: LogLikelihood returns -Infinity for unsupported samples or lambda values
+// (Test_YeoJohnson.cs Test_LogLikelihood_InvalidSamples_ReturnsNegativeInfinity).
+void test_yeo_johnson_log_likelihood_invalid_samples_returns_neg_infinity() {
+    CHECK_TRUE(std::isinf(YeoJohnson::log_likelihood(std::vector<double>{1.0, 1.0}, 1.0)));
+    CHECK_TRUE(YeoJohnson::log_likelihood(std::vector<double>{1.0, 1.0}, 1.0) < 0.0);
+    CHECK_TRUE(std::isinf(YeoJohnson::log_likelihood(std::vector<double>{1.0, kNaN}, 1.0)));
+    CHECK_TRUE(std::isinf(YeoJohnson::log_likelihood(std::vector<double>{1.0, 2.0}, kNaN)));
+    const double huge = std::numeric_limits<double>::max();
+    CHECK_TRUE(std::isinf(YeoJohnson::log_likelihood(
+        std::vector<double>{-huge, -huge / 2.0, -huge / 4.0}, 1.0)));
 }
 
 void test_yeo_johnson_fit_lambda_maximizes_log_likelihood() {
@@ -792,6 +821,7 @@ int main() {
     test_yj_constructor_lambda_stores_value();
     test_yj_constructor_lambda_invalid_values_throws();
     test_yj_constructor_values_single_element_throws();
+    test_yj_constructor_values_constant_sample_throws();
     test_yj_constructor_values_non_finite_value_throws();
     test_yj_constructor_values_produces_finite_lambda();
     test_yj_link_lambda_one_is_identity();
@@ -808,7 +838,8 @@ int main() {
     test_yeo_johnson_log_jacobian();
     test_yeo_johnson_log_likelihood_lambda_one();
     test_yeo_johnson_log_likelihood_degenerate_is_neg_infinity();
-    test_yeo_johnson_fit_lambda_throws_for_degenerate_input();
+    test_yeo_johnson_log_likelihood_invalid_samples_returns_neg_infinity();
+    test_yeo_johnson_fit_lambda_returns_nan_for_invalid_samples();
     test_yeo_johnson_fit_lambda_maximizes_log_likelihood();
     // Supplements
     test_supplement_all_links_round_trip_and_derivative();

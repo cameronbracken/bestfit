@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IProbabilityOrdinates.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IProbabilityOrdinates.cs @ c2e6192
 //
 // Capability interface exposing the exceedance-probability grid an analysis tabulates its
 // frequency curve on. A pure getter -- no INotifyPropertyChanged baggage survives (the C# type had

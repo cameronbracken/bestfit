@@ -126,6 +126,24 @@ bool messages_contain(const corehydro::models::ValidationResult& r, const std::s
     return false;
 }
 
+// 60 annual observations that make the Box-Cox lambda objective non-finite: a zero at index 0
+// fails can_fit_lambda's positivity requirement (mirrors C#'s
+// CreateBoxCoxLambdaFailureTimeSeries).
+TimeSeries make_box_cox_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(i == 0 ? 0.0 : 10.0);
+    return ts;
+}
+
+// 60 annual observations, all -DBL_MAX: a degenerate constant sample fails can_fit_lambda's
+// non-degeneracy requirement for Yeo-Johnson (mirrors C#'s
+// CreateYeoJohnsonLambdaFailureTimeSeries).
+TimeSeries make_yeo_johnson_lambda_failure_series() {
+    TimeSeries ts(TimeInterval::OneYear, 0, 59);
+    for (int i = 0; i < ts.count(); ++i) ts[i].set_value(-std::numeric_limits<double>::max());
+    return ts;
+}
+
 // ============================ Constructors ============================
 
 void test_arimax_constructors() {
@@ -448,6 +466,22 @@ void test_arimax_validate() {
     CHECK_TRUE(messages_contain(ns.validate(), "stationarity"));
 }
 
+// Transcribes ARIMAXTests.cs's Test_{BoxCoxTransform,YeoJohnsonTransform}Transform_
+// LambdaFitFailure_ReturnsValidationError (BestFit v2.0.0, f140c4d).
+void test_arimax_transform_lambda_failure() {
+    ARIMAX bc(make_box_cox_lambda_failure_series());
+    bc.set_transform_type(Transform::BoxCox);
+    auto rbc = bc.validate();
+    CHECK_TRUE(!rbc.is_valid);
+    CHECK_TRUE(messages_contain(rbc, "Box-Cox lambda estimation failed"));
+
+    ARIMAX yj(make_yeo_johnson_lambda_failure_series());
+    yj.set_transform_type(Transform::YeoJohnson);
+    auto ryj = yj.validate();
+    CHECK_TRUE(!ryj.is_valid);
+    CHECK_TRUE(messages_contain(ryj, "Yeo-Johnson lambda estimation failed"));
+}
+
 // ============================ Trend / seasonality / differencing / transform ============================
 
 void test_arimax_trend_seasonality_diff_transform() {
@@ -561,6 +595,121 @@ void test_arimax_p4_fixed_param_oracles() {
     CHECK_NEAR(res[7], 1.7300000000000004, 1e-9);
 }
 
+// v2.0.0 ResetDefaultTrainingStepsForNewTimeSeries (ARIMAX.cs:591). Transcribed from the new
+// TimeSeries_NewSeries_ResetsTrainingSplitToDefault regression test (which uses exactly this
+// original/replacement pair): attaching a DIFFERENT response series discards the manual
+// training-window edit and restores floor(0.8 * count) = 192 for the 240-observation monthly
+// replacement. The manual window (40) is the C# test's own value and is not the new default.
+void test_arimax_new_series_resets_training_split() {
+    TimeSeries original = make_sample_series();      // 60 annual obs
+    TimeSeries replacement = make_monthly_series();  // 240 monthly obs
+    TimeSeries empty(TimeInterval::OneYear);
+
+    ARIMAX m(original);
+    m.set_use_default_training_steps(false);
+    m.set_training_time_steps(40);
+    CHECK_EQ(m.training_time_steps(), 40);
+    m.set_time_series(replacement);
+    CHECK_TRUE(m.use_default_training_steps());
+    CHECK_EQ(m.training_time_steps(), 192);
+
+    // Empty-series arm: attaching a series with no observations zeroes the window. Default
+    // flat priors are turned OFF first only to keep the assertion on the reset itself -- the
+    // trailing SetDefaultParameters call indexes the STALE differenced series at
+    // TrainingTimeSteps-1 == -1, which is an IndexOutOfRangeException in C# and UB here (a
+    // pre-existing shared hazard on a path the C# regression suite never drives).
+    ARIMAX me(original);
+    me.set_use_default_flat_priors(false);
+    me.set_use_default_training_steps(false);
+    me.set_training_time_steps(40);
+    me.set_time_series(empty);
+    CHECK_TRUE(me.use_default_training_steps());
+    CHECK_EQ(me.training_time_steps(), 0);
+}
+
+// Task 21 review item 1: the empty-series path with default flat priors LEFT ON -- the arm the
+// other empty-series blocks in this file deliberately dodge.
+// reset_default_training_steps_for_new_time_series() zeroes TrainingTimeSteps while the STALE
+// differenced series survives, so the trailing set_default_parameters() reaches the trend-scale
+// block with last_idx = min(TrainingTimeSteps - 1, count - 1) = min(-1, count - 1) = -1.
+// TimeSeries::operator[] is unchecked, so before the clamp that read ordinates_[SIZE_MAX] --
+// undefined behavior, and this test aborted (exit 139) rather than failing an assertion. C#
+// raises IndexOutOfRangeException on the same expression (ARIMAX.cs:929). With the clamp the call
+// simply completes with a zeroed training window; see the divergence note at the clamp.
+void test_arimax_empty_series_with_default_priors_is_index_safe() {
+    ARIMAX m(make_sample_series());
+    CHECK_TRUE(m.use_default_flat_priors());  // deliberately NOT disabled -- that is the point
+    m.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_TRUE(m.use_default_training_steps());
+    CHECK_EQ(m.training_time_steps(), 0);
+
+    // Trend ON drives the clamped index all the way through the delta1/delta2/delta3 trend-parameter
+    // scales, the only consumer of the clamped read.
+    ARIMAX t(make_sample_series());
+    t.set_trend_type(ARIMAX::Trend::Linear);
+    t.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_EQ(t.training_time_steps(), 0);
+
+    // A manual window on top of the same path (use_default_training_steps false -> reset forces it
+    // back on and zeroes the window), still with default flat priors on.
+    ARIMAX u(make_sample_series());
+    u.set_use_default_training_steps(false);
+    u.set_training_time_steps(40);
+    u.set_time_series(TimeSeries(TimeInterval::OneYear));
+    CHECK_TRUE(u.use_default_training_steps());
+    CHECK_EQ(u.training_time_steps(), 0);
+}
+
+// v2.0.0 InferSeasonalPeriod: the OneYear cycle length changed 1 -> 10 (ARIMAX.cs:880), so annual
+// records now carry a DECADAL Fourier cycle instead of a degenerate one-step cycle. Transcribed
+// from the new MonthlyTimeSeries_SeasonalPeriod_IsTwelve / AnnualTimeSeries_SeasonalPeriod_IsTen /
+// AnnualSeasonality_FourierTerms_AreNonDegenerate regression tests. At the old S = 1 the Fourier
+// pair collapses (sin(2*pi*t) == 0, cos(2*pi*t) == 1 at integer t), so the seasonality part is
+// flat and the range check below fails -- that is the RED/GREEN discriminator.
+void test_arimax_annual_seasonal_period() {
+    CHECK_EQ(ARIMAX(make_monthly_series()).seasonal_period(), 12);
+    CHECK_EQ(ARIMAX(make_sample_series()).seasonal_period(), 10);
+
+    ARIMAX annual(make_sample_series());
+    annual.set_include_seasonality(true);
+    std::vector<double> p = annual.parameter_values();
+    int sin_index = -1, cos_index = -1;
+    for (std::size_t i = 0; i < annual.parameters().size(); ++i) {
+        const std::string& name = annual.parameters()[i].name();
+        if (name.rfind("Seasonality Sin", 0) == 0) sin_index = static_cast<int>(i);
+        if (name.rfind("Seasonality Cos", 0) == 0) cos_index = static_cast<int>(i);
+    }
+    CHECK_TRUE(sin_index >= 0 && cos_index >= 0);
+    p[static_cast<std::size_t>(sin_index)] = 1.0;
+    p[static_cast<std::size_t>(cos_index)] = 0.0;
+
+    ARIMAX::PredictResult result = annual.predict_components(p, 0, -1);
+    double lo = result.seasonality_part[0], hi = result.seasonality_part[0];
+    for (int t = 0; t < 10; ++t) {
+        lo = std::min(lo, result.seasonality_part[static_cast<std::size_t>(t)]);
+        hi = std::max(hi, result.seasonality_part[static_cast<std::size_t>(t)]);
+    }
+    CHECK_TRUE(hi - lo > 1.0);
+}
+
+// v2.0.0 TimeInterval.Irregular Validate guard (ARIMAX.cs:2016). Transcribed from the new
+// Test_Validate_IrregularTimeSeries_ReturnsFalse regression test; the cross-language oracle lives
+// in fixtures/estimation/time_series_irregular_interval.json.
+void test_arimax_irregular_interval_validate() {
+    // C# `new TimeSeries(TimeInterval.Irregular)` + Add: the (interval, start, end) ctor
+    // rejects Irregular in BOTH C# and this port, so build it ordinate-by-ordinate with the
+    // C# test's own i*i+1 index spacing.
+    TimeSeries irregular(TimeInterval::Irregular);
+    for (int i = 0; i < 50; ++i)
+        irregular.add(TimeSeries::Ordinate(static_cast<long>(i) * i + 1, i + 1.0));
+
+    auto r = ARIMAX(irregular).validate();
+    CHECK_TRUE(!r.is_valid);
+    CHECK_TRUE(messages_contain(r, "regular time interval"));
+
+    CHECK_TRUE(ARIMAX(make_sample_series()).validate().is_valid);
+}
+
 }  // namespace
 
 int main() {
@@ -573,8 +722,14 @@ int main() {
     test_arimax_predict();
     test_arimax_generate_random_values();
     test_arimax_validate();
+    test_arimax_transform_lambda_failure();
     test_arimax_trend_seasonality_diff_transform();
     test_arimax_covariates();
+
+    test_arimax_new_series_resets_training_split();
+    test_arimax_empty_series_with_default_priors_is_index_safe();
+    test_arimax_annual_seasonal_period();
+    test_arimax_irregular_interval_validate();
 
     test_arimax_p4_fixed_param_oracles();
 

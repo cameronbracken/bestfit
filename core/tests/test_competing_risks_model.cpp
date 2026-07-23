@@ -22,6 +22,7 @@
 //   - C# `model.DataFrame = null!` maps to the never-set state: a default-constructed model
 //     has no frame (see the base header's nullability note).
 //   - C# `Assert.IsInstanceOfType(x, typeof(Normal))` maps to a type()-enum check.
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -42,6 +43,7 @@
 #include "corehydro/numerics/distributions/competing_risks.hpp"
 #include "corehydro/numerics/distributions/gumbel.hpp"
 #include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/distributions/poisson.hpp"
 #include "check.hpp"
 
 using corehydro::models::CompetingRisksModel;
@@ -51,11 +53,13 @@ using corehydro::models::ExactData;
 using corehydro::models::ExactSeries;
 using corehydro::models::IntervalData;
 using corehydro::models::IntervalSeries;
+using corehydro::models::ModelParameter;
 using corehydro::models::PriorComponentType;
 using corehydro::models::ValidationResult;
 using corehydro::numerics::distributions::CompetingRisks;
 using corehydro::numerics::distributions::Gumbel;
 using corehydro::numerics::distributions::Normal;
+using corehydro::numerics::distributions::Poisson;
 using corehydro::numerics::distributions::UnivariateDistributionBase;
 using corehydro::numerics::distributions::UnivariateDistributionType;
 
@@ -809,6 +813,97 @@ void test_jeffreys_prior_weibull_uses_first_parameter() {
     CHECK_TRUE(any_jeffreys);
 }
 
+// T14 (BestFit v2.0.0, commit 1abe795 "Guard composite Jeffreys scale priors"): transcribes
+// CompetingRisksModelTests.cs's `CreateModelWithManualPriors` regression-only helper. A
+// single-parameter Numerics family (e.g. Poisson) does not implement
+// IMaximumLikelihoodEstimation, so the normal BestFit setup cascade
+// (CompetingRisksModel(DataFrame, families) -> SetDefaultParameters ->
+// dynamic_cast<IMaximumLikelihoodEstimation&>) throws std::bad_cast on it -- exactly the bug
+// this task guards against, so the crash-inducing cascade cannot be the vehicle for
+// reaching it. This helper takes the same escape hatch the C# test uses (constructing the
+// model before any DataFrame is attached, so SetDefaultParameters' early-return guard --
+// `!has_data_frame()`, C++'s analogue of the C# `DataFrame == null` check -- short-circuits
+// before the per-component cast), then adds one ModelParameter per raw distribution
+// parameter directly, mirroring the C# test's manual `Parameters.Add` loop.
+CompetingRisksModel create_model_with_manual_priors(
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> distributions) {
+    CompetingRisksModel model;
+    model.set_use_default_flat_priors(false);
+    model.set_competing_risks(make_competing_risks(std::move(distributions)));
+
+    std::vector<double> values = model.competing_risks()->get_parameters();
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        double value = values[i];
+        double sigma = std::max(1.0, std::abs(value) * 0.1);
+        model.parameters().push_back(ModelParameter(
+            "", "Parameter " + std::to_string(i + 1), value, -kInf, kInf,
+            std::make_unique<Normal>(value, sigma)));
+    }
+    return model;
+}
+
+// Test_JeffreysPrior_OneParameterComponent_OmitsScaleContribution
+void test_jeffreys_prior_one_parameter_component_omits_scale_contribution() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    CompetingRisksModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+
+    double scalar = model.prior_log_likelihood(parameters);
+    auto pointwise = model.pointwise_prior_log_likelihood(parameters);
+
+    CHECK_TRUE(std::isfinite(scalar));
+    bool any_jeffreys = false;
+    for (const auto& p : pointwise)
+        if (p.type() == PriorComponentType::JeffreysScalePrior) any_jeffreys = true;
+    CHECK_TRUE(!any_jeffreys);
+
+    double sum = 0.0;
+    for (const auto& p : pointwise) sum += p.log_likelihood();
+    CHECK_NEAR(sum, scalar, 1e-12);
+}
+
+// Test_JeffreysPrior_MixedComponents_AppliesOnlyAvailableScaleContribution
+void test_jeffreys_prior_mixed_components_applies_only_available_scale_contribution() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    dists.push_back(std::make_unique<Normal>(2000.0, 500.0));
+    CompetingRisksModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+
+    double scalar = model.prior_log_likelihood(parameters);
+    auto pointwise = model.pointwise_prior_log_likelihood(parameters);
+
+    int jeffreys_count = 0;
+    for (const auto& p : pointwise)
+        if (p.type() == PriorComponentType::JeffreysScalePrior) ++jeffreys_count;
+    CHECK_EQ(jeffreys_count, 1);
+
+    double sum = 0.0;
+    for (const auto& p : pointwise) sum += p.log_likelihood();
+    CHECK_NEAR(sum, scalar, 1e-12);
+}
+
+// T14 addition (beyond the transcribed C# tests): a non-positive scale on an
+// available-scale component returns -Inf IMMEDIATELY (an early function return out of
+// prior_log_likelihood), not a +Inf subtraction that could cancel against another +Inf term
+// into NaN (the "avoids Inf-Inf NaN" fix the task brief calls out).
+void test_jeffreys_prior_nonpositive_scale_returns_negative_infinity() {
+    std::vector<std::unique_ptr<UnivariateDistributionBase>> dists;
+    dists.push_back(std::make_unique<Poisson>(2000.0));
+    dists.push_back(std::make_unique<Normal>(2000.0, 500.0));
+    CompetingRisksModel model = create_model_with_manual_priors(std::move(dists));
+    model.set_use_jeffreys_rule_for_scale(true);
+    std::vector<double> parameters = parameter_values(model);
+    parameters.back() = -1.0;  // Normal's sigma -> negative (not the [0, 1e-16) clamp zone).
+
+    double scalar = model.prior_log_likelihood(parameters);
+
+    CHECK_TRUE(scalar == -kInf);
+}
+
 // ===========================================================================================
 // Edge cases.
 // ===========================================================================================
@@ -963,6 +1058,9 @@ int main() {
     test_jeffreys_prior_affects_prior_log_likelihood();
     test_jeffreys_prior_gamma_distribution_uses_first_parameter();
     test_jeffreys_prior_weibull_uses_first_parameter();
+    test_jeffreys_prior_one_parameter_component_omits_scale_contribution();
+    test_jeffreys_prior_mixed_components_applies_only_available_scale_contribution();
+    test_jeffreys_prior_nonpositive_scale_returns_negative_infinity();
 
     // Edge cases.
     test_competing_risks_single_data_point();

@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Support/ParameterResults.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Support/ParameterResults.cs @ 2a0357a
 //
 // Posterior summary + diagnostics for one MCMC parameter: mean/sd (via KernelDensity's
 // sample product moments), median/CI (via Statistics.Percentile), a Histogram, and (set

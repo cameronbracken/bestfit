@@ -31,6 +31,7 @@
 // access). The C# Constructor_DefaultUncertaintyMethod_IsLinkedMultivariateNormal stays transcribed
 // as the MVN-default deviation (the shipped C++ default is still MultivariateNormal, see the header).
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <tuple>
 #include <vector>
@@ -40,12 +41,16 @@
 #include "corehydro/analyses/univariate/bulletin17c_analysis.hpp"
 #include "corehydro/models/data_frame/data_frame.hpp"
 #include "corehydro/models/data_frame/data_collections/exact_series.hpp"
+#include "corehydro/models/data_frame/data_collections/interval_series.hpp"
+#include "corehydro/models/data_frame/data_types/interval_data.hpp"
 #include "corehydro/models/link_functions/asinh_link.hpp"
 #include "corehydro/models/link_functions/log_asinh_link.hpp"
 #include "corehydro/models/univariate_distribution/bulletin17c_distribution.hpp"
 #include "corehydro/numerics/distributions/base/univariate_distribution_type.hpp"
 #include "corehydro/numerics/distributions/log_normal.hpp"
 #include "corehydro/numerics/distributions/student_t.hpp"
+#include "corehydro/numerics/functions/identity_link.hpp"
+#include "corehydro/numerics/functions/yeo_johnson_link.hpp"
 #include "corehydro/numerics/math/linalg/matrix.hpp"
 #include "check.hpp"
 
@@ -58,6 +63,9 @@ struct Bulletin17CAnalysisTestAccess {
                                                       const std::vector<double>& theta_hats) {
         return a.acceleration_constants(theta_hats);
     }
+
+    // T20b: the C# `:P0` percent formatter (private static; the MVN arm's abort message needs it).
+    static std::string format_p0(double value) { return Bulletin17CAnalysis::format_p0(value); }
 
     // A9 Cohn CI building blocks (private in the class; reached here without widening the API).
     static std::vector<double> clamp_for_covariance(const std::vector<double>& p) {
@@ -124,6 +132,8 @@ using corehydro::analyses::UncertaintyMethod;
 using corehydro::models::Bulletin17CDistribution;
 using corehydro::models::DataFrame;
 using corehydro::models::ExactSeries;
+using corehydro::models::IntervalData;
+using corehydro::models::IntervalSeries;
 using PET = corehydro::estimation::PointEstimateType;
 using UDT = corehydro::numerics::distributions::UnivariateDistributionType;
 
@@ -138,6 +148,19 @@ std::vector<double> flood_data() {
 std::unique_ptr<Bulletin17CDistribution> make_lp3_model() {
     DataFrame df;
     df.set_exact_series(ExactSeries(flood_data()));
+    df.calculate_plotting_positions();
+    return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
+}
+
+// T19: the same flood-like data PLUS one interval-censored observation, forcing
+// get_parameter_sets_from_parametric_bootstrap()'s `clone_with_data_frame_flag` TRUE (mirrors
+// fixtures/analyses/bulletin17c_analysis_smoke.json's lp3_bootstrap_warm_start case, which pins
+// only the deterministic quantities -- see this file's header note on why the ensemble-aggregate
+// mean_curve is NOT cross-language pinned there).
+std::unique_ptr<Bulletin17CDistribution> make_lp3_model_with_interval() {
+    DataFrame df;
+    df.set_exact_series(ExactSeries(flood_data()));
+    df.set_interval_series(IntervalSeries({IntervalData(50, 2600.0, 2800.0, 3000.0)}));
     df.calculate_plotting_positions();
     return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
 }
@@ -252,10 +275,12 @@ void test_run_multivariate_normal_structural() {
     CHECK_TRUE(analysis->get_point_estimate_distribution() != nullptr);
 }
 
-// ---- A real run() through the BiasCorrectedBootstrap (pivot-bootstrap) UQ path (X9): after X9
-//      un-gates the last dispatch arm, run() completes (no throw) and produces a populated,
-//      structural / finite / monotone UncertaintyAnalysisResults with lower <= mode <= upper. The
-//      exact seeded pivot digest is the X12 emitter's job -- only structural invariants here. ----
+// ---- A real run() through the BiasCorrectedBootstrap (pivotal-bootstrap) UQ path (X9, reworked
+//      in T20): run() completes (no throw) and produces a populated, structural / finite /
+//      monotone UncertaintyAnalysisResults with lower <= mode <= upper. The cross-language oracle
+//      lives in the fixture (lp3_bias_corrected_bootstrap pins the ensemble-derived mean_curve and
+//      the full boot_* surface against the real C#); this covers the same-language invariants the
+//      fixture does not spell out. ----
 void test_run_pivot_bootstrap_structural() {
     auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
     analysis->set_uncertainty_method(UncertaintyMethod::BiasCorrectedBootstrap);
@@ -265,8 +290,11 @@ void test_run_pivot_bootstrap_structural() {
 
     CHECK_TRUE(analysis->is_estimated());
     CHECK_TRUE(analysis->gmm() != nullptr);
+    // T20: nothing was degraded or aborted -- the ensemble published, which also proves the
+    // Phase-3 discard never tripped the T19 exact-count guard on this configuration.
+    CHECK_TRUE(analysis->uncertainty_diagnostic_message().empty());
 
-    // NOTE: unlike the LinkedMVN path, the pivot method builds a LOCAL LinkController (C# 2151) and
+    // NOTE: unlike the LinkedMVN path, the pivot method builds a LOCAL LinkController (C# 2340) and
     // never installs one on the distribution, so there is no link-controller restore to assert here.
 
     // Diagnostics populated with the replicate accounting identity (Phase 1 fits B replicates).
@@ -277,6 +305,12 @@ void test_run_pivot_bootstrap_structural() {
         // valid = total - failed by construction, so re-checking the sum against b is redundant
         // with the line above; assert instead that real fits actually succeeded (not all fell back).
         CHECK_TRUE(diag->valid_replicates() >= 1);
+        // T20: RetainedReplicates is populated BY THIS ARM (C# 2447-2450) -- it no longer reads
+        // through the legacy fallback to valid_replicates(). Every Phase-3 draw survives here.
+        CHECK_EQ(diag->retained_replicates(), b);
+        CHECK_EQ(diag->transform_failures(), 0);
+        // T20: the z-limit became a CLIP (C# 2409), so IncrementPivotRejection is called nowhere.
+        CHECK_EQ(diag->pivot_rejections(), 0);
     }
 
     // The stored posterior ensemble holds >= 2 finite parameter sets.
@@ -293,8 +327,12 @@ void test_run_pivot_bootstrap_structural() {
     if (results != nullptr) {
         std::size_t n = analysis->probability_ordinates().count();
         CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->mean_curve.size(), n);
         CHECK_EQ(results->confidence_intervals.size(), n);
-        for (std::size_t i = 0; i < n; ++i) CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+            CHECK_TRUE(std::isfinite(results->mean_curve[i]));
+        }
         // Mode curve DESCENDS on ascending exceedance ordinates (same as the MVN/Bootstrap tests).
         for (std::size_t i = 1; i < n; ++i)
             CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
@@ -423,6 +461,99 @@ void test_bootstrap_diagnostics_mahalanobis_rejection() {
     CHECK_NEAR(d.mahalanobis_rejection_rate(), 0.02, 1e-12);
 }
 
+// ---- T19 additions (transcribed from the v2.0.0 BootstrapDiagnosticsTests.cs) ----
+
+// C# FreshInstance_AllCountersZero_RatesSafe (T19 slice: the new counters default to zero too).
+void test_bootstrap_diagnostics_t19_new_counters_default_zero() {
+    BootstrapDiagnostics d;
+    CHECK_EQ(d.transform_failures(), 0);
+    CHECK_EQ(d.status_success_count(), 0);
+    CHECK_EQ(d.status_maximum_iterations_count(), 0);
+    CHECK_EQ(d.status_maximum_function_evaluations_count(), 0);
+    CHECK_EQ(d.status_failure_count(), 0);
+    CHECK_EQ(d.status_none_count(), 0);
+    CHECK_EQ(d.optimizer_fallbacks(), 0);
+}
+
+// C# (implicit in AttemptedReplicates' doc remarks): the -1 "not recorded" sentinel falls back to
+// TotalReplicates when never explicitly incremented; explicit increments win.
+void test_bootstrap_diagnostics_attempted_replicates_fallback() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(50);
+    CHECK_EQ(d.attempted_replicates(), 50);  // never incremented -> falls back to total
+    d.increment_attempted();
+    d.increment_attempted();
+    CHECK_EQ(d.attempted_replicates(), 2);  // an explicit count wins over the fallback
+}
+
+// C# RetainedReplicates_NotRecorded_FallsBackToValidReplicates.
+void test_bootstrap_diagnostics_retained_replicates_fallback() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(50);
+    for (int i = 0; i < 8; i++) d.increment_failed();
+
+    CHECK_EQ(d.retained_replicates(), 42);  // unset retained count falls back to valid_replicates()
+
+    d.set_retained_replicates(40);
+    CHECK_EQ(d.retained_replicates(), 40);  // an explicit retained count wins over the fallback
+}
+
+// C# RecordGMMStatus_RoutesEveryStatusToItsCounter.
+void test_bootstrap_diagnostics_record_gmm_status_routes_every_status() {
+    using corehydro::numerics::math::optimization::OptimizationStatus;
+    BootstrapDiagnostics d;
+
+    d.record_gmm_status(OptimizationStatus::Success);
+    d.record_gmm_status(OptimizationStatus::MaximumIterationsReached);
+    d.record_gmm_status(OptimizationStatus::MaximumIterationsReached);
+    d.record_gmm_status(OptimizationStatus::MaximumFunctionEvaluationsReached);
+    d.record_gmm_status(OptimizationStatus::Failure);
+    d.record_gmm_status(OptimizationStatus::None);
+
+    CHECK_EQ(d.status_success_count(), 1);
+    CHECK_EQ(d.status_maximum_iterations_count(), 2);
+    CHECK_EQ(d.status_maximum_function_evaluations_count(), 1);
+    CHECK_EQ(d.status_failure_count(), 1);
+    CHECK_EQ(d.status_none_count(), 1);
+}
+
+// C# IncrementTransformFailure_IndependentOfPivotRejections.
+void test_bootstrap_diagnostics_transform_failure_independent_of_pivot_rejection() {
+    BootstrapDiagnostics d;
+    d.increment_transform_failure();
+    d.increment_transform_failure();
+    d.increment_pivot_rejection();
+
+    CHECK_EQ(d.transform_failures(), 2);
+    CHECK_EQ(d.pivot_rejections(), 1);
+}
+
+// AddOptimizerFallbacks: accumulates like AddRetries/AddFunctionEvaluations; a non-positive count
+// is a no-op (C# `if (count > 0) Interlocked.Add(...)`).
+void test_bootstrap_diagnostics_add_optimizer_fallbacks_accumulates() {
+    BootstrapDiagnostics d;
+    d.add_optimizer_fallbacks(2);
+    d.add_optimizer_fallbacks(3);
+    d.add_optimizer_fallbacks(0);
+    d.add_optimizer_fallbacks(-1);
+    CHECK_EQ(d.optimizer_fallbacks(), 5);
+}
+
+// C# ValidReplicates/FailureRate/AverageRetries redefinition: these now read over
+// attempted_replicates() rather than total_replicates(), and diverge once attempted != total.
+void test_bootstrap_diagnostics_rates_redefined_over_attempted() {
+    BootstrapDiagnostics d;
+    d.set_total_replicates(100);
+    for (int i = 0; i < 20; i++) d.increment_attempted();  // only 20 candidates were attempted
+    for (int i = 0; i < 5; i++) d.increment_failed();
+    d.add_retries(4);  // 4 retry attempts across those 20 candidates
+
+    CHECK_EQ(d.attempted_replicates(), 20);
+    CHECK_EQ(d.valid_replicates(), 15);              // max(0, attempted - failed) = 20 - 5
+    CHECK_NEAR(d.failure_rate(), 0.25, 1e-12);       // 5 / 20, NOT 5 / 100
+    CHECK_NEAR(d.average_retries(), 0.2, 1e-12);     // 4 / 20, NOT 4 / 100
+}
+
 // ---- AccelerationConstants determinism (C++-only): deterministic given a fixed frame, finite,
 //      length p (no PRNG in the jackknife). ----
 void test_acceleration_constants_deterministic() {
@@ -464,7 +595,21 @@ void test_run_bootstrap_structural() {
         // valid = total - failed by construction, so re-checking the sum against b is redundant
         // with the line above; assert instead that real fits actually succeeded (not all fell back).
         CHECK_TRUE(diag->valid_replicates() >= 1);
+
+        // T19: get_parameter_sets_from_parametric_bootstrap() never calls increment_attempted /
+        // set_retained_replicates / record_gmm_status / add_optimizer_fallbacks /
+        // increment_transform_failure -- so every new T19 counter reads through its
+        // legacy-fallback default for this arm (see the header's T19 note).
+        CHECK_EQ(diag->attempted_replicates(), diag->total_replicates());
+        CHECK_EQ(diag->retained_replicates(), diag->valid_replicates());
+        CHECK_EQ(diag->transform_failures(), 0);
+        CHECK_EQ(diag->status_success_count(), 0);
+        CHECK_EQ(diag->optimizer_fallbacks(), 0);
     }
+
+    // T19: UncertaintyDiagnosticMessage is never set by this arm either (see the header's T19
+    // note); the plain accessor stays at its C# field-initializer default.
+    CHECK_TRUE(analysis->uncertainty_diagnostic_message().empty());
 
     const auto* results = analysis->analysis_results();
     CHECK_TRUE(results != nullptr);
@@ -482,6 +627,277 @@ void test_run_bootstrap_structural() {
             CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
         }
     }
+}
+
+// ---- T19: run_uncertainty_quantification()'s shared-dispatch guards (C# 755-793 @ c2e6192) --
+//      previously a review gap: these were found to be a genuine v2.0.0 delta (zero occurrences
+//      of UncertaintyDiagnosticMessage at the fc28c0c pin) missed when the parametric-bootstrap
+//      arm was read in isolation. output_length=1 makes ANY uncertainty method's collector
+//      deliver exactly one (finite, right-dimension) valid parameter set -- too few to summarize
+//      -- reaching the C# 787-793 "Only N valid..." guard with an EXACT, byte-for-byte C#
+//      message. IsEstimated stays true (set before UQ runs); no MCMCResults gets published. ----
+void test_uncertainty_diagnostic_message_insufficient_valid_sets() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model());
+    analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
+    analysis->bayesian_analysis().set_output_length(1);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Only 1 valid parameter sets out of 1 sampled realizations. "
+                         "Uncertainty analysis was skipped."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: the MVN arm's rejection accounting + the two abort branches (C# 891 / 927-928 /
+//      934-935 / 944-951 / 955-964 @ c2e6192). The shipped v2.0.0 method DELETED the
+//      `acceptedTheta ??= thetaHat` parent substitution: a draw that fails all 10 retries now
+//      leaves its slot at default(ParameterSet) (Values == null), is counted, and is filtered out
+//      of the returned array, "no parent fallback, which would inject zero-variance mass at the
+//      parent fit and bias the uncertainty bounds narrow" (the shipped comment, verbatim).
+//
+//      Reaching a rejection at all takes a frame whose GMM sandwich covariance is wide enough
+//      that MVN draws leave the LP3 validity region (sigma > 0, |gamma| <= 6) more often than not
+//      -- the retry loop only gives up after ELEVEN consecutive invalid draws, so a per-draw
+//      rejection probability near 0.6 is needed before a single slot is ever abandoned. This frame
+//      delivers it: 35 near-identical annual peaks plus one 5x outlier drive the fitted log-space
+//      skew to the +6 validity boundary (gamma_hat = 5.9867) while the near-degenerate cluster
+//      inflates SD(gamma) to ~8.7, so roughly 55% of draws fall outside |gamma| <= 6. The same
+//      frame backs the lp3_multivariate_normal_rejected_draws fixture case, whose ensemble-derived
+//      mean_curve is the cross-language oracle for the SHORT return. ----
+std::unique_ptr<Bulletin17CDistribution> make_lp3_model_wide_covariance() {
+    std::vector<double> peaks;
+    for (int i = 0; i < 35; ++i) peaks.push_back(1000.0 + i);
+    peaks.push_back(5000.0);
+    DataFrame df;
+    df.set_exact_series(ExactSeries(peaks));
+    df.calculate_plotting_positions();
+    return std::make_unique<Bulletin17CDistribution>(std::move(df), UDT::LogPearsonTypeIII);
+}
+
+// ---- T20b: the rate <= 50% path -- rejected slots are DROPPED, so the published ensemble is
+//      SHORTER than OutputLength and no diagnostic message is set (C# 955-964 returns the
+//      filtered array). Pre-T20b this returned exactly OutputLength sets with 4 copies of
+//      thetaHat substituted in. MultivariateNormal is not a bootstrap method, so the shared
+//      exact-count guard in run_uncertainty_quantification is bypassed and the short array is
+//      published normally. ----
+void test_mvn_rejected_draws_shorten_ensemble() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(1000);
+    analysis->bayesian_analysis().set_prng_seed(12345);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    // No abort: 4 of 1000 rejected is a 0.4% rate, far under the 50% threshold.
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(), std::string(""));
+    CHECK_TRUE(analysis->bayesian_analysis().results().has_value());
+    if (analysis->bayesian_analysis().results().has_value()) {
+        // The discriminating assertion: 996, NOT 1000. Every dropped slot is a draw that failed
+        // its LHS sample and all ten retries.
+        CHECK_EQ(analysis->bayesian_analysis().results()->output.size(), std::size_t{996});
+        // Every published set is a real draw with three finite parameters (nothing default-built
+        // leaked through the filter).
+        for (const auto& ps : analysis->bayesian_analysis().results()->output) {
+            CHECK_EQ(ps.values.size(), std::size_t{3});
+            CHECK_TRUE(std::isfinite(ps.values[0]) && std::isfinite(ps.values[1]) &&
+                       std::isfinite(ps.values[2]));
+        }
+    }
+    CHECK_TRUE(analysis->analysis_results() != nullptr);
+}
+
+// ---- T20b: the > 50% abort (C# 944-951). B = 3 with two rejected draws is a 66.67% rate, which
+//      exercises the `:P0` rounding (66.666...% -> "67%") as well as `:N0`. Returns null, so no
+//      MCMCResults is published and the specific message wins over the shared covariance default
+//      (the caller's `if (uncertainty_diagnostic_message_.empty())` precedence, C# 757-767). ----
+void test_mvn_rejection_rate_abort_two_of_three() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(3);
+    analysis->bayesian_analysis().set_prng_seed(13476);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: 2 of 3 requested draws were rejected as "
+                         "invalid parameter sets (67% rejection rate). Uncertainty quantification "
+                         "was aborted. Consider the Bootstrap uncertainty method, which does not "
+                         "rely on the asymptotic covariance."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: the same abort at a 100% rate (every draw rejected). ----
+void test_mvn_rejection_rate_abort_all_rejected() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(2);
+    analysis->bayesian_analysis().set_prng_seed(13477);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: 2 of 2 requested draws were rejected as "
+                         "invalid parameter sets (100% rejection rate). Uncertainty quantification "
+                         "was aborted. Consider the Bootstrap uncertainty method, which does not "
+                         "rely on the asymptotic covariance."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: the `validResults.Length < 2` abort (C# 955-964). One rejection out of two is a rate
+//      of EXACTLY 0.50, which is not `> 0.50`, so the rate check passes and the second guard is
+//      the one that fires -- the only configuration that reaches this branch of the MVN arm. ----
+void test_mvn_insufficient_valid_draws_abort() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_wide_covariance());
+    analysis->set_uncertainty_method(UncertaintyMethod::MultivariateNormal);
+    analysis->bayesian_analysis().set_output_length(2);
+    analysis->bayesian_analysis().set_prng_seed(74);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_EQ(analysis->uncertainty_diagnostic_message(),
+             std::string("Multivariate Normal sampling: only 1 of 2 requested draws were valid. "
+                         "Uncertainty quantification was aborted."));
+    CHECK_TRUE(!analysis->bayesian_analysis().results().has_value());
+}
+
+// ---- T20b: format_p0 reproduces C#'s `:P0` specifier under the en-US culture the oracle emitter
+//      runs in. Oracles transcribed from a direct dotnet 10 probe of `v.ToString("P0", enUS)`:
+//      en-US uses the `n%` pattern (no space before the sign, unlike InvariantCulture's `n %`),
+//      and .NET rounds the EXACT decimal value of the double half-to-even. That makes 0.625 (which
+//      IS exactly 62.5%) print "62%" while 0.505 (whose double is 50.500000000000000444...%)
+//      prints "51%" -- a plain `value * 100` would collapse the latter back to exactly 50.5 and
+//      print "50%". ----
+void test_format_p0_matches_dotnet() {
+    using TA = corehydro::analyses::Bulletin17CAnalysisTestAccess;
+    CHECK_EQ(TA::format_p0(0.0), std::string("0%"));
+    CHECK_EQ(TA::format_p0(0.004), std::string("0%"));
+    CHECK_EQ(TA::format_p0(0.5), std::string("50%"));
+    CHECK_EQ(TA::format_p0(0.505), std::string("51%"));
+    CHECK_EQ(TA::format_p0(0.5051), std::string("51%"));
+    CHECK_EQ(TA::format_p0(0.6), std::string("60%"));
+    CHECK_EQ(TA::format_p0(0.625), std::string("62%"));
+    CHECK_EQ(TA::format_p0(2.0 / 3.0), std::string("67%"));
+    CHECK_EQ(TA::format_p0(0.675), std::string("68%"));
+    CHECK_EQ(TA::format_p0(1.0), std::string("100%"));
+}
+
+// ---- T19: a real run() through the Bootstrap UQ path with an interval-censored observation on
+//      the parent DataFrame, forcing get_parameter_sets_from_parametric_bootstrap()'s
+//      clone_with_data_frame_flag TRUE (the Task 18 warm-start condition). Same-language-only
+//      structural coverage: the fixture oracle (lp3_bootstrap_warm_start in
+//      bulletin17c_analysis_smoke.json) pins only the deterministic quantities because the retry
+//      COUNT and the resulting ensemble-average do not reproduce cross-language on this
+//      configuration. Task 19b established the mechanism exactly, and it is NOT a BFGS port
+//      divergence: the real C# Numerics BFGS, driven at the same near-stationary warm start on the
+//      same replicate surface, stalls identically (MaximumFunctionEvaluationsReached at the 2000-
+//      evaluation cap, ~21 evaluations per outer iteration on both sides). What differs is whether
+//      a third iterative-GMM refinement pass runs at all: EstimateIterative's pass-to-pass
+//      Tools.Distance test is the only one that can stop the loop here (the companion relChange
+//      test is pinned above tolerance by the 1e-15 floor in its denominator), and the two runtimes
+//      straddle AbsoluteTolerance 1e-8 (1.23e-8 here, 3.3e-11 in C#). The residual is inherent
+//      conditioning of the censored resample fit, measured directly: perturbing a SINGLE resampled
+//      exact value on replicate idx=32 by a relative 1e-13 displaces the converged fit by 2.4e-5
+//      (amplification ~2.4e8) and flips the third pass from stalling to succeeding, while the same
+//      perturbation at relative 1e-15 leaves the fit bit-identical; the unresampled parent fit on
+//      the same censored frame reproduces C++-vs-C# to 3.0e-14 relative on the location parameter
+//      (3.3e-12 worst-case across the three). See docs/upstream-csharp-issues.md,
+//      "Interval-censored B17C bootstrap: GMM stopping-rule knife edge". This test covers what the
+//      fixture deliberately does NOT: that the warm-start path produces a complete, well-formed
+//      ensemble result. ----
+void test_run_bootstrap_warm_start_structural() {
+    auto analysis = std::make_unique<Bulletin17CAnalysis>(make_lp3_model_with_interval());
+    analysis->set_uncertainty_method(UncertaintyMethod::Bootstrap);
+    const int b = 30;  // small replicate count keeps the re-fit loop fast
+    analysis->bayesian_analysis().set_output_length(b);
+    analysis->run();
+
+    CHECK_TRUE(analysis->is_estimated());
+    CHECK_TRUE(analysis->gmm() != nullptr);
+
+    // The interval series is genuinely on the parent frame (the condition
+    // get_parameter_sets_from_parametric_bootstrap() reads).
+    CHECK_EQ(static_cast<int>(analysis->bulletin17c_distribution().data_frame().interval_series().count()),
+             1);
+
+    const auto* diag = analysis->bootstrap_results();
+    CHECK_TRUE(diag != nullptr);
+    if (diag != nullptr) {
+        CHECK_EQ(diag->total_replicates(), b);
+        // Every replicate is delivered (fallback-to-parent semantics, T19 -- see
+        // bulletin17c_analysis.hpp's header note): valid_replicates() == b regardless of how many
+        // retries any individual replicate needed.
+        CHECK_EQ(diag->valid_replicates(), b);
+    }
+
+    const auto* results = analysis->analysis_results();
+    CHECK_TRUE(results != nullptr);
+    if (results != nullptr) {
+        std::size_t n = analysis->probability_ordinates().count();
+        CHECK_EQ(results->mode_curve.size(), n);
+        CHECK_EQ(results->mean_curve.size(), n);
+        CHECK_EQ(results->confidence_intervals.size(), n);
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(std::isfinite(results->mode_curve[i]));
+            CHECK_TRUE(std::isfinite(results->mean_curve[i]));
+            CHECK_TRUE(std::isfinite(results->confidence_intervals[i][0]));
+            CHECK_TRUE(std::isfinite(results->confidence_intervals[i][1]));
+        }
+        // Mode curve DESCENDS on ascending exceedance ordinates.
+        for (std::size_t i = 1; i < n; ++i)
+            CHECK_TRUE(results->mode_curve[i] <= results->mode_curve[i - 1]);
+        // Each CI brackets the mode curve.
+        for (std::size_t i = 0; i < n; ++i) {
+            CHECK_TRUE(results->confidence_intervals[i][0] <= results->mode_curve[i]);
+            CHECK_TRUE(results->confidence_intervals[i][1] >= results->mode_curve[i]);
+        }
+    }
+}
+
+// ============================ T20: pivotal-bootstrap surface (BestFit v2.0.0 @ c2e6192) ============================
+
+// ---- CreatePivotYeoJohnsonLink, transcribed from the v2.0.0 C# Bulletin17CAnalysisTests
+//      `PivotYeoJohnsonLink_ValidSamples_UsesNumericsLink`: a well-behaved sample yields the
+//      NUMERICS YeoJohnsonLink (T17 deleted the BestFit duplicate, so there is only one). ----
+void test_pivot_yeo_johnson_link_valid_samples() {
+    auto link = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {-2.0, -1.0, -0.25, 0.0, 0.5, 1.0, 3.0}, "location");
+
+    CHECK_TRUE(link != nullptr);
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::YeoJohnsonLink*>(link.get()) !=
+               nullptr);
+}
+
+// ---- CreatePivotYeoJohnsonLink, transcribed from the C#
+//      `PivotYeoJohnsonLink_FitFailure_UsesIdentityLink`: a degenerate (finite but unfittable)
+//      sample falls back to IdentityLink, whose Link is the identity. ----
+void test_pivot_yeo_johnson_link_fit_failure_uses_identity() {
+    double max_double = std::numeric_limits<double>::max();
+    auto link = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {-max_double, -max_double / 2.0, -max_double / 4.0}, "shape");
+
+    CHECK_TRUE(link != nullptr);
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(link.get()) !=
+               nullptr);
+    CHECK_NEAR(link->link(12.5), 12.5, 1e-12);
+}
+
+// ---- CreatePivotYeoJohnsonLink guard clauses that the C# tests do not name individually but the
+//      shipped method spells out (C# 2087-2095): fewer than two samples, or any non-finite
+//      sample, both fall back to IdentityLink rather than throwing. ----
+void test_pivot_yeo_johnson_link_guard_clauses() {
+    auto too_few = Bulletin17CAnalysis::create_pivot_yeo_johnson_link({1.0}, "location");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(too_few.get()) !=
+               nullptr);
+
+    auto non_finite = Bulletin17CAnalysis::create_pivot_yeo_johnson_link(
+        {1.0, 2.0, std::numeric_limits<double>::quiet_NaN()}, "shape");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(
+                   non_finite.get()) != nullptr);
+
+    auto empty = Bulletin17CAnalysis::create_pivot_yeo_johnson_link({}, "location");
+    CHECK_TRUE(dynamic_cast<const corehydro::numerics::functions::IdentityLink*>(empty.get()) !=
+               nullptr);
 }
 
 // ============================ A9: Cohn-style delta-method confidence intervals ============================
@@ -874,8 +1290,29 @@ int main() {
     test_bootstrap_diagnostics_add_function_evaluations_accumulates();
     test_bootstrap_diagnostics_pivot_rejection();
     test_bootstrap_diagnostics_mahalanobis_rejection();
+    test_bootstrap_diagnostics_t19_new_counters_default_zero();
+    test_bootstrap_diagnostics_attempted_replicates_fallback();
+    test_bootstrap_diagnostics_retained_replicates_fallback();
+    test_bootstrap_diagnostics_record_gmm_status_routes_every_status();
+    test_bootstrap_diagnostics_transform_failure_independent_of_pivot_rejection();
+    test_bootstrap_diagnostics_add_optimizer_fallbacks_accumulates();
+    test_bootstrap_diagnostics_rates_redefined_over_attempted();
     test_acceleration_constants_deterministic();
     test_run_bootstrap_structural();
+    test_uncertainty_diagnostic_message_insufficient_valid_sets();
+    test_run_bootstrap_warm_start_structural();
+
+    // T20b: MVN-arm rejection accounting + the two abort branches
+    test_mvn_rejected_draws_shorten_ensemble();
+    test_mvn_rejection_rate_abort_two_of_three();
+    test_mvn_rejection_rate_abort_all_rejected();
+    test_mvn_insufficient_valid_draws_abort();
+    test_format_p0_matches_dotnet();
+
+    // T20: pivotal-bootstrap surface
+    test_pivot_yeo_johnson_link_valid_samples();
+    test_pivot_yeo_johnson_link_fit_failure_uses_identity();
+    test_pivot_yeo_johnson_link_guard_clauses();
 
     // A9: Cohn-style delta-method confidence intervals
     test_clamp_for_covariance();

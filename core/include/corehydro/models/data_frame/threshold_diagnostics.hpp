@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/DataFrame/ThresholdDiagnostics.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/DataFrame/ThresholdDiagnostics.cs @ c2e6192
 //
 // Threshold selection diagnostics for Peaks-Over-Threshold (POT) analysis:
 //   1. Mean Residual Life plot (MRL) -- the sample mean of excesses above each candidate

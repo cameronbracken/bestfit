@@ -1,10 +1,15 @@
 # CLAUDE.md — `upstream/` (vendored USACE-RMC C# sources)
 
-Context for the two C# libraries that `bestfit` ports from. They live here as **dev-only git
-submodules**, pinned to a SHA on the official USACE-RMC `main` branches:
+Context for the two C# libraries that `corehydro` ports from. They live here as **dev-only git
+submodules**, pinned to a release tag on the official USACE-RMC `main` branches:
 
-- `upstream/Numerics/` — `github.com/USACE-RMC/Numerics` (the numerical-computing core)
-- `upstream/RMC-BestFit/` — `github.com/USACE-RMC/RMC-BestFit` (the Bayesian flood-frequency app library)
+- `upstream/Numerics/` — `github.com/USACE-RMC/Numerics` (the numerical-computing core).
+  Pinned at **`2a0357a` = v2.1.4**.
+- `upstream/RMC-BestFit/` — `github.com/USACE-RMC/RMC-BestFit` (the Bayesian flood-frequency app
+  library). Pinned at **`c2e6192` = v2.0.0**.
+
+The July 2026 upstream sync moved both pins from `a2c4dbf` / `fc28c0c` and restored 1:1 parity.
+The repeatable process for absorbing the next release is `docs/upstream-sync.md`.
 
 They are the **diff baseline** for the upstream-sync workflow and the source the C++ core mirrors
 file-for-file. They are **never vendored into the shipped packages** (`actions/checkout` uses
@@ -15,7 +20,12 @@ layout into `core/`, and carry a `// ported from: <path> @ <sha>` provenance hea
 
 This file consolidates the per-repo guidance that previously lived at
 `upstream/Numerics/CLAUDE.md` and `upstream/RMC-BestFit/CLAUDE.md`, so the submodule working trees
-stay clean while the context is tracked by the `bestfit` repo.
+stay clean while the context is tracked by the `corehydro` repo.
+
+**Reading BestFit sources:** the working-tree copies under `upstream/RMC-BestFit/src/` are not
+valid UTF-8, so a text search over the checkout silently misses matches and returns mojibake. Read
+them with `git show c2e6192:<path>` and diff them with `git diff`, never with `grep` over the
+working tree.
 
 ---
 
@@ -99,12 +109,15 @@ dotnet test  src/RMC.BestFit.Tests/RMC.BestFit.Tests.csproj   # MSTest, ~2790 te
 dotnet test  src/RMC.BestFit.Tests/RMC.BestFit.Tests.csproj --filter "FullyQualifiedName~BayesianAnalysisTests"
 ```
 
-**This checkout does not build as-is** — two referenced dependencies are absent: (1) `Numerics.dll`
-(referenced via `HintPath` to a sibling `numerics` build — clone+build `upstream/Numerics` first),
-and (2) `RMC.BestFit.Verification/MSTestSettings.cs` (linked for shared `[Parallelize]` settings, not
-in this checkout). For oracle work, `bestfit` reads expected values from the `.cs` test files
-statically and reproduces them via the standalone Numerics build, so a full BestFit build is not
-required.
+Since v2.0.0 the repo has an `RMC.BestFit.sln`, and `RMC.BestFit.csproj` takes Numerics as a
+`PackageReference` on the published `RMC.Numerics` package rather than a `HintPath` to a sibling
+build. The oracle emitter deliberately does NOT use that package reference: it subset-compiles the
+BestFit sources directly against the local `upstream/Numerics` ProjectReference, so the oracles
+come from the pinned submodule rather than whatever NuGet resolves. Keep it that way.
+
+For oracle work `corehydro` does not need a full BestFit build; it reads expected values from the
+`.cs` test files and reproduces them through `tools/oracle_emitter` against the local Numerics
+build.
 
 ### Architecture
 
@@ -131,3 +144,41 @@ predictive checks, influence/leverage). Tests mirror the source layout by domain
 
 Note: `Analyses/TimeSeries/Support/**` and `Analyses/Univariate/Support/**` are `Compile Remove`d
 from `RMC.BestFit.csproj` — files placed there are not built.
+
+v2.0.0 also added three sibling projects that this port does not cover: `src/RMC.BestFit.App`
+(the WPF desktop GUI, now open-sourced), `src/RMC.BestFit.UI` (its wrapper layer), and
+`src/RMC.BestFit.Api` (a REST/MCP server). They are out of scope for a statistics-library port;
+R and Python users reach the same functionality through corehydro's own APIs.
+
+---
+
+## What is deliberately not ported
+
+These upstream areas are severed by design. Each is also noted in the C++ header that would
+otherwise own it, and each is expected to reappear in the next sync's provenance sweep as a
+changed-upstream file whose pin was deliberately not moved.
+
+- **`Numerics/Data/Time Series/Support/TimeSeriesDownload.cs`** — network retrieval of gauge
+  records (USGS and similar). v2.1.4 rewrote it substantially (+754/-237 lines). corehydro takes
+  data from the caller; R and Python users have far better HTTP tooling natively.
+- **`Numerics/Data/Time Series/Support/Series.cs`** — the observable-collection container behind
+  the heavy Numerics `TimeSeries`. v2.1.4 changed its `Remove` / `RemoveAt` / `Clear` semantics.
+  corehydro's `numerics/data/time_series/time_series.hpp` is a thin adapter over
+  `std::vector<double>` with no mutation surface of that shape, so the change has nothing to land
+  on. The 2,334-line Numerics container itself (interpolation, file I/O, hypothesis tests) remains
+  a documented severance.
+- **`src/RMC.BestFit/Analyses/Support/AnalysisProgress.cs`** — new in v2.0.0. GUI progress
+  plumbing: phase percentages, a safe progress reporter, and an `AsyncLocal` parallelism budget.
+  Its adoption is what makes the fifteen analysis orchestrators' diffs look large; those hunks are
+  progress reporting, `ParallelOptions` construction, and XML-restore state normalization, none of
+  which has a numeric surface. Order-independent seeded loops mean no effect on any oracle.
+- **`src/RMC.BestFit/Analyses/Support/BatchAnalysisRunner.cs`** and its options and result types —
+  WPF batch scheduling. Permanent skip.
+- **Bulletin17CAnalysis GMM report generation** — roughly 600 lines of `StringBuilder` text.
+  Presentation only, no numeric or statistical surface.
+- **XML persistence** throughout, including the `PlottingPositionVersion` stamps, the
+  `TrainingTimeSteps` restore, and `FromXElement` recomputation. corehydro severs XML entirely.
+  One consequence is recorded in `docs/upstream-csharp-issues.md`: a bare `ExactData.PlottingPosition`
+  mutation bumps the C# cache version but not this port's, because the port has no INPC layer.
+- **`Tools.ParallelAdd` hardening** — corehydro uses serial reductions by design, which is
+  stronger than the upstream property.

@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Fourier Methods/Fourier.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Fourier Methods/Fourier.cs @ 2a0357a
 //
 // FFT-based autocorrelation, ported for the closure Autocorrelation actually needs: FFT
 // (in-place complex FFT, Numerical Recipes style, "data" packed as [re0, im0, re1, im1,

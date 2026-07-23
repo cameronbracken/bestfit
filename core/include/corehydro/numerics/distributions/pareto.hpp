@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Pareto.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Pareto.cs @ 2a0357a
 //
 // The Pareto distribution with scale Xm and shape α. Logic mirrors the C# source
 // method-for-method. The C# class has no estimation interfaces; only

@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/Base/CopulaType.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/Base/CopulaType.cs @ 2a0357a
 //
 // Enumeration of every bivariate copula. Enumerator names are transcribed VERBATIM
 // (including capitalization) because the copula factory (copula_factory.hpp, a corehydro

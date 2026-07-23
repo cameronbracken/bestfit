@@ -23,7 +23,11 @@ set(BF_TESTS
   test_gev_estimation
   test_goodness_of_fit
   test_mcmc_extra
+  test_mixture
   test_mixture_em_seeding
+  test_empirical_distribution
+  test_univariate_distribution_factory
+  test_kernel_density
   test_multiple_grubbs_beck
   test_matrix_regularization
   test_stratification
@@ -42,6 +46,7 @@ set(BF_TESTS
   test_data_frame
   test_data_frame_bootstrap
   test_plotting_positions_df
+  test_nonparametric_empirical
   test_threshold_diagnostics
   test_trend_functions
   test_general_linear_function
@@ -55,6 +60,7 @@ set(BF_TESTS
   test_singular_value_decomposition
   test_linear_regression
   test_bulletin17c
+  test_bulletin17c_clone_with_data_frame
   test_p1_iunivariate_model
   test_box_cox
   test_time_series
@@ -85,6 +91,9 @@ set(BF_TESTS
   test_composite_analysis
   test_coincident_frequency_analysis
   test_bootstrap_analysis
+  test_copula_clone
+  test_multivariate_normal_api
+  test_brent_search
 )
 
 # Sobol test takes the direction-number file as its sole argument.

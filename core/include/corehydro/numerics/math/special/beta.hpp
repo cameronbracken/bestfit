@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Beta.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Special Functions/Beta.cs @ 2a0357a
 #pragma once
 #include <cmath>
 #include <limits>

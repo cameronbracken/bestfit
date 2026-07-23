@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Interpolation/Support/Interpolater.cs @ a2c4dbf
+// ported from: Numerics/Data/Interpolation/Support/Interpolater.cs @ 2a0357a
 //
 // Abstract base for 1D interpolation. Owns the shared search machinery -- sequential,
 // bisection, and hunt search over the sorted x-value list -- that Linear (and, through

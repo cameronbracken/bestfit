@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Exponential.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Exponential.cs @ 2a0357a
 //
 // The (two-parameter) Exponential distribution, location ξ and scale α. Logic mirrors
 // the C# source method-for-method. B4 adds QuantileGradient and the ConditionalMoments

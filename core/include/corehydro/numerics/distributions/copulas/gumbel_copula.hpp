@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/GumbelCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/GumbelCopula.cs @ 2a0357a
 //
 // The Gumbel (Gumbel-Hougaard) copula. theta in [1, +inf). No PDF/CDF override -- both
 // resolve through ArchimedeanCopula's generic Genest-1986 forms built from the generator
@@ -8,8 +8,10 @@
 // generator/generator_prime/generator_prime_inverse -- Gumbel overrides InverseCDF outright
 // with this closed conditional-probability solve, matching the C# source). Like
 // ClaytonCopula (and unlike AMH/Frank), GumbelCopula does NOT override ValidateParameter,
-// so it inherits ArchimedeanCopula's "always-false ParametersValid" bug verbatim (see
-// clayton_copula.hpp / docs/upstream-csharp-issues.md).
+// so it inherits ArchimedeanCopula's validate_parameter directly -- including the v2.1.4 fix
+// that makes ParametersValid report true for an in-range theta (previously always false; see
+// clayton_copula.hpp / archimedean_copula.hpp / docs/upstream-csharp-issues.md). Clone()
+// deep-copies attached marginals via BivariateCopula::clone_marginal (v2.1.4, Task 8).
 #pragma once
 #include <algorithm>
 #include <array>
@@ -99,7 +101,8 @@ class GumbelCopula : public ArchimedeanCopula {
     double lower_tail_dependence() const override { return 0.0; }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<GumbelCopula>(theta(), marginal_distribution_x, marginal_distribution_y);
+        return std::make_unique<GumbelCopula>(theta(), clone_marginal(marginal_distribution_x),
+                                               clone_marginal(marginal_distribution_y));
     }
 
     // Estimates the dependency parameter using the method of moments.

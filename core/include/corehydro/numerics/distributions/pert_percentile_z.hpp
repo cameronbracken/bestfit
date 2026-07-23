@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/PertPercentileZ.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/PertPercentileZ.cs @ 2a0357a
 //
 // PERT distribution parameterized by its 5th, 50th, and 95th percentiles expressed as
 // probabilities in [0,1]. Internally transforms to Normal Z-space: solves via NelderMead

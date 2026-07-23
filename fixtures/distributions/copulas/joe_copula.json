@@ -797,6 +797,64 @@
       ]
     },
     {
+      "name": "parameters_valid_valid_theta",
+      "note": "Test_ParametersValid (Numerics v2.1.4 / 2a0357a): Joe does not override ValidateParameter, so it inherits ArchimedeanCopula's -- whose final in-range branch used to return a non-null 'Parameter is valid' sentinel, leaving ParametersValid permanently false regardless of theta (see clayton_copula.hpp / archimedean_copula.hpp). v2.1.4 fixed the sentinel to return null, flipping this case from false to true. The Clone()-independence half of the same regression (marginal identity + post-clone mutation) does not fit this declarative shape -- see core/tests/test_copula_clone.cpp.",
+      "construct": {
+        "theta": 2.0
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": true,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_invalid_range",
+      "construct": {
+        "theta": 0.5
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": false,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_nan",
+      "note": "v2.1.4 added a NaN/Inf check ahead of the range check in ArchimedeanCopula.ValidateParameter.",
+      "construct": {
+        "theta": "nan"
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": false,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
+      "name": "parameters_valid_nonfinite_theta_inf",
+      "construct": {
+        "theta": "inf"
+      },
+      "assertions": [
+        {
+          "method": "parameters_valid",
+          "args": [],
+          "expected": false,
+          "mode": "bool"
+        }
+      ]
+    },
+    {
       "name": "seeded_sampling",
       "note": "GenerateRandomValues first-N (u,v) draws (no marginals set here -- reduced-variate copula space); stateless (seeds its own LatinHypercube draw from `seed`).",
       "construct": {

@@ -48,7 +48,11 @@ generic dispatcher supports `random_value [sample_size, seed, index]`: element `
 (a fresh seeded Mersenne Twister per call), so it locks the seeded C# draw stream
 bit-for-bit across all four runners; see the `seeded_random_draws` cases in `normal.json`,
 `log_normal.json`, `ln_normal.json`, `gumbel.json`, `gamma_distribution.json`, and
-`weibull.json`.
+`weibull.json`. It also supports `partial_kp [skewness, probability]` -- a direct call to
+the static `GammaDistribution.PartialKp` utility, independent of the case's own
+`construct` (which just needs to build *some* valid distribution instance for the dispatch
+plumbing; only `gamma_distribution.json` uses it, to pin the v2.1.4 near-zero-skew
+derivative-limit fix).
 
 #### Composite `univariate_distribution` targets
 
@@ -60,14 +64,31 @@ structured `construct` instead of flat `"params"`/`"fit"`. Each of the four runn
 in `tools/oracle_emitter/Program.cs`) implements the same schema:
 
 - `TruncatedDistribution`: `{"base": {"target": ..., "params": [...]}, "bounds": [lo, hi]}`.
-- `Empirical`: `{"x": [...], "p": [...], "p_transform": "None" | "NormalZ"}` (`p_transform`
-  optional, default `"NormalZ"`).
+- `Empirical`: `{"x": [...], "p": [...], "p_transform": "None" | "NormalZ", "p_descending":
+  <bool>}` (`p_transform` optional, default `"NormalZ"`; `p_descending` optional, default
+  `false`). `p_descending` DECLARES the probability order (v2.1.4 -- mirrors C#'s explicit
+  `probabilityOrder` argument on the 4-arg `SetParameters` overload, `SortOrder.Ascending` vs.
+  `SortOrder.Descending`) rather than auto-detecting it from `p`'s actual direction: a
+  descending `p` array with `p_descending` omitted/false is INVALID (`parameters_valid: false`),
+  exactly as the real C# rejects it (confirmed via the dotnet oracle gate). When true, `p` must
+  be strictly decreasing and CDF/InverseCDF flip internally via `1 - p` (a survival-function
+  encoding); see `empirical_distribution.hpp`'s header note.
 - `KernelDensity`: `{"data": "<dataset name>", "kernel": "Gaussian" | "Epanechnikov" |
   "Triangular" | "Uniform", "bandwidth": <double>, "bounded_by_data": <bool>}` (`kernel`,
   `bandwidth`, `bounded_by_data` all optional).
-- `Mixture`: `{"components": [{"target": ..., "params": [...]}, ...], "weights": [...]}`.
-  `components` entries may also use `{"fit": {"dataset": ..., "method": ...}}` instead of
-  `"params"` (recursive `build_component`).
+- `Mixture`: `{"components": [{"target": ..., "params": [...]}, ...], "weights": [...],
+  "zero_inflated": <bool>, "zero_weight": <double>}`. `components` entries may also use
+  `{"fit": {"dataset": ..., "method": ...}}` instead of `"params"` (recursive
+  `build_component`). `zero_inflated`/`zero_weight` (both optional, default `false`/`0.0`)
+  mirror the v2.1.4 `IsZeroInflated`/`ZeroWeight` setters, which renormalize the component
+  weights onto the `1 - zero_weight` simplex as a side effect (`Mixture` header comment in
+  `core/include/corehydro/numerics/distributions/mixture.hpp`); all four runners apply them in
+  that order (`IsZeroInflated` before `ZeroWeight`), matching every C# call site. Because the
+  weights are recomputed inside C++ rather than passed through unchanged (unlike
+  `TruncatedDistribution`'s params), asserting on them needs a `"param"` case (dispatched
+  against `GetParameters()` -- `[w0, ..., wK-1, component0 params, ...]` -- via a real
+  round trip through the constructed object in every runner, not a client-side
+  reconstruction) rather than reading back the raw `"weights"` input.
 - `CompetingRisks`: `{"components": [{"target": ..., "params": [...]}, ...],
   "minimum_of_random_variables": <bool>, "dependency": "Independent" | "PerfectlyPositive" |
   "PerfectlyNegative" | "CorrelationMatrix", "correlation": [[...], ...]}`.
@@ -80,9 +101,47 @@ in `tools/oracle_emitter/Program.cs`) implements the same schema:
     `core/include/corehydro/numerics/data/probability.hpp`'s header comment and
     `docs/upstream-csharp-issues.md` for why this path is fully deterministic, unlike
     `MultivariateNormal.CDF()`'s own seeded Genz-Bretz integrator for dimension >= 3).
-  - `correlation` (optional, default `[]`): a square matrix, one row per component. Only
-    consulted when `dependency == "CorrelationMatrix"` (ignored, and may be omitted, for the
-    other three modes -- `PerfectlyNegative` synthesizes its own correlation internally).
+  - `correlation` (optional, default `[]`): a square matrix, one row per component. Applied to
+    the constructed object whenever present/non-empty, regardless of `dependency` (matches C#:
+    `CorrelationMatrix` is an independent property a caller may set before ever switching
+    `Dependency` to `CorrelationMatrix` -- see `dependency_change` below); only actually
+    CONSULTED by CDF/PDF when `dependency == "CorrelationMatrix"` (ignored, though still stored
+    and readable, for the other three modes -- `PerfectlyNegative` synthesizes its own
+    correlation internally without touching the stored matrix, v2.1.4).
+  - `dependency_change [x, dependency2, i, j, field]` (v2.1.4) -- verifies the `Dependency`
+    setter fix (switching modes mid-lifetime invalidates the cached MVN) and that
+    `PerfectlyNegative` no longer zeroes the public `CorrelationMatrix` as a side effect, in ONE
+    self-contained call: `CDF(x)` under the case's `dependency`, read back
+    `CorrelationMatrix[i, j]`, switch to `dependency2`, `CDF(x)` again -- returns the value named
+    by `field` (`"cdf1"`/`"correlation"`/`"cdf2"`). One call per case (rather than several
+    assertions against a shared object) because the sequence mutates `Dependency` for good on
+    whichever object it runs against; a fresh per-case build keeps every `field` variant
+    observing the SAME starting configuration, matching R/Python's stateless-per-call composite
+    dispatch (see `set_parameters` below for the general pattern this follows).
+
+#### `set_parameters`: mutating a constructed `univariate_distribution` in place
+
+`set_parameters [<flat parameter vector>]` mutates the case's already-built instance with a
+new flat parameter vector (mirrors the C# `SetParameters(IList<double>)` entry point), rather
+than reading a value. Pair it with `"mode": "equal", "expected": 0` (the mutation always
+"succeeds" as an assertion; the dummy `0` just satisfies the uniform assertion shape) and
+check the resulting state with a separate `parameters_valid`/`param` assertion immediately
+after. This is how a case exercises the "construct valid -> SetParameters invalid -> recheck
+-> SetParameters valid -> recheck" sequence needed to fixture-test setter-ordering semantics
+(see `truncated_distribution.json`'s `sequential_*` case) -- a single `construct.params`/
+`construct.fit` case already implicitly does one "construct-then-SetParameters" step, so
+`set_parameters` is only needed to go BEYOND that single step on one persistent object.
+For `TruncatedDistribution`, `<flat parameter vector>` is `[base_param0, ..., min, max]` (same
+shape as `get_parameters()`/C#'s `GetParameters`), not the `{"base": ..., "bounds": ...}`
+`construct` shape. C++'s `dispatch_generic` mutates the persisted `UnivariateDistributionBase`
+directly; R/Python have no persistent object at this layer (every `ch_dist_*`/`_core.dist_*`
+call is a stateless construct-and-compute), so their composite dispatch instead updates the
+parsed construct dict/list in place (`apply_set_parameters_composite` /
+`_apply_set_parameters_composite`) and the next call reconstructs from the updated fields --
+behaviorally equivalent since nothing in this schema depends on any state beyond the current
+flat parameter vector. Composite targets other than `TruncatedDistribution` don't use
+`set_parameters` in the current fixture corpus; adding one means adding a branch to that
+function.
 
 ### `multivariate_distribution`
 
@@ -168,6 +227,46 @@ hardcoded literal, so there is no literal to transcribe. Methods:
   only two multivariate targets with a `LatinHypercubeRandomValues` method in the C# source;
   Dirichlet/Multinomial have no such method and carry no `lhs_value` cases) -- same shape,
   dispatching to `latin_hypercube_random_values(sample_size, seed)`.
+- `mvndst_inform [n, [lower...], [upper...], [infin...], [correl...], maxpts, abseps, releps]` /
+  `mvndst_error [...]` (MultivariateNormal only; v2.1.4) -- same args/shape as `mvndst`, reading
+  back `INFORM`/`ERROR` instead of `VALUE` (the MVNDST status-code cases -- invalid dimension,
+  all-unbounded, insufficient budget -- need the status code itself, not just the probability).
+  All three of a case's `mvndst`/`mvndst_inform`/`mvndst_error` assertions may share one
+  `construct` (with or without `"seed"`, per Statefulness below) since none of the status-code
+  cases touch the seeded MVNUNI stream (N-INFIS stays small enough to avoid DKBVRC) except
+  `mvndst_insufficient_budget_status_one`, whose seed-stream-position-dependent VALUE/ERROR are
+  deliberately NOT pinned -- only the deterministic `INFORM` is (see that case's `note`).
+- `marginal_mean [[indices...], i]`, `marginal_covariance [[indices...], i, j]`,
+  `marginal_log_pdf [[indices...], [x...]]`, `marginal_dimension [[indices...]]`
+  (MultivariateNormal only; v2.1.4) -- `Marginal(indices)`'s sub-mean/sub-covariance/dimension and
+  the marginal distribution's own LogPDF at `x`. Stateless (fresh `Marginal` per call).
+- `conditional_mean [[observed_indices...], [observed_values...], i]`,
+  `conditional_covariance [[observed_indices...], [observed_values...], i, j]`,
+  `conditional_dimension [[observed_indices...], [observed_values...]]` (MultivariateNormal only;
+  v2.1.4) -- `Conditional(observedIndices, observedValues)`'s mean/covariance/dimension over the
+  unobserved (free) dimensions, in ascending index order. Stateless (fresh `Conditional` per call).
+  Index-validation throws (empty/duplicate/out-of-range indices, an all-observed subset, or a
+  values-length mismatch) are not fixture-shaped (no exception-mode assertion exists) -- see
+  `core/tests/test_multivariate_normal_api.cpp`, which also covers the stateful
+  `TrySetParameters`/`TrySetCovariance`/`IsDensityValid` non-throwing-mutation sequence (each
+  assertion depends on the PRECEDING one having mutated the SAME object, which doesn't fit this
+  kind's per-case-not-per-assertion statefulness contract below). Task 21 completeness note: the
+  C++ runner and the emitter carry an `is_density_valid []` dispatch arm that NO committed case
+  uses, and that is deliberate -- a freshly constructed MultivariateNormal always reports `true`
+  (a non-positive-definite covariance throws at construction), so a stateless assertion would be
+  vacuous rather than discriminating. The arm is only meaningful after a failed
+  `try_set_covariance`, which is exactly the ctest sequence above.
+- `cdf_xy_after_set_parameters [[x1_new...], [x2_new...], [[p_row0...], ...], x1_eval, x2_eval]`
+  (BivariateEmpirical only; v2.1.4) -- verifies the `SetParameters` stale-Bilinear-cache fix in
+  ONE self-contained call: `cdf(x1_eval, x2_eval)` once against the CURRENT grid (forces the
+  cache to build), `set_parameters()` with the replacement grid, then `cdf(x1_eval, x2_eval)`
+  again -- returns the SECOND value. A stale cache would still reflect the OLD grid on that
+  second call. One call rather than three separate `cdf_xy`/`set_parameters`/`cdf_xy` assertions
+  because BivariateEmpirical (like every other `multivariate_distribution` target besides
+  MultivariateNormal) is dispatched fresh-per-call in R/Python -- a `set_parameters` mutation
+  wouldn't persist to a later assertion there the way it does in C++'s/the emitter's
+  persistent-per-case object (see the `set_parameters` composite convention under
+  `univariate_distribution` for the analogous R/Python-side workaround used elsewhere).
 
 **Statefulness:** Dirichlet/Multinomial/BivariateEmpirical are stateless per case (every assertion
 is independent, dispatched against a fresh instance). MultivariateNormal is stateless UNLESS its
@@ -300,6 +399,30 @@ above, the one target chosen to cover the back-transform branch (all seven copul
 `generate_random_values` implementation in `bivariate_copula.hpp`, so one marginals-attached
 companion case is sufficient to lock that branch; it does not need repeating per target).
 
+**`parameters_valid` coverage (Task 8 / Numerics v2.1.4):** every copula target now carries
+`parameters_valid_*` cases -- a valid-theta case (`true`), an invalid-but-finite-range case where
+one exists (`false`; Frank's theta is fully unbounded, so it has no such case), and non-finite-theta
+cases (`"nan"`/`"inf"`, both `false`). These are net-new, not re-pins of a previously-passing value:
+no fixture asserted `parameters_valid` on any Archimedean copula before Task 8, since the value was
+uninformative while the upstream `ArchimedeanCopula.ValidateParameter` sentinel bug held
+`ParametersValid` permanently `false` for Clayton/Gumbel/Joe regardless of theta (see
+`archimedean_copula.hpp` and `docs/upstream-csharp-issues.md`, RESOLVED entry). v2.1.4 fixed that
+sentinel (flipping the valid-theta case from `false` to `true` for those three families) and added a
+NaN/Inf-first check to every family's parameter validation (AMH/Frank/Normal/StudentT already
+returned the correct sentinel but had no finite-parameter guard, so their `nan`/`inf` cases are a
+genuine behavior change too, not just a sentinel-fix confirmation). `StudentTCopula`'s
+`parameters_valid_nonfinite_theta_*` cases hold `df` fixed at a valid value to isolate the new rho
+guard from its pre-existing (already-correct) degrees-of-freedom finiteness check.
+
+**Clone() deep-copy (Task 8 / Numerics v2.1.4):** every copula's `Clone()` now deep-copies attached
+marginal distributions via the new protected static `BivariateCopula.CloneMarginal` (previously
+`Clone()` passed `MarginalDistributionX`/`Y` straight through, aliasing the same marginal instance).
+This is NOT exercised by the declarative fixture shape above -- verifying it needs an identity
+comparison (`AreNotSame`) across two independently-constructed objects, which no single-assertion
+`{method, args, expected}` case can express -- so it is instead pinned as a C++-only ctest,
+`core/tests/test_copula_clone.cpp`, generic over all seven copula types via `copula_factory.hpp`
+(mirrors the `test_mixture.cpp` "C++-only ctest" precedent from Task 6).
+
 ### `mcmc_sampler`
 
 ```jsonc
@@ -352,19 +475,19 @@ name>}`. The registry is **closed**; today it has two entries:
   + a `IMaximumLikelihoodEstimation` cast, matching the C++ registry's approach, so `--dump`
   curation works for every family this schema references.
 - `"normal_conjugate_gibbs"`: a conjugate Normal(mean)-InverseGamma(variance) model, transcribed
-  VERBATIM from `Test_Gibbs_NormalDist_RStan` (`family` must be `"Normal"`; the conjugate math is
+  from `Test_Gibbs_NormalDist_RStan` (v2.1.4 rework: `ConditionalMeanParameters`/
+  `ConditionalVarianceParameters`; `family` must be `"Normal"`, since the conjugate math is
   Normal-InverseGamma-specific, not family-generic). `McmcModel` gains a third member,
-  `proposal` (a `Gibbs::Proposal` closure; empty/falsy for every other registry entry). The
-  proposal closure captures the SAME `shared_ptr<Normal>`/`shared_ptr<InverseGamma>` prior
-  objects also held in `priors` -- see the header comment for why `shared_ptr` (not
-  `unique_ptr`) backs `McmcModel::priors`: `Gibbs::Proposal` is a `std::function`, which requires
-  its captured state to be copy-constructible, something a `unique_ptr` capture cannot satisfy.
-  `SetParameters`/`set_parameters` inside the closure mutates the shared prior instance in place
-  every call, exactly mirroring the C# closure's `muPrior.SetParameters(...)`/
-  `sigmaPrior.SetParameters(...)` reference-type mutation -- see
-  `docs/upstream-csharp-issues.md` for a note on the closure's `mu0 / 2` term (transcribed
-  verbatim; unobservable in this fixture's `mu0 = 0` test data, but not the textbook
-  conjugate-Normal-update formula).
+  `proposal` (a `Gibbs::Proposal` closure; empty/falsy for every other registry entry). Two
+  DISTINCT pairs of distributions are built: `mu_initialization_prior`/
+  `sigma_initialization_prior` seed only `priors` (feasibility bounds / initial draws), while
+  `conditional_mean`/`conditional_variance` are separate, freshly constructed locals the
+  proposal closure alone mutates every Gibbs step (`set_parameters` then `inverse_cdf`) --
+  `Gibbs::Proposal` is a `std::function`, so this state must be copy-constructible and persist
+  across calls, hence the `shared_ptr` capture (`unique_ptr` cannot be captured by a copyable
+  closure). The corrected conditional-mean formula replaces the pre-v2.1.4 `mu0 / 2` bug (a
+  textbook conjugate-Normal-update violation, unobservable in this fixture's `mu0 = 0` test data
+  but not textbook-correct); see `docs/upstream-csharp-issues.md` for the retired finding.
 
 `construct.settings` holds only **non-default** sampler settings (every key optional):
 `initialize` (`"MAP"` | `"Randomize"` | `"UserDefined"` -- a plain field, does NOT trigger
@@ -849,7 +972,8 @@ do not paper over it with a looser tolerance.
 {
   "target":  "MaximumLikelihood",           // "MaximumLikelihood" | "MaximumAPosteriori" |
                                             // "BayesianAnalysis" | "Simulation" |
-                                            // "GeneralizedMethodOfMoments" (B11)
+                                            // "GeneralizedMethodOfMoments" (B11) |
+                                            // "Validate" (Task 16)
   "kind":    "model_estimation",
   "source":  "RMC-BestFit/src/RMC.BestFit/Estimation/MaximumLikelihood.cs ; core/tests/test_maximum_likelihood.cpp",
   "datasets": { "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600] },
@@ -1112,6 +1236,23 @@ case, caching the full surface. Assertion methods:
 - `simulated_value [i]` -- the shared seeded-draw arm: after the fit, the estimator's best
   parameters are pinned into the B17C parent and a seeded `generate_random_values(sample_size,
   seed)` stream is drawn (the same `short_exact` digest semantics as `Simulation`).
+- `gmm_iterations []` -- `GMMIterations()` (T13): the optimizer pass count. 1 for `"OneStep"`,
+  1 or 2 for `"TwoStep"`, and for `"Iterative"` the pass at which the loop returned -- clamped to
+  `max_gmm_iterations` on exhaustion rather than the pre-T13 `max_gmm_iterations + 1` overshoot.
+  `mode: "equal"` (an exact integer count).
+- `converged_within_tolerance []` -- `ConvergedWithinTolerance()` (T13 off-by-one fix): `1` only
+  for an `"Iterative"` run whose loop actually hit its tolerance-convergence branch (including on
+  the LAST permitted iteration, which the old strict `<` boundary under-reported); `0` for
+  `"OneStep"`/`"TwoStep"` (no comparison pass) and for an iteration-budget exhaustion.
+  `mode: "equal"`, `expected: 0` or `1`.
+- `optimizer_fallback_count []` -- `OptimizerFallbackCount()` (T13; C# `internal`, widened to
+  public in the port -- see `generalized_method_of_moments.hpp`'s header). Counts BFGS->NelderMead
+  fallback transitions, sticky across an `"Iterative"` run's passes (increments at most once per
+  `estimate()` call). `mode: "equal"`. No fixture case forces a BFGS failure against the real
+  `bulletin17c` model (the census found the shipped smoke case converges cleanly in both
+  directions), so every GMM fixture case here asserts `0`; the non-zero/sticky-fallback path is
+  covered by a C++-only `core/tests/test_gmm.cpp` PART 3 delegate-based toy problem instead (same
+  precedent as the custom-gradient NUTS scenario noted elsewhere in this file).
 
 The GMM surface is disjoint enough from ML/MAP (adds `j_stat`/`j_stat_pval`/`quantile_variance`,
 drops `max_log_likelihood`/`aic`/`bic`) that it joins the estimator `std::variant` on its own
@@ -1137,6 +1278,39 @@ C++/the emitter dispatch these straight off the cached model's frame; R
 case through the shared spec builder and memoize it (a rebuild is byte-identical -- the frame
 surface is a pure function of the construct, never of the fit -- the `bic` lazy-rebuild
 precedent).
+
+**Validate surface + `"Validate"` target (Task 16):** `target: "Validate"` builds the model and
+stops -- no estimator, no seeded draw -- for cases that only need to assert `ModelBase::validate()`
+(added for the TimeSeries BoxCox/YeoJohnson transform-lambda-failure fixtures, whose failure is
+oracle-visible ONLY through `Validate()`, not through any numeric estimator surface). Two methods,
+readable under ANY target (mirroring the DataFrame surface above -- they read the model, not the
+estimator):
+
+- `is_valid []` -- `validate().is_valid` as `1.0`/`0.0` (the `converged_within_tolerance`
+  boolean-as-double precedent).
+- `validation_message_contains [substring]` -- `1.0` if any validation message contains
+  `substring`, else `0.0`. This is a STRUCTURAL check, not a byte-exact pin of the C# message
+  text -- the fixture-checkable contract is "the failure is captured as a message", and the C++
+  message text itself is hand-verified against the C# source in the model headers.
+
+C++/the emitter dispatch these straight off the cached model; R (`ch_model_validate_`) and Python
+(`model_validate`) lazily build + memoize one `validate()` call per case (the DataFrame/`bic`
+lazy-rebuild precedent -- `validate()` is a pure function of the constructed model).
+
+**Task 21 made the surface symmetric across BOTH estimation paths.** The C++, R and Python runners
+were always symmetric (all three route every `model_estimation` construct through the one shared
+spec builder, so `ch_model_validate_` / `model_validate` / `dispatch_model_validate` covered every
+model type it can build). Only the emitter was split: Task 16 wired the target and the two methods
+into `BuildEstimationGeneral`/`DispatchEstimationGeneral` (the `IModel` path the four Phase 7a
+families use -- `time_series`/`spatial_gev`/`rating_curve`/`bivariate`) but not into the older
+`BuildEstimation`/`DispatchEstimation` path (`UnivariateDistributionModelBase`: `univariate_distribution`,
+`mixture`, `competing_risks`, `point_process`). Task 21 added the same `Validate` target arm and
+the same two dispatch methods there, and `fixtures/estimation/univariate_model_validate.json`
+exercises them so the widened arm carries a real oracle rather than sitting dead. The one model
+type still outside the Validate surface is `bulletin17c`: its GMM construct path returns a concrete
+`Bulletin17CDistribution` and no `ModelBase`/`IModel` handle (see `model_spec.hpp`'s
+`build_bulletin17c_model` note), so there is nothing for the shared dispatcher to call
+`validate()` on; the B17C validation surface is covered by `core/tests/test_bulletin17c.cpp`.
 
 **Port-fidelity finding (Task T12, real-C#-oracle-driven): the Jeffreys 1/scale prior.** The T11
 port's `UnivariateDistributionModel` inherited `ModelBase`'s generic `prior_log_likelihood` (sum of
@@ -1265,9 +1439,9 @@ analyses from the same spec.
                                              //   issues.md); pin 1 for an exact reproducible oracle.
         // "number_of_chains", "initial_iterations": also honored (integers; absent -> default)
         // -- Bulletin17CAnalysis knobs (all optional):
-        "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) | Bootstrap
-                                             //   (LinkedMultivariateNormal / BiasCorrectedBootstrap
-                                             //   are deferred to Phase 9 and rejected)
+        "uncertainty_method": "MultivariateNormal",  // MultivariateNormal (default) |
+                                             //   LinkedMultivariateNormal | Bootstrap |
+                                             //   BiasCorrectedBootstrap
         "confidence_level": 0.90,            // Cohn-CI confidence level (== credible width)
         // -- shared, optional:
         "exceedance_probabilities": [0.01, 0.1, 0.5, 0.9, 0.99]  // strictly-increasing grid;
@@ -1282,6 +1456,37 @@ analyses from the same spec.
         // Bulletin17CAnalysis: exceedance_probability [i], point_estimate [i] (log10 space),
         //   lower_ci [i], upper_ci [i] (discharge space), beta1 [i], nu [i],
         //   quantile_variance [i], confidence_level, parameter [i] (fitted GMM params).
+        // Bulletin17CAnalysis (T19; Bootstrap / BiasCorrectedBootstrap only -- every other
+        //   uncertainty_method leaves BootstrapResults null and these read their zero defaults):
+        //   boot_has_results (bool), boot_total_replicates, boot_attempted_replicates,
+        //   boot_failed_replicates, boot_valid_replicates, boot_retained_replicates,
+        //   boot_failure_rate, boot_mahalanobis_rejections, boot_transform_failures,
+        //   boot_status_success_count, boot_optimizer_fallbacks -- mirror
+        //   BootstrapDiagnostics's snake_case accessors 1:1 (see its header for the C# mapping).
+        //   GetParameterSetsFromParametricBootstrap (the plain Bootstrap arm) never populates
+        //   attempted/retained/transform_failures/status_*/optimizer_fallbacks itself, so those
+        //   read through their legacy-fallback defaults (attempted -> total, retained -> valid,
+        //   the rest 0) for every "Bootstrap" case. T20: the reworked pivot arm
+        //   (GetParameterSetsFromPivotalBootstrap) is the ONLY place the shipped analysis
+        //   populates a new counter -- it sets retained_replicates directly and increments
+        //   transform_failures per discarded Phase-3 draw; attempted / status_* /
+        //   optimizer_fallbacks are still never written anywhere in the C# file, and
+        //   pivot_rejections is now written NOWHERE (the z-limit became a clip).
+        //   Task 21 coverage measurement, stated plainly: of the 18 boot_* fields asserted
+        //   across this corpus, 13 are pinned 0 in EVERY case (average_retries,
+        //   failed_replicates, failure_rate, mahalanobis_rejections, optimizer_fallbacks,
+        //   pivot_rejections, the five status_* counters, total_retries, transform_failures)
+        //   and 5 take a non-zero value somewhere (has_results, total/attempted/valid/
+        //   retained_replicates). For the GMM status counters and optimizer_fallbacks the 0 is
+        //   the CORRECT pin -- it pins the deadness T19 established from the shipped source (no
+        //   call site exists). IncrementTransformFailure and the adaptive 1-1/(5B) Mahalanobis
+        //   threshold DID ship live, and are driven non-zero only by the C++-only ctests at
+        //   core/tests/test_bulletin17c_analysis.cpp:456-527, not by any fixture here.
+        // Bulletin17CAnalysis (T20): mode_curve [i] / mean_curve [i] / curve_length off
+        //   AnalysisResults -- the only B17C outputs that depend on uncertainty_method (the Cohn
+        //   surface above is computed off the RNG-free GMM point estimate alone). Empty when the
+        //   uncertainty run aborted or was degraded, so an assertion on them also proves the
+        //   ensemble published.
       ]
     }
   ]
@@ -1401,7 +1606,15 @@ instance via the list constructor): `args = [n1, sample1(n1 values), sample2(rem
 "split-index" convention distinct from `Correlation.*`'s equal-length two-halves split -- the
 upstream `Test_Combine`/`Test_Add` literals split their 69-value sample into UNEQUAL 48/21
 sub-samples, so a fixed midpoint doesn't apply. Each target builds `RunningStatistics(sample1) +
-RunningStatistics(sample2)` and reads one property off the merged result.
+RunningStatistics(sample2)` and reads one property off the merged result; `combined_count` closes
+out that property set. The `RunningStatistics.clone_*` targets (v2.1.4's new `Clone()` method)
+reuse the plain per-property `args` convention (the flat sample) and read one property off
+`RunningStatistics(sample).Clone()` instead of the sample instance directly -- additive API-parity
+coverage, not a re-pin, since the C++ port's value semantics already made `combine()`'s
+empty-operand branches return independent copies before v2.1.4 added `Clone()` for C# parity. The
+`combined_with_first_empty`/`combined_with_second_empty`/`combined_both_empty` cases reuse the
+EXISTING `combined_*` targets with `n1 = 0` or an empty trailing `sample2` (no new dispatch
+needed).
 
 The `Fourier.*` targets (`fixtures/special_functions/fourier.json`) take: `fft_at`/`real_fft_at`
 `args = [data..., inverse (0/1), index]` (n = len(args) - 2; runs `FFT`/`RealFFT` in place on a
@@ -1447,7 +1660,14 @@ lower/upper/frequency arrays are scraped from `Test_Histogram.cs`; `mean`/`media
 `standard_deviation` were independently recomputed in Python from that test's own closed-form
 formulas (1e-6 tolerance, matching); `get_bin_index_of` cases port `Test_Indexing`'s invariant
 (`GetBinIndexOf(bin[i].Midpoint) == i`) with the midpoint recomputed from the identical
-bin-construction arithmetic.
+bin-construction arithmetic. The `Histogram.adapt_*` targets (new in v2.1.4, adapted from
+`Test_AddData_AdaptsEndpointBins`) take a DIFFERENT convention, `args = [explicit_bins, num_adds,
+data..., adds(num_adds)...]`: build the histogram as above from `data`, then replay each of
+`adds` through a scalar `AddData(double)` call, in order, before reading one property
+(`lower_bound`/`upper_bound`/`bin_first_lower_bound`/`bin_last_upper_bound`/
+`bin_first_frequency`/`bin_last_frequency`/`data_count`) off the result -- exercising
+`AddData`'s v2.1.4 endpoint-auto-adapt fix (see `core/include/corehydro/numerics/data/
+histogram.hpp`'s file header).
 
 The `PlottingPositions.*` targets (`fixtures/special_functions/plotting_positions.json`) take
 `weibull_at` `args = [N, i]` (0-based `i`, analytic `PP[i] = (i+1)/(N+1)`) and `function_at`
@@ -1455,12 +1675,34 @@ The `PlottingPositions.*` targets (`fixtures/special_functions/plotting_position
 `Test_PlottingPositions.cs` (`N=30`, `alpha=0.1`).
 
 The `Search.*` targets (`fixtures/special_functions/search.json`) take
-`args = [values..., x, start]` (n = len(args) - 2), the default `SortOrder.Ascending` only -- the
-only order any real caller uses (SNIS's `Search.Sequential` call and Histogram's
-`Search.Bisection` call both omit the `order` argument). No upstream `Test_Search.cs` exists, so
-every case is curated via `oracle_emitter --dump`; probes cover both boundary sentinels
-(below/above the range, exact first/last-element match) and interior lookups, including one with a
-non-zero `start`.
+`args = [values..., x, start]` (n = len(args) - 2). The plain `sequential`/`bisection` targets use
+the default `SortOrder.Ascending` only -- the only order any real caller uses (SNIS's
+`Search.Sequential` call and Histogram's `Search.Bisection` call both omit the `order` argument).
+No upstream `Test_Search.cs` existed for these, so every case is curated via `oracle_emitter
+--dump`; probes cover both boundary sentinels (before/after the range, exact first/last-element
+match) and interior lookups, including one with a non-zero `start`. The `Search.*_descending`
+targets (new in v2.1.4, adapted from the new `Test_Search.cs`) use the same `args` shape but
+`SortOrder.Descending` explicitly, exercising `bisection()`'s v2.1.4 descending-branch fix (see
+`core/include/corehydro/numerics/data/interpolation/search.hpp`'s file header) -- two of the
+`bisection_descending_*` cases genuinely distinguish the pre-fix (`start`) from the fixed (correct
+bracketing index) behavior.
+
+The `Bilinear.log_floor_value` target (`fixtures/special_functions/bilinear.json`, new in v2.1.4,
+adapted from `Test_LogarithmicFloorMatchesLinearInterpolation`) takes `args = [x1_query,
+x2_query]` against a FIXED 3x3 identity grid (`{0, 1E-15, 1}` on both axes) with
+X1Transform/X2Transform/YTransform all `Logarithmic`, exercising Bilinear's v2.1.4 switch to the
+guarded `Tools.Log10` (see `core/include/corehydro/numerics/data/interpolation/bilinear.hpp`'s
+file header) -- before the fix both cases returned NaN.
+
+The `Probability.hpcm_joint`/`Probability.hpcm_conditional_at` targets
+(`fixtures/special_functions/probability.json`, new in v2.1.4, adapted from the new
+`Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite`) take `args = [p_0..p_(n-1),
+ind_0..ind_(n-1), corr(n*n flattened row-major)]` (n inferred from the argument count) for
+`hpcm_joint`; `hpcm_conditional_at` appends one trailing 0-based component index and returns the
+corresponding `conditionalProbabilities[i]` out-value. Exercises `JointProbabilityHPCM`'s v2.1.4
+`minimumCdf` guard fix (see `core/include/corehydro/numerics/data/probability.hpp`'s file
+header); curating this case surfaced and fixed an unrelated, pre-existing precision bug in this
+port's own `Normal::standard_cdf` (see `docs/upstream-csharp-issues.md`).
 
 The `MCMCDiagnostics.minimum_sample_size` target (`fixtures/special_functions/mcmc_diagnostics.json`)
 takes `args = [quantile, tolerance, probability]` (the Raftery-Lewis normal-approximation

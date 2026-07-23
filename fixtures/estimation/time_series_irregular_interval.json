@@ -1,0 +1,153 @@
+{
+  "target": "Validate",
+  "kind": "model_estimation",
+  "source": "BestFit v2.0.0 (c2e6192), transcribed from the new Test_Validate_IrregularTimeSeries_ReturnsFalse tests in src/RMC.BestFit.Tests/TimeSeriesModels/{AutoRegressive,MovingAverage,ARIMA,ARIMAX}Tests.cs, and reproduced against the real Numerics/RMC.BestFit libraries by tools/oracle_emitter's Validate target (Task 21). All four TimeSeries families gained a Validate guard that rejects TimeInterval.Irregular: the ARMA recursion, the differencing operator and the Fourier seasonality term all index by regular position, so an irregular series must be resampled before estimating. Structural check only: validation_message_contains is a substring probe, not a byte-exact pin of the message text (the C++ message is hand-verified against the C# source in the model headers). The trailing *_regular_interval_control cases hold the identical data on a regular interval and assert is_valid=1, so the guard is discriminating within the fixture itself. Both builders construct an Irregular series ordinate-by-ordinate (the (interval, start, values) constructor rejects Irregular in C# exactly as in the port); the index spacing is inert because every TimeSeries family indexes by position.",
+  "datasets": {
+    "series": [
+      10.2, 11.5, 9.8, 12.1, 13.4, 11.9, 10.6, 12.8, 14.0, 13.1,
+      11.7, 12.5, 13.9, 15.2, 14.1, 12.9, 13.6, 15.0, 16.2, 14.8,
+      13.3, 14.7, 16.0, 15.1, 13.8, 14.4, 15.9, 17.1, 16.3, 15.0,
+      14.2, 15.6, 16.8, 15.9, 14.6, 15.3, 16.7, 18.0, 17.2, 15.8
+    ]
+  },
+  "cases": [
+    {
+      "name": "ar_irregular_interval",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ar",
+          "dataset": "series",
+          "time_interval": "Irregular",
+          "orders": { "p": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "ma_irregular_interval",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ma",
+          "dataset": "series",
+          "time_interval": "Irregular",
+          "orders": { "q": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "arima_irregular_interval",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arima",
+          "dataset": "series",
+          "time_interval": "Irregular",
+          "orders": { "p": 1, "d": 0, "q": 0 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "arimax_irregular_interval",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "series",
+          "time_interval": "Irregular",
+          "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 0, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 1,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "ar_regular_interval_control",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "ar",
+          "dataset": "series",
+          "time_interval": "OneYear",
+          "orders": { "p": 1 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 1, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 0,
+          "mode": "equal"
+        }
+      ]
+    },
+    {
+      "name": "arimax_regular_interval_control",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "series",
+          "time_interval": "OneYear",
+          "orders": { "p": 1, "d": 0, "q": 0, "b": 0 },
+          "include_intercept": true,
+          "transform": "None"
+        }
+      },
+      "assertions": [
+        { "method": "is_valid", "args": [], "expected": 1, "mode": "equal" },
+        {
+          "method": "validation_message_contains",
+          "args": ["regular time interval"],
+          "expected": 0,
+          "mode": "equal"
+        }
+      ]
+    }
+  ]
+}

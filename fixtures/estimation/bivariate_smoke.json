@@ -1,7 +1,7 @@
 {
   "target": "MaximumLikelihood",
   "kind": "model_estimation",
-  "source": "Emitter oracle (Task P4): copula parameter(s), log-likelihood, AIC and the seeded ISimulatable<Matrix2D> draw dumped from the REAL RMC.BestFit BivariateDistribution MLE (Numerics @ a2c4dbf, RMC-BestFit @ fc28c0c) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), so the draw is flattened ROW-MAJOR (i = row*2 + col): simulated_value[0]=row0/X, [1]=row0/Y, [2]=row1/X, ... The marginals are pre-fit and held FIXED; only the copula dependency parameter(s) are estimated (InferenceFromMargins). The StudentT case is a 2-parameter copula (rho + degrees-of-freedom); its df clamps to the upper bound 30 (the Gaussian limit) for this strongly-dependent sample. Optimizer-dependent fit quantities carry rel 1e-8. (A PseudoLikelihood case was scoped out: the real C# model-level MLE returns Estimate()=false because the marginal plotting positions are never calculated on the shared builder path -- see the P4 report / P5 upstream findings.)",
+  "source": "Emitter oracle (Task P4 + T15): copula parameter(s), log-likelihood, AIC and the seeded ISimulatable<Matrix2D> draw dumped from the REAL RMC.BestFit BivariateDistribution MLE (Numerics @ a2c4dbf, RMC-BestFit @ c2e6192) via tools/oracle_emitter and reproduced by tools/verify_oracles.py. BivariateDistribution is ISimulatable<Matrix2D> (n-row x 2-col), so the draw is flattened ROW-MAJOR (i = row*2 + col): simulated_value[0]=row0/X, [1]=row0/Y, [2]=row1/X, ... The marginals are pre-fit and held FIXED; only the copula dependency parameter(s) are estimated (InferenceFromMargins). The StudentT case is a 2-parameter copula (rho + degrees-of-freedom); its df clamps to the upper bound 30 (the Gaussian limit) for this strongly-dependent sample. Optimizer-dependent fit quantities carry rel 1e-8. The normal_copula_pseudo_likelihood_nelder_mead case (T15, BestFit v2.0.0) exercises the fixed audit finding: SetSampleData's pseudo observations start invalid (never-computed plotting positions, default 0.0 -> complement 1.0), so the first fit auto-runs CalculatePlottingPositions() on each marginal before estimating -- a scenario the real C# model-level MLE could never previously complete (P4/P5 finding, now retired).",
   "cases": [
     {
       "name": "normal_copula_ifm_nelder_mead",
@@ -63,6 +63,37 @@
         { "method": "aic", "args": [], "expected": -3.518924850771735, "mode": "rel", "tol": 1e-8 },
         { "method": "simulated_value", "args": [0], "expected": 10.195269109750441, "mode": "rel", "tol": 1e-8 },
         { "method": "simulated_value", "args": [3], "expected": 24.46018590313456, "mode": "rel", "tol": 1e-8 }
+      ]
+    },
+    {
+      "name": "normal_copula_pseudo_likelihood_nelder_mead",
+      "construct": {
+        "model": {
+          "type": "bivariate",
+          "copula": "Normal",
+          "estimation_method": "PseudoLikelihood",
+          "marginal_x": {
+            "family": "Normal",
+            "data": [10, 12, 9, 14, 11, 13, 8, 15, 10.5, 12.5, 11.2, 13.3, 9.4, 14.1, 12.2],
+            "parameter_values": [11.66, 2.0]
+          },
+          "marginal_y": {
+            "family": "Normal",
+            "data": [21, 20, 22, 25, 19, 27, 18, 24, 23, 21, 26, 22, 20, 28, 25],
+            "parameter_values": [22.7, 3.0]
+          }
+        },
+        "optimizer": "NelderMead",
+        "sample_size": 5,
+        "seed": 42
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 0.7304687499999998, "mode": "rel", "tol": 1e-8 },
+        { "method": "max_log_likelihood", "args": [], "expected": 4.17791547450342, "mode": "rel", "tol": 1e-8 },
+        { "method": "aic", "args": [], "expected": -6.35583094900684, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [0], "expected": 10.195269109750441, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [1], "expected": 15.780485848210748, "mode": "rel", "tol": 1e-8 },
+        { "method": "simulated_value", "args": [3], "expected": 24.413203849240805, "mode": "rel", "tol": 1e-8 }
       ]
     }
   ]

@@ -1,11 +1,13 @@
-// ported from: Numerics/Distributions/Univariate/GammaDistribution.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/GammaDistribution.cs @ 2a0357a
 //
 // Gamma distribution with scale θ (theta) and shape κ (kappa). Logic mirrors the C#
 // source method-for-method. The WPF helpers, IBootstrappable, the rest of
 // IStandardError (ParameterCovariance/QuantileVariance/QuantileJacobian), and
 // WilsonHilferty are not ported (desktop / uncertainty analysis concerns). B4 adds the
 // FrequencyFactorKp/PartialKp statics, QuantileGradient, and the ConditionalMoments
-// override for the Bulletin 17C GMM track.
+// override for the Bulletin 17C GMM track. v2.1.4 (2a0357a) fixes PartialKp's
+// near-zero-skew branch to return the actual Cornish-Fisher derivative limit
+// `(z*z - 1)/6` instead of the frequency factor itself.
 #pragma once
 #include <string>
 #include <cmath>
@@ -305,8 +307,14 @@ class GammaDistribution : public UnivariateDistributionBase,
     static double partial_kp(double skewness, double probability) {
         double C = skewness;
         double absC = std::fabs(C);
-        // If skew is sufficiently close to zero, return standard Normal Z variate.
-        if (absC < 0.0001) return Normal::standard_z(probability);
+        // Use the Cornish-Fisher derivative limit at zero skew (v2.1.4; PartialKp is
+        // documented as a derivative, so the near-zero branch must return one --
+        // the standard Normal Z variate it returned before was the frequency factor
+        // itself, not its derivative wrt skew).
+        if (absC < 0.0001) {
+            double z = Normal::standard_z(probability);
+            return (z * z - 1.0) / 6.0;
+        }
 
         // If abs(skew) is less than or equal to 2, use Cornish-Fisher transformation
         // (Fisher and Cornish, 1960)

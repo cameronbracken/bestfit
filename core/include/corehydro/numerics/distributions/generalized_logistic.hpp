@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/GeneralizedLogistic.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/GeneralizedLogistic.cs @ 2a0357a
 //
 // Generalized Logistic distribution: parameters ξ (location), α (scale), κ (shape).
 // Mirrors the C# source method-for-method. The IBootstrappable, IStandardError, and
@@ -6,6 +6,11 @@
 // κ→0 limit branch: standard logistic distribution.
 // κ > 0: bounded above at ξ + α/κ.
 // κ < 0: bounded below at ξ + α/κ.
+// v2.1.4 (2a0357a) upstreams the exact κ==0 limit (previously an intentional C++
+// divergence -- see docs/upstream-csharp-issues.md) and adds a third branch for
+// |κ|<=NearZero (nonzero): a truncated Taylor series in κ, avoiding the ill-conditioned
+// sin(κπ)/(κπ) evaluation for tiny nonzero κ. Series coefficients transcribed exactly
+// from the C# source (not independently derived).
 #pragma once
 #include <string>
 #include <cmath>
@@ -216,8 +221,12 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         return {x, a, k};
     }
 
-    // Parameters from L-moments.
-    // κ→0 limit: alpha = L2, xi = L1 (the sin(kappa*pi)/(kappa*pi) → 1 limit).
+    // Parameters from L-moments. Mirrors C# ParametersFromLinearMoments exactly.
+    // kappa == 0 exact: alpha = L2, xi = L1 (the sin(kappa*pi)/(kappa*pi) -> 1 limit;
+    // upstreamed in v2.1.4, previously an intentional C++ divergence -- see
+    // docs/upstream-csharp-issues.md). |kappa| <= NearZero (nonzero): a truncated
+    // Taylor series avoiding the ill-conditioned sin(kappa*pi)/(kappa*pi) evaluation
+    // for tiny nonzero kappa; coefficients transcribed exactly from C#.
     std::vector<double> parameters_from_linear_moments(
         const std::vector<double>& moments) const override {
         double L1 = moments[0];
@@ -226,13 +235,17 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         // C# reads moments[3] (T4) but does not use it.
         double kappa = -T3;
         double alpha, xi;
-        // INTENTIONAL DIVERGENCE from C#: upstream computes sin(kappa*pi)/(kappa*pi)
-        // (and 1/kappa - pi/sin(kappa*pi)) with no guard, yielding NaN/Inf at kappa=0.
-        // We return the correct L'Hopital limit instead. Oracle gate cannot verify this
-        // point (C# returns NaN).
-        if (std::fabs(kappa) <= kNearZero) {
+        if (kappa == 0.0) {
             alpha = L2;
             xi = L1;
+        } else if (std::fabs(kappa) <= kNearZero) {
+            double kappa2 = kappa * kappa;
+            double pi2 = kPi * kPi;
+            double sinc = 1.0 - pi2 * kappa2 / 6.0 + pi2 * pi2 * kappa2 * kappa2 / 120.0;
+            double reciprocal_difference = -pi2 * kappa / 6.0
+                                           - 7.0 * pi2 * pi2 * kappa * kappa2 / 360.0;
+            alpha = L2 * sinc;
+            xi = L1 - alpha * reciprocal_difference;
         } else {
             alpha = L2 * std::sin(kappa * kPi) / (kappa * kPi);
             xi = L1 - alpha * (1.0 / kappa - kPi / std::sin(kappa * kPi));
@@ -240,8 +253,10 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         return {xi, alpha, kappa};
     }
 
-    // L-moments from parameters.
-    // κ→0 limit: L1=xi, L2=alpha, T3=0, T4=1/6.
+    // L-moments from parameters. Mirrors C# LinearMomentsFromParameters exactly.
+    // kappa == 0 exact: L1=xi, L2=alpha (upstreamed in v2.1.4, previously an
+    // intentional C++ divergence). |kappa| <= NearZero (nonzero): a truncated Taylor
+    // series, coefficients transcribed exactly from C#.
     std::vector<double> linear_moments_from_parameters(
         const std::vector<double>& parameters) const override {
         double xi = parameters[0];
@@ -250,13 +265,18 @@ class GeneralizedLogistic : public UnivariateDistributionBase,
         if (std::fabs(kappa) >= 1.0)
             throw std::out_of_range("L-moments can only be defined for -1 < kappa < 1");
         double L1, L2;
-        // INTENTIONAL DIVERGENCE from C#: upstream computes 1/kappa - pi/sin(kappa*pi)
-        // (and kappa*pi/sin(kappa*pi)) with no guard, yielding NaN/Inf at kappa=0. We
-        // return the correct L'Hopital limit instead. Oracle gate cannot verify this
-        // point (C# returns NaN).
-        if (std::fabs(kappa) <= kNearZero) {
+        if (kappa == 0.0) {
             L1 = xi;
             L2 = alpha;
+        } else if (std::fabs(kappa) <= kNearZero) {
+            double kappa2 = kappa * kappa;
+            double pi2 = kPi * kPi;
+            double reciprocal_difference = -pi2 * kappa / 6.0
+                                           - 7.0 * pi2 * pi2 * kappa * kappa2 / 360.0;
+            double reciprocal_sinc = 1.0 + pi2 * kappa2 / 6.0
+                                     + 7.0 * pi2 * pi2 * kappa2 * kappa2 / 360.0;
+            L1 = xi + alpha * reciprocal_difference;
+            L2 = alpha * reciprocal_sinc;
         } else {
             L1 = xi + alpha * (1.0 / kappa - kPi / std::sin(kappa * kPi));
             L2 = alpha * kappa * kPi / std::sin(kappa * kPi);

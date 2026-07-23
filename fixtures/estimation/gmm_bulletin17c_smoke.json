@@ -1,7 +1,7 @@
 {
   "target": "GeneralizedMethodOfMoments",
   "kind": "model_estimation",
-  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs @ fc28c0c ; RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/Bulletin17CDistribution.cs @ fc28c0c -- EXACT EMITTER ORACLES (Task B12). The upstream GMM/B17C tests are STRUCTURAL-ONLY (no Estimate(), no numeric oracles), so these values are dumped from the REAL compiled RMC.BestFit GeneralizedMethodOfMoments/Bulletin17CDistribution via the dotnet oracle emitter (tools/oracle_emitter, un-excluding the three GMM/B17C files in B12) and reproduced by tools/verify_oracles.py. The C++/R/Python cores reproduce every value to ~1e-12 or better; tolerances follow fixtures/README.md's policy (optimizer-dependent parameters rel 1e-8; finite-difference-sensitive standard_error/covariance/correlation/quantile_variance rel 1e-7). This is a just-identified LP3 Bulletin17C GMM fit (q = p = 3), Iterative strategy, BFGS optimizer + numerical Jacobian, over exact-only annual_peaks. j_stat is ~0 for a just-identified fit (g(theta-hat) ~ 0): the exact residual is pure catastrophic-cancellation noise in g' V^-1 g (C# dumps +2.13e-06, the C++ core a differently-signed ~-5e-07), so it is NOT reproducible across compilers and is checked with an ABSOLUTE tolerance against 0, NOT pinned to either core's noise value. j_stat_pval is NaN because the degrees of freedom q - p = 0 (a just-identified LP3 fit cannot test its own specification). simulated_value rides this case: after the fit, the estimator's best parameters are pinned into the B17C parent and a seeded (sample_size=8, seed=20250705) ISimulatable stream is drawn -- the draws are the emitter's dumped stream, reproduced bit-close across C++/R/Python (identical compiled core) and to ~1e-13 against the real library.",
+  "source": "RMC-BestFit/src/RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs @ fc28c0c (base case) / c2e6192 (T13 additions) ; RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/Bulletin17CDistribution.cs @ fc28c0c -- EXACT EMITTER ORACLES (Task B12; T13 extends). The upstream GMM/B17C tests are STRUCTURAL-ONLY (no Estimate(), no numeric oracles), so these values are dumped from the REAL compiled RMC.BestFit GeneralizedMethodOfMoments/Bulletin17CDistribution via the dotnet oracle emitter (tools/oracle_emitter, un-excluding the three GMM/B17C files in B12) and reproduced by tools/verify_oracles.py. The C++/R/Python cores reproduce every value to ~1e-12 or better; tolerances follow fixtures/README.md's policy (optimizer-dependent parameters rel 1e-8; finite-difference-sensitive standard_error/covariance/correlation/quantile_variance rel 1e-7). This is a just-identified LP3 Bulletin17C GMM fit (q = p = 3), Iterative strategy, BFGS optimizer + numerical Jacobian, over exact-only annual_peaks. j_stat is ~0 for a just-identified fit (g(theta-hat) ~ 0): the exact residual is pure catastrophic-cancellation noise in g' V^-1 g (C# dumps +2.13e-06, the C++ core a differently-signed ~-5e-07), so it is NOT reproducible across compilers and is checked with an ABSOLUTE tolerance against 0, NOT pinned to either core's noise value. j_stat_pval is NaN because the degrees of freedom q - p = 0 (a just-identified LP3 fit cannot test its own specification). simulated_value rides this case: after the fit, the estimator's best parameters are pinned into the B17C parent and a seeded (sample_size=8, seed=20250705) ISimulatable stream is drawn -- the draws are the emitter's dumped stream, reproduced bit-close across C++/R/Python (identical compiled core) and to ~1e-13 against the real library. T13 (BestFit v2.0.0) adds gmm_iterations/converged_within_tolerance/optimizer_fallback_count to the first case (all reachable, no re-pin of the existing values -- this run converges on GMMIterations == 2, exactly as it did pre-T13) plus two new cases exercising the ConvergedWithinTolerance fix on strategies/configurations that never reach the loop's comparison pass: lp3_exact_one_step_bfgs (OneStep has no comparison pass at all) and lp3_exact_iterative_max_gmm_iterations_1 (Iterative capped at max_gmm_iterations=1, so the for-loop -- which starts at pass 2 -- never runs; both report gmm_iterations=1, converged_within_tolerance=0, matching the census's prediction that a BFGS failure/fallback is unreachable through this real B17C data -- optimizer_fallback_count stays 0 in all three cases here; the non-zero/sticky-fallback path is covered by a C++-only core/tests/test_gmm.cpp PART 3 delegate-based toy problem instead). T18 (BestFit v2.0.0, c420d48) adds lp3_uncertain_interval_iterative_bfgs: a data_frame-based fit (8 exact + 1 uncertain + 1 interval, no low outliers/threshold) exercising the narrowed SetDefaultParameters ROS-trigger for the first time on this GMM surface -- uncertain/interval data alone no longer fires the nonparametric-moment override, so this fit seeds from the plain IMaximumLikelihoodEstimation constraint initials (the fixture census found no PRE-EXISTING interval/uncertain bulletin17c GMM case to re-pin; this is new coverage, dumped fresh against the real c2e6192 library). The narrowing's discriminating RED/GREEN proof lives in core/tests/test_bulletin17c_clone_with_data_frame.cpp (a full BFGS convergence is not guaranteed to diverge from a different starting point, so this fixture alone cannot prove the narrowing landed -- see that file's header), so this case only pins reachable/gmm_iterations/converged_within_tolerance to real C#, no standard_error/covariance/quantile_variance/simulated_value surface (kept minimal; the full stack is already covered by lp3_exact_iterative_bfgs).",
   "datasets": {
     "annual_peaks": [12500, 15300, 9870, 21000, 18400, 11200, 26800, 14100, 19500, 11600]
   },
@@ -37,7 +37,75 @@
         { "method": "simulated_value", "args": [0], "expected": 36075.83409349789, "mode": "rel", "tol": 1e-7 },
         { "method": "simulated_value", "args": [1], "expected": 16970.48658831459, "mode": "rel", "tol": 1e-7 },
         { "method": "simulated_value", "args": [2], "expected": 12580.851600084345, "mode": "rel", "tol": 1e-7 },
-        { "method": "simulated_value", "args": [3], "expected": 12682.958489923507, "mode": "rel", "tol": 1e-7 }
+        { "method": "simulated_value", "args": [3], "expected": 12682.958489923507, "mode": "rel", "tol": 1e-7 },
+        { "method": "gmm_iterations", "args": [], "expected": 2, "mode": "equal" },
+        { "method": "converged_within_tolerance", "args": [], "expected": 1, "mode": "equal" },
+        { "method": "optimizer_fallback_count", "args": [], "expected": 0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "lp3_exact_one_step_bfgs",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "annual_peaks" },
+        "strategy": "OneStep",
+        "optimizer": "BFGS"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 4.184402024418257, "mode": "rel", "tol": 1e-8 },
+        { "method": "gmm_iterations", "args": [], "expected": 1, "mode": "equal" },
+        { "method": "converged_within_tolerance", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "optimizer_fallback_count", "args": [], "expected": 0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "lp3_exact_iterative_max_gmm_iterations_1",
+      "construct": {
+        "model": { "type": "bulletin17c", "family": "LogPearsonTypeIII", "dataset": "annual_peaks" },
+        "strategy": "Iterative",
+        "optimizer": "BFGS",
+        "max_gmm_iterations": 1
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 4.184402024418257, "mode": "rel", "tol": 1e-8 },
+        { "method": "gmm_iterations", "args": [], "expected": 1, "mode": "equal" },
+        { "method": "converged_within_tolerance", "args": [], "expected": 0, "mode": "equal" },
+        { "method": "optimizer_fallback_count", "args": [], "expected": 0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "lp3_uncertain_interval_iterative_bfgs",
+      "construct": {
+        "model": {
+          "type": "bulletin17c",
+          "family": "LogPearsonTypeIII",
+          "data_frame": {
+            "exact": [
+              { "index": 0, "value": 12500 },
+              { "index": 1, "value": 15300 },
+              { "index": 2, "value": 9870 },
+              { "index": 3, "value": 21000 },
+              { "index": 4, "value": 18400 },
+              { "index": 5, "value": 11200 },
+              { "index": 6, "value": 26800 },
+              { "index": 7, "value": 14100 }
+            ],
+            "uncertain": [
+              { "index": 8, "distribution": { "family": "Normal", "parameters": [19500, 1200] } }
+            ],
+            "interval": [
+              { "index": 9, "lower": 10200, "value": 11600, "upper": 12500 }
+            ]
+          }
+        },
+        "strategy": "Iterative",
+        "optimizer": "BFGS"
+      },
+      "assertions": [
+        { "method": "parameter", "args": [0], "expected": 4.183556191120392, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [1], "expected": 0.1406904327704847, "mode": "rel", "tol": 1e-8 },
+        { "method": "parameter", "args": [2], "expected": 0.40317398047114367, "mode": "rel", "tol": 1e-8 },
+        { "method": "gmm_iterations", "args": [], "expected": 2, "mode": "equal" },
+        { "method": "converged_within_tolerance", "args": [], "expected": 1, "mode": "equal" }
       ]
     }
   ]

@@ -1,8 +1,13 @@
-// ported from: Numerics/Distributions/Univariate/Gumbel.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Gumbel.cs @ 2a0357a
 //
 // The Gumbel (Extreme Value Type I) distribution with location ξ and scale α. Logic
 // mirrors the C# source method-for-method. The WPF helpers, IBootstrappable, and
 // IStandardError interfaces are not ported (desktop / uncertainty-analysis concerns).
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters now assigns Xi/Alpha directly (bypassing the Xi/Alpha property setters,
+// which independently revalidate against a possibly-stale sibling field) before computing
+// _parametersValid once from the final (location, scale) pair. This port already assigned
+// xi_/alpha_ directly and validated once at the end -- pre-aligned, no code change.
 #pragma once
 #include <string>
 #include <cmath>

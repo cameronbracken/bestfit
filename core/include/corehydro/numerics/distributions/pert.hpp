@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Pert.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Pert.cs @ 2a0357a
 //
 // The PERT distribution defined by min (a), most likely / mode (c) and max (b). It is a
 // transformation of the four-parameter Beta distribution: an underlying GeneralizedBeta is

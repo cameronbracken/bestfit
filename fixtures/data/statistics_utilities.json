@@ -1,7 +1,7 @@
 {
  "kind": "data_utility",
  "source": "Numerics/Data/Statistics/{MultipleGrubbsBeckTest,BoxCox,YeoJohnson,PlottingPositions}.cs; Numerics/Sampling/LatinHypercube.cs",
- "reference": "curated via oracle_emitter --dump; datasets are seeded LogNormal/Normal draws embedded as literals",
+ "reference": "curated via oracle_emitter --dump; datasets are seeded LogNormal/Normal draws embedded as literals; the FitLambda invalid-sample datasets and the near-lambda-2 transform case are transcribed from Test_BoxCox.cs::Test_Fit_InvalidSamples_ReturnsNaN and Test_YeoJohnson.cs::Test_FitLambda_InvalidSamples_ReturnsNaN (v2.1.4 hardening, 2a0357a)",
  "datasets": {
   "peaks_lo": [
    1.0,
@@ -110,6 +110,39 @@
    0.4430894917817507,
    -1.9475300060644554,
    1.2672439003817981
+  ],
+  "single_value": [
+   1.0
+  ],
+  "constant_sample": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "non_positive_sample": [
+   0.0,
+   10.0,
+   11.0
+  ],
+  "negative_sample": [
+   -1.0,
+   10.0,
+   11.0
+  ],
+  "sample_with_nan": [
+   1.0,
+   "nan",
+   2.0
+  ],
+  "sample_with_inf": [
+   1.0,
+   "inf",
+   2.0
+  ],
+  "extreme_magnitude": [
+   -1.7976931348623157e+308,
+   -8.988465674311579e+307,
+   -4.4942328371557893e+307
   ]
  },
  "cases": [
@@ -211,6 +244,155 @@
      "expected": 1.0868873372705217,
      "mode": "rel",
      "tol": 1e-11
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_single_value_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "single_value",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: fewer than 2 points (Test_BoxCox.cs Test_Fit_InvalidSamples_ReturnsNaN)"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_constant_sample_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "constant_sample",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: degenerate (constant) sample"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_non_positive_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "non_positive_sample",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: Box-Cox requires strictly positive values"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_negative_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "negative_sample",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: Box-Cox requires strictly positive values"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_nan_in_sample_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "sample_with_nan",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: non-finite value in sample"
+    }
+   ]
+  },
+  {
+   "name": "box_cox_lambda_fit_inf_in_sample_nan",
+   "function": "BoxCoxLambda",
+   "dataset": "sample_with_inf",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: non-finite value in sample"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit_single_value_nan",
+   "function": "YeoJohnsonLambda",
+   "dataset": "single_value",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: fewer than 2 points (Test_YeoJohnson.cs Test_FitLambda_InvalidSamples_ReturnsNaN)"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit_constant_sample_nan",
+   "function": "YeoJohnsonLambda",
+   "dataset": "constant_sample",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: degenerate (constant) sample"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit_nan_in_sample_nan",
+   "function": "YeoJohnsonLambda",
+   "dataset": "sample_with_nan",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: non-finite value in sample"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit_inf_in_sample_nan",
+   "function": "YeoJohnsonLambda",
+   "dataset": "sample_with_inf",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "CanFitLambda: non-finite value in sample"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_lambda_fit_extreme_magnitude_nan",
+   "function": "YeoJohnsonLambda",
+   "dataset": "extreme_magnitude",
+   "assertions": [
+    {
+     "expected": "nan",
+     "mode": "equal",
+     "note": "candidate rejected: LogLikelihood(candidate) is non-finite everywhere for this sample (Test_YeoJohnson.cs magnitude case)"
+    }
+   ]
+  },
+  {
+   "name": "yeo_johnson_transform_near_lambda_2",
+   "function": "YeoJohnsonTransform",
+   "dataset": "mixed_sign",
+   "args": [
+    1.999999995,
+    0
+   ],
+   "assertions": [
+    {
+     "expected": -1.0398085971131457,
+     "mode": "rel",
+     "tol": 1e-11,
+     "note": "v2.1.4: |lambda-2|<1e-8 takes the log branch (was exact lambda==2)"
     }
    ]
   },

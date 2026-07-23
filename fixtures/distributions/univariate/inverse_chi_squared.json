@@ -111,6 +111,35 @@
       ]
     },
     {
+      "name": "invalid_nan_dof",
+      "note": "v2.1.4: ValidateParameters now rejects NaN/Infinity in the degrees-of-freedom parameter explicitly (previously only `< 1.0d`, false for both NaN and +Infinity -- see inverse_chi_squared.hpp file header note).",
+      "construct": { "params": ["nan", 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_dof",
+      "construct": { "params": ["inf", 1.0] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_nan_sigma",
+      "construct": { "params": [10.0, "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_sigma",
+      "construct": { "params": [10.0, "inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
       "name": "minimum_maximum",
       "construct": { "params": [10.0, 1.0] },
       "assertions": [

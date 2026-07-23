@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Support/ParameterStatistics.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Support/ParameterStatistics.cs @ 2a0357a
 //
 // Plain summary-statistics holder for one MCMC parameter's posterior samples: Rhat/ESS
 // (filled in by MCMCDiagnostics via ParameterResults/MCMCResults), sample size, and the

@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/FisherZLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/FisherZLink.cs @ 2a0357a
 //
 // Fisher z link function mapping correlations from (-1, 1) to the unconstrained real
 // line. Domain: -1 < x < 1. h(x) = atanh(x), h^-1(eta) = tanh(eta),

@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/Support/MCMCDiagnostics.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/Support/MCMCDiagnostics.cs @ 2a0357a
 //
 // Convergence diagnostics: effective sample size (both C# overloads), the Gelman-Rubin
 // R-hat, and the Raftery-Lewis minimum-sample-size heuristic.

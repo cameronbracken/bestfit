@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/EmpiricalDistribution.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/EmpiricalDistribution.cs @ 2a0357a
 //
 // Univariate Empirical distribution: a piecewise-linear CDF defined by (x, p) pairs.
 // CDF and InverseCDF use linear interpolation in transformed space (default: NormalZ
@@ -14,12 +14,46 @@
 // NOTE: set_parameters(vector) throws (mirrors C# NotImplementedException), matching
 // the fact that Empirical is constructed with structured x/p arrays, not a flat vector.
 //
-// X5 ADDITIVE PORT (Numerics EmpiricalDistribution.XTransform @ a2c4dbf): the x-value transform
+// X5 ADDITIVE PORT (Numerics EmpiricalDistribution.XTransform @ 2a0357a): the x-value transform
 // (None / Logarithmic / NormalZ) was previously hardcoded to None. It is now a settable field
 // (default None -> identical prior behavior, all existing fixtures byte-green), applied in the
 // get_y_from_x / get_x_from_y interpolation exactly as OrderedPairedData.BaseInterpolate does.
 // CompositeAnalysis's CreateEmpiricalCDF path builds Mixture/CompetingRisks empirical CDFs with
 // XTransform = Logarithmic, so the two composite distributions need a log-space-capable backing.
+//
+// v2.1.4 (2a0357a) ValidateData wave: C# now runs a `ValidateData` check on every construction
+// path and every `SetParameters` call, and gates MOST of it lazily -- `_parametersValid` is
+// recomputed eagerly, but `CDF`/`InverseCDF` re-check it and throw (C# `ArgumentOutOfRangeException`)
+// the first time the distribution is actually *used* while invalid, rather than throwing at
+// construction time. The ONE exception is a length mismatch between `x` and `p`: C#'s
+// `SetParameters` overloads throw `ArgumentException` EAGERLY, right at the call site, before
+// `ValidateData` (and every other rule below) ever runs -- this port's constructor mirrors that
+// exactly (see the (x, p, transform, p_descending) constructor below). Every OTHER rule stays
+// lazy: at least two ordinates; `x` nondecreasing (C# `strictX` flipped `true` -> `false` at
+// every call site in this diff, so duplicate/tied X values -- e.g. repeated flood values, or
+// bootstrap resamples -- are now VALID, matching `OrderedPairedData`'s relaxed `StrictX =
+// false`); every probability finite and in [0, 1]; and the probabilities strictly monotonic in
+// the DECLARED direction (C#'s `OrderedPairedData` keeps `StrictY = true` always, and its
+// `OrderY` is whatever the caller passed as `probabilityOrder` -- Ascending, the hardcoded
+// default for the plain `SetParameters(x, p)` overload and the ordinary CDF case, or Descending,
+// an explicit opt-in treated as a survival-function encoding and flipped via `1 - p` in CDF /
+// `1 - probability` in InverseCDF; see `cdf()`/`inverse_cdf()` below). This is validated against
+// the DECLARED order, not auto-detected from the data: a descending p array constructed without
+// opting into Descending is INVALID (confirmed against the real C# via the dotnet oracle gate --
+// an earlier auto-detect design in this port reproduced a false positive the gate caught).
+// The C# `OrderedPairedData(orderedPairedData)` constructor overload additionally changed its
+// ascending-X-violation throw from a plain `ArgumentException` to `ArgumentOutOfRangeException`
+// -- this port has no separate `OrderedPairedData` type (the x/p tables are plain vectors owned
+// directly by this class), so there is no equivalent second throw site to migrate; the single
+// C++ convention below (`std::invalid_argument`, mirroring the C# `ArgumentOutOfRangeException`
+// thrown lazily from `CDF`/`InverseCDF`) covers every invalid-data case uniformly.
+//
+// NOT EXPOSED (deliberately): C#'s 4-arg `SetParameters(x, p, XOrder, probabilityOrder)` lets
+// the caller declare `XOrder` as `None` or `Descending` too, but ValidateData rejects both
+// unconditionally (`data.OrderX != SortOrder.Ascending` is always an error) -- i.e. `XOrder` is
+// only ever meaningfully `Ascending` in practice. This port's surface reflects that: there is no
+// XOrder parameter at all (x is always validated as the Ascending case), only the `p_descending`
+// axis above, which is the one C# axis that actually has an observable valid alternative.
 #pragma once
 #include <string>
 #include <algorithm>
@@ -47,6 +81,20 @@ enum class EmpiricalTransform {
 /// Univariate Empirical distribution.
 /// Stores an ordered (x, p) CDF table and interpolates with optional transforms.
 class EmpiricalDistribution : public UnivariateDistributionBase {
+    // KernelDensity's internal CDF table is a genuine C# architectural exception: real C#
+    // KernelDensity.CreateCDF builds a raw OrderedPairedData directly (never an
+    // EmpiricalDistribution), so its CDF/InverseCDF never run ValidateData and can never throw
+    // on tied cumulative probabilities -- which DOES happen for any compact-support kernel
+    // (Epanechnikov/Triangular/Uniform) with a small bandwidth, since the density is exactly
+    // zero over long stretches between sample clusters. This port has no separate
+    // OrderedPairedData type, so KernelDensity is friended to reach the private
+    // create_raw_table() factory below (bypassing validate_data() entirely, mirroring the raw
+    // OPD's total lack of a ValidateData concept) instead of going through the normal, checked
+    // public constructor every OTHER internal consumer (Mixture/CompetingRisks's
+    // CreateEmpiricalCDF, which DOES construct a real EmpiricalDistribution in C# too, so they
+    // correctly keep using the checked constructor -- see kernel_density.hpp's header note).
+    friend class KernelDensity;
+
    public:
     // --- Construction ------------------------------------------------------------------
 
@@ -56,10 +104,34 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         set_xy({-0.5, 0.0, 0.5}, {0.1, 0.5, 0.9});
     }
 
-    /// Construct from x and p arrays (ascending order assumed).
+    /// Construct from x and p arrays. `p_descending` opts into the survival-function encoding
+    /// (mirrors C#'s `SetParameters(x, p, XOrder, probabilityOrder)` with `probabilityOrder =
+    /// SortOrder.Descending`; default false matches the plain `SetParameters(x, p)` overload,
+    /// which hardcodes `SortOrder.Ascending` for both XOrder and probabilityOrder). This is a
+    /// DECLARED direction, not auto-detected from the data: a descending p array constructed
+    /// with `p_descending = false` (the default) is INVALID -- C# validates against the
+    /// caller-declared order, not the data's actual direction (confirmed against the real C#
+    /// via the dotnet oracle gate: an ascending-declared-but-descending-data case fails
+    /// ValidateData with "Y values must increase").
+    ///
+    /// A length mismatch between x and p throws EAGERLY, right here -- this mirrors C#'s
+    /// `SetParameters(x, p[, XOrder, probabilityOrder])`, which throws `ArgumentException`
+    /// immediately, before `ValidateData` (and thus before any of the OTHER rules below) ever
+    /// runs. Every other ValidateData rule (too few ordinates, non-nondecreasing x, out-of-range/
+    /// non-finite/non-monotonic p) stays LAZY exactly as C# has it -- construction succeeds with
+    /// `parameters_valid() == false`, and cdf()/inverse_cdf() throw std::invalid_argument on
+    /// first use (mirrors C#'s lazily-thrown `ArgumentOutOfRangeException`; see cdf()/
+    /// inverse_cdf() below). This port's convention: std::invalid_argument for both throw sites,
+    /// even though C# uses two different exception types (ArgumentException vs.
+    /// ArgumentOutOfRangeException) for the eager-vs-lazy cases.
     EmpiricalDistribution(std::vector<double> x_values, std::vector<double> p_values,
-                          EmpiricalTransform p_transform = EmpiricalTransform::NormalZ) {
+                          EmpiricalTransform p_transform = EmpiricalTransform::NormalZ,
+                          bool p_descending = false) {
+        if (x_values.size() != p_values.size())
+            throw std::invalid_argument(
+                "EmpiricalDistribution: x and p arrays must have the same length");
         p_transform_ = p_transform;
+        p_descending_ = p_descending;
         set_xy(std::move(x_values), std::move(p_values));
     }
 
@@ -151,19 +223,31 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
 
     // --- Distribution functions --------------------------------------------------------
 
-    /// Mirrors C# CDF(X): GetYFromX with XTransform=None, ProbabilityTransform, clamped [0,1].
+    /// Mirrors C# CDF(X): lazily throws if invalid (ValidateData, v2.1.4), then GetYFromX with
+    /// XTransform=None, ProbabilityTransform, clamped [0,1]. A descending probability order
+    /// (survival-function encoding) flips via 1-p, exactly as C# CDF does for
+    /// `OrderY == SortOrder.Descending`.
     double cdf(double x) const override {
-        double p = get_y_from_x(x);
+        if (!parameters_valid_)
+            throw std::invalid_argument("EmpiricalDistribution: invalid parameters (nondecreasing "
+                                        "x, matching-length finite p in [0,1], strictly monotonic p)");
+        double raw = get_y_from_x(x);
+        double p = p_descending_ ? 1.0 - raw : raw;
         return p < 0.0 ? 0.0 : p > 1.0 ? 1.0 : p;
     }
 
-    /// Mirrors C# InverseCDF: boundary guards, then GetXFromY.
+    /// Mirrors C# InverseCDF: lazily throws if invalid (ValidateData, v2.1.4), probability
+    /// range guard, boundary shortcuts, then GetXFromY (1-probability when the probability
+    /// order is descending, mirroring CDF's flip).
     double inverse_cdf(double probability) const override {
+        if (!parameters_valid_)
+            throw std::invalid_argument("EmpiricalDistribution: invalid parameters (nondecreasing "
+                                        "x, matching-length finite p in [0,1], strictly monotonic p)");
         if (probability < 0.0 || probability > 1.0)
             throw std::out_of_range("probability must be between 0 and 1");
         if (probability <= 1e-16) return minimum();
         if (probability >= 1.0 - 1e-16) return maximum();
-        double x = get_x_from_y(probability);
+        double x = p_descending_ ? get_x_from_y(1.0 - probability) : get_x_from_y(probability);
         double lo = minimum(), hi = maximum();
         return x < lo ? lo : x > hi ? hi : x;
     }
@@ -200,16 +284,22 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
     }
 
     std::unique_ptr<UnivariateDistributionBase> clone() const override {
-        auto c = std::make_unique<EmpiricalDistribution>(x_, p_, p_transform_);
+        auto c = std::make_unique<EmpiricalDistribution>(x_, p_, p_transform_, p_descending_);
         c->x_transform_ = x_transform_;
         return c;
     }
 
    private:
-    std::vector<double> x_;  // ascending x values
-    std::vector<double> p_;  // ascending probability values
+    std::vector<double> x_;  // nondecreasing x values (duplicates allowed, v2.1.4)
+    std::vector<double> p_;  // strictly monotonic probability values (ascending or descending)
     EmpiricalTransform p_transform_ = EmpiricalTransform::NormalZ;
     data::Transform x_transform_ = data::Transform::None;  // mirrors C# XTransform (default None)
+
+    // The DECLARED direction of p_ (mirrors the C# caller-configured `probabilityOrder`; an
+    // explicit constructor parameter -- see the (x, p, transform, p_descending) constructor
+    // above -- NOT auto-detected from the data). false (Ascending) for the common CDF case,
+    // matching the 2-arg `SetParameters(x, p)` overload's hardcoded `SortOrder.Ascending`.
+    bool p_descending_ = false;
 
     mutable bool moments_computed_ = false;
     mutable double u_[4] = {kNaN, kNaN, kNaN, kNaN};  // [mean, sd, skew, kurt]
@@ -218,7 +308,66 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         x_ = std::move(x);
         p_ = std::move(p);
         moments_computed_ = false;
-        parameters_valid_ = !x_.empty() && x_.size() == p_.size();
+        parameters_valid_ = validate_data();
+    }
+
+    // --- Raw/trusted construction (KernelDensity only; see the friend declaration above) -----
+
+    // Tag distinguishing the raw-table constructor below from the normal, checked public one
+    // (same argument types otherwise). Private: only reachable via create_raw_table(), which is
+    // itself private + friended to KernelDensity.
+    struct RawTableTag {};
+
+    // Skips validate_data() entirely and always reports parameters_valid() == true -- mirrors
+    // the real C# KernelDensity.CreateCDF building a raw OrderedPairedData directly (which has
+    // no ValidateData concept at all, so it can never throw on ties). x/p are trusted as-is;
+    // the interpolation code (get_y_from_x/get_x_from_y/bisect_p) already tolerates ties
+    // gracefully (the `if (y2 == y1) return ...` guards), matching what raw OPD interpolation
+    // would do.
+    EmpiricalDistribution(RawTableTag, std::vector<double> x, std::vector<double> p,
+                          EmpiricalTransform p_transform, bool p_descending)
+        : p_transform_(p_transform), p_descending_(p_descending) {
+        x_ = std::move(x);
+        p_ = std::move(p);
+        parameters_valid_ = true;
+    }
+
+    // Private factory KernelDensity actually calls (the constructor itself is private, and
+    // std::make_unique can't reach a private constructor even through a friend, so this
+    // wraps `new` directly).
+    static std::unique_ptr<EmpiricalDistribution> create_raw_table(
+        std::vector<double> x, std::vector<double> p, EmpiricalTransform p_transform,
+        bool p_descending) {
+        return std::unique_ptr<EmpiricalDistribution>(new EmpiricalDistribution(
+            RawTableTag{}, std::move(x), std::move(p), p_transform, p_descending));
+    }
+
+    // Mirrors C# EmpiricalDistribution.ValidateData (v2.1.4): at least two ordinates, matching
+    // x/p lengths, nondecreasing x (strictX = false), finite probabilities in [0, 1], and
+    // probabilities strictly monotonic in the DECLARED direction (p_descending_; strictY = true
+    // always -- C# rejects anything else via its `OrderedPairedData.IsValid`/`GetErrors`
+    // machinery, validated against the caller-declared `probabilityOrder`, not the data's actual
+    // direction). cdf()/inverse_cdf() throw std::invalid_argument (mirrors C#'s lazily-thrown
+    // ArgumentOutOfRangeException) rather than validating eagerly here -- EXCEPT the length
+    // check just below, which can never actually be false when this is reached (the public
+    // constructor already throws EAGERLY on a length mismatch, before set_xy()/validate_data()
+    // ever run); it's kept only because C#'s own ValidateData has this exact same redundant
+    // check (structural mirroring), not because it's reachable in this port.
+    bool validate_data() const {
+        const std::size_t n = x_.size();
+        if (n < 2 || p_.size() != n) return false;
+
+        for (std::size_t i = 1; i < n; ++i) {
+            if (x_[i] < x_[i - 1]) return false;
+        }
+        for (double v : p_) {
+            if (!std::isfinite(v) || v < 0.0 || v > 1.0) return false;
+        }
+        for (std::size_t i = 1; i < n; ++i) {
+            bool ok = p_descending_ ? (p_[i] < p_[i - 1]) : (p_[i] > p_[i - 1]);
+            if (!ok) return false;
+        }
+        return true;
     }
 
     // --- Interpolation helpers ---------------------------------------------------------
@@ -276,12 +425,14 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
         return lo;
     }
 
-    // Binary search on p_ array.
+    // Binary search on p_ array. Direction-aware (p_descending_): ascending p_ compares
+    // query >= p_[mid], descending p_ compares query <= p_[mid].
     int bisect_p(double query) const {
         int lo = 0, hi = static_cast<int>(p_.size()) - 1;
         while (hi - lo > 1) {
             int mid = (lo + hi) >> 1;
-            if (query >= p_[mid]) lo = mid; else hi = mid;
+            bool advance = p_descending_ ? (query <= p_[mid]) : (query >= p_[mid]);
+            if (advance) lo = mid; else hi = mid;
         }
         return lo;
     }
@@ -306,13 +457,19 @@ class EmpiricalDistribution : public UnivariateDistributionBase {
     }
 
     /// Mirrors OrderedPairedData.GetXFromY(p, XTransform=None, ProbabilityTransform).
-    /// Boundary: p <= p[0] → x[0]; p >= p[n-1] → x[n-1]; otherwise linear interpolate.
+    /// Boundary depends on p_'s direction (p_descending_): ascending -> p<=p[0] gives x[0],
+    /// p>=p[n-1] gives x[n-1]; descending -> the comparisons flip. Otherwise linear interpolate.
     double get_x_from_y(double prob) const {
         int n = static_cast<int>(p_.size());
         if (n == 0) return kNaN;
         if (n == 1) return x_[0];
-        if (prob <= p_[0]) return x_[0];
-        if (prob >= p_[n - 1]) return x_[n - 1];
+        if (!p_descending_) {
+            if (prob <= p_[0]) return x_[0];
+            if (prob >= p_[n - 1]) return x_[n - 1];
+        } else {
+            if (prob >= p_[0]) return x_[0];
+            if (prob <= p_[n - 1]) return x_[n - 1];
+        }
         // Transform the query into the interpolation space.
         double y = transform_p(prob);
         int i = bisect_p(prob);

@@ -1,8 +1,8 @@
 {
   "target": "Histogram.mean",
   "kind": "special_function",
-  "source": "Numerics/Data/Statistics/Histogram.cs; the 69-value sample1, Rice-rule 10-bin lower/upper/frequency, and explicit 20-bin lower/upper/frequency arrays are scraped verbatim from Test_Numerics/Data/Statistics/Test_Histogram.cs (Test_Histogram_Basic/Test_Histogram_Specified/Test_Stats/Test_DataCount/Test_Indexing).",
-  "reference": "Numerics @ a2c4dbf. Args convention (this port's own -- see fixtures/README.md): args = [explicit_bins, data...] for the whole-histogram scalar targets (explicit_bins == 0 selects the Rice-Rule ctor `new Histogram(data)`; explicit_bins > 0 selects `new Histogram(data, explicit_bins)`); the bin_lower_bound_at/bin_upper_bound_at/bin_frequency_at/get_bin_index_of element-lookup targets append one trailing probe value (a 0-based bin index, or an x value to look up) after `data`. mean/median/mode/standard_deviation values were independently recomputed in Python from Test_Stats.cs's own closed-form formulas applied to the scraped lower/upper/frequency arrays (matching that test's 1e-6 tolerance); bin edge/frequency element values are the scraped Excel-derived literals (1e-3 tolerance, matching that test); get_bin_index_of cases port Test_Indexing's invariant (GetBinIndexOf(bin[i].Midpoint) == i) with the midpoint independently recomputed in Python from the identical bin-construction arithmetic. Every non-integer-literal value here was additionally confirmed reproducible against the REAL C# Histogram by tools/verify_oracles.py.",
+  "source": "Numerics/Data/Statistics/Histogram.cs; the 69-value sample1, Rice-rule 10-bin lower/upper/frequency, and explicit 20-bin lower/upper/frequency arrays are scraped verbatim from Test_Numerics/Data/Statistics/Test_Histogram.cs (Test_Histogram_Basic/Test_Histogram_Specified/Test_Stats/Test_DataCount/Test_Indexing/Test_AddData_AdaptsEndpointBins).",
+  "reference": "Numerics @ 2a0357a. Args convention (this port's own -- see fixtures/README.md): args = [explicit_bins, data...] for the whole-histogram scalar targets (explicit_bins == 0 selects the Rice-Rule ctor `new Histogram(data)`; explicit_bins > 0 selects `new Histogram(data, explicit_bins)`); the bin_lower_bound_at/bin_upper_bound_at/bin_frequency_at/get_bin_index_of element-lookup targets append one trailing probe value (a 0-based bin index, or an x value to look up) after `data`. mean/median/mode/standard_deviation values were independently recomputed in Python from Test_Stats.cs's own closed-form formulas applied to the scraped lower/upper/frequency arrays (matching that test's 1e-6 tolerance); bin edge/frequency element values are the scraped Excel-derived literals (1e-3 tolerance, matching that test); get_bin_index_of cases port Test_Indexing's invariant (GetBinIndexOf(bin[i].Midpoint) == i) with the midpoint independently recomputed in Python from the identical bin-construction arithmetic. Every non-integer-literal value here was additionally confirmed reproducible against the REAL C# Histogram by tools/verify_oracles.py. The `adapt_*` targets (args = [explicit_bins, num_adds, data..., adds...], see histogram_build_adapt() in core/tests/test_fixtures.cpp) are new in the v2.1.4 sync: they build a 2-bin histogram from the [0, 10] Test_AddData_AdaptsEndpointBins setup, then replay a sequence of out-of-range AddData(double) calls (-5, -10, 15, 20) and assert the endpoint bins/bounds/frequencies widened correctly -- before the v2.1.4 fix, every one of those calls threw (see histogram.hpp's file header), so this exercises the fix directly rather than merely re-deriving a value. Curated via oracle_emitter --dump and confirmed reproducible against the REAL C# Histogram.",
   "cases": [
     {
       "name": "number_of_bins_rice",
@@ -3590,6 +3590,62 @@
           "mode": "equal",
           "source": "Test_Histogram.cs Test_Indexing invariant (GetBinIndexOf(bin[i].Midpoint)==i); midpoint value independently recomputed in Python from the same bin-construction arithmetic"
         }
+      ]
+    },
+    {
+      "name": "adapt_lower_bound",
+      "target": "Histogram.adapt_lower_bound",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": -10.0, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins" }
+      ]
+    },
+    {
+      "name": "adapt_upper_bound",
+      "target": "Histogram.adapt_upper_bound",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": 20.0, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins" }
+      ]
+    },
+    {
+      "name": "adapt_bin_first_lower_bound",
+      "target": "Histogram.adapt_bin_first_lower_bound",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": -10.0, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins" }
+      ]
+    },
+    {
+      "name": "adapt_bin_last_upper_bound",
+      "target": "Histogram.adapt_bin_last_upper_bound",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": 20.0, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins" }
+      ]
+    },
+    {
+      "name": "adapt_bin_first_frequency",
+      "target": "Histogram.adapt_bin_first_frequency",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": 3, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins -- bin[0] starts at frequency 1 (the ctor's own data point 0), then +1 each for the two out-of-range lower adds (-5, -10)" }
+      ]
+    },
+    {
+      "name": "adapt_bin_last_frequency",
+      "target": "Histogram.adapt_bin_last_frequency",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": 3, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins -- bin[1] starts at frequency 1 (the ctor's own data point 10), then +1 each for the two out-of-range upper adds (15, 20)" }
+      ]
+    },
+    {
+      "name": "adapt_data_count",
+      "target": "Histogram.adapt_data_count",
+      "args": [2, 4, 0.0, 10.0, -5.0, -10.0, 15.0, 20.0],
+      "assertions": [
+        { "method": "value", "expected": 6, "mode": "equal", "source": "curated via oracle_emitter --dump; adapted from Test_AddData_AdaptsEndpointBins -- 2 ctor points + 4 AddData calls" }
       ]
     }
   ]

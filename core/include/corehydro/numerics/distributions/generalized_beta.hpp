@@ -1,10 +1,21 @@
-// ported from: Numerics/Distributions/Univariate/GeneralizedBeta.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/GeneralizedBeta.cs @ 2a0357a
 //
 // The four-parameter (generalized) Beta distribution with shape parameters α, β and support
 // [min, max]. Logic mirrors the C# source method-for-method. The C# class derives only from
 // UnivariateDistributionBase and implements no estimation interfaces, so none are ported.
 // The static PERT(...) factory methods are consumed by the Pert distribution and are kept here.
 // SetParametersFromMoments and the WPF helpers are not ported (application concerns).
+//
+// v2.1.4 (33dc1af "Fix audited Numerics port issues"): Mode widened the same way as
+// BetaDistribution -- an explicit U-shape branch (both shape parameters < 1 -> support
+// midpoint) plus boundary comparisons widened to <=/>= (Min when alpha<=1 && beta>=1, Max when
+// alpha>=1 && beta<=1). Previously only the strict `alpha<=1 && beta<=1` U-shape case was
+// special-cased; every other combination fell through to the unclamped interior formula, which
+// could return a value outside [min, max] (e.g. GeneralizedBeta(0.42, 1.57, 0, 1).Mode was
+// ~58, now 0.0 -- see docs/upstream-csharp-issues.md's "Beta / GeneralizedBeta Mode" entry,
+// now resolved by this fix). Note the C# `Pert` distribution's own `Mode` returns its stored
+// "most likely" parameter directly (never calls GeneralizedBeta.Mode), so PERT's degenerate
+// midpoint behavior at min==mode==max is untouched by this change.
 #pragma once
 #include <string>
 #include <cmath>
@@ -80,7 +91,10 @@ class GeneralizedBeta : public UnivariateDistributionBase {
     double median() const override { return inverse_cdf(0.5); }
 
     double mode() const override {
-        if (alpha_ <= 1.0 && beta_ <= 1.0) return (min_ + max_) / 2.0;
+        if (alpha_ == 1.0 && beta_ == 1.0) return (min_ + max_) / 2.0;
+        if (alpha_ < 1.0 && beta_ < 1.0) return (min_ + max_) / 2.0;
+        if (alpha_ <= 1.0 && beta_ >= 1.0) return min_;
+        if (alpha_ >= 1.0 && beta_ <= 1.0) return max_;
         double m = (alpha_ - 1.0) / (alpha_ + beta_ - 2.0);
         return m * (max_ - min_) + min_;
     }

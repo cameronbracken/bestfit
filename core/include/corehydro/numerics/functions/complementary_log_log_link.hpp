@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/ComplementaryLogLogLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/ComplementaryLogLogLink.cs @ 2a0357a
 //
 // Complementary log-log link function mapping the unit interval (0, 1) to the
 // unconstrained real line. Domain: x in (0, 1). h(x) = log(-log(1 - x)),

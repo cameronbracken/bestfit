@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/GaussianCopula.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/GaussianCopula.cs @ c2e6192
 //
 // Gaussian copula for modeling spatial dependence in extreme values. Transforms marginals to
 // standard normal variables and applies a multivariate normal with correlation matrix R built

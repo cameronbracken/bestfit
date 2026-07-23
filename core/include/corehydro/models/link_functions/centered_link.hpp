@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/CenteredLink.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/CenteredLink.cs @ c2e6192
 //
 // Affine wrapper that centers and scales any ILinkFunction:
 //   z = (x - mu0)/s, then eta = Inner.Link(z).

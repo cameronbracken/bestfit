@@ -1,6 +1,6 @@
 // Transcribed C# oracle tests for the local optimizers (Task B5 added BFGS; Task B6 added
 // the Powell section; MLSL lives in test_optimizers_global.cpp):
-//   upstream/Numerics/Test_Numerics/Mathematics/Optimization/Local/Test_BFGS.cs @ a2c4dbf
+//   upstream/Numerics/Test_Numerics/Mathematics/Optimization/Local/Test_BFGS.cs @ 2a0357a
 //   upstream/Numerics/Test_Numerics/Mathematics/Optimization/Local/Test_Powell.cs @ a2c4dbf
 //
 // All 8 upstream [TestMethod]s of each class are transcribed with their exact fitness +

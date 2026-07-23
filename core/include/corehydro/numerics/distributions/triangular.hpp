@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Triangular.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Triangular.cs @ 2a0357a
 //
 // The Triangular distribution with min (a), mode (c), and max (b). Logic mirrors the C# source
 // method-for-method. Implements IEstimation (MoM and MLE via NelderMead). The IBootstrappable

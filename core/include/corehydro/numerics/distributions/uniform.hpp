@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Uniform.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Uniform.cs @ 2a0357a
 //
 // The continuous Uniform distribution on [min, max]. Logic mirrors the C# source
 // method-for-method. Uniform has no parameter-estimation methods upstream.

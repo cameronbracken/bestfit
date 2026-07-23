@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/LinearTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/LinearTrend.cs @ c2e6192
 //
 // Linear trend model: y(t) = alpha + beta * (t - StartIndex).
 // The XElement constructor is deliberately not ported (XML out of scope).

@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/SNIS.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/SNIS.cs @ 2a0357a
 //
 // Self-Normalizing Importance Sampling (SNIS): not a Markov chain at all -- every draw is
 // independent, either straight from the priors (naive Monte Carlo) or from an optional

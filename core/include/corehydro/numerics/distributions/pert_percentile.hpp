@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/PertPercentile.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/PertPercentile.cs @ 2a0357a
 //
 // PERT distribution parameterized by its 5th, 50th, and 95th percentiles. An underlying
 // GeneralizedBeta (PERT parameterization) is solved via NelderMead minimizing the sum of

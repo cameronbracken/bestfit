@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Diagnostics/InfluenceDiagnostics.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Diagnostics/InfluenceDiagnostics.cs @ c2e6192
 //
 // Provides influence diagnostics for individual observations in a Bayesian analysis. The key
 // diagnostic is the Pareto k value from PSIS-LOO (Pareto Smoothed Importance Sampling

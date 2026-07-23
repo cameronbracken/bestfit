@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Gamma.inverse_upper_incomplete",
   "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
-  "reference": "Numerics @ a2c4dbf; Gamma.InverseUpperIncomplete — delegates to Gamma.Inverse(a, y). Oracle values from dotnet run. Round-trip: InverseUpperIncomplete(a, UpperIncomplete(a, x)) ≈ x.",
+  "reference": "Numerics @ 2a0357a; Gamma.InverseUpperIncomplete — delegates to Gamma.Inverse(a, y). Oracle values from dotnet run. Round-trip: InverseUpperIncomplete(a, UpperIncomplete(a, x)) ≈ x.",
   "cases": [
     {
       "name": "inv_upper_a1_y09",

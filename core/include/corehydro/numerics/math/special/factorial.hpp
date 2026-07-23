@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Factorial.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Special Functions/Factorial.cs @ 2a0357a
 #pragma once
 #include <cmath>
 #include <cstddef>

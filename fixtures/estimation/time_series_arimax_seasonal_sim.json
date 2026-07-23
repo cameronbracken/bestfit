@@ -1,0 +1,194 @@
+{
+  "target": "Simulation",
+  "kind": "model_estimation",
+  "source": "Emitter oracle (Task 21): a FIXED-parameter (no fit) seeded ISimulatable draw off the REAL RMC.BestFit ARIMAX model with the inline Fourier seasonality term ON (Numerics @ 2a0357a, RMC-BestFit @ c2e6192), dumped via tools/oracle_emitter and reproduced by tools/verify_oracles.py. This pins the v2.0.0 InferSeasonalPeriod change: annual records now infer a DECADAL cycle (OneYear 1 -> 10, ARIMAX.cs:880). The two cases are the same model, parameters and seed on OneYear vs OneMonth, so they differ ONLY through the inferred seasonal period S -- at the pre-v2.0.0 S = 1 the Fourier pair collapses (sin(2*pi*t) == 0, cos(2*pi*t) == 1 at integer t) and the annual draw would flatten onto the no-seasonality stream. Because the parameters are pinned, this isolates the seeded MersenneTwister stream + inverse-CDF + the seasonal mean: the C++/R/Python port reproduces the C# draw bit-identically, so it carries rel 1e-9.",
+  "datasets": {
+    "series": [
+      10.2,
+      11.5,
+      9.8,
+      12.1,
+      13.4,
+      11.9,
+      10.6,
+      12.8,
+      14.0,
+      13.1,
+      11.7,
+      12.5,
+      13.9,
+      15.2,
+      14.1,
+      12.9,
+      13.6,
+      15.0,
+      16.2,
+      14.8,
+      13.3,
+      14.7,
+      16.0,
+      15.1,
+      13.8,
+      14.4,
+      15.9,
+      17.1,
+      16.3,
+      15.0,
+      14.2,
+      15.6,
+      16.8,
+      15.9,
+      14.6,
+      15.3,
+      16.7,
+      18.0,
+      17.2,
+      15.8
+    ]
+  },
+  "cases": [
+    {
+      "name": "arimax_annual_seasonality_fixed_params_seeded_draw",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "series",
+          "time_interval": "OneYear",
+          "orders": {
+            "p": 1,
+            "d": 0,
+            "q": 0,
+            "b": 0
+          },
+          "include_intercept": true,
+          "include_seasonality": true,
+          "transform": "None",
+          "parameter_values": [
+            14.0,
+            3.0,
+            0.0,
+            0.4,
+            1.1
+          ]
+        },
+        "sample_size": 12,
+        "seed": 42
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 13.648162368143852,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            1
+          ],
+          "expected": 16.53489083648102,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            2
+          ],
+          "expected": 18.978784898002974,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            5
+          ],
+          "expected": 15.097786400813515,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            7
+          ],
+          "expected": 11.70214453666613,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            11
+          ],
+          "expected": 13.827700679811288,
+          "mode": "rel",
+          "tol": 1e-09
+        }
+      ]
+    },
+    {
+      "name": "arimax_monthly_seasonality_fixed_params_seeded_draw",
+      "construct": {
+        "model": {
+          "type": "time_series",
+          "subtype": "arimax",
+          "dataset": "series",
+          "time_interval": "OneMonth",
+          "orders": {
+            "p": 1,
+            "d": 0,
+            "q": 0,
+            "b": 0
+          },
+          "include_intercept": true,
+          "include_seasonality": true,
+          "transform": "None",
+          "parameter_values": [
+            14.0,
+            3.0,
+            0.0,
+            0.4,
+            1.1
+          ]
+        },
+        "sample_size": 12,
+        "seed": 42
+      },
+      "assertions": [
+        {
+          "method": "simulated_value",
+          "args": [
+            0
+          ],
+          "expected": 13.648162368143852,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            3
+          ],
+          "expected": 16.85765824507959,
+          "mode": "rel",
+          "tol": 1e-09
+        },
+        {
+          "method": "simulated_value",
+          "args": [
+            11
+          ],
+          "expected": 10.56434492293387,
+          "mode": "rel",
+          "tol": 1e-09
+        }
+      ]
+    }
+  ]
+}

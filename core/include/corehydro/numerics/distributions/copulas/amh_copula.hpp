@@ -1,19 +1,21 @@
-// ported from: Numerics/Distributions/Bivariate Copulas/AMHCopula.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Bivariate Copulas/AMHCopula.cs @ 2a0357a
 //
 // The Ali-Mikhail-Haq (AMH) copula. theta in [-1, +1]; custom closed-form PDF (CDF falls
 // through to ArchimedeanCopula's generic Genest-1986 form via generator/generator_inverse);
 // InverseCDF is the closed-form Johnson (1987, p.362) quadratic solution. Unlike
 // ClaytonCopula, AMHCopula OVERRIDES ValidateParameter with a CORRECT implementation
 // (`return null;` in the C# in-range branch) -- i.e. AMH does NOT inherit
-// ArchimedeanCopula's "always-false ParametersValid" bug (see clayton_copula.hpp /
-// docs/upstream-csharp-issues.md); confirmed by reading AMHCopula.cs's own
-// ValidateParameter override, which is textually identical to ArchimedeanCopula's except
-// the final branch returns `null` instead of a non-null exception. generator_prime_inverse
-// has no closed form and is solved via Brent.Solve(x => GeneratorPrime(x) - t, 0, 1)
-// (corehydro::numerics::math::rootfinding::solve). set_theta_from_tau is also a Brent
-// root-solve (no closed form): it throws (std::runtime_error, mirroring the C# bare
-// `throw new Exception(...)`) if the sample's Kendall's tau falls outside AMH's achievable
-// range [(5 - 8 ln 2)/3, 1/3] ~= [-0.1817, 0.3333].
+// ArchimedeanCopula's "always-false ParametersValid" bug, RESOLVED upstream in v2.1.4 (see
+// clayton_copula.hpp / docs/upstream-csharp-issues.md); confirmed by reading AMHCopula.cs's
+// own ValidateParameter override, which is textually identical to ArchimedeanCopula's except
+// the final branch returns `null` instead of a non-null exception. v2.1.4 also added a
+// NaN/Inf check ahead of the range check here (mirrored below), matching every other copula's
+// finite-theta guard. generator_prime_inverse has no closed form and is solved via
+// Brent.Solve(x => GeneratorPrime(x) - t, 0, 1) (corehydro::numerics::math::rootfinding::solve).
+// set_theta_from_tau is also a Brent root-solve (no closed form): it throws
+// (std::runtime_error, mirroring the C# bare `throw new Exception(...)`) if the sample's
+// Kendall's tau falls outside AMH's achievable range [(5 - 8 ln 2)/3, 1/3] ~= [-0.1817, 0.3333].
+// Clone() deep-copies attached marginals via BivariateCopula::clone_marginal (v2.1.4, Task 8).
 //
 // NOTE: the C# default constructor's XML doc says "a dependency theta = 2" but the body
 // actually sets `Theta = 0.0d` (theta=2 would be out of AMH's [-1,1] range) -- transcribed
@@ -58,10 +60,15 @@ class AMHCopula : public ArchimedeanCopula {
     double theta_minimum() const override { return -1.0; }
     double theta_maximum() const override { return 1.0; }
 
-    // Correct override (does NOT reproduce ArchimedeanCopula's ParametersValid bug -- see
-    // file header).
+    // Correct override (does NOT reproduce ArchimedeanCopula's now-resolved ParametersValid
+    // bug -- see file header).
     std::optional<std::string> validate_parameter(double parameter,
                                                     bool throw_exception) const override {
+        if (std::isnan(parameter) || std::isinf(parameter)) {
+            std::string msg = "The dependency parameter must be finite.";
+            if (throw_exception) throw std::out_of_range(msg);
+            return msg;
+        }
         if (parameter < theta_minimum()) {
             std::string msg = "The dependency parameter theta (theta) must be greater than or "
                                "equal to " +
@@ -132,7 +139,8 @@ class AMHCopula : public ArchimedeanCopula {
     double lower_tail_dependence() const override { return 0.0; }
 
     std::unique_ptr<BivariateCopula> clone() const override {
-        return std::make_unique<AMHCopula>(theta(), marginal_distribution_x, marginal_distribution_y);
+        return std::make_unique<AMHCopula>(theta(), clone_marginal(marginal_distribution_x),
+                                            clone_marginal(marginal_distribution_y));
     }
 
     // Estimates the dependency parameter using the method of moments.

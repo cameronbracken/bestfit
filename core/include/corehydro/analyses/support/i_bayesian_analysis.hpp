@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IBayesianAnalysis.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IBayesianAnalysis.cs @ c2e6192
 //
 // Capability interface for Bayesian analyses: exposes the configured BayesianAnalysis estimator and
 // the (nullable) uncertainty-analysis results. Derives virtually from IAnalysis so the shared

@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/PlottingPositions.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/PlottingPositions.cs @ 2a0357a
 //
 // The general Function(N, alpha) formula, the Weibull(N) entry point SNIS.cs's
 // output-resampling step calls (`PlottingPositions.Weibull(OutputLength)`), and the

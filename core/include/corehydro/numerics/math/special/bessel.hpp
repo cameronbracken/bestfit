@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Special Functions/Bessel.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Special Functions/Bessel.cs @ 2a0357a
 // Ports I0 and I1 only (modified Bessel functions of the first kind, orders 0 and 1).
 #pragma once
 #include <cmath>

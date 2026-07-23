@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Poisson.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Poisson.cs @ 2a0357a
 //
 // Poisson distribution with rate λ (lambda). Discrete; support {0, 1, 2, ...}.
 // PMF via log-factorial; CDF via regularized upper incomplete gamma (UpperIncomplete(k+1, λ));

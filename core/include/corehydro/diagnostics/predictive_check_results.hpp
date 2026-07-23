@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PredictiveCheckResults.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PredictiveCheckResults.cs @ c2e6192
 //
 // Results from posterior predictive checking with common test statistics: the number of
 // replicates plus the five posterior predictive p-values (mean/SD/skewness/min/max) and the

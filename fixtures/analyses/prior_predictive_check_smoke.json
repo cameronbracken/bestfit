@@ -1,7 +1,7 @@
 {
   "target": "PriorPredictiveCheck",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ fc28c0c -- X12 exact oracle, emitter-verified against the real RMC.BestFit PriorPredictiveCheck and reproduced bit-identically by the C++/R/Python runners. PriorPredictiveCheck samples 200 parameter sets from the Normal model priors (seeded MersenneTwister -- NO MCMC chain), simulates a sample_size=30 dataset per draw, and summarizes the predictive mean/SD/min/max quantiles. Every draw is valid (number_of_valid_draws == 200); the summary quantiles reproduce to rel 1e-9 across C#/C++/R/Python (the prior-sampling MT is bit-exact).",
+  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ c2e6192 -- X12 exact oracle, emitter-verified against the real RMC.BestFit PriorPredictiveCheck and reproduced bit-identically by the C++/R/Python runners. PriorPredictiveCheck samples 200 parameter sets from the Normal model priors (seeded MersenneTwister -- NO MCMC chain), simulates a sample_size=30 dataset per draw, and summarizes the predictive mean/SD/min/max quantiles. Every draw is valid (number_of_valid_draws == 200); the summary quantiles reproduce to rel 1e-9 across C#/C++/R/Python (the prior-sampling MT is bit-exact).",
   "datasets": {
     "flow": [
       12500,

@@ -1,7 +1,7 @@
 {
   "target": "PosteriorPredictiveCheck",
   "kind": "analysis",
-  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PosteriorPredictiveCheck.cs @ fc28c0c -- X12 exact oracle, emitter-verified against the real RMC.BestFit PosteriorPredictiveCheck and reproduced bit-identically by the C++/R/Python runners. A quick seeded DEMCzs MCMC over the Normal model supplies the posterior; 200 replicate datasets are drawn (seeded MersenneTwister) and the common mean/SD/skewness/min/max posterior predictive p-values are computed. The p-values are DISCRETE fractions (multiples of 1/200), so the tiny chaotic chain sensitivity does not perturb them -- they + has_misfit reproduce exactly (abs 1e-9) across C#/C++/R/Python. predictive_replicates == 200.",
+  "source": "RMC-BestFit/src/RMC.BestFit/Diagnostics/PosteriorPredictiveCheck.cs @ c2e6192 -- X12 exact oracle, emitter-verified against the real RMC.BestFit PosteriorPredictiveCheck and reproduced bit-identically by the C++/R/Python runners. A quick seeded DEMCzs MCMC over the Normal model supplies the posterior; 200 replicate datasets are drawn (seeded MersenneTwister) and the common mean/SD/skewness/min/max posterior predictive p-values are computed. The p-values are DISCRETE fractions (multiples of 1/200), so the tiny chaotic chain sensitivity does not perturb them -- they + has_misfit reproduce exactly (abs 1e-9) across C#/C++/R/Python. predictive_replicates == 200.",
   "datasets": {
     "flow": [
       12500,

@@ -18,7 +18,16 @@
 // FIXTURES) would require either a fixture -- violating the binding "internal support gets
 // C++-only ctests, public-API oracles live ONLY in fixtures/" constraint -- or new four-way
 // harness wiring for a non-distribution support class. Tracked as a P5 follow-up.
+//
+// v2.1.4 (upstream-sync Task 2, 2a0357a) added test_fit_invalid_samples_returns_nan and
+// test_log_likelihood_invalid_samples_returns_neg_infinity below, transcribed the same way
+// from Test_BoxCox.cs's new Test_Fit_InvalidSamples_ReturnsNaN and
+// Test_LogLikelihood_InvalidSamples_ReturnsNegativeInfinity (minus the null-sample case --
+// a std::vector reference can't be null). The public-facing BoxCoxLambda FitLambda oracle
+// path for these same NaN semantics is ALSO fixture-covered (fixtures/data/
+// statistics_utilities.json), since BoxCoxLambda (unlike LogLikelihood) is bound in R/Python.
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "corehydro/numerics/data/box_cox.hpp"
@@ -140,6 +149,31 @@ void test_log_jacobian() {
     CHECK_TRUE(std::isinf(BoxCox::log_jacobian({2.0, -1.0, 8.0}, 1.5)));
 }
 
+// v2.1.4: FitLambda reports invalid/degenerate samples with NaN instead of computing
+// through BrentSearch (Test_BoxCox.cs Test_Fit_InvalidSamples_ReturnsNaN, minus the null
+// case -- a std::vector reference can't be null).
+void test_fit_invalid_samples_returns_nan() {
+    CHECK_TRUE(std::isnan(BoxCox::fit_lambda({1.0})));
+    CHECK_TRUE(std::isnan(BoxCox::fit_lambda({1.0, 1.0, 1.0})));
+    CHECK_TRUE(std::isnan(BoxCox::fit_lambda({0.0, 10.0, 11.0})));
+    CHECK_TRUE(std::isnan(BoxCox::fit_lambda({-1.0, 10.0, 11.0})));
+    CHECK_TRUE(std::isnan(BoxCox::fit_lambda({1.0, std::numeric_limits<double>::quiet_NaN(), 2.0})));
+    CHECK_TRUE(
+        std::isnan(BoxCox::fit_lambda({1.0, std::numeric_limits<double>::infinity(), 2.0})));
+}
+
+// v2.1.4: LogLikelihood returns -Infinity for samples outside the Box-Cox domain
+// (Test_BoxCox.cs Test_LogLikelihood_InvalidSamples_ReturnsNegativeInfinity).
+void test_log_likelihood_invalid_samples_returns_neg_infinity() {
+    CHECK_TRUE(std::isinf(BoxCox::log_likelihood({0.0, 1.0}, 1.0)));
+    CHECK_TRUE(BoxCox::log_likelihood({0.0, 1.0}, 1.0) < 0.0);
+    CHECK_TRUE(std::isinf(BoxCox::log_likelihood({1.0, 1.0}, 1.0)));
+    CHECK_TRUE(std::isinf(
+        BoxCox::log_likelihood({1.0, std::numeric_limits<double>::quiet_NaN()}, 1.0)));
+    CHECK_TRUE(std::isinf(
+        BoxCox::log_likelihood({1.0, 2.0}, std::numeric_limits<double>::quiet_NaN())));
+}
+
 }  // namespace
 
 int main() {
@@ -149,5 +183,7 @@ int main() {
     test_transform_r();
     test_guards();
     test_log_jacobian();
+    test_fit_invalid_samples_returns_nan();
+    test_log_likelihood_invalid_samples_returns_neg_infinity();
     return chtest::summary("box_cox");
 }

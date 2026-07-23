@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/PriorComponent.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/Support/PriorComponent.cs @ c2e6192
 //
 // Represents a single component of the prior log-likelihood for influence diagnostics
 // (parameter priors, quantile priors, Jeffreys scale priors, spatial error, Jacobian terms,

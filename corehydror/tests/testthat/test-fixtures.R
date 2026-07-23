@@ -72,6 +72,8 @@ dispatch_generic <- function(target, p, method, args) {
     # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
     random_value = ns$ch_dist_random_(target, p, as.integer(args[[1]]),
       as.integer(args[[2]]))[[as.integer(args[[3]]) + 1L]],
+    # Static GammaDistribution utility, not tied to `p` -- args: [skewness, probability].
+    partial_kp = ns$ch_dist_gamma_partial_kp_(as.double(args[[1]]), as.double(args[[2]])),
     stop(sprintf("unknown fixture method: %s", method))
   )
 }
@@ -137,7 +139,11 @@ build_composite_data <- function(target, construct, datasets = list()) {
     xv <- as.double(unlist(construct$x))
     pv <- as.double(unlist(construct$p))
     pt <- if (!is.null(construct$p_transform)) construct$p_transform else "NormalZ"
-    return(list(x_vals = xv, p_vals = pv, p_transform = pt))
+    # v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+    # `probabilityOrder` argument -- NOT auto-detected from the data); default FALSE matches
+    # the ordinary ascending-CDF case.
+    pd <- if (!is.null(construct$p_descending)) as.logical(construct$p_descending) else FALSE
+    return(list(x_vals = xv, p_vals = pv, p_transform = pt, p_descending = pd))
   }
   if (target == "KernelDensity") {
     data_key  <- construct$data
@@ -151,7 +157,10 @@ build_composite_data <- function(target, construct, datasets = list()) {
     comp_targets <- vapply(construct$components, function(c) c$target, character(1))
     comp_params  <- lapply(construct$components, function(c) vapply(c$params, parse_num, numeric(1)))
     wts          <- as.double(unlist(construct$weights))
-    return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts))
+    zero_inflated <- if (!is.null(construct$zero_inflated)) as.logical(construct$zero_inflated) else FALSE
+    zero_weight   <- if (!is.null(construct$zero_weight)) parse_num(construct$zero_weight) else 0.0
+    return(list(comp_targets = comp_targets, comp_params = comp_params, weights = wts,
+                zero_inflated = zero_inflated, zero_weight = zero_weight))
   }
   if (target == "CompetingRisks") {
     comp_targets <- vapply(construct$components, function(c) c$target, character(1))
@@ -183,19 +192,23 @@ dispatch_composite <- function(target, cd, method, args) {
       quantile = ns$ch_trunc_quantile_(cd$base_target, cd$base_params, cd$lo, cd$hi,
                                        as.double(args[[1]])),
       parameters_valid = ns$ch_trunc_valid_(cd$base_target, cd$base_params, cd$lo, cd$hi),
+      # GetParameters mirrors {base_params..., lo, hi} -- no C++ call needed, `cd` already
+      # holds the flat tuple (used by the sequential_setparameters_recovery-style cases to
+      # confirm a restored parameter set after a SetParameters recovery).
+      param = c(cd$base_params, cd$lo, cd$hi)[[as.integer(args[[1]]) + 1L]],
       stop(sprintf("unknown fixture method for TruncatedDistribution: %s", method))
     ))
   }
   if (target == "Empirical") {
-    xv <- cd$x_vals; pv <- cd$p_vals; pt <- cd$p_transform
+    xv <- cd$x_vals; pv <- cd$p_vals; pt <- cd$p_transform; pd <- cd$p_descending
     if (method %in% moment_names) {
-      return(unname(ns$ch_emp_moments_(xv, pv, pt)[[method]]))
+      return(unname(ns$ch_emp_moments_(xv, pv, pt, pd)[[method]]))
     }
     return(switch(method,
-      pdf      = ns$ch_emp_pdf_(xv, pv, pt, as.double(args[[1]])),
-      cdf      = ns$ch_emp_cdf_(xv, pv, pt, as.double(args[[1]])),
-      quantile = ns$ch_emp_quantile_(xv, pv, pt, as.double(args[[1]])),
-      parameters_valid = ns$ch_emp_valid_(xv, pv, pt),
+      pdf      = ns$ch_emp_pdf_(xv, pv, pt, pd, as.double(args[[1]])),
+      cdf      = ns$ch_emp_cdf_(xv, pv, pt, pd, as.double(args[[1]])),
+      quantile = ns$ch_emp_quantile_(xv, pv, pt, pd, as.double(args[[1]])),
+      parameters_valid = ns$ch_emp_valid_(xv, pv, pt, pd),
       stop(sprintf("unknown fixture method for Empirical: %s", method))
     ))
   }
@@ -214,14 +227,18 @@ dispatch_composite <- function(target, cd, method, args) {
   }
   if (target == "Mixture") {
     ct <- cd$comp_targets; cp <- cd$comp_params; wts <- cd$weights
+    zi <- cd$zero_inflated; zw <- cd$zero_weight
     if (method %in% moment_names) {
-      return(unname(ns$ch_mix_moments_(ct, cp, wts)[[method]]))
+      return(unname(ns$ch_mix_moments_(ct, cp, wts, zi, zw)[[method]]))
     }
     return(switch(method,
-      pdf              = ns$ch_mix_pdf_(ct, cp, wts, as.double(args[[1]])),
-      cdf              = ns$ch_mix_cdf_(ct, cp, wts, as.double(args[[1]])),
-      quantile         = ns$ch_mix_quantile_(ct, cp, wts, as.double(args[[1]])),
-      parameters_valid = ns$ch_mix_valid_(ct, cp, wts),
+      pdf              = ns$ch_mix_pdf_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      cdf              = ns$ch_mix_cdf_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      quantile         = ns$ch_mix_quantile_(ct, cp, wts, zi, zw, as.double(args[[1]])),
+      parameters_valid = ns$ch_mix_valid_(ct, cp, wts, zi, zw),
+      # GetParameters() flat vector [w0..wK-1, component params...] -- needed (not the raw
+      # `wts` in `cd`) because the zero-inflation setters recompute the weights in C++.
+      param            = ns$ch_mix_params_(ct, cp, wts, zi, zw)[[as.integer(args[[1]]) + 1L]],
       stop(sprintf("unknown fixture method for Mixture: %s", method))
     ))
   }
@@ -230,6 +247,13 @@ dispatch_composite <- function(target, cd, method, args) {
     dep <- cd$dependency; corr <- cd$correlation
     if (method %in% moment_names) {
       return(unname(ns$ch_cr_moments_(ct, cp, min_rv, dep, corr)[[method]]))
+    }
+    if (method == "dependency_change") {
+      # v2.1.4: verifies the Dependency setter fix + PerfectlyNegative no longer zeroing
+      # CorrelationMatrix, in ONE self-contained call -- args = [x, dependency2, i, j, field].
+      return(ns$ch_cr_dependency_change_(ct, cp, min_rv, dep, args[[2]], corr,
+                                          as.double(args[[1]]), args[[5]],
+                                          as.integer(args[[3]]), as.integer(args[[4]])))
     }
     return(switch(method,
       pdf              = ns$ch_cr_pdf_(ct, cp, min_rv, dep, corr, as.double(args[[1]])),
@@ -241,6 +265,26 @@ dispatch_composite <- function(target, cd, method, args) {
     ))
   }
   stop(sprintf("unknown composite target: %s", target))
+}
+
+# Applies a "set_parameters" fixture step to a composite's parsed construct data, mirroring
+# the C# SetParameters(flat vector) entry point -- lets a case exercise a "construct valid ->
+# SetParameters invalid -> recheck -> SetParameters valid -> recheck" sequence. There is no
+# persistent C++ object to mutate here (every ch_trunc_*_ call is a stateless
+# construct-and-compute), so this instead updates the R-side `cd` list in place; the NEXT
+# dispatch_composite call reconstructs from the updated fields, which is behaviorally
+# equivalent (see test-fixtures.R's fixture-README companion note). Only TruncatedDistribution
+# needs this in the current validation wave.
+apply_set_parameters_composite <- function(target, cd, flat_args) {
+  flat <- vapply(flat_args, parse_num, numeric(1))
+  if (target == "TruncatedDistribution") {
+    n_base <- length(cd$base_params)
+    cd$base_params <- flat[seq_len(n_base)]
+    cd$lo <- flat[n_base + 1L]
+    cd$hi <- flat[n_base + 2L]
+    return(cd)
+  }
+  stop(sprintf("set_parameters not supported for composite target: %s", target))
 }
 
 # --- multivariate_distribution path -----------------------------------------------------
@@ -280,11 +324,61 @@ dispatch_multivariate <- function(target, construct, method, args) {
       if (!is.null(construct$x2_transform)) construct$x2_transform else "None",
       if (!is.null(construct$p_transform)) construct$p_transform else "None"
     )
+    # v2.1.4 stale-cache fix: args = [[x1_new...], [x2_new...], [[p_row0...], ...],
+    # x1_eval, x2_eval] -- a dedicated entry point (not the flattened `ar`) since the
+    # replacement grid's shape must stay structured.
+    if (method == "cdf_xy_after_set_parameters") {
+      x1_new <- vapply(args[[1]], parse_num, numeric(1))
+      x2_new <- vapply(args[[2]], parse_num, numeric(1))
+      p_new_flat <- as.double(unlist(lapply(args[[3]], function(row) vapply(row, parse_num, numeric(1)))))
+      x1_eval <- parse_num(args[[4]])
+      x2_eval <- parse_num(args[[5]])
+      return(ns$ch_bve_cdf_after_set_parameters_(x1, x2, p_flat, length(x1), transforms,
+                                                  x1_new, x2_new, p_new_flat, length(x1_new),
+                                                  x1_eval, x2_eval))
+    }
     return(ns$ch_bve_cdf_(method, x1, x2, p_flat, length(x1), transforms, ar))
   }
   if (target == "MultivariateNormal") {
     mean <- vapply(construct$mean, parse_num, numeric(1))
     cov_flat <- as.double(unlist(lapply(construct$covariance, function(row) vapply(row, parse_num, numeric(1)))))
+    # v2.1.4 Marginal/Conditional: dedicated entry points (not the flattened `ar`) since
+    # these take a variable-length index vector (Conditional: a second same-length values
+    # vector) that flatten_mv_args's "one nested vector, or all-scalar" convention can't
+    # disambiguate from adjacent variable-length vectors.
+    if (method == "marginal_mean") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_mean_(mean, cov_flat, indices, as.integer(args[[2]])))
+    }
+    if (method == "marginal_covariance") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_covariance_(mean, cov_flat, indices, as.integer(args[[2]]), as.integer(args[[3]])))
+    }
+    if (method == "marginal_log_pdf") {
+      indices <- as.integer(unlist(args[[1]]))
+      point <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_marginal_log_pdf_(mean, cov_flat, indices, point))
+    }
+    if (method == "marginal_dimension") {
+      indices <- as.integer(unlist(args[[1]]))
+      return(ns$ch_mvn_marginal_dimension_(mean, cov_flat, indices))
+    }
+    if (method == "conditional_mean") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_mean_(mean, cov_flat, obs_indices, obs_values, as.integer(args[[3]])))
+    }
+    if (method == "conditional_covariance") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_covariance_(mean, cov_flat, obs_indices, obs_values,
+                                                as.integer(args[[3]]), as.integer(args[[4]])))
+    }
+    if (method == "conditional_dimension") {
+      obs_indices <- as.integer(unlist(args[[1]]))
+      obs_values <- vapply(args[[2]], parse_num, numeric(1))
+      return(ns$ch_mvn_conditional_dimension_(mean, cov_flat, obs_indices, obs_values))
+    }
     return(ns$ch_mvn_val_(method, mean, cov_flat, ar))
   }
   if (target == "MultivariateStudentT") {
@@ -541,6 +635,11 @@ dispatch_estimation <- function(result, method, args, ctx) {
     # per-assertion AEP, so it rebuilds the deterministic fit live (the `bic` precedent).
     j_stat             = result$j_stat[[1]],
     j_stat_pval        = result$j_stat_pval[[1]],
+    # T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+    # OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+    gmm_iterations     = result$gmm_iterations[[1]],
+    converged_within_tolerance = as.numeric(result$converged_within_tolerance[[1]]),
+    optimizer_fallback_count = result$optimizer_fallback_count[[1]],
     quantile_variance  = ctx$qvar_fn(as.double(args[[1]])),
     posterior_mean     = result$posterior_mean[[i1(args[[1]])]],
     # chain_value [chain, iter, param]: ch_estimation_bayes_run_ returns a flattened
@@ -560,6 +659,12 @@ dispatch_estimation <- function(result, method, args, ctx) {
     low_outlier_threshold = ctx$df_fn()$low_outlier_threshold[[1]],
     # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain", in spec order.
     plotting_position = ctx$df_fn()[[paste0("pp_", args[[1]])]][[i1(args[[2]])]],
+    # The Validate surface (Task 16, works under any target): ctx$validate_fn() lazily builds +
+    # memoizes ch_model_validate_'s result once per case (the df_fn/bic lazy-rebuild precedent).
+    # validation_message_contains is a structural substring check, not a byte-exact message pin
+    # (see test_fixtures.cpp's dispatch_model_validate for the rationale).
+    is_valid = as.numeric(ctx$validate_fn()$is_valid[[1]]),
+    validation_message_contains = as.numeric(any(grepl(args[[1]], ctx$validate_fn()$messages, fixed = TRUE))),
     stop(sprintf("unknown model_estimation fixture method: %s", method))
   )
 }
@@ -578,11 +683,22 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     if (is.null(df_env$df)) df_env$df <- ns$ch_model_data_frame_(model_json, data)
     df_env$df
   }
+  # The Validate surface (Task 16): lazily build + memoize ch_model_validate_'s result (only
+  # cases that actually assert is_valid/validation_message_contains pay for the call).
+  validate_env <- new.env(parent = emptyenv())
+  validate_fn <- function() {
+    if (is.null(validate_env$v)) validate_env$v <- ns$ch_model_validate_(model_json, data)
+    validate_env$v
+  }
 
   if (target == "Simulation") {
     seed <- if (!is.null(construct$seed)) as.integer(construct$seed) else -1L
     draws <- ns$ch_model_simulate_(model_json, data, as.integer(construct$sample_size), seed)
     result <- list(simulated = draws)
+    ctx <- list()
+  } else if (target == "Validate") {
+    # Builds the model only (no estimator, no draw) -- every assertion reads ctx$validate_fn().
+    result <- list()
     ctx <- list()
   } else if (target == "BayesianAnalysis") {
     sampler <- if (!is.null(construct$sampler)) construct$sampler else "DEMCzs"
@@ -616,6 +732,7 @@ run_estimation_case <- function(target, construct, assertions, datasets) {
     ctx <- list(bic_fn = function(n) ns$ch_estimation_bic_(target, model_json, data, optimizer, n))
   }
   ctx$df_fn <- df_fn
+  ctx$validate_fn <- validate_fn
 
   for (a in assertions) {
     args <- if (is.null(a$args)) list() else a$args
@@ -703,6 +820,25 @@ dispatch_analysis <- function(result, method, args) {
     summary_sd_quantile   = result$summary_sd_quantiles[[i1(args[[1]])]],
     summary_min_quantile  = result$summary_min_quantiles[[i1(args[[1]])]],
     summary_max_quantile  = result$summary_max_quantiles[[i1(args[[1]])]],
+    # T19: BootstrapDiagnostics (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    boot_has_results             = as.numeric(result$bootstrap$has_results),
+    boot_total_replicates        = result$bootstrap$total_replicates,
+    boot_attempted_replicates    = result$bootstrap$attempted_replicates,
+    boot_failed_replicates       = result$bootstrap$failed_replicates,
+    boot_valid_replicates        = result$bootstrap$valid_replicates,
+    boot_retained_replicates     = result$bootstrap$retained_replicates,
+    boot_failure_rate            = result$bootstrap$failure_rate,
+    boot_total_retries           = result$bootstrap$total_retries,
+    boot_average_retries         = result$bootstrap$average_retries,
+    boot_pivot_rejections        = result$bootstrap$pivot_rejections,
+    boot_mahalanobis_rejections  = result$bootstrap$mahalanobis_rejections,
+    boot_transform_failures      = result$bootstrap$transform_failures,
+    boot_status_success_count    = result$bootstrap$status_success_count,
+    boot_status_max_iterations_count = result$bootstrap$status_max_iterations_count,
+    boot_status_max_function_evaluations_count = result$bootstrap$status_max_function_evaluations_count,
+    boot_status_failure_count    = result$bootstrap$status_failure_count,
+    boot_status_none_count       = result$bootstrap$status_none_count,
+    boot_optimizer_fallbacks     = result$bootstrap$optimizer_fallbacks,
     stop(sprintf("unknown analysis fixture method: %s", method))
   )
 }
@@ -753,7 +889,10 @@ run_analysis_case <- function(target, construct, assertions, datasets) {
   } else if (target == "Bulletin17CAnalysis") {
     model <- construct$model
     model_json <- as.character(jsonlite::toJSON(model, auto_unbox = TRUE, digits = I(17)))
-    data <- as.double(unlist(datasets[[model$dataset]]))
+    # T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+    # without a `dataset` reference -- mirrors the C++ runner's guard so a Bulletin17CAnalysis
+    # case can force low outliers / censored data onto the parent frame.
+    data <- if (!is.null(model$dataset)) as.double(unlist(datasets[[model$dataset]])) else numeric(0)
     um <- if (!is.null(construct$uncertainty_method)) construct$uncertainty_method else "MultivariateNormal"
     result <- ns$ch_analysis_b17c_run_(
       model_json, data, um, geti("output_length", 10000L), geti("seed", 12345L),
@@ -883,7 +1022,12 @@ test_that("oracle fixtures validate", {
         cd <- build_composite_data(target, case$construct, datasets)
         for (a in case$assertions) {
           args <- if (is.null(a$args)) list() else a$args
-          actual <- dispatch_composite(target, cd, a$method, args)
+          if (identical(a$method, "set_parameters")) {
+            cd <- apply_set_parameters_composite(target, cd, args)
+            actual <- 0
+          } else {
+            actual <- dispatch_composite(target, cd, a$method, args)
+          }
           check_assertion(actual, a)
         }
       } else {

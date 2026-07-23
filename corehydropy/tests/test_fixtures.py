@@ -97,7 +97,11 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         xv = [float(v) for v in construct["x"]]
         pv = [float(v) for v in construct["p"]]
         pt = construct.get("p_transform", "NormalZ")
-        return {"x_vals": xv, "p_vals": pv, "p_transform": pt}
+        # v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+        # `probabilityOrder` argument -- NOT auto-detected from the data); default False
+        # matches the ordinary ascending-CDF case.
+        pd = bool(construct.get("p_descending", False))
+        return {"x_vals": xv, "p_vals": pv, "p_transform": pt, "p_descending": pd}
     if target == "KernelDensity":
         ds = datasets or {}
         data_key = construct["data"]
@@ -110,7 +114,10 @@ def _build_composite(target: str, construct: dict, datasets: dict | None = None)
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
         wts = [float(w) for w in construct["weights"]]
-        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts}
+        zero_inflated = bool(construct.get("zero_inflated", False))
+        zero_weight = _num(construct.get("zero_weight", 0.0))
+        return {"comp_targets": comp_targets, "comp_params": comp_params, "weights": wts,
+                "zero_inflated": zero_inflated, "zero_weight": zero_weight}
     if target == "CompetingRisks":
         comp_targets = [c["target"] for c in construct["components"]]
         comp_params = [[float(v) for v in c["params"]] for c in construct["components"]]
@@ -136,19 +143,24 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return _core.trunc_quantile(bt, bp, lo, hi, args[0])
         if method == "parameters_valid":
             return _core.trunc_valid(bt, bp, lo, hi)
+        if method == "param":
+            # GetParameters mirrors {base_params..., lo, hi} -- no C++ call needed, `cd`
+            # already holds the flat tuple (used by the sequential_setparameters_recovery-
+            # style cases to confirm a restored parameter set after a SetParameters recovery).
+            return (bp + [lo, hi])[int(args[0])]
         raise KeyError(f"unknown fixture method for TruncatedDistribution: {method}")
     if target == "Empirical":
-        xv, pv, pt = cd["x_vals"], cd["p_vals"], cd["p_transform"]
+        xv, pv, pt, pd = cd["x_vals"], cd["p_vals"], cd["p_transform"], cd["p_descending"]
         if method in _MOMENTS:
-            return _core.emp_moments(xv, pv, pt)[method]
+            return _core.emp_moments(xv, pv, pt, pd)[method]
         if method == "pdf":
-            return _core.emp_pdf(xv, pv, pt, args[0])
+            return _core.emp_pdf(xv, pv, pt, pd, args[0])
         if method == "cdf":
-            return _core.emp_cdf(xv, pv, pt, args[0])
+            return _core.emp_cdf(xv, pv, pt, pd, args[0])
         if method == "quantile":
-            return _core.emp_quantile(xv, pv, pt, args[0])
+            return _core.emp_quantile(xv, pv, pt, pd, args[0])
         if method == "parameters_valid":
-            return _core.emp_valid(xv, pv, pt)
+            return _core.emp_valid(xv, pv, pt, pd)
         raise KeyError(f"unknown fixture method for Empirical: {method}")
     if target == "KernelDensity":
         dv, ker, bw, bd = cd["data_vec"], cd["kernel"], cd["bandwidth"], cd["bounded"]
@@ -165,16 +177,21 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
         raise KeyError(f"unknown fixture method for KernelDensity: {method}")
     if target == "Mixture":
         ct, cp, wts = cd["comp_targets"], cd["comp_params"], cd["weights"]
+        zi, zw = cd["zero_inflated"], cd["zero_weight"]
         if method in _MOMENTS:
-            return _core.mix_moments(ct, cp, wts)[method]
+            return _core.mix_moments(ct, cp, wts, zi, zw)[method]
         if method == "pdf":
-            return _core.mix_pdf(ct, cp, wts, args[0])
+            return _core.mix_pdf(ct, cp, wts, zi, zw, args[0])
         if method == "cdf":
-            return _core.mix_cdf(ct, cp, wts, args[0])
+            return _core.mix_cdf(ct, cp, wts, zi, zw, args[0])
         if method == "quantile":
-            return _core.mix_quantile(ct, cp, wts, args[0])
+            return _core.mix_quantile(ct, cp, wts, zi, zw, args[0])
         if method == "parameters_valid":
-            return _core.mix_valid(ct, cp, wts)
+            return _core.mix_valid(ct, cp, wts, zi, zw)
+        if method == "param":
+            # GetParameters() flat vector [w0..wK-1, component params...] -- needed (not the
+            # raw `wts` in `cd`) because the zero-inflation setters recompute the weights.
+            return _core.mix_params(ct, cp, wts, zi, zw)[int(args[0])]
         raise KeyError(f"unknown fixture method for Mixture: {method}")
     if target == "CompetingRisks":
         ct, cp, min_rv = cd["comp_targets"], cd["comp_params"], cd["minimum_of_rv"]
@@ -191,8 +208,36 @@ def _dispatch_composite(target: str, cd: dict, method: str, args: list):
             return _core.cr_quantile(ct, cp, min_rv, dep, corr, args[0])
         if method == "parameters_valid":
             return _core.cr_valid(ct, cp, min_rv, dep, corr)
+        if method == "dependency_change":
+            # v2.1.4: verifies the Dependency setter fix + PerfectlyNegative no longer
+            # zeroing CorrelationMatrix, in ONE self-contained call -- args = [x,
+            # dependency2, i, j, field].
+            x, dep2, i, j, field = args
+            return _core.cr_dependency_change(ct, cp, min_rv, dep, dep2, corr, float(x),
+                                               field, int(i), int(j))
         raise KeyError(f"unknown fixture method for CompetingRisks: {method}")
     raise KeyError(f"unknown composite target: {target}")
+
+
+def _apply_set_parameters_composite(target: str, cd: dict, args: list) -> dict:
+    """Applies a "set_parameters" fixture step to a composite's parsed construct data,
+    mirroring the C# SetParameters(flat vector) entry point -- lets a case exercise a
+    "construct valid -> SetParameters invalid -> recheck -> SetParameters valid -> recheck"
+    sequence. There is no persistent C++ object to mutate here (every _core.trunc_*
+    call is a stateless construct-and-compute), so this instead updates the local `cd` dict;
+    the NEXT dispatch call reconstructs from the updated fields, which is behaviorally
+    equivalent. Only TruncatedDistribution needs this in the current validation wave.
+    """
+    flat = [_num(v) for v in args]
+    if target == "TruncatedDistribution":
+        n_base = len(cd["base_params"])
+        return {
+            **cd,
+            "base_params": flat[:n_base],
+            "lo": flat[n_base],
+            "hi": flat[n_base + 1],
+        }
+    raise KeyError(f"set_parameters not supported for composite target: {target}")
 
 
 # --- Generic polymorphic path ----------------------------------------------------------
@@ -223,6 +268,9 @@ def _dispatch_generic(target, params, method, args):
     if method == "random_value":
         # args: [sample_size, seed, index] -- one draw from the seeded MT stream.
         return _core.dist_random(target, params, int(args[0]), int(args[1]))[int(args[2])]
+    if method == "partial_kp":
+        # Static GammaDistribution utility, not tied to `params` -- args: [skewness, probability].
+        return _core.dist_gamma_partial_kp(float(args[0]), float(args[1]))
     raise KeyError(f"unknown fixture method: {method}")
 
 
@@ -250,7 +298,14 @@ def _flatten_mv_args(args: list) -> list[float]:
 
 
 def _dispatch_multivariate(target: str, construct: dict, method: str, args: list):
-    ar = _flatten_mv_args(args)
+    # Methods with a doubly-nested arg (e.g. cdf_xy_after_set_parameters's replacement
+    # probability grid, or MultivariateNormal's marginal_*/conditional_*) can't flatten
+    # through _flatten_mv_args's "one nested vector, or all-scalar" convention -- those
+    # branches below never reference `ar`, so a flatten failure here is harmless.
+    try:
+        ar = _flatten_mv_args(args)
+    except (TypeError, ValueError):
+        ar = None
     if target == "Dirichlet":
         alpha = [float(v) for v in construct["alpha"]]
         return _core.dirichlet_val(method, alpha, ar)
@@ -267,10 +322,48 @@ def _dispatch_multivariate(target: str, construct: dict, method: str, args: list
             construct.get("x2_transform", "None"),
             construct.get("p_transform", "None"),
         ]
+        if method == "cdf_xy_after_set_parameters":
+            # v2.1.4 stale-cache fix, verified in ONE self-contained call -- args =
+            # [[x1_new...], [x2_new...], [[p_row0...], ...], x1_eval, x2_eval].
+            x1_new = [float(v) for v in args[0]]
+            x2_new = [float(v) for v in args[1]]
+            p_new = [[float(v) for v in row] for row in args[2]]
+            return _core.bve_cdf_after_set_parameters(x1, x2, p, transforms, x1_new, x2_new,
+                                                       p_new, float(args[3]), float(args[4]))
         return _core.bve_cdf(method, x1, x2, p, transforms, ar)
     if target == "MultivariateNormal":
         mean = [float(v) for v in construct["mean"]]
         cov = [[float(v) for v in row] for row in construct["covariance"]]
+        # v2.1.4 Marginal/Conditional: dedicated entry points (not the flattened `ar`)
+        # since these take a variable-length index vector (Conditional: a second
+        # same-length values vector) that _flatten_mv_args's "one nested vector, or
+        # all-scalar" convention can't disambiguate from adjacent variable-length vectors.
+        if method == "marginal_mean":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_mean(mean, cov, indices, int(args[1]))
+        if method == "marginal_covariance":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_covariance(mean, cov, indices, int(args[1]), int(args[2]))
+        if method == "marginal_log_pdf":
+            indices = [int(v) for v in args[0]]
+            point = [float(v) for v in args[1]]
+            return _core.mvn_marginal_log_pdf(mean, cov, indices, point)
+        if method == "marginal_dimension":
+            indices = [int(v) for v in args[0]]
+            return _core.mvn_marginal_dimension(mean, cov, indices)
+        if method == "conditional_mean":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_mean(mean, cov, obs_indices, obs_values, int(args[2]))
+        if method == "conditional_covariance":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_covariance(mean, cov, obs_indices, obs_values,
+                                                     int(args[2]), int(args[3]))
+        if method == "conditional_dimension":
+            obs_indices = [int(v) for v in args[0]]
+            obs_values = [float(v) for v in args[1]]
+            return _core.mvn_conditional_dimension(mean, cov, obs_indices, obs_values)
         return _core.mvn_val(method, mean, cov, ar)
     if target == "MultivariateStudentT":
         df = float(construct["df"])
@@ -476,6 +569,12 @@ def _dispatch_estimation(
         return result["j_stat"]
     if method == "j_stat_pval":
         return result["j_stat_pval"]
+    if method == "gmm_iterations":
+        return result["gmm_iterations"]
+    if method == "converged_within_tolerance":
+        return 1.0 if result["converged_within_tolerance"] else 0.0
+    if method == "optimizer_fallback_count":
+        return result["optimizer_fallback_count"]
     if method == "quantile_variance":
         return _core.estimation_gmm_qvar(
             model_json,
@@ -523,6 +622,18 @@ def _dispatch_estimation(
             # plotting_position [kind, i]: kind is "exact" | "interval" | "uncertain".
             return frame[f"pp_{args[0]}"][int(args[1])]
         return frame[method]
+    # The Validate surface (Task 16, works under any target -- it reads the model, not the
+    # estimator): lazily build + memoize _core.model_validate's result in the case's result
+    # dict (the _data_frame lazy-rebuild precedent). validation_message_contains is a
+    # structural substring check, not a byte-exact C# message pin (see test_fixtures.cpp's
+    # dispatch_model_validate for the rationale).
+    if method in ("is_valid", "validation_message_contains"):
+        if "_validate" not in result:
+            result["_validate"] = _core.model_validate(model_json, data)
+        validation = result["_validate"]
+        if method == "is_valid":
+            return 1.0 if validation["is_valid"] else 0.0
+        return 1.0 if any(args[0] in m for m in validation["messages"]) else 0.0
     raise KeyError(f"unknown model_estimation fixture method: {method}")
 
 
@@ -537,6 +648,11 @@ def _run_estimation_case(target: str, construct: dict, assertions: list, dataset
             model_json, data, int(construct["sample_size"]), int(construct.get("seed", -1))
         )
         result = {"simulated": draws}
+        optimizer = ""
+    elif target == "Validate":
+        # Builds the model only (no estimator, no draw); every assertion reads the
+        # lazily-memoized _validate entry (see _dispatch_estimation above).
+        result = {}
         optimizer = ""
     elif target == "BayesianAnalysis":
         sampler = construct.get("sampler", "DEMCzs")
@@ -695,6 +811,29 @@ def _dispatch_analysis(result: dict, method: str, args: list):
         return result["summary_min_quantiles"][int(args[0])]
     if method == "summary_max_quantile":
         return result["summary_max_quantiles"][int(args[0])]
+    # T19: BootstrapDiagnostics (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    if method == "boot_has_results":
+        return 1.0 if result["bootstrap"]["has_results"] else 0.0
+    if method in (
+        "boot_total_replicates",
+        "boot_attempted_replicates",
+        "boot_failed_replicates",
+        "boot_valid_replicates",
+        "boot_retained_replicates",
+        "boot_failure_rate",
+        "boot_total_retries",
+        "boot_average_retries",
+        "boot_pivot_rejections",
+        "boot_mahalanobis_rejections",
+        "boot_transform_failures",
+        "boot_status_success_count",
+        "boot_status_max_iterations_count",
+        "boot_status_max_function_evaluations_count",
+        "boot_status_failure_count",
+        "boot_status_none_count",
+        "boot_optimizer_fallbacks",
+    ):
+        return result["bootstrap"][method[len("boot_") :]]
     raise KeyError(f"unknown analysis fixture method: {method}")
 
 
@@ -748,7 +887,10 @@ def _run_analysis_case(target: str, construct: dict, assertions: list, datasets:
     elif target == "Bulletin17CAnalysis":
         model = construct["model"]
         model_json = json.dumps(model)
-        data = [float(v) for v in datasets[model["dataset"]]]
+        # T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+        # without a `dataset` reference -- mirrors the C++ runner's guard so a Bulletin17CAnalysis
+        # case can force low outliers / censored data onto the parent frame.
+        data = [float(v) for v in datasets[model["dataset"]]] if "dataset" in model else []
         result = _core.analysis_b17c_run(
             model_json,
             data,
@@ -967,7 +1109,10 @@ def test_fixture_case(kind, target, datasets, case):
 
     if kind == "data_utility":
         args = [float(v) for v in case.get("args", [])]
-        data = list(datasets[case["dataset"]]) if "dataset" in case else []
+        # _num (not a raw list()) so a "nan"/"inf"/"-inf" string literal inside a dataset
+        # (the v2.1.4 FitLambda invalid-sample cases) parses instead of reaching pybind11
+        # as an unconvertible str.
+        data = [_num(v) for v in datasets[case["dataset"]]] if "dataset" in case else []
         actual = _dispatch_data_utility(case["function"], args, data)
         for a in case["assertions"]:
             _check(actual, a)
@@ -1001,7 +1146,10 @@ def test_fixture_case(kind, target, datasets, case):
         params = _build_params(target, case["construct"], datasets)
     for a in case["assertions"]:
         args = a.get("args", [])
-        if is_gev:
+        if is_composite and a["method"] == "set_parameters":
+            cd = _apply_set_parameters_composite(target, cd, args)
+            actual = 0
+        elif is_gev:
             actual = _dispatch_gev(g, a["method"], args)
         elif is_composite:
             actual = _dispatch_composite(target, cd, a["method"], args)

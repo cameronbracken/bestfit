@@ -364,8 +364,8 @@ void test_mixture_zero_inflation() {
     CHECK_TRUE(pe != nullptr);
     auto* mix = dynamic_cast<Mixture*>(pe);
     CHECK_TRUE(mix != nullptr);
-    CHECK_TRUE(mix->is_zero_inflated);
-    CHECK_NEAR(mix->zero_weight, 0.4, 1e-12);
+    CHECK_TRUE(mix->is_zero_inflated());
+    CHECK_NEAR(mix->zero_weight(), 0.4, 1e-12);
 }
 
 // ---------------------------------------------------------------------------------------------

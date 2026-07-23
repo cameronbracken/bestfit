@@ -1,4 +1,4 @@
-// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ fc28c0c
+// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Analyses/Univariate/Bulletin17CAnalysis.cs @ c2e6192
 //
 // The Bulletin 17C flood-frequency analysis (GMM point estimate + uncertainty quantification).
 // This header is delivered across THREE additive slices sharing one class:
@@ -26,10 +26,11 @@
 //
 // UNCERTAINTY-METHOD DISPATCH (C# switch, lines 657-664):
 //   * MultivariateNormal       -> SHIPPED here (get_parameter_sets_from_multivariate_normal).
-//   * Bootstrap                -> ships in A8 (dispatch arm throws until then; clearly marked).
+//   * Bootstrap                -> SHIPPED in A8 (get_parameter_sets_from_parametric_bootstrap).
 //   * LinkedMultivariateNormal -> SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal).
-//   * BiasCorrectedBootstrap   -> SHIPPED (X9: get_parameter_sets_from_pivot_bootstrap). After X9,
-//                                 the B17C UncertaintyMethod dispatcher has NO throwing arm left.
+//   * BiasCorrectedBootstrap   -> SHIPPED (X9, reworked in T20:
+//                                 get_parameter_sets_from_pivotal_bootstrap). After X9, the B17C
+//                                 UncertaintyMethod dispatcher has NO throwing arm left.
 //
 // BAYESIANANALYSIS PLUMBING (C#-vs-port deviation, documented):
 //   The C# ctor builds `new BayesianAnalysis()` whose `Model` is null -- this analysis uses GMM,
@@ -66,13 +67,72 @@
 //     LogScaleFromRelativeStandardError) and ComputeInfluenceStatistics / InfluenceStatistics /
 //     ComputeDegreesOfFreedomFromKurtosis / ComputeSkewnessFromInfluence (COMPUTED then DISCARDED --
 //     see the X8 PROVENANCE note above).
-//   * SHIPPED in X9 (this header): GetParameterSetsFromPivotBootstrap (the BiasCorrectedBootstrap
-//     dispatch arm) -- the three-phase pivot bootstrap (bootstrap fits collecting theta*_b + Sigma*_b,
-//     Yeo-Johnson/Log link fitting with a parent-Cholesky fallback to the parametric bootstrap, and
-//     the seeded pivot draws). DEFERRED / dropped: the ~617-line GMM
+//   * SHIPPED in X9, reworked in T20 (this header): GetParameterSetsFromPivotalBootstrap (the
+//     BiasCorrectedBootstrap dispatch arm) -- the three-phase pivotal bootstrap (bootstrap fits
+//     collecting theta*_b + Sigma*_b, guarded Yeo-Johnson/Log link fitting, and the seeded pivot
+//     draws), plus its CreatePivotYeoJohnsonLink helper. DEFERRED / dropped: the ~617-line GMM
 //     report generator, C# 3168-3785 -- GenerateGMMReport + its ReportAppend* / covariance-table
 //     StringBuilder helpers (pure plain-text formatting, no compute content). AFormulaOverride is a
 //     deferred A9-adjacent member (not declared here).
+//   * T19 UPDATE (this header; upstream-sync, BestFit v2.0.0 @ c2e6192, commits 1b424e3 "Discard
+//     failed bootstrap replicates instead of substituting parent parameters" + 71b7d4b "Extend
+//     bootstrap diagnostics, report, and persistence for discard semantics" + 7efa9d0 "Improving
+//     the bootstrap for B17C" -- the parametric-bootstrap arm ONLY):
+//       - `get_parameter_sets_from_parametric_bootstrap` now matches the NET v2.0.0 C# exactly:
+//         `maxRetries` 5 -> 10; the Mahalanobis rejection threshold is the ADAPTIVE
+//         `ChiSquared(p).InverseCDF(1 - 1/(5B))` (was the fixed 0.9999); and each replicate warm-
+//         starts via Task 18's `clone_with_data_frame()` + `set_parameter_values(thetaHat)` when
+//         low outliers / uncertain / interval / threshold series are present on the parent
+//         DataFrame (the C# `cloneWithDataFrame` local, mirrored EXACTLY) -- otherwise it clones
+//         via the plain `clone()` + `set_data_frame()` path, unchanged from A8.
+//       - IMPORTANT GROUND-TRUTH NOTE (the shipped v2.0.0 C# does NOT match every planning-doc
+//         summary of 1b424e3's *commit message*): 1b424e3 introduced true discard-without-
+//         substitution semantics (a null parameter-set slot, filtered downstream) plus a relaxed
+//         "reject only hard Failure / non-finite" acceptance gate and a >50%-discarded abort
+//         guard, but 7efa9d0 ("Improving the bootstrap for B17C", the LAST commit on this method
+//         before the v2.0.0 tag) REVERTED both of those for GetParameterSetsFromParametricBootstrap
+//         specifically -- the shipped acceptance gate is still the strict `!= Success`, and a
+//         replicate that exhausts every retry still falls back to the parent vector `thetaHat`
+//         (never discarded), so every bootstrap replicate slot is always populated and there is no
+//         abort-on-high-discard-rate path in this arm. This port reproduces the ACTUAL shipped
+//         behavior (verified by re-reading `Bulletin17CAnalysis.cs` at the `c2e6192` pin
+//         byte-for-byte, not the commit message), since that is what the dotnet oracle gate
+//         replays against. The per-replicate retry loop is factored into the new private
+//         `collect_bootstrap_replicate_fit` helper (BootstrapReplicateFit), which T20's
+//         pivot-bootstrap Phase 1 rewrite now shares (the SAME two 7efa9d0 changes above apply
+//         there too -- see `get_parameter_sets_from_pivotal_bootstrap`).
+//       - `BootstrapDiagnostics` gained `AttemptedReplicates` / `RetainedReplicates` (legacy
+//         fallback to `TotalReplicates` / `ValidReplicates`) / `TransformFailures` / the five GMM
+//         `OptimizationStatus` counters / `OptimizerFallbacks` (see its own header); NONE of these
+//         are populated by this arm (the shipped C# never calls their increment/record methods
+//         from GetParameterSetsFromParametricBootstrap), so a diagnostics object built by this
+//         method always reads them through their legacy-fallback defaults.
+//       - `UncertaintyDiagnosticMessage` (C# 409, a plain read-only string property + private
+//         setter): ported as a class member/accessor for API completeness, but NOT populated by
+//         this arm either (the shipped GetParameterSetsFromParametricBootstrap never calls
+//         `SetUncertaintyDiagnosticMessage`); the other uncertainty paths that DO call it keep
+//         their existing "silent no-throw guard" ports, unwired here.
+//   * T20 UPDATE (this header; upstream-sync, BestFit v2.0.0 @ c2e6192 -- the PIVOT arm, renamed
+//     upstream from GetParameterSetsFromPivotBootstrap to `GetParameterSetsFromPivotalBootstrap`):
+//     the pivot arm is where the discard semantics 7efa9d0 reverted for the parametric arm
+//     ACTUALLY shipped. `get_parameter_sets_from_pivotal_bootstrap` now reproduces the shipped
+//     method exactly -- maxRetries 10, the parent covariance through `TryGetCovariance` +
+//     `MakeSymmetricPositiveDefinite` (abort + diagnostic message on failure), the adaptive
+//     `1 - 1/(5B)` Mahalanobis threshold, the conditional `cloneWithDataFrame` warm start, the
+//     per-replicate covariance validation (TryGetCovariance -> regularize -> a throwaway Cholesky)
+//     inside the retry loop, the guarded `CreatePivotYeoJohnsonLink` link builder, an abort (not a
+//     parametric fallback) on a parent-Cholesky failure, a CLIPPED rather than rejected pivot, an
+//     explicit non-finite check on the inverse-linked draw, and a Phase-3 failure that DISCARDS
+//     the slot while incrementing `TransformFailures`, with `RetainedReplicates` set from the
+//     survivors. `IncrementTransformFailure` + the `RetainedReplicates` setter are the ONLY two
+//     new BootstrapDiagnostics members the shipped analysis populates ANYWHERE (IncrementAttempted
+//     / RecordGMMStatus / AddOptimizerFallbacks are never called in the file), and
+//     `IncrementPivotRejection` is now called nowhere (the z-limit became a clip). The single
+//     numerically LIVE change: the pivot arm's `{ PenaltyIsRandom = false }` GMM initializer was
+//     deleted upstream (0 occurrences at c2e6192), so the GMM default `true` applies and H is back
+//     in the sandwich meat of every Sigma*_b. NOT a change (the planning text said otherwise; the
+//     SHIPPED SOURCE GOVERNS): the links are still fitted over ALL B replicates -- there is no
+//     compaction to accepted replicates -- and nothing is dropped for exceeding the z-limit.
 //
 // `EvaluateLogQuantileSafe` (C# 856-880) IS ported below per the A7 brief, though the shipped MVN
 // path does not itself call it (the C# MVN sampler validates via ValidateParameters); it is the
@@ -80,10 +140,13 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -108,6 +171,7 @@
 #include "corehydro/numerics/distributions/pearson_type_iii.hpp"
 #include "corehydro/numerics/distributions/student_t.hpp"
 #include "corehydro/numerics/distributions/uncertainty_analysis/uncertainty_analysis_results.hpp"
+#include "corehydro/numerics/functions/identity_link.hpp"
 #include "corehydro/numerics/functions/link_controller.hpp"
 #include "corehydro/numerics/functions/log_link.hpp"
 #include "corehydro/numerics/functions/yeo_johnson_link.hpp"
@@ -129,7 +193,7 @@ enum class UncertaintyMethod {
     MultivariateNormal,        // SHIPPED (A7)
     LinkedMultivariateNormal,  // SHIPPED (X8: get_parameter_sets_from_linked_multivariate_normal)
     Bootstrap,                 // SHIPPED (A8: get_parameter_sets_from_parametric_bootstrap)
-    BiasCorrectedBootstrap,    // SHIPPED (X9: get_parameter_sets_from_pivot_bootstrap)
+    BiasCorrectedBootstrap,    // SHIPPED (X9/T20: get_parameter_sets_from_pivotal_bootstrap)
 };
 
 namespace detail {
@@ -243,16 +307,26 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return bootstrap_results_ ? &*bootstrap_results_ : nullptr;
     }
 
+    // C# `UncertaintyDiagnosticMessage` (T19, C# 409): a user-facing description of why the most
+    // recent uncertainty quantification was degraded or aborted; empty when no issue occurred.
+    // Written by run_uncertainty_quantification's shared guards (T19), the pivotal-bootstrap arm
+    // (T20), and the MultivariateNormal arm's two aborts (T20b).
+    const std::string& uncertainty_diagnostic_message() const {
+        return uncertainty_diagnostic_message_;
+    }
+
     // --- Lifecycle -------------------------------------------------------------------------
 
     // C# `ClearResults` (C# 488): resets the fit + results to the un-estimated state; the model is
-    // preserved. RaisePropertyChange / ElapsedTime dropped; BootstrapResults reset (C# 500).
+    // preserved. RaisePropertyChange / ElapsedTime dropped; BootstrapResults + (T19)
+    // UncertaintyDiagnosticMessage reset (C# 500-501).
     void clear_results() {
         set_is_estimated(false);
         bayesian_analysis_.clear_results();
         gmm_.reset();
         analysis_results_.reset();
         bootstrap_results_.reset();
+        uncertainty_diagnostic_message_.clear();
         distribution_cache_.clear();
     }
 
@@ -492,74 +566,206 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         return model;
     }
 
-    // C# `RunUncertaintyQuantificationAsync` (C# 645), synchronous. Sets the parent distribution to
-    // thetaHat, dispatches on UncertaintyMethod to build the parameter-set ensemble, and stores it
-    // into the BayesianAnalysis results plumbing (C# 703-705). The async/Task.Run/progress/
-    // cancellation machinery is dropped.
+    // T19: mirrors C#'s `:N0` numeric format specifier (thousands-grouped, no decimal digits,
+    // invariant/en-US comma separator) for the two exact-count UncertaintyDiagnosticMessage
+    // strings below -- the only place this port needs C#-style number formatting.
+    static std::string format_n0(long long value) {
+        bool negative = value < 0;
+        unsigned long long magnitude =
+            negative ? static_cast<unsigned long long>(-value) : static_cast<unsigned long long>(value);
+        std::string digits = std::to_string(magnitude);
+        std::string grouped;
+        int since_group = 0;
+        for (auto it = digits.rbegin(); it != digits.rend(); ++it) {
+            if (since_group != 0 && since_group % 3 == 0) grouped.push_back(',');
+            grouped.push_back(*it);
+            ++since_group;
+        }
+        std::reverse(grouped.begin(), grouped.end());
+        return negative ? "-" + grouped : grouped;
+    }
+
+    // T20b: mirrors C#'s `:P0` percent format specifier for the MVN arm's rejection-rate abort
+    // message (C# 947). Two behaviours have to be reproduced exactly:
+    //   * The en-US `n%` pattern (digits, then '%', no space). This is a REAL culture difference,
+    //     not a formality: InvariantCulture's PercentPositivePattern is `n %` WITH a space, so
+    //     `0.6.ToString("P0")` is "60 %" invariant but "60%" under en-US. A dotnet 10 probe on the
+    //     machine the oracle emitter runs on reports CurrentCulture = en-US, and string
+    //     interpolation formats with CurrentCulture -- so "60%" is what the shipped message
+    //     contains. (`:N0` above is unaffected; the two cultures agree there.)
+    //   * .NET scales the EXACT decimal expansion of the double by 100 and rounds half-to-EVEN.
+    //     A naive `value * 100.0` followed by rounding gets this wrong: 0.505 is really
+    //     50.500000000000000444...% and must print "51%", but the double product `0.505 * 100`
+    //     rounds back to exactly 50.5 and would print "50%". So the expansion is taken from
+    //     printf and the decimal point is shifted on the digit string instead. 60 places is exact
+    //     for every value this is called with: the caller has already established
+    //     rejection_rate > 0.50, and a double in (0.5, 1] has ulp 2^-53 or larger, so its decimal
+    //     expansion terminates within 53 places.
+    static std::string format_p0(double value) {
+        if (!std::isfinite(value)) return "NaN";
+        bool negative = value < 0.0;
+        char buffer[512];
+        std::snprintf(buffer, sizeof buffer, "%.60f", negative ? -value : value);
+        std::string text(buffer);
+        std::size_t dot = text.find('.');
+        std::string whole = text.substr(0, dot);
+        std::string fraction = text.substr(dot + 1);
+
+        // Multiply by 100: shift the decimal point two places right.
+        if (fraction.size() < 2) fraction.append(2 - fraction.size(), '0');
+        whole += fraction.substr(0, 2);
+        fraction.erase(0, 2);
+
+        // Round half-to-even at the integer boundary.
+        std::size_t first_nonzero = fraction.find_first_not_of('0');
+        bool above_half = false, exactly_half = false;
+        if (first_nonzero != std::string::npos) {
+            if (fraction[0] > '5') {
+                above_half = true;
+            } else if (fraction[0] == '5') {
+                exactly_half = fraction.find_first_not_of('0', 1) == std::string::npos;
+                above_half = !exactly_half;
+            }
+        }
+        bool round_up = above_half || (exactly_half && (whole.back() - '0') % 2 == 1);
+        if (round_up) {
+            int carry = 1;
+            for (auto it = whole.rbegin(); it != whole.rend() && carry != 0; ++it) {
+                int digit = (*it - '0') + carry;
+                carry = digit / 10;
+                *it = static_cast<char>('0' + digit % 10);
+            }
+            if (carry != 0) whole.insert(whole.begin(), '1');
+        }
+        std::size_t lead = whole.find_first_not_of('0');
+        whole = (lead == std::string::npos) ? "0" : whole.substr(lead);
+        return (negative ? "-" + whole : whole) + "%";
+    }
+
+    // C# `RunUncertaintyQuantificationAsync` (C# 724-798 @ c2e6192), synchronous. Sets the parent
+    // distribution to thetaHat, dispatches on UncertaintyMethod to build the parameter-set
+    // ensemble, and stores it into the BayesianAnalysis results plumbing. The async/Task.Run/
+    // progress/cancellation machinery is dropped.
     void run_uncertainty_quantification() {
         if (!gmm_ || gmm_->status() == OptimizationStatus::Failure) return;
 
-        // Set parent distribution parameters to the GMM point estimate (C# 654).
+        // Set parent distribution parameters to the GMM point estimate (C# 733).
         bulletin17c_distribution_->set_parameter_values(gmm_->best_parameter_set().values);
 
-        // Dispatch (C# switch, 657-664). See the file header for the ship/defer contract.
+        // Dispatch (C# switch, 736-743). See the file header for the ship/defer contract.
         std::optional<std::vector<ParameterSet>> raw_sets;
         switch (uncertainty_method_) {
             case UncertaintyMethod::MultivariateNormal:
                 raw_sets = get_parameter_sets_from_multivariate_normal();
                 break;
             case UncertaintyMethod::Bootstrap:
-                // C# `UncertaintyMethod.Bootstrap => GetParameterSetsFromParametricBootstrap(...)`
-                // (C# 661). The parametric bootstrap re-fits the GMM on B resampled frames.
+                // C# `UncertaintyMethod.Bootstrap => GetParameterSetsFromParametricBootstrap(...)`.
+                // The parametric bootstrap re-fits the GMM on B resampled frames.
                 raw_sets = get_parameter_sets_from_parametric_bootstrap();
                 break;
             case UncertaintyMethod::LinkedMultivariateNormal:
-                // C# `UncertaintyMethod.LinkedMultivariateNormal => ...` (C# 660). On a null
-                // return (e.g. high rejection rate) the C# silently falls back to plain MVN
-                // (C# 666-671); ported inline here.
+                // C# `UncertaintyMethod.LinkedMultivariateNormal => ...`. On a null return (e.g.
+                // high rejection rate) the C# silently falls back to plain MVN (C# 746-750);
+                // ported inline here.
                 raw_sets = get_parameter_sets_from_linked_multivariate_normal();
                 if (!raw_sets) raw_sets = get_parameter_sets_from_multivariate_normal();
                 break;
             case UncertaintyMethod::BiasCorrectedBootstrap:
-                // C# `UncertaintyMethod.BiasCorrectedBootstrap => GetParameterSetsFromPivotBootstrap(...)`
-                // (C# 662). The pivot bootstrap fits B replicates, builds Yeo-Johnson/Log links, and
-                // draws pivoted parameter sets. No inline caller fallback (the Cholesky-failure
-                // fallback to the parametric path lives INSIDE the method, C# 2167-2172).
-                raw_sets = get_parameter_sets_from_pivot_bootstrap();
+                // C# `UncertaintyMethod.BiasCorrectedBootstrap => GetParameterSetsFromPivotalBootstrap(...)`
+                // (C# 741; T20: RENAMED from GetParameterSetsFromPivotBootstrap). The pivotal
+                // bootstrap fits B replicates, builds guarded Yeo-Johnson/Log links, and draws
+                // pivoted parameter sets. No caller fallback at all: T20 replaced the old
+                // Cholesky-failure fallback to the parametric path with a null return + diagnostic
+                // message, handled by the shared guards below.
+                raw_sets = get_parameter_sets_from_pivotal_bootstrap();
                 break;
         }
 
-        // Empty-result guard (C# 676-682): a non-positive-definite covariance leaves the point
-        // estimate valid but yields no CI. Silent no-throw guard (C# Debug.WriteLine dropped).
-        if (!raw_sets) return;
+        // T19 (C# 755-767): a null rawSets means either a specific diagnostic was already set
+        // deeper in the sampler (e.g. an abort) or the shared covariance path failed silently; the
+        // default message is set ONLY when nothing more specific was already recorded. Previously
+        // a silent no-throw guard with no message -- this is a genuine v2.0.0 behavioral delta (the
+        // C# has zero UncertaintyDiagnosticMessage occurrences at the fc28c0c pin).
+        if (!raw_sets) {
+            if (uncertainty_diagnostic_message_.empty()) {
+                set_uncertainty_diagnostic_message(
+                    "Uncertainty quantification failed — the covariance matrix from GMM "
+                    "estimation is not positive-definite. The point estimate is still valid but "
+                    "confidence intervals cannot be computed. Consider using a different "
+                    "distribution or the Bootstrap/Bias-Corrected Bootstrap uncertainty method.");
+            }
+            return;
+        }
 
-        // Filter unset entries (C# 687): the MVN sampler substitutes thetaHat on failure, so every
-        // slot is populated, but the filter is ported faithfully.
+        // T19 (C# 769-777): filter unset, dimensionally invalid, or non-finite entries. MVN
+        // samplers may discard invalid draws; bootstrap collectors replace failed candidates and
+        // therefore must satisfy the exact-count invariant below.
+        int expected_parameter_count = bulletin17c_distribution_->number_of_parameters();
         std::vector<ParameterSet> valid_sets;
         valid_sets.reserve(raw_sets->size());
-        for (const auto& ps : *raw_sets)
-            if (!ps.values.empty()) valid_sets.push_back(ps);
-        if (valid_sets.size() < 2) return;  // C# 688-692
+        for (const auto& ps : *raw_sets) {
+            if (!ps.values.empty() &&
+                static_cast<int>(ps.values.size()) == expected_parameter_count &&
+                std::all_of(ps.values.begin(), ps.values.end(),
+                           [](double v) { return std::isfinite(v); }))
+                valid_sets.push_back(ps);
+        }
 
-        // Sanitize non-finite Fitness/Values (C# 696) -- MVN sets Fitness = NaN by construction.
+        // T19 (C# 778-786): bootstrap methods must deliver EXACTLY OutputLength valid sets, or the
+        // ensemble is rejected wholesale (no partial publish). This is what makes a discard in the
+        // pivot arm's Phase 3 (Task 20) -- or any future discard in this arm -- user-visible.
+        bool is_bootstrap_method = uncertainty_method_ == UncertaintyMethod::Bootstrap ||
+                                   uncertainty_method_ == UncertaintyMethod::BiasCorrectedBootstrap;
+        auto output_length = static_cast<std::size_t>(bayesian_analysis_.output_length());
+        if (is_bootstrap_method && (raw_sets->size() != output_length || valid_sets.size() != output_length)) {
+            set_uncertainty_diagnostic_message(
+                "Bootstrap uncertainty requires exactly " +
+                format_n0(bayesian_analysis_.output_length()) + " valid parameter sets, but received " +
+                format_n0(static_cast<long long>(valid_sets.size())) +
+                ". No partial uncertainty result was published.");
+            return;
+        }
+
+        // T19 (C# 787-793).
+        if (valid_sets.size() < 2) {
+            set_uncertainty_diagnostic_message(
+                "Only " + format_n0(static_cast<long long>(valid_sets.size())) +
+                " valid parameter sets out of " + format_n0(static_cast<long long>(raw_sets->size())) +
+                " sampled realizations. Uncertainty analysis was skipped.");
+            return;
+        }
+
+        // Sanitize non-finite Fitness/Values (C# 796) -- MVN sets Fitness = NaN by construction.
         sanitize_parameter_sets(valid_sets);
 
-        // Sanitize the MAP (best) parameter set's Fitness (C# 699-701).
+        // Sanitize the MAP (best) parameter set's Fitness (C# 800-802).
         ParameterSet best = gmm_->best_parameter_set();
         if (!std::isfinite(best.fitness)) best = ParameterSet(best.values, 0.0);
 
-        // Store into the BayesianAnalysis results plumbing (C# 703-705).
+        // Store into the BayesianAnalysis results plumbing (C# 804-807).
         MCMCResults mcmc(std::move(best), std::move(valid_sets),
                          1.0 - bayesian_analysis_.credible_interval_width());
         bayesian_analysis_.set_custom_mcmc_results(std::move(mcmc), /*skip_information_criteria=*/true);
     }
 
-    // C# `GetParameterSetsFromMultivariateNormal` (C# 763-848): draws B parameter sets from
-    // MVN(thetaHat, sigmaHat) via Latin Hypercube (seeded by the BayesianAnalysis PRNG seed),
-    // validating each draw and retrying / falling back exactly as the C#. Returns nullopt when the
-    // GMM sandwich covariance is not positive-definite (C# `return null`). The C# Parallel.For ->
-    // a serial loop (independent per-index writes; identical results). Progress/cancellation
+    // C# `GetParameterSetsFromMultivariateNormal` (C# 865-967 @ c2e6192): draws B parameter sets
+    // from MVN(thetaHat, sigmaHat) via Latin Hypercube (seeded by the BayesianAnalysis PRNG seed),
+    // validating each draw and retrying exactly as the C#. Returns nullopt when the GMM sandwich
+    // covariance is not positive-definite, when the rejection rate exceeds 50%, or when fewer than
+    // two draws survive (C# `return null` in all three cases). The C# Parallel.For -> a serial loop
+    // (independent per-index writes; the Interlocked rejection counter and the per-index retry
+    // seeds make the result order-independent, so serial and parallel agree). Progress/cancellation
     // dropped.
+    //
+    // T20b (v2.0.0 delta): the `acceptedTheta ??= thetaHat` parent substitution the pre-2.0.0
+    // method ended its retry loop with is DELETED upstream, and the shipped source states why
+    // verbatim -- rejected draws "stay as default(ParameterSet) (Values == null) and are filtered
+    // below -- no parent fallback, which would inject zero-variance mass at the parent fit and bias
+    // the uncertainty bounds narrow." So a slot that fails its LHS draw and all ten retries is
+    // counted, left unset, and dropped, and the RETURNED ARRAY IS THE FILTERED ONE (C# 956) -- it
+    // can be shorter than B. That is safe downstream because MultivariateNormal is not in
+    // run_uncertainty_quantification's `is_bootstrap_method` set, so the exact-count guard there is
+    // bypassed and only the shared `< 2` guard applies.
     std::optional<std::vector<ParameterSet>> get_parameter_sets_from_multivariate_normal() {
         int b = bayesian_analysis_.output_length();
         std::vector<ParameterSet> results(static_cast<std::size_t>(b));
@@ -593,13 +799,15 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
             }
         };
 
+        int rejection_count = 0;  // C# 891 (`Interlocked.Increment`-guarded there)
+
         for (int idx = 0; idx < b; ++idx) {
             std::optional<std::vector<double>> accepted;
 
-            // First try: the LHS draw (best space coverage) (C# 805-811).
+            // First try: the LHS draw (best space coverage) (C# 902-909).
             if (accepts(draws[static_cast<std::size_t>(idx)])) accepted = draws[static_cast<std::size_t>(idx)];
 
-            // Retry with fresh MVN draws seeded per-index (C# 814-833).
+            // Retry with fresh MVN draws seeded per-index (C# 912-929).
             if (!accepted) {
                 corehydro::numerics::sampling::MersenneTwister prng(
                     static_cast<std::uint32_t>(seed + b + idx));
@@ -609,46 +817,202 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                     std::vector<double> candidate = mvn->inverse_cdf(u);
                     if (accepts(candidate)) accepted = std::move(candidate);
                 }
-                // Fall back to the parent vector after 10 rejected retries (C# 832).
-                if (!accepted) accepted = theta_hat;
+                // T20b (C# 927-928): count the abandoned draw. NO parent substitution.
+                if (!accepted) ++rejection_count;
             }
 
-            results[static_cast<std::size_t>(idx)] =
-                ParameterSet(std::move(*accepted), std::numeric_limits<double>::quiet_NaN());
+            // T20b (C# 931-935): a rejected slot stays default-constructed (empty `values`, the
+            // port's equivalent of C#'s `default(ParameterSet)` with `Values == null`).
+            if (accepted)
+                results[static_cast<std::size_t>(idx)] =
+                    ParameterSet(std::move(*accepted), std::numeric_limits<double>::quiet_NaN());
         }
 
-        return results;
+        // T20b (C# 941-951): persistent rejection means the MVN approximation places most of its
+        // mass outside the valid parameter space, not sampling noise -- abort rather than publish
+        // an ensemble drawn from a region the distribution cannot represent.
+        double rejection_rate = static_cast<double>(rejection_count) / static_cast<double>(b);
+        if (rejection_rate > 0.50) {
+            set_uncertainty_diagnostic_message(
+                "Multivariate Normal sampling: " + format_n0(rejection_count) + " of " +
+                format_n0(b) + " requested draws were rejected as invalid parameter sets (" +
+                format_p0(rejection_rate) +
+                " rejection rate). Uncertainty quantification was aborted. Consider the Bootstrap "
+                "uncertainty method, which does not rely on the asymptotic covariance.");
+            return std::nullopt;
+        }
+
+        // T20b (C# 953-964): drop the rejected slots and return the FILTERED array. The predicate
+        // is `Values != null` ONLY -- the stricter length/finiteness filter lives in the caller
+        // (C# 769-777, run_uncertainty_quantification above).
+        std::vector<ParameterSet> valid_results;
+        valid_results.reserve(results.size());
+        for (auto& ps : results)
+            if (!ps.values.empty()) valid_results.push_back(std::move(ps));
+        if (valid_results.size() < 2) {
+            set_uncertainty_diagnostic_message(
+                "Multivariate Normal sampling: only " +
+                format_n0(static_cast<long long>(valid_results.size())) + " of " + format_n0(b) +
+                " requested draws were valid. Uncertainty quantification was aborted.");
+            return std::nullopt;
+        }
+        return valid_results;
     }
 
-    // C# `GetParameterSetsFromParametricBootstrap` (C# 1855-1967): the parametric-bootstrap UQ
-    // path. Draws B resampled data frames from the fitted parent distribution, re-fits the GMM on
-    // each, and keeps the accepted parameter vectors. A degenerate fit (GMM failure, or a
-    // Mahalanobis distance from thetaHat beyond the chi2(p, 0.9999) threshold) is retried up to
-    // maxRetries times before falling back to the parent vector. The up-front seed cascade
-    // (masterPRNG(PRNGSeed) -> B integer seeds -> a per-replicate MersenneTwister) is IDENTICAL to
-    // the ported Bootstrap and is load-bearing for MersenneTwister parity with the A11 emitter --
-    // do NOT reorder. The C# Parallel.For -> a serial loop; per-index writes are independent, so
-    // the serial counts/results match. Progress/cancellation/stopwatch lines dropped.
-    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_parametric_bootstrap() {
-        const int max_retries = 5;                                   // C# 1857
-        int b = bayesian_analysis_.output_length();                  // C# 1858
-        int p = bulletin17c_distribution_->number_of_parameters();   // C# 1859
-        std::vector<ParameterSet> results(static_cast<std::size_t>(b));  // C# 1860
+    // T19: one accepted bootstrap-replicate fit, returned by collect_bootstrap_replicate_fit().
+    // T20: `covariance` carries the regularized, Cholesky-factorable replicate covariance
+    // Sigma*_b -- populated ONLY when the caller sets `collect_covariance` (the pivot arm; the
+    // parametric arm never asks for it, exactly as the C# only computes it in the pivot method).
+    struct BootstrapReplicateFit {
+        std::vector<double> params;
+        int function_evaluations = 0;
+        std::optional<corehydro::numerics::math::linalg::Matrix> covariance;
+    };
 
-        // Up-front seed cascade (C# 1861-1862): master PRNG seeds B per-replicate integers.
+    // T19/T20: the shared per-replicate bootstrap-fit attempt loop, factored out of
+    // GetParameterSetsFromParametricBootstrap (C# 1990-2045) and reused verbatim by
+    // GetParameterSetsFromPivotalBootstrap's Phase 1 (C# 2227-2288) -- at the c2e6192 pin the two
+    // C# loops are byte-identical except for the pivot arm's extra covariance step (guarded here
+    // by `collect_covariance`), so one helper reproduces both.
+    //
+    // Resamples a bootstrap data frame from `parent_distribution` via the parent's
+    // BootstrapDataFrame, warm-starts the B17C clone through Task 18's `clone_with_data_frame()` +
+    // `set_parameter_values(theta_hat)` when `clone_with_data_frame_flag` is set (mirroring the C#
+    // `cloneWithDataFrame` local EXACTLY -- see the callers), otherwise clones via the plain
+    // `clone()` + `set_data_frame()` path; sets a randomized penalty function; re-fits via GMM
+    // (the GMM's own `penalty_is_random` default `true` is left alone -- T20: the pivot arm's
+    // `new GeneralizedMethodOfMoments(...) { PenaltyIsRandom = false }` initializer was REMOVED
+    // upstream and has ZERO occurrences in the file at c2e6192, so BOTH arms now run the default);
+    // and retries up to `max_retries` times on any exception (a non-Success GMM status, a
+    // Mahalanobis distance from `theta_hat` beyond `mahal_threshold`, or -- when
+    // `collect_covariance` is set -- a covariance that TryGetCovariance rejects, that is not
+    // Cholesky-factorable after regularization), incrementing `diag`'s Mahalanobis-rejection /
+    // retry counters exactly as the C#. Returns the accepted parameter vector + its GMM
+    // function-evaluation count (+ the regularized covariance when requested) on success; nullopt
+    // when every attempt failed -- the CALLER decides fallback-vs-discard semantics for its own
+    // arm (both shipped arms fall back to the parent fit; see the callers below).
+    std::optional<BootstrapReplicateFit> collect_bootstrap_replicate_fit(
+        corehydro::numerics::sampling::MersenneTwister& prng,
+        const UnivariateDistributionBase& parent_distribution,
+        const std::vector<double>& theta_hat,
+        const corehydro::numerics::math::linalg::Matrix& sigma_inv, double mahal_threshold,
+        bool clone_with_data_frame_flag, bool collect_covariance, int max_retries,
+        BootstrapDiagnostics& diag) {
+        int p = static_cast<int>(theta_hat.size());
+        std::optional<std::vector<double>> accepted_params;
+        std::optional<corehydro::numerics::math::linalg::Matrix> accepted_sigma;
+        int accepted_fn_evals = 0;
+
+        for (int attempt = 0; attempt < max_retries && !accepted_params; ++attempt) {
+            try {
+                // Resample a bootstrap frame from the parent (clone used only for sampling).
+                std::unique_ptr<UnivariateDistributionBase> sampling_dist =
+                    parent_distribution.clone();
+                corehydro::models::DataFrame boot_data_frame =
+                    bulletin17c_distribution_->data_frame().BootstrapDataFrame(*sampling_dist,
+                                                                               prng);
+
+                std::unique_ptr<Bulletin17CDistribution> boot_b17c;
+                if (clone_with_data_frame_flag) {
+                    // Warm start at the parent fit: preserves parameter bounds/priors/penalty
+                    // configuration instead of re-deriving defaults from the boot data.
+                    boot_b17c = bulletin17c_distribution_->clone_with_data_frame(boot_data_frame);
+                    boot_b17c->set_parameter_values(theta_hat);
+                } else {
+                    std::unique_ptr<corehydro::models::IGMMModel> cloned =
+                        bulletin17c_distribution_->clone();
+                    boot_b17c.reset(static_cast<Bulletin17CDistribution*>(cloned.release()));
+                    boot_b17c->set_data_frame(std::move(boot_data_frame));
+                }
+                boot_b17c->set_random_penalty_function(theta_hat, &prng);
+
+                // T20: NO PenaltyIsRandom override -- the C# `{ PenaltyIsRandom = false }`
+                // initializer was deleted upstream, so the GMM default (true) governs both arms.
+                GeneralizedMethodOfMoments boot_gmm(*boot_b17c);
+                boot_gmm.estimate();
+                if (boot_gmm.status() != OptimizationStatus::Success)
+                    throw std::runtime_error("bootstrap GMM solver failed");
+
+                // Mahalanobis distance of the bootstrap fit from theta_hat.
+                const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
+                double mahal_dist = 0.0;
+                for (int j = 0; j < p; ++j) {
+                    double tmp = 0.0;
+                    for (int k = 0; k < p; ++k)
+                        tmp += sigma_inv(j, k) * (boot_params[static_cast<std::size_t>(k)] -
+                                                  theta_hat[static_cast<std::size_t>(k)]);
+                    mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
+                                   theta_hat[static_cast<std::size_t>(j)]) *
+                                  tmp;
+                }
+                if (mahal_dist > mahal_threshold) {
+                    diag.increment_mahalanobis_rejection();
+                    throw std::runtime_error("bootstrap replicate rejected: Mahalanobis");
+                }
+
+                // T20 (C# 2274-2277, pivot arm only): the replicate covariance must be finite,
+                // regularizable, and Cholesky-factorable -- a failure here retries the WHOLE
+                // replicate, which is why this step lives inside the attempt loop.
+                if (collect_covariance) {
+                    corehydro::numerics::math::linalg::Matrix boot_covariance(p);
+                    if (!boot_gmm.try_get_covariance(boot_params, true, boot_covariance))
+                        throw std::runtime_error(
+                            "the pivot bootstrap GMM covariance could not be computed");
+                    boot_covariance = corehydro::numerics::math::linalg::MatrixRegularization::
+                        make_symmetric_positive_definite(boot_covariance);
+                    // C# `_ = new CholeskyDecomposition(bootCovariance);` -- constructed purely to
+                    // throw on a non-factorable matrix; the factor itself is discarded.
+                    (void)corehydro::numerics::math::linalg::CholeskyDecomposition(boot_covariance);
+                    accepted_sigma = std::move(boot_covariance);
+                }
+
+                accepted_params = boot_params;
+                accepted_fn_evals = boot_gmm.total_function_evaluations();
+            } catch (...) {
+                // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
+                if (attempt < max_retries - 1) diag.add_retries(1);
+            }
+        }
+
+        if (!accepted_params) return std::nullopt;
+        return BootstrapReplicateFit{std::move(*accepted_params), accepted_fn_evals,
+                                     std::move(accepted_sigma)};
+    }
+
+    // C# `GetParameterSetsFromParametricBootstrap` (C# 1941-2073 @ c2e6192): the parametric-
+    // bootstrap UQ path. Draws B resampled data frames from the fitted parent distribution,
+    // re-fits the GMM on each via collect_bootstrap_replicate_fit() (T19), and keeps the accepted
+    // parameter vectors. A degenerate fit (GMM failure, or a Mahalanobis distance from thetaHat
+    // beyond the ADAPTIVE `chi2(p, 1 - 1/(5B))` threshold, T19: was the fixed 0.9999) is retried
+    // up to maxRetries (T19: 10, was 5) times before falling back to the parent vector -- the
+    // shipped v2.0.0 C# still falls back rather than discarding; see the file header's T19 note
+    // for why. The up-front seed cascade (masterPRNG(PRNGSeed) -> B integer seeds -> a
+    // per-replicate MersenneTwister) is IDENTICAL to the ported Bootstrap and is load-bearing for
+    // MersenneTwister parity with the emitter -- do NOT reorder. The C# Parallel.For -> a serial
+    // loop; per-index writes are independent, so the serial counts/results match.
+    // Progress/cancellation/stopwatch lines dropped.
+    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_parametric_bootstrap() {
+        const int max_retries = 10;                                   // T19: 5 -> 10
+        int b = bayesian_analysis_.output_length();
+        int p = bulletin17c_distribution_->number_of_parameters();
+        std::vector<ParameterSet> results(static_cast<std::size_t>(b));
+
+        // Up-front seed cascade: master PRNG seeds B per-replicate integers, keyed to the
+        // ORIGINAL replicate index (load-bearing for MT parity -- do NOT reorder).
         corehydro::numerics::sampling::MersenneTwister master_prng(
             static_cast<std::uint32_t>(bayesian_analysis_.prng_seed()));
         std::vector<int> seeds = corehydro::numerics::utilities::next_integers(master_prng, b);
 
-        // Parent distribution cloned + set to thetaHat as the data-generating model (C# 1863-1865).
+        // Parent distribution cloned + set to thetaHat as the data-generating model.
         const std::vector<double> theta_hat = gmm_->best_parameter_set().values;
         std::unique_ptr<UnivariateDistributionBase> parent_distribution =
             bulletin17c_distribution_->distribution()->clone();
         parent_distribution->set_parameters(theta_hat);
 
-        // Sandwich covariance + inverse for the Mahalanobis rejection (C# 1867-1876). On a singular
-        // inverse the C# regularizes; port as a try/catch falling back to the regularized inverse
-        // (the C# Debug.WriteLine is a dropped silent guard).
+        // Sandwich covariance + inverse for the Mahalanobis rejection. On a singular inverse the
+        // C# regularizes via MatrixRegularization instead of aborting; ported as a try/catch
+        // falling back to the regularized inverse (the C# Debug.WriteLine is a dropped silent
+        // guard).
         corehydro::numerics::math::linalg::Matrix sigma_hat = gmm_->get_covariance(theta_hat);
         corehydro::numerics::math::linalg::Matrix sigma_inv(p);
         try {
@@ -658,234 +1022,272 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                             make_symmetric_positive_definite(sigma_hat)
                                 .inverse();
         }
+        // T19: adaptive Mahalanobis threshold ChiSq(p) at 1 - 1/(5B) (was the fixed 0.9999) --
+        // rejects extreme draws with p-value < 1/(5B).
+        double mahal_pvalue = 1.0 - 1.0 / (b * 5.0);
         double mahal_threshold =
-            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(0.9999);  // C# 1876
+            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(mahal_pvalue);
 
-        // Diagnostics (C# 1879): TotalReplicates = B.
+        // Diagnostics: TotalReplicates = B.
         BootstrapDiagnostics diag;
         diag.set_total_replicates(b);
 
-        // Serial replicate loop (C# Parallel.For 1892-1955).
+        // T19: warm-start every replicate via clone_with_data_frame() (Task 18) when low
+        // outliers / uncertain / interval / threshold series are present on the parent DataFrame
+        // -- mirrors the C# `cloneWithDataFrame` local EXACTLY (C# "Determine if we should clone
+        // with the parent data frame or not").
+        bool clone_with_data_frame_flag =
+            bulletin17c_distribution_->data_frame().number_of_low_outliers() > 0 ||
+            bulletin17c_distribution_->data_frame().uncertain_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().interval_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().threshold_series().count() > 0;
+
+        // Serial replicate loop (C# Parallel.For).
         for (int idx = 0; idx < b; ++idx) {
             corehydro::numerics::sampling::MersenneTwister prng(
-                static_cast<std::uint32_t>(seeds[static_cast<std::size_t>(idx)]));  // C# 1896
-            std::optional<std::vector<double>> accepted_params;
+                static_cast<std::uint32_t>(seeds[static_cast<std::size_t>(idx)]));
+            std::optional<BootstrapReplicateFit> fit = collect_bootstrap_replicate_fit(
+                prng, *parent_distribution, theta_hat, sigma_inv, mahal_threshold,
+                clone_with_data_frame_flag, /*collect_covariance=*/false, max_retries, diag);
 
-            for (int attempt = 0; attempt < max_retries && !accepted_params; ++attempt) {  // C# 1899
-                try {
-                    // Resample a bootstrap frame from the parent (clone used only for sampling),
-                    // clone the B17C model onto it, and set a randomized penalty (C# 1905-1909).
-                    std::unique_ptr<UnivariateDistributionBase> sampling_dist =
-                        parent_distribution->clone();
-                    corehydro::models::DataFrame boot_data_frame =
-                        bulletin17c_distribution_->data_frame().BootstrapDataFrame(*sampling_dist,
-                                                                                   prng);
-                    std::unique_ptr<corehydro::models::IGMMModel> boot_model =
-                        bulletin17c_distribution_->clone();
-                    auto* boot_b17c = static_cast<Bulletin17CDistribution*>(boot_model.get());
-                    boot_b17c->set_data_frame(std::move(boot_data_frame));
-                    boot_b17c->set_random_penalty_function(theta_hat, &prng);
-
-                    GeneralizedMethodOfMoments boot_gmm(*boot_b17c);  // C# 1910
-                    boot_gmm.estimate();                              // C# 1911
-                    if (boot_gmm.status() != OptimizationStatus::Success)
-                        throw std::runtime_error("bootstrap GMM solver failed");  // C# 1912-1913
-
-                    // Mahalanobis distance of the bootstrap fit from thetaHat (C# 1916-1924).
-                    const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
-                    double mahal_dist = 0.0;
-                    for (int j = 0; j < p; ++j) {
-                        double tmp = 0.0;
-                        for (int k = 0; k < p; ++k)
-                            tmp += sigma_inv(j, k) *
-                                   (boot_params[static_cast<std::size_t>(k)] -
-                                    theta_hat[static_cast<std::size_t>(k)]);
-                        mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
-                                       theta_hat[static_cast<std::size_t>(j)]) *
-                                      tmp;
-                    }
-                    if (mahal_dist > mahal_threshold) {  // C# 1925-1929
-                        diag.increment_mahalanobis_rejection();
-                        throw std::runtime_error("bootstrap replicate rejected: Mahalanobis");
-                    }
-
-                    accepted_params = boot_params;                                   // C# 1931
-                    diag.add_function_evaluations(boot_gmm.total_function_evaluations());  // C# 1932
-                } catch (...) {
-                    // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
-                    if (attempt < max_retries - 1) diag.add_retries(1);  // C# 1937
-                }
-            }
-
-            // Fall back to the parent vector after all retries fail (C# 1944-1948).
-            if (!accepted_params) {
+            // Fall back to the parent vector after all retries fail -- the shipped v2.0.0 C#
+            // does NOT discard (see the file header's T19 note).
+            std::vector<double> accepted_params;
+            if (fit) {
+                diag.add_function_evaluations(fit->function_evaluations);
+                accepted_params = std::move(fit->params);
+            } else {
                 diag.increment_failed();
                 accepted_params = theta_hat;
             }
 
-            results[static_cast<std::size_t>(idx)] = ParameterSet(
-                std::move(*accepted_params), std::numeric_limits<double>::quiet_NaN());  // C# 1950
+            results[static_cast<std::size_t>(idx)] =
+                ParameterSet(std::move(accepted_params), std::numeric_limits<double>::quiet_NaN());
         }
 
-        // Persist the diagnostics on the analysis and return the sets (C# 1959-1961).
+        // Persist the diagnostics on the analysis and return the sets.
         bootstrap_results_ = std::move(diag);
         return results;
     }
 
-    // ================= X9: BiasCorrectedBootstrap (pivot bootstrap) uncertainty path =================
+    // ================= X9/T20: BiasCorrectedBootstrap (pivotal bootstrap) uncertainty path =================
 
-    // C# `GetParameterSetsFromPivotBootstrap` (C# 2008-2273): the bias-corrected / pivot-bootstrap
-    // UQ path. THREE phases:
-    //   Phase 1 (C# 2044-2122): B parametric-bootstrap GMM re-fits, collecting BOTH the accepted
-    //     parameter vector theta*_b AND its sandwich covariance Sigma*_b per replicate. Shares the A8
-    //     seed cascade (masterPRNG(PRNGSeed) -> B integers -> per-replicate MersenneTwister), the
-    //     BootstrapDataFrame resample, the randomized penalty, the 5-retry Mahalanobis rejection, and
-    //     the parent-vector fallback -- BUT the bootstrap GMM here sets PenaltyIsRandom = false (C#
-    //     2065; distinct from the A8 default true), and the rejection threshold is ChiSquared(p) at
-    //     0.999 (C# 2033; the A8 path uses 0.9999).
-    //   Phase 2 (C# 2124-2172): fit link functions from the bootstrap samples -- location (idx 0) ->
-    //     YeoJohnsonLink(samples); scale (idx 1) -> plain LogLink; shape (idx 2, if p >= 3) ->
-    //     YeoJohnsonLink(samples). Transform the parent to link-space, delta-method V_eta = G Sigma G',
-    //     regularize, and take its Cholesky lower factor LHat. On Cholesky failure fall back to the A8
-    //     parametric bootstrap (C# 2167-2172).
-    //   Phase 3 (C# 2174-2267): per draw, z = LStar^-1 (etaHat - etaStar) + StandardZ*smoothStd jitter,
-    //     reject when any |z_j| > zLimit (6.0), etaDraw = etaHat + LHat*z, InverseLink, then validate;
-    //     on any failure the slot falls back to the parent thetaHat (C# 2262).
+   public:
+    // C# `internal static ILinkFunction CreatePivotYeoJohnsonLink(IReadOnlyList<double> samples,
+    // string parameterName)` (C# 2081-2117; NEW at c2e6192). Fits a Numerics YeoJohnsonLink to one
+    // parameter's bootstrap samples, then VALIDATES it before handing it to the pivot transform:
+    //   * at least two samples, every sample finite (C# 2087-2095);
+    //   * |lambda| < 4.999 -- a fit railed at the YeoJohnson::fit_lambda [-5, 5] optimizer boundary
+    //     is rejected as degenerate (C# 2098-2099);
+    //   * link / d_link / inverse_link finite at EVERY sample (C# 2101-2108).
+    // Any failure -- including the exceptions the ported YeoJohnsonLink values-constructor throws
+    // for a degenerate sample (T2's NaN fit_lambda hardening) -- falls back to an IdentityLink
+    // (C# 2112-2116; the C# Debug.WriteLine is a dropped silent guard). `parameter_name` is kept
+    // for signature parity even though the log line is dropped. Public here because the C#
+    // `internal` + InternalsVisibleTo makes it directly test-visible (see the two transcribed
+    // Bulletin17CAnalysisTests cases in core/tests/test_bulletin17c_analysis.cpp).
+    //
+    // NOTE (T17): the YeoJohnsonLink used here is the NUMERICS one -- upstream deleted the
+    // duplicate RMC.BestFit.Models.LinkFunctions.YeoJohnsonLink, so there is only one left.
+    static std::unique_ptr<corehydro::numerics::functions::ILinkFunction>
+    create_pivot_yeo_johnson_link(const std::vector<double>& samples,
+                                  const std::string& parameter_name) {
+        (void)parameter_name;  // C# only uses it in the dropped Debug.WriteLine.
+        try {
+            if (samples.size() < 2)
+                throw std::invalid_argument(
+                    "At least two samples are required to fit a Yeo-Johnson pivot link.");
+            for (std::size_t i = 0; i < samples.size(); ++i)
+                if (!std::isfinite(samples[i]))
+                    throw std::out_of_range("Yeo-Johnson pivot link samples must be finite.");
+
+            auto link = std::make_unique<corehydro::numerics::functions::YeoJohnsonLink>(samples);
+            if (std::abs(link->lambda()) >= 4.999)
+                throw std::runtime_error(
+                    "Yeo-Johnson pivot link lambda fit railed at the optimizer boundary.");
+
+            for (std::size_t i = 0; i < samples.size(); ++i) {
+                double eta = link->link(samples[i]);
+                double derivative = link->d_link(samples[i]);
+                double round_trip = link->inverse_link(eta);
+                if (!std::isfinite(eta) || !std::isfinite(derivative) || !std::isfinite(round_trip))
+                    throw std::runtime_error(
+                        "Yeo-Johnson pivot link produced non-finite behavior.");
+            }
+
+            return link;
+        } catch (...) {
+            return std::make_unique<corehydro::numerics::functions::IdentityLink>();
+        }
+    }
+
+   private:
+    // C# `GetParameterSetsFromPivotalBootstrap` (C# 2158-2459 @ c2e6192; RENAMED from
+    // GetParameterSetsFromPivotBootstrap): the bias-corrected / pivotal-bootstrap UQ path. THREE
+    // phases:
+    //   Phase 1 (C# 2209-2312): B parametric-bootstrap GMM re-fits through the SHARED
+    //     collect_bootstrap_replicate_fit() helper (T19) -- at c2e6192 this loop is byte-identical
+    //     to the parametric arm's except that it ALSO demands a usable covariance Sigma*_b
+    //     (TryGetCovariance -> MakeSymmetricPositiveDefinite -> a throwaway CholeskyDecomposition
+    //     that throws on a non-factorable matrix, C# 2274-2277) inside the same try, so a bad
+    //     covariance retries the whole replicate. A replicate that exhausts every retry falls back
+    //     to (thetaHat, sigmaHat) and increments Failed (C# 2291-2296).
+    //   Phase 2 (C# 2314-2363): fit link functions from ALL B bootstrap samples -- location
+    //     (idx 0) -> CreatePivotYeoJohnsonLink; scale (idx 1) -> plain LogLink; shape (idx 2, if
+    //     p >= 3) -> CreatePivotYeoJohnsonLink. Transform the parent to link-space, delta-method
+    //     V_eta = G Sigma G', regularize, and take its Cholesky lower factor LHat.
+    //   Phase 3 (C# 2365-2458): per draw, z = LStar^-1 (etaHat - etaStar) + StandardZ*smoothStd
+    //     jitter, CLIPPED to +/- zLimit (6.0), etaDraw = etaHat + LHat*z, InverseLink, a
+    //     finiteness check, then validate. On any failure the slot is LEFT UNSET and
+    //     TransformFailures is incremented; RetainedReplicates counts the populated slots.
+    //
+    // T20 DELTAS from the previous (fc28c0c-era) port, ALL verified against the shipped file:
+    //   1. maxRetries 5 -> 10 (C# 2160).
+    //   2. The parent covariance goes through TryGetCovariance(thetaHat, true, out sigmaHat); a
+    //      failure sets the uncertainty diagnostic message and returns null (C# 2174-2180), and
+    //      the accepted sigmaHat is then REGULARIZED (C# 2181) before every downstream use
+    //      (sigmaInv, the Phase-1 fallback, and V_eta_hat).
+    //   3. The Mahalanobis threshold is the ADAPTIVE ChiSquared(p) at 1 - 1/(5B) (C# 2191-2192;
+    //      was the fixed 0.999 -- numerically identical only at B = 200).
+    //   4. The conditional cloneWithDataFrame warm start (C# 2204-2207), shared with the
+    //      parametric arm through the collector.
+    //   5. `new GeneralizedMethodOfMoments(...) { PenaltyIsRandom = false }` is GONE from the file
+    //      (0 occurrences at c2e6192), so the GMM default `true` now applies -- H is back in the
+    //      sandwich meat of Sigma*_b. This is numerically live and moves the pivot draws.
+    //   6. The Yeo-Johnson links are built through the guarded CreatePivotYeoJohnsonLink (C# 2322,
+    //      2332) rather than `new YeoJohnsonLink(samples)` directly, and the unused scaleSamples
+    //      local is gone.
+    //   7. A parent-Cholesky failure no longer falls back to the parametric bootstrap: it sets the
+    //      diagnostic message and returns null (C# 2353-2360).
+    //   8. Phase 3 CLIPS the pivot to +/- zLimit instead of rejecting the draw (C# 2409), so
+    //      IncrementPivotRejection is no longer called anywhere and the PRNG always consumes
+    //      exactly p StandardZ draws per replicate (the old early `break` made the draw count
+    //      data-dependent).
+    //   9. Phase 3 adds an explicit non-finite check on the inverse-linked theta (C# 2424-2425).
+    //  10. A Phase-3 failure DISCARDS the slot (leaves default(ParameterSet), C# 2437-2438) and
+    //      increments TransformFailures (C# 2434) instead of substituting thetaHat; RetainedReplicates
+    //      is then set from the populated slots (C# 2447-2450). These two are the ONLY new
+    //      BootstrapDiagnostics members the shipped analysis populates anywhere. A discard here is
+    //      made user-visible by the T19 exact-count guard in run_uncertainty_quantification().
+    //
+    // NOT a delta (the brief's planning text said otherwise; the SHIPPED SOURCE GOVERNS): there is
+    // NO compaction to accepted replicates before link fitting. Phase 1 always populates every
+    // bootTheta[idx] (falling back to thetaHat), and Phase 2 fits the links over ALL B samples via
+    // `bootTheta.Select(t => t[0])` (C# 2321, 2331). Likewise the z-limit is a CLIP, not a
+    // rejection -- nothing is dropped for exceeding it.
+    //
     // The C# Parallel.For -> a serial loop; the MersenneTwister draw cadence (seeds[idx] Phase 1,
     // seeds[idx]+B Phase 3, one StandardZ(NextDouble()) draw per parameter) is load-bearing for the
-    // X12 emitter's MT parity -- DO NOT reorder. Async/progress/cancellation/stopwatch lines dropped.
-    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_pivot_bootstrap() {
+    // emitter's MT parity -- DO NOT reorder. Async/progress/cancellation/stopwatch lines dropped.
+    std::optional<std::vector<ParameterSet>> get_parameter_sets_from_pivotal_bootstrap() {
         using corehydro::numerics::math::linalg::Matrix;
         using corehydro::numerics::math::linalg::MatrixRegularization;
 
-        const int max_retries = 5;               // C# 2010
-        const double smooth_std_scale = 0.01;    // C# 2011
-        const double z_limit = 6.0;              // C# 2012
+        const int max_retries = 10;              // C# 2160 (T20: was 5)
+        const double smooth_std_scale = 0.01;    // C# 2161
+        const double z_limit = 6.0;              // C# 2162
 
-        int b = bayesian_analysis_.output_length();                  // C# 2014
-        int p = bulletin17c_distribution_->number_of_parameters();   // C# 2015
-        std::vector<ParameterSet> results(static_cast<std::size_t>(b));  // C# 2016
+        int b = bayesian_analysis_.output_length();                      // C# 2164
+        int p = bulletin17c_distribution_->number_of_parameters();       // C# 2165
+        std::vector<ParameterSet> results(static_cast<std::size_t>(b));  // C# 2166
 
-        // Up-front seed cascade (C# 2017-2018): master PRNG seeds B per-replicate integers.
+        // Up-front seed cascade (C# 2167-2168): master PRNG seeds B per-replicate integers.
         corehydro::numerics::sampling::MersenneTwister master_prng(
             static_cast<std::uint32_t>(bayesian_analysis_.prng_seed()));
         std::vector<int> seeds = corehydro::numerics::utilities::next_integers(master_prng, b);
 
-        // Parent distribution cloned + set to thetaHat as the data-generating model (C# 2020-2022).
+        // Parent distribution cloned + set to thetaHat as the data-generating model (C# 2170-2172).
         const std::vector<double> theta_hat = gmm_->best_parameter_set().values;
         std::unique_ptr<UnivariateDistributionBase> parent_distribution =
             bulletin17c_distribution_->distribution()->clone();
         parent_distribution->set_parameters(theta_hat);
-        Matrix sigma_hat = gmm_->get_covariance(theta_hat);          // C# 2023
 
-        // Sandwich inverse for the Mahalanobis rejection (C# 2026-2032). On a singular inverse the C#
-        // regularizes; port as a try/catch falling back to the regularized inverse (Debug.WriteLine
-        // is a dropped silent guard).
+        // T20 (C# 2174-2181): the parent sandwich covariance must be finite and non-degenerate, or
+        // the whole method aborts with a specific diagnostic; the accepted matrix is regularized.
+        Matrix sigma_hat(p);
+        if (!gmm_->try_get_covariance(theta_hat, true, sigma_hat)) {
+            set_uncertainty_diagnostic_message(
+                "Pivot bootstrap could not compute a finite covariance matrix for the parent GMM "
+                "fit. Use the plain Bootstrap uncertainty method for this analysis.");
+            return std::nullopt;
+        }
+        sigma_hat = MatrixRegularization::make_symmetric_positive_definite(sigma_hat);
+
+        // Sandwich inverse for the Mahalanobis rejection (C# 2184-2190). On a singular inverse the
+        // C# regularizes; port as a try/catch falling back to the regularized inverse
+        // (Debug.WriteLine is a dropped silent guard).
         Matrix sigma_inv(p);
         try {
             sigma_inv = sigma_hat.inverse();
         } catch (...) {
             sigma_inv = MatrixRegularization::make_symmetric_positive_definite(sigma_hat).inverse();
         }
+        // T20: adaptive Mahalanobis threshold ChiSq(p) at 1 - 1/(5B) (C# 2191-2192; was 0.999).
+        double mahal_pvalue = 1.0 - 1.0 / (b * 5.0);
         double mahal_threshold =
-            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(0.999);  // C# 2033
+            corehydro::numerics::distributions::ChiSquared(p).inverse_cdf(mahal_pvalue);
 
-        // Diagnostics (C# 2036): TotalReplicates = B.
+        // Diagnostics (C# 2197): TotalReplicates = B.
         BootstrapDiagnostics diag;
         diag.set_total_replicates(b);
 
-        // --- Phase 1: collect bootstrap fits theta*_b AND Sigma*_b (C# 2044-2122) ---
+        // T20: the same cloneWithDataFrame warm-start condition the parametric arm uses
+        // (C# 2204-2207) -- mirrored EXACTLY.
+        bool clone_with_data_frame_flag =
+            bulletin17c_distribution_->data_frame().number_of_low_outliers() > 0 ||
+            bulletin17c_distribution_->data_frame().uncertain_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().interval_series().count() > 0 ||
+            bulletin17c_distribution_->data_frame().threshold_series().count() > 0;
+
+        // --- Phase 1: collect bootstrap fits theta*_b AND Sigma*_b (C# 2209-2312) ---
         std::vector<std::vector<double>> boot_theta(static_cast<std::size_t>(b));
         std::vector<Matrix> boot_sigma(static_cast<std::size_t>(b), Matrix(p));
         for (int idx = 0; idx < b; ++idx) {
             std::size_t iu = static_cast<std::size_t>(idx);
             corehydro::numerics::sampling::MersenneTwister prng(
-                static_cast<std::uint32_t>(seeds[iu]));  // C# 2058
-            bool estimated = false;
+                static_cast<std::uint32_t>(seeds[iu]));  // C# 2223
+            std::optional<BootstrapReplicateFit> fit = collect_bootstrap_replicate_fit(
+                prng, *parent_distribution, theta_hat, sigma_inv, mahal_threshold,
+                clone_with_data_frame_flag, /*collect_covariance=*/true, max_retries, diag);
 
-            for (int attempt = 0; attempt < max_retries && !estimated; ++attempt) {  // C# 2061
-                try {
-                    std::unique_ptr<UnivariateDistributionBase> boot_dist =
-                        parent_distribution->clone();
-                    corehydro::models::DataFrame boot_data_frame =
-                        bulletin17c_distribution_->data_frame().BootstrapDataFrame(*boot_dist, prng);
-                    std::unique_ptr<corehydro::models::IGMMModel> boot_model =
-                        bulletin17c_distribution_->clone();
-                    auto* boot_b17c = static_cast<Bulletin17CDistribution*>(boot_model.get());
-                    boot_b17c->set_data_frame(std::move(boot_data_frame));
-                    boot_b17c->set_random_penalty_function(theta_hat, &prng);
-
-                    // C# `new GeneralizedMethodOfMoments(...) { PenaltyIsRandom = false }` (C# 2065):
-                    // NOTE distinct from the A8 path's default (true) -- the pivot fit uses a fixed
-                    // penalty, which also drops H from the sandwich meat of Sigma*_b below.
-                    GeneralizedMethodOfMoments boot_gmm(*boot_b17c);
-                    boot_gmm.penalty_is_random = false;
-                    boot_gmm.estimate();  // C# 2067
-                    if (boot_gmm.status() != OptimizationStatus::Success)
-                        throw std::runtime_error("bootstrap GMM solver failed");  // C# 2068-2069
-
-                    // Mahalanobis distance of the bootstrap fit from thetaHat (C# 2072-2080).
-                    const std::vector<double>& boot_params = boot_gmm.best_parameter_set().values;
-                    double mahal_dist = 0.0;
-                    for (int j = 0; j < p; ++j) {
-                        double tmp = 0.0;
-                        for (int k = 0; k < p; ++k)
-                            tmp += sigma_inv(j, k) *
-                                   (boot_params[static_cast<std::size_t>(k)] -
-                                    theta_hat[static_cast<std::size_t>(k)]);
-                        mahal_dist += (boot_params[static_cast<std::size_t>(j)] -
-                                       theta_hat[static_cast<std::size_t>(j)]) *
-                                      tmp;
-                    }
-                    if (mahal_dist > mahal_threshold) {  // C# 2081-2085
-                        diag.increment_mahalanobis_rejection();
-                        throw std::runtime_error("pivot bootstrap replicate rejected: Mahalanobis");
-                    }
-
-                    boot_theta[iu] = boot_params;                                    // C# 2087
-                    boot_sigma[iu] = boot_gmm.get_covariance(boot_theta[iu]);        // C# 2088
-                    diag.add_function_evaluations(boot_gmm.total_function_evaluations());  // C# 2089
-                    estimated = true;
-                } catch (...) {
-                    // C# Debug.WriteLine dropped (silent guard); count a retry when more remain.
-                    if (attempt < max_retries - 1) diag.add_retries(1);  // C# 2096
-                }
-            }
-
-            // Fall back to parent fit if all retries failed (C# 2101-2106).
-            if (!estimated) {
+            if (fit && fit->covariance) {
+                diag.add_function_evaluations(fit->function_evaluations);  // C# 2281
+                boot_theta[iu] = std::move(fit->params);                   // C# 2298
+                boot_sigma[iu] = std::move(*fit->covariance);              // C# 2299
+            } else {
+                // Fall back to the parent fit if all retries failed (C# 2291-2296).
                 boot_theta[iu] = theta_hat;
                 boot_sigma[iu] = sigma_hat;
                 diag.increment_failed();
             }
         }
 
-        // --- Phase 2: fit link functions from the bootstrap parameter samples (C# 2124-2172) ---
+        // --- Phase 2: fit link functions from the bootstrap parameter samples (C# 2314-2363) ---
+        // NO compaction: the links are fitted over ALL B replicates (C# 2321/2331).
         std::vector<double> location_samples(static_cast<std::size_t>(b));
-        std::vector<double> scale_samples(static_cast<std::size_t>(b));
-        for (int idx = 0; idx < b; ++idx) {
-            std::size_t iu = static_cast<std::size_t>(idx);
-            location_samples[iu] = boot_theta[iu][0];
-            scale_samples[iu] = boot_theta[iu][1];
-        }
+        for (int idx = 0; idx < b; ++idx)
+            location_samples[static_cast<std::size_t>(idx)] =
+                boot_theta[static_cast<std::size_t>(idx)][0];
 
         std::vector<std::unique_ptr<ILinkFunction>> links(static_cast<std::size_t>(p));
-        // Location (idx 0): Yeo-Johnson fitted to bootstrap location estimates (C# 2130-2131).
-        links[0] = std::make_unique<corehydro::numerics::functions::YeoJohnsonLink>(location_samples);
-        // Scale (idx 1): plain Log link -- scale is strictly positive (C# 2134-2136; the commented
-        // YeoJohnson(scaleSamples) alternative in the C# source is NOT used).
+        // Location (idx 0): guarded Yeo-Johnson fitted to the bootstrap location estimates
+        // (C# 2321-2322).
+        links[0] = create_pivot_yeo_johnson_link(location_samples, "location");
+        // Scale (idx 1): plain Log link -- scale is strictly positive (C# 2325; T20: the unused
+        // `scaleSamples` local and its commented-out YeoJohnson alternative are gone upstream).
         links[1] = std::make_unique<corehydro::numerics::functions::LogLink>();
-        // Shape (idx 2, if present): Yeo-Johnson fitted to bootstrap shape estimates (C# 2139-2144).
+        // Shape (idx 2, if present): guarded Yeo-Johnson fitted to the shape estimates
+        // (C# 2328-2333).
         if (p >= 3) {
             std::vector<double> shape_samples(static_cast<std::size_t>(b));
             for (int idx = 0; idx < b; ++idx)
-                shape_samples[static_cast<std::size_t>(idx)] = boot_theta[static_cast<std::size_t>(idx)][2];
-            links[2] =
-                std::make_unique<corehydro::numerics::functions::YeoJohnsonLink>(shape_samples);
+                shape_samples[static_cast<std::size_t>(idx)] =
+                    boot_theta[static_cast<std::size_t>(idx)][2];
+            links[2] = create_pivot_yeo_johnson_link(shape_samples, "shape");
         }
-        LinkController link_controller(std::move(links));  // C# 2147-2151
+        LinkController link_controller(std::move(links));  // C# 2336-2340
 
-        // Transform the parent to link-space and take the parent Cholesky factor (C# 2154-2166).
+        // Transform the parent to link-space and take the parent Cholesky factor (C# 2343-2360).
         std::vector<double> eta_hat = link_controller.link(theta_hat);
         Matrix g_hat = link_controller.link_jacobian(theta_hat);
         Matrix v_eta_hat = g_hat * sigma_hat * g_hat.transpose();
@@ -894,61 +1296,57 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         try {
             l_hat = corehydro::numerics::math::linalg::CholeskyDecomposition(v_eta_hat).l();
         } catch (...) {
-            // C# 2167-2172: parent Cholesky failed -> fall back to the A8 parametric bootstrap.
-            return get_parameter_sets_from_parametric_bootstrap();
+            // T20 (C# 2353-2359): a parent-Cholesky failure now ABORTS with a diagnostic message
+            // instead of falling back to the parametric bootstrap.
+            set_uncertainty_diagnostic_message(
+                "Pivot bootstrap could not factor the parent link-space covariance matrix. Use "
+                "the plain Bootstrap uncertainty method for this analysis.");
+            return std::nullopt;
         }
 
-        // --- Phase 3: generate the pivot draws (C# 2174-2267) ---
-        double smooth_std = smooth_std_scale / std::sqrt(static_cast<double>(p));  // C# 2181
+        // --- Phase 3: generate the pivot draws (C# 2365-2458) ---
+        double smooth_std = smooth_std_scale / std::sqrt(static_cast<double>(p));  // C# 2369
 
         // A single reusable validator clone (serial loop; C# clones per Parallel.For thread).
-        std::unique_ptr<UnivariateDistributionBase> validator =
-            parent_distribution->clone();
+        std::unique_ptr<UnivariateDistributionBase> validator = parent_distribution->clone();
 
         for (int idx = 0; idx < b; ++idx) {
             std::size_t iu = static_cast<std::size_t>(idx);
             corehydro::numerics::sampling::MersenneTwister prng(
-                static_cast<std::uint32_t>(seeds[iu] + b));  // C# 2193
+                static_cast<std::uint32_t>(seeds[iu] + b));  // C# 2378
             std::optional<std::vector<double>> accepted_theta;
 
             try {
-                // Transform the bootstrap fit to link-space (C# 2201-2205).
+                // Transform the bootstrap fit to link-space (C# 2386-2389).
                 std::vector<double> eta_star = link_controller.link(boot_theta[iu]);
                 Matrix g_star = link_controller.link_jacobian(boot_theta[iu]);
                 Matrix v_eta_star = g_star * boot_sigma[iu] * g_star.transpose();
                 v_eta_star = MatrixRegularization::make_symmetric_positive_definite(v_eta_star);
 
                 Matrix l_star =
-                    corehydro::numerics::math::linalg::CholeskyDecomposition(v_eta_star).l();  // C# 2207-2208
-                Matrix l_star_inv = l_star.inverse();  // C# 2209
+                    corehydro::numerics::math::linalg::CholeskyDecomposition(v_eta_star).l();  // C# 2391-2392
+                Matrix l_star_inv = l_star.inverse();  // C# 2393
 
-                // Pivot: z = L*^-1 (etaHat - etaStar) (C# 2212-2219).
+                // Pivot: z = L*^-1 (etaHat - etaStar) (C# 2396-2402).
                 Matrix diff_matrix(p, 1);
                 for (int j = 0; j < p; ++j)
                     diff_matrix(j, 0) = eta_hat[static_cast<std::size_t>(j)] -
                                         eta_star[static_cast<std::size_t>(j)];
                 Matrix z_matrix = l_star_inv * diff_matrix;
 
-                // Add the smoothing jitter and check the z-limit (C# 2222-2233). One StandardZ draw
-                // per parameter -- the NextDouble() cadence is MT-parity load-bearing.
+                // Add the smoothing jitter and CLIP to the z-limit (C# 2405-2410; T20: the old
+                // reject-and-break is gone, so exactly p StandardZ draws are always consumed).
                 std::vector<double> z(static_cast<std::size_t>(p));
-                bool bad_pivot = false;
                 for (int j = 0; j < p; ++j) {
                     std::size_t ju = static_cast<std::size_t>(j);
                     z[ju] = z_matrix(j, 0) +
-                            corehydro::numerics::distributions::Normal::standard_z(prng.next_double()) *
+                            corehydro::numerics::distributions::Normal::standard_z(
+                                prng.next_double()) *
                                 smooth_std;
-                    if (std::abs(z[ju]) > z_limit) {
-                        bad_pivot = true;
-                        break;
-                    }
-                }
-                if (bad_pivot) {  // C# 2235-2239
-                    diag.increment_pivot_rejection();
-                    throw std::runtime_error("pivot exceeded z-limit");
+                    z[ju] = std::max(-z_limit, std::min(z_limit, z[ju]));
                 }
 
-                // Map back: etaDraw = etaHat + LHat * z (C# 2242-2251).
+                // Map back: etaDraw = etaHat + LHat * z (C# 2413-2420).
                 Matrix z_col(p, 1);
                 for (int j = 0; j < p; ++j) z_col(j, 0) = z[static_cast<std::size_t>(j)];
                 Matrix lz_matrix = l_hat * z_col;
@@ -957,26 +1355,44 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
                     eta_draw[static_cast<std::size_t>(j)] =
                         eta_hat[static_cast<std::size_t>(j)] + lz_matrix(j, 0);
 
-                // Inverse transform back to real-space, then validate (C# 2254-2258). The C#
-                // `ValidateParameters(theta, true)` throws on an invalid vector -> the catch below.
+                // Inverse transform back to real-space, check finiteness, then validate
+                // (C# 2423-2429). The C# `ValidateParameters(theta, true)` throws on an invalid
+                // vector -> the catch below.
                 std::vector<double> theta = link_controller.inverse_link(eta_draw);
+                if (!std::all_of(theta.begin(), theta.end(),
+                                 [](double value) { return std::isfinite(value); }))
+                    throw std::runtime_error("the pivot transform produced non-finite parameters");
                 validator->set_parameters(theta);
                 if (!validator->parameters_valid())
                     throw std::runtime_error("pivot draw failed parameter validation");
                 accepted_theta = std::move(theta);
             } catch (...) {
-                // C# Debug.WriteLine dropped -> fall back to the parent thetaHat below (C# 2260-2264).
+                // T20 (C# 2431-2435): the C# Debug.WriteLine is a dropped silent guard; the slot is
+                // DISCARDED (no thetaHat substitution) and TransformFailures is incremented.
+                diag.increment_transform_failure();
             }
 
-            results[iu] = ParameterSet(accepted_theta ? std::move(*accepted_theta) : theta_hat,
-                                       std::numeric_limits<double>::quiet_NaN());  // C# 2262
+            // C# 2437-2438: only a successful draw populates the slot; a failure leaves
+            // default(ParameterSet) (an empty `values`, this port's "unset" -- see parameter_set.hpp).
+            if (accepted_theta)
+                results[iu] = ParameterSet(std::move(*accepted_theta),
+                                           std::numeric_limits<double>::quiet_NaN());
         }
 
-        // Persist the diagnostics on the analysis and return the sets (C# 2266-2268).
+        // T20 (C# 2447-2450): RetainedReplicates counts the slots that survived Phase 3.
+        long long retained = 0;
+        for (const ParameterSet& parameter_set : results) {
+            if (static_cast<int>(parameter_set.values.size()) == p &&
+                std::all_of(parameter_set.values.begin(), parameter_set.values.end(),
+                            [](double value) { return std::isfinite(value); }))
+                ++retained;
+        }
+        diag.set_retained_replicates(static_cast<int>(retained));
+
+        // Persist the diagnostics on the analysis and return the sets (C# 2451-2453).
         bootstrap_results_ = std::move(diag);
         return results;
     }
-
     // ================= X8: LinkedMultivariateNormal uncertainty path =================
     //
     // PROVENANCE (carried verbatim from the X8 brief): the shipped C# path samples from
@@ -1059,10 +1475,13 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
         Matrix v_eta_hat = g_hat * sigma_hat * g_hat.transpose();
         v_eta_hat = MatrixRegularization::make_symmetric_positive_definite(v_eta_hat);
 
-        // Step 7b: influence-function statistics are COMPUTED then DISCARDED (C# 1034-1055): the
-        // C# center-shift lines `etaHat[1]/[2] += shift` are COMMENTED OUT, so the MVN center is
-        // NOT shifted. Ported for fidelity (real, reachable code); the shift is not applied.
-        (void)compute_influence_statistics(theta_hat, 0.999);
+        // T20 (adjacent v2.0.0 diff in this region): the old Step 7b -- the
+        // `ComputeInfluenceStatistics(thetaHat, 0.999)` call plus the two commented-out center-shift
+        // lines `etaHat[1]/[2] += shift` -- was DELETED WHOLESALE from this method at c2e6192, so
+        // the call is gone here too. ComputeInfluenceStatistics itself is still DEFINED upstream
+        // (C# 1714) with zero call sites, so its port below stays as-is. No numeric effect either
+        // way: the C# shift lines were already commented out, so the statistics were computed and
+        // discarded (the X8 PROVENANCE note above).
 
         // Step 8: MVN(etaHat, V_eta) -- NOT MVT (C# 1058-1067). A non-positive-definite covariance
         // throws in the ctor -> nullopt (the guard restores the identity links; caller falls back).
@@ -1920,6 +2339,18 @@ class Bulletin17CAnalysis : public AnalysisBase, public IUnivariateAnalysis {
     std::optional<UncertaintyAnalysisResults> analysis_results_;
     // C# nullable `BootstrapResults` (A8): populated by the parametric-bootstrap UQ path.
     std::optional<BootstrapDiagnostics> bootstrap_results_;
+    // C# `UncertaintyDiagnosticMessage` (T19); empty string default matches the C# field
+    // initializer.
+    std::string uncertainty_diagnostic_message_;
+
+    // C# `SetUncertaintyDiagnosticMessage(string)` (T19, C# 421): records the reason the most
+    // recent uncertainty quantification was degraded or aborted. RaisePropertyChange /
+    // Debug.WriteLine dropped (WPF binding / trace-only). Not currently called by
+    // get_parameter_sets_from_parametric_bootstrap (see the file header's T19 note); kept for the
+    // other uncertainty paths' existing (unwired) guards and for Task 20.
+    void set_uncertainty_diagnostic_message(const std::string& message) {
+        uncertainty_diagnostic_message_ = message;
+    }
 
     // Test-only access to the private acceleration_constants() (see the forward-declared struct).
     friend struct Bulletin17CAnalysisTestAccess;

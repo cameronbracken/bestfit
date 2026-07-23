@@ -1,8 +1,12 @@
 # Upstream C# issues found during the Phase 1 port
 
 Running log of potential **bugs, edge-case gaps, and consistency issues in the upstream
-USACE-RMC C# libraries** (`Numerics` @ `a2c4dbf`, `RMC.BestFit` @ `fc28c0c`) that surfaced while
-porting the univariate distribution layer to the C++ core.
+USACE-RMC C# libraries** (`Numerics` @ `2a0357a` = v2.1.4, `RMC.BestFit` @ `c2e6192` = v2.0.0)
+that surfaced while porting the univariate distribution layer to the C++ core. Entries were
+originally written against `Numerics` @ `a2c4dbf` and `RMC.BestFit` @ `fc28c0c`; the July 2026
+upstream sync re-checked every entry against the shipped source at the new pins and recorded the
+outcome in a **Status:** bullet. Entries with no Status bullet were re-checked and are unchanged
+upstream.
 
 The port's governing rule is bit-for-bit fidelity with the C# (so the oracle values hold), so in
 almost every case below the C++ **faithfully mirrors the C# behaviour** — including its bugs — and
@@ -18,7 +22,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
-## BUG — StudentT PDF omits the 1/σ Jacobian (density does not integrate to 1 for σ≠1)
+## BUG — StudentT PDF omits the 1/σ Jacobian (density does not integrate to 1 for σ≠1) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/StudentT.cs`, `PDF(x)`.
 - **What:** For the location-scale Student-t with parameters `[μ, σ, ν]`, `PDF` computes the
@@ -26,11 +30,16 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   is not a proper probability density when `σ≠1` (it does not integrate to 1).
 - **Evidence (oracle):** `StudentT(2.5, 0.5, 4).PDF(1.4)` returns `0.0516476521260042`; a correctly
   scaled density is `0.1032953...` (exactly 2× = 1/σ with σ=0.5).
-- **Port handling:** mirrored faithfully (oracle-verified); the C++ header notes it.
-- **Suggested C# fix:** multiply the returned density by `1.0 / Sigma`. NOTE this changes oracle
-  values for every σ≠1 case — coordinate with the test literals.
+- **Status:** RESOLVED. Numerics v2.1.4 `PDF` now computes `inverseSigma = 1.0 / Sigma` and
+  multiplies both return paths (the ν ≥ 1e8 normal-approximation branch and the general branch)
+  by it. Ported in the upstream-sync Task 4; every σ≠1 PDF oracle was re-pinned by bit-scaling
+  the old literal by `1/σ`, and a location-scale PDF identity case was added.
+- **Port handling (historical):** mirrored faithfully (oracle-verified); the C++ header noted it.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** multiply the returned density
+  by `1.0 / Sigma`. NOTE this changes oracle values for every σ≠1 case — coordinate with the test
+  literals.
 
-## BUG — Beta / GeneralizedBeta Mode can fall outside the support
+## BUG — Beta / GeneralizedBeta Mode can fall outside the support (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/BetaDistribution.cs` and `GeneralizedBeta.cs`, `Mode`.
 - **What:** The mode uses `(α−1)/(α+β−2)` (rescaled to `[min,max]` for GeneralizedBeta). The
@@ -39,23 +48,34 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   outside the support.
 - **Evidence (oracle):** `GeneralizedBeta(α=0.42, β=1.57, min=0, max=1).Mode` returns `≈ 58.0`
   (support is `[0,1]`). Same math applies to `BetaDistribution` on `[0,1]`.
-- **Port handling:** mirrored faithfully (oracle-verified).
-- **Suggested C# fix:** for a U- or J-shaped Beta (`α<1` xor `β<1`) the density has no interior mode;
-  return the maximising boundary (`min` or `max`) or `NaN`, not the extrapolated formula. Clamp the
-  formula result to `[min,max]` at minimum.
+- **Status:** RESOLVED. Numerics v2.1.4 widened the guard to the full boundary ladder:
+  `α==1 && β==1` and `α<1 && β<1` return the midpoint, `α<=1 && β>=1` returns the lower boundary,
+  `α>=1 && β<=1` returns the upper boundary, and only the interior case reaches
+  `(α−1)/(α+β−2)`. GeneralizedBeta applies the same ladder rescaled to `[min,max]`; the PERT
+  degenerate midpoint is preserved. Ported in the upstream-sync Task 6.
+- **Port handling (historical):** mirrored faithfully (oracle-verified).
+- **Originally suggested C# fix (this is what v2.1.4 did):** for a U- or J-shaped Beta (`α<1` xor
+  `β<1`) the density has no interior mode; return the maximising boundary (`min` or `max`) or
+  `NaN`, not the extrapolated formula.
 
-## BUG — GeneralizedLogistic L-moment methods divide by zero at κ=0
+## BUG — GeneralizedLogistic L-moment methods divide by zero at κ=0 (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/GeneralizedLogistic.cs`,
   `LinearMomentsFromParameters` (`1/κ − π/sin(κπ)`) and `ParametersFromLinearMoments`
   (`sin(κπ)/(κπ)`).
 - **What:** Neither guards `κ→0`; both evaluate `0/0` at `κ=0`, yielding `NaN`/`Inf`. κ=0 is the
   ordinary Logistic (a valid, common case).
-- **Port handling:** **intentional divergence** — the C++ returns the correct L'Hôpital limits
-  (`L1=ξ, L2=α, T3=0, T4=1/6`), documented in-header; not oracle-verifiable (C# returns NaN there).
-- **Suggested C# fix:** add a `|κ| < NearZero` branch returning those limits.
+- **Status:** RESOLVED, and the divergence is retired. Numerics v2.1.4 added an exact `κ == 0`
+  branch returning the L'Hôpital limits AND a `|κ| <= NearZero` truncated-series branch that the
+  C++ did not have. The upstream-sync Task 5 converged the C++ onto upstream's exact formulation
+  (series and all) rather than keeping our own limit-only version, so the values are now
+  oracle-verifiable in both branches.
+- **Port handling (historical):** intentional divergence — the C++ returned the L'Hôpital limits
+  (`L1=ξ, L2=α, T3=0, T4=1/6`), documented in-header; not oracle-verifiable (C# returned NaN).
+- **Originally suggested C# fix (v2.1.4 did this and more):** add a `|κ| < NearZero` branch
+  returning those limits.
 
-## BUG — LogPearsonTypeIII.LinearMomentsFromParameters overflows for small skew (large α)
+## BUG — LogPearsonTypeIII.LinearMomentsFromParameters overflows for small skew (large α) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/LogPearsonTypeIII.cs`, `LinearMomentsFromParameters`
   (the `L2 = ... * Gamma.Function(α+0.5)/Gamma.Function(α) ...` line).
@@ -63,12 +83,18 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   around `α≳171`, so the ratio is `Inf/Inf = NaN`. The **inverse** method
   `ParametersFromLinearMoments` already has an `α≥100` Stirling-approximation branch for exactly this
   ratio; the forward method does not, so the two directions are inconsistent.
-- **Port handling:** **intentional divergence** — the C++ adds the matching `α≥100` Stirling branch
-  to the forward method (finite, correct), documented in-header; not oracle-verifiable (C# NaN).
-- **Suggested C# fix:** apply the same Stirling ratio (`Γ(α+0.5)/Γ(α) ≈ √α·(1 − 1/(8α) + …)`) in
-  `LinearMomentsFromParameters` as already done in `ParametersFromLinearMoments`.
+- **Status:** RESOLVED, and the divergence is retired. Numerics v2.1.4's
+  `LinearMomentsFromParameters` now branches on `alpha < 100` and otherwise uses
+  `L2 = sigma / sqrt(pi) * (1 − 1/(8α) + 1/(128α²))`; it also added an exact `gamma == 0` early
+  return. The upstream-sync Task 5 converged the C++ onto upstream's exact correction terms, so
+  the previously unverifiable branch now has oracles.
+- **Port handling (historical):** intentional divergence — the C++ added its own `α≥100` Stirling
+  branch to the forward method, documented in-header; not oracle-verifiable (C# NaN).
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** apply the same Stirling ratio
+  (`Γ(α+0.5)/Γ(α) ≈ √α·(1 − 1/(8α) + …)`) in `LinearMomentsFromParameters` as already done in
+  `ParametersFromLinearMoments`.
 
-## BUG — UnivariateDistributionFactory has no case for VonMises (falls through to Deterministic)
+## BUG — UnivariateDistributionFactory has no case for VonMises (falls through to Deterministic) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/Base/UnivariateDistributionFactory.cs`,
   `CreateDistribution(UnivariateDistributionType)`.
@@ -76,11 +102,17 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `Deterministic` distribution instead — silently wrong for any code that constructs VonMises by type
   (e.g. serialization round-trips, generic UIs).
 - **Evidence:** the dotnet oracle emitter had to bypass the factory and `new VonMises()` directly.
-- **Port handling:** the C++ factory includes VonMises; the emitter uses a direct-construction bypass.
-- **Suggested C# fix:** add the `VonMises` case. **Also audit the factory against the full
-  `UnivariateDistributionType` enum** for any other missing entries.
+- **Status:** RESOLVED. Numerics v2.1.4 rewrote the factory as a complete `switch` with a
+  `case UnivariateDistributionType.VonMises: return new VonMises();` arm and a `default` that
+  throws on an unknown type instead of silently returning `Deterministic`. It also added
+  `TryCreateDistribution(type, out dist)`. Ported in the upstream-sync Task 7 (the C++ factory
+  already had VonMises; it gained the throwing default and `try_create_distribution`).
+- **Port handling (historical):** the C++ factory included VonMises; the emitter used a
+  direct-construction bypass.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** add the `VonMises` case and
+  audit the factory against the full `UnivariateDistributionType` enum.
 
-## BUG (pattern) — SetParameters validates before assigning fields (invalid scale reported valid)
+## BUG (pattern) — SetParameters validates before assigning fields (invalid scale reported valid) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/Gumbel.cs`, `SetParameters` / `ValidateParameters`
   ordering (and potentially other distributions using the same field-assignment order).
@@ -90,34 +122,48 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   scale-invalidity is not, in the affected ordering.
 - **Evidence:** scale-invalid `parameters_valid` cases could not be reproduced through the C# oracle
   for Gumbel — the C# reports them valid.
-- **Port handling:** the C++ validates the incoming arguments directly (correct), so scale-invalid
-  cases are caught; those specific bool cases are simply not oracle-checked.
-- **Suggested C# fix:** assign all fields before calling `ValidateParameters`, or validate the passed
-  arguments rather than the fields. **Audit every `SetParameters` for this ordering.**
+- **Status:** RESOLVED. Numerics v2.1.4 reordered the affected setters to assign every field
+  first and then validate the passed arguments: `Gumbel.SetParameters` is now
+  `_xi = location; _alpha = scale; _parametersValid = ValidateParameters(location, scale, false)
+  is null;`, and the same pattern was applied across the validation wave
+  (Logistic, InverseChiSquared, Binomial, Deterministic, NoncentralT) together with NaN/Inf
+  rejection in ChiSquared, KernelDensity and others. Ported in the upstream-sync Task 3; the
+  scale-invalid `parameters_valid` cases now have C# oracles.
+- **Port handling (historical):** the C++ validated the incoming arguments directly (correct), so
+  scale-invalid cases were caught but were not oracle-checked.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** assign all fields before
+  calling `ValidateParameters`, or validate the passed arguments rather than the fields.
 
-## VERIFY (arguable BUG) — PearsonTypeIII / LogPearsonTypeIII L-skewness sign for negative skew
+## VERIFY (arguable BUG) — PearsonTypeIII / LogPearsonTypeIII L-skewness sign for negative skew (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/PearsonTypeIII.cs` (and `LogPearsonTypeIII.cs`),
   `LinearMomentsFromParameters`.
 - **What:** `T3` (L-skewness) is computed from `α = 4/γ²`, which is always positive, and the
   rational approximation yields a **positive** T3 regardless of the sign of the skew `γ`. For a
   negative-skew distribution the L-skewness should be negative. The sign of `γ` appears to be dropped.
-- **Port handling:** we initially added a sign flip, then **reverted it to match C# exactly** (an
-  early implementer "correction" that broke round-trip consistency with the faithfully-ported
-  `ParametersFromLinearMoments`). Kept bug-for-bug; a negative-skew L-moment fixture reproduces the
-  C# (positive) value.
-- **Suggested action:** confirm with the upstream authors whether T3 is meant to carry the sign of
-  γ (likely yes → multiply by `Sign(γ)`), and if so fix both the forward method and ensure the
-  inverse method stays consistent.
+- **Status:** RESOLVED, and the answer was yes. Numerics v2.1.4 ends
+  `LinearMomentsFromParameters` with `T3 *= Math.Sign(gamma);` in both PearsonTypeIII and
+  LogPearsonTypeIII, and both classes gained exact `gamma == 0` / `T3 == 0` branches in both
+  directions so the round trip stays consistent. Ported in the upstream-sync Task 5; the
+  negative-skew L-moment fixture re-pinned from the old positive value to the signed one.
+- **Port handling (historical):** we initially added a sign flip, then reverted it to match C#
+  exactly (an early implementer "correction" that broke round-trip consistency with the
+  faithfully-ported `ParametersFromLinearMoments`). Kept bug-for-bug; a negative-skew L-moment
+  fixture reproduced the C# (positive) value.
 
-## CONSISTENCY — StudentT.InverseCDF extreme-tail overflow ignores location/scale
+## CONSISTENCY — StudentT.InverseCDF extreme-tail overflow ignores location/scale (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/StudentT.cs`, `InverseCDF` overflow guard.
 - **What:** on the extreme-tail overflow path it returns a bare `rflg * double.MaxValue`, without the
   `μ + σ·t` transform applied on the normal return path. For non-default `μ`/`σ` the extreme quantile
   is not on the same scale as the rest of the function.
-- **Port handling:** mirrored faithfully.
-- **Suggested C# fix:** return `μ + σ · rflg · double.MaxValue` (or `±Infinity`) for consistency.
+- **Status:** RESOLVED. Numerics v2.1.4 refactored the tail branch: the `double.MaxValue`
+  saturation guard is gone and both branches now return through the location-scale transform
+  (`return Mu + Sigma * (rflg * t);`). Ported in the upstream-sync Task 4, with extreme-tail cases
+  at p = 1e-155 and 1e-150 pinned to show μ/σ retention.
+- **Port handling (historical):** mirrored faithfully.
+- **Originally suggested C# fix (v2.1.4 did the equivalent):** return `μ + σ · rflg ·
+  double.MaxValue` (or `±Infinity`) for consistency.
 
 ## CONSISTENCY — CentralMoments(1000) resolves to the int-steps (trapezoidal) overload
 
@@ -132,30 +178,49 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Suggested action:** verify the intent; consider renaming one overload (e.g.
   `CentralMomentsBySteps` / `CentralMomentsByTolerance`) to remove the ambiguity.
 
-## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear
+## CONSISTENCY — BivariateEmpirical.SetParameters does not invalidate the cached Bilinear (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/BivariateEmpirical.cs`, `SetParameters` /
   `CDF(double, double)`.
 - **What:** `CDF` lazily builds the `bilinear` field only `if (bilinear == null)`. Calling
   `SetParameters` a second time (new grid) after a `CDF` call has already run does not reset
   `bilinear` to null, so subsequent `CDF` calls keep interpolating against the OLD grid.
-- **Evidence:** read from source; not exercised by the ported fixture (constructed once, `CDF`
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) added `bilinear = null;` at the end of
+  `SetParameters`, plus new finite-value (NaN/Inf) checks on X1/X2/the probability grid. Ported in
+  the upstream-sync Task 9: `set_parameters()` in `bivariate_empirical.hpp` now resets `bilinear_`,
+  and `validate_parameters()` gained the matching finiteness checks (checked immediately before
+  each ascending-order/range check, same relative position as the new C# guards -- a NaN
+  previously slipped through the ascending-order comparisons undetected, since NaN compares false
+  in both directions, and reported `parameters_valid() == true`). See
+  `fixtures/distributions/multivariate/bivariate_empirical.json`'s
+  `set_parameters_invalidates_bilinear_interpolator` (adapted from the new
+  `Test_BivariateEmpirical.SetParametersInvalidatesBilinearInterpolator`) and the three
+  `*_non_finite_invalid` cases, all reproduced against the real C# library.
+- **Evidence:** read from source; not exercised by any fixture pre-v2.1.4 (constructed once, `CDF`
   called several times against the same grid, per `Test_BivariateEmpirical.Test_BivariateEmp`).
-- **Port handling:** mirrored faithfully (`bilinear_` is likewise never reset in `set_parameters()`).
-- **Suggested C# fix:** set `bilinear = null;` at the end of `SetParameters`.
+  Confirmed reproducible post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`bilinear_` was likewise never
+  reset in `set_parameters()`).
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** set `bilinear = null;` at the
+  end of `SetParameters`.
 
-## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform
+## CONSISTENCY — Linear vs. Bilinear use different (clamped vs. unclamped) log10 for the Logarithmic transform (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Interpolation/Linear.cs` (`Tools.Log10`, clamps values `< 1E-16` to
   `1E-16`) vs. `Numerics/Data/Interpolation/Bilinear.cs` (`Math.Log10` directly, no clamp).
 - **What:** the two interpolation classes apply the Logarithmic transform inconsistently: Linear
   is guarded against `log(0)`/`log(negative)` producing `-Inf`/`NaN`; Bilinear is not, despite
   Bilinear internally reusing Linear instances for its search machinery.
-- **Port handling:** mirrored faithfully (`Linear::base_interpolate`/`extrapolate` use
-  `corehydro::numerics::clamped_log10`; `Bilinear::interpolate` uses plain `std::log10`), documented
-  at both call sites.
-- **Suggested C# fix:** have `Bilinear` call `Tools.Log10` for consistency, unless the lack of
-  clamping there is intentional (e.g. grids are assumed always positive).
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) switched every `Math.Log10` call in
+  `Bilinear.cs`'s Logarithmic-transform branches to the guarded `Tools.Log10`, matching Linear.
+  Ported in the upstream-sync T1 task: `bilinear.hpp` now calls
+  `corehydro::numerics::clamped_log10` at every log10 site, exactly like `linear.hpp`. See
+  `fixtures/special_functions/bilinear.json`'s `log_floor_*` cases (adapted from the new
+  `Test_LogarithmicFloorMatchesLinearInterpolation`), confirmed reproducible against the real C#
+  Bilinear class.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`Linear::base_interpolate`/
+  `extrapolate` used `corehydro::numerics::clamped_log10`; `Bilinear::interpolate` used plain
+  `std::log10`), documented at both call sites.
 
 ## ROBUSTNESS — NoncentralT moments use AdaptiveGaussKronrod (heavy) with no analytic fallback
 
@@ -167,7 +232,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   near-symmetric until it is switched to the now-ported AGK). Only a limitation on the C++ side.
 - **Suggested action:** none for C#; noted for context.
 
-## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted
+## BUG (risk) — MultivariateNormal.COVSRT "permute limits" loop condition is inverted (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `COVSRT`, the
   `for (int j = i - 1; j < 0; j--)` loop inside the `CVDIAG <= 0` branch (permute limits/rows when
@@ -177,21 +242,37 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `i >= 1` the condition fails immediately and the loop never executes. When it does run (`i == 0`,
   `j == -1`), it immediately indexes `COV[II + j]` with `II == 0`, i.e. `COV[-1]` — in C# this throws
   `IndexOutOfRangeException`. The condition looks like a Fortran `DO j = i-1, 0, -1` mistranslated
-  (should be `j >= 0`).
-- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test (requires a
-  degenerate/near-zero effective covariance diagonal at the very first COVSRT-sorted pivot).
-- **Port handling:** the C++ (`core/include/.../multivariate_normal.hpp`, `covsrt`) transcribes the
-  loop verbatim but adds a minimal bounds guard immediately before the first `COV[II + j]` access:
-  if `II + j < 0` it throws `std::out_of_range` instead of indexing. `std::vector::operator[]`
-  performs no bounds check, so the verbatim `i==0` access would otherwise be undefined behavior (a
-  heap-corrupting out-of-bounds write) rather than the catchable `IndexOutOfRangeException` C#
-  raises there. The guard reproduces C#'s *observable* behavior (a thrown exception on this path)
-  without restructuring the loop or any other `covsrt` logic.
-- **Suggested C# fix:** change the loop condition to `j >= 0` (or reverse the iteration order to
-  match the apparent Fortran intent); add a regression test with a rank-deficient covariance matrix
-  that forces the first sorted pivot to be numerically zero.
+  (should be `j >= 0`). For `i >= 1`, the buggy loop was worse than "throws" — it silently did
+  NOTHING (falling through to the trailing `Y[i] = 0;` with `A[i]`/`B[i]` unscaled and unpermuted),
+  producing a wrong (not crashing) collapsed-CDF result whenever a rank-deficient covariance's
+  redundant dimension sorted to any position OTHER than the very first pivot.
+- **Status:** RESOLVED. Numerics 651035e (v2.1.4) fixed the whole degenerate-diagonal region:
+  loop bounds `j >= 0` / `l <= j` / `l <= i - 1` / `k >= l` / `m <= k`, the packed index
+  `l * (l + 1) / 2 + j + 1` (was `(l - 1) * l / 2 + j + 1`), the swap offset `IJ - k + m - 1` (was
+  `IJ - k + m`), and the `IJ` decrement `IJ - k - 1` (was `IJ - k`). Ported in the upstream-sync
+  Task 9: `covsrt` in `multivariate_normal.hpp` replaces the whole region wholesale, transcribed
+  verbatim from the fixed C# rather than patched incrementally, retiring the bounds-guard divergence
+  below. New coverage: `fixtures/distributions/multivariate/multivariate_normal.json`'s
+  `cdf_perfect_correlation_collapse`, `cdf_perfect_anticorrelation_collapse`, and
+  `cdf_permuted_rank_deficient_collapse_{a,b}` (the last pair drives the SAME rank-1 redundancy
+  through two different sorted positions, exercising the fix at more than one `i`), all reproduced
+  against the real C# library.
+- **Evidence:** static analysis of the loop bounds; not hit by any existing unit test pre-v2.1.4
+  (requires a degenerate/near-zero effective covariance diagonal at a non-first COVSRT-sorted
+  pivot). Confirmed reproducible post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** the C++ (`core/include/.../multivariate_normal.hpp`,
+  `covsrt`) transcribed the loop verbatim but added a minimal bounds guard immediately before the
+  first `COV[II + j]` access: if `II + j < 0` it threw `std::out_of_range` instead of indexing.
+  `std::vector::operator[]` performs no bounds check, so the verbatim `i==0` access would otherwise
+  be undefined behavior (a heap-corrupting out-of-bounds write) rather than the catchable
+  `IndexOutOfRangeException` C# raises there. Retired in Task 9 -- the fixed loop no longer produces
+  an out-of-range access on this port's fixture-exercised inputs.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** change the loop condition to
+  `j >= 0` (or reverse the iteration order to match the apparent Fortran intent); add a regression
+  test with a rank-deficient covariance matrix that forces a non-first sorted pivot to be
+  numerically zero.
 
-## COSMETIC — MultivariateNormal.MVNDNT return value is always 0
+## COSMETIC — MultivariateNormal.MVNDNT return value is always 0 (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Multivariate/MultivariateNormal.cs`, `MVNDNT`.
 - **What:** the local `result` is initialized to `0` and never reassigned anywhere in the method
@@ -199,16 +280,23 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `INFORM` (`INFORM = (int)MVNDNT(...)`), so `INFORM` is always (re)initialized to `0` regardless of
   what `COVSRT`/`MVNLMS`/`BVNMVN` computed; only the `N-INFIS >= 2` branch (via `DKBVRC`) can set it
   to anything else afterward.
-- **Port handling:** mirrored faithfully (`mvndnt` always returns `0.0`), documented in-header.
-  Harmless in practice — `INFORM` ends up correct for the only case that matters (multi-dimensional
-  integration) — but the return value itself is dead code.
-- **Suggested C# fix:** either remove the unused return value (change `MVNDNT` to `void`) or wire it
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed `MVNDNT` from `private double` to
+  `private void`, with `MVNDST` now setting `INFORM = 0` explicitly before calling it instead of
+  casting the old always-0 return value -- a pure shape mirror, no behavior change. Ported in the
+  upstream-sync Task 9: `mvndnt`/`mvndst` in `multivariate_normal.hpp` mirror the new void shape.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`mvndnt` always returned `0.0`),
+  documented in-header. Harmless in practice — `INFORM` ended up correct for the only case that
+  mattered (multi-dimensional integration) — but the return value itself was dead code.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** either remove the unused
+  return value (change `MVNDNT` to `void`) or wire it
   up if some future INFORM semantics were intended for the `N-INFIS` 0/1 branches.
 
-## COSMETIC — dead variables / heritage artifacts
+## COSMETIC — dead variables / heritage artifacts (PARTLY RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - `NoncentralT.cs`: a `TT` variable is assigned then never used after the sign flip (a FORTRAN
-  translation artifact). Harmless.
+  translation artifact). Harmless. **RESOLVED**: v2.1.4's AS 243 de-goto refactor removed it
+  (three `TT` occurrences at `a2c4dbf`, zero at `2a0357a`); the math is unchanged. Ported in the
+  upstream-sync Task 3.
 - Several distributions declare a member-field initializer (e.g. a scale of `0.0`) that the
   constructor immediately overwrites — harmless but misleading.
 - `Numerics/Data/Interpolation/Support/Interpolater.cs`: `deltaStart = Math.Min(1,
@@ -216,52 +304,64 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   already truncates to `>= 1`, and `Math.Min` caps at `1`), so the "correlated" hunt-vs-bisection
   search heuristic's tolerance is effectively a hardcoded `1`, not scaled with the table size as
   the formula suggests. Ported verbatim (see `core/include/corehydro/numerics/data/interpolation/interpolater.hpp`).
+  **Still open** at `2a0357a` (line unchanged).
 
-## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false
+## BUG — ArchimedeanCopula.ValidateParameter never returns null, so ParametersValid is always false (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Bivariate Copulas/Base/ArchimedeanCopula.cs`,
   `ValidateParameter(double parameter, bool throwException)`.
 - **What:** The base `BivariateCopula.Theta` setter is `_parametersValid = ValidateParameter(value,
   false) is null;` (see `BivariateCopula.cs`) -- the C# convention used correctly by
   `NormalCopula`/`StudentTCopula`, whose `ValidateParameter` `return null;` when the parameter is in
-  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead does
+  range. `ArchimedeanCopula.ValidateParameter`'s final branch instead did
   `return new ArgumentOutOfRangeException(nameof(Theta), "Parameter is valid");` -- a non-null
-  exception object, even though the message says the parameter IS valid. Because `is null` is
-  therefore always false, `ParametersValid` is unconditionally `false` for any Archimedean copula
-  that does NOT override `ValidateParameter` itself. **UPDATE (Task 8):** this affects Clayton,
-  Gumbel, and Joe, but NOT AliMikhailHaq (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each
-  have their own `ValidateParameter` override that is textually identical to
-  `ArchimedeanCopula`'s except the final branch correctly `return null;`, so `AMHCopula`/
-  `FrankCopula` instances get a correctly-working `ParametersValid`. (An earlier version of this
-  entry said the bug affected "every Archimedean-derived copula (Clayton, AliMikhailHaq, Frank,
-  Gumbel, Joe)" -- that blanket claim was wrong for AMH/Frank; corrected here after reading all
-  five concrete `.cs` files directly.) This does not affect `PDF`/`CDF`/`InverseCDF` or any fit for
-  any copula -- the "valid" branch never throws -- only the `ParametersValid` getter is wrong, and
-  only for Clayton/Gumbel/Joe.
-- **Evidence (reproduced against the real C# library):** `new ClaytonCopula(2.0).ParametersValid`
-  returns `false` even though `theta_minimum = -1`, `theta_maximum = +inf`, and `2.0` is well
-  within range; `ValidateParameter(2.0, false).Message` is `"Parameter is valid (Parameter
-  'Theta')"` -- a non-null object. `new NormalCopula(0.5).ParametersValid` correctly returns `true`
-  for the equivalent in-range case, confirming the divergence is specific to
-  `ArchimedeanCopula.ValidateParameter`, not a design choice shared by all copulas. `AMHCopula.cs`/
-  `FrankCopula.cs` source inspection (Task 8) confirms their own overrides return `null` in range,
-  so `new AMHCopula(0.5).ParametersValid`/`new FrankCopula(5.0).ParametersValid` are expected `true`
-  (not independently re-verified against the built library for this entry, since PDF/CDF/fit
-  fidelity was the Task 8 verification priority, but the source override is unambiguous).
-- **Port handling:** mirrored faithfully. `archimedean_copula.hpp`'s `validate_parameter` still
-  returns a non-nullopt "Parameter is valid" message in the final branch (affecting
-  `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it), but
-  `amh_copula.hpp`/`frank_copula.hpp` (Task 8) each add their own correct override (`return
-  std::nullopt;` in range), matching their C# counterparts. Documented in-header at
-  `bivariate_copula.hpp`, `archimedean_copula.hpp`, and each of the five concrete copula headers.
-  No fixture asserts `parameters_valid` on any Archimedean copula since the value is not
-  independently informative once the bug (and which copulas it does/doesn't affect) is known.
-- **Suggested C# fix:** change `ArchimedeanCopula.ValidateParameter`'s final branch to `return
-  null;`, matching `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`, and delete the
-  now-redundant overrides on `AMHCopula`/`FrankCopula`. This would flip `ParametersValid` from
-  `false` to `true` for every existing in-range Clayton/Gumbel/Joe instance -- audit any downstream
-  code (UI validity indicators, `RMC.BestFit` copula fitting) that currently branches on the
-  (always-false, for those three types) value before shipping the fix.
+  exception object, even though the message says the parameter IS valid. Because `is null` was
+  therefore always false, `ParametersValid` was unconditionally `false` for any Archimedean copula
+  that does NOT override `ValidateParameter` itself: Clayton, Gumbel, and Joe, but NOT AliMikhailHaq
+  (AMH) or Frank -- `AMHCopula.cs` and `FrankCopula.cs` each have their own `ValidateParameter`
+  override that is textually identical to `ArchimedeanCopula`'s except the final branch correctly
+  `return null;`, so `AMHCopula`/`FrankCopula` instances got a correctly-working `ParametersValid`
+  even before the fix. (An earlier version of this entry said the bug affected "every
+  Archimedean-derived copula (Clayton, AliMikhailHaq, Frank, Gumbel, Joe)" -- that blanket claim was
+  wrong for AMH/Frank; corrected here after reading all five concrete `.cs` files directly.) This
+  never affected `PDF`/`CDF`/`InverseCDF` or any fit for any copula -- the "valid" branch never
+  threw -- only the `ParametersValid` getter was wrong, and only for Clayton/Gumbel/Joe.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed the final branch to `return null;`,
+  flipping `ParametersValid` from `false` to `true` for every in-range Clayton/Gumbel/Joe instance,
+  and additionally added a NaN/Inf-first check ahead of the range check in
+  `ArchimedeanCopula.ValidateParameter` (and in `AMHCopula`/`FrankCopula`/`NormalCopula`/
+  `StudentTCopula.ValidateParameters`, none of which had ever had the sentinel bug but also lacked
+  a finite-parameter guard before v2.1.4). The same commit added `BivariateCopula.CloneMarginal`
+  (a new protected static helper) and routed every concrete `Clone()` through it so cloned copulas
+  deep-copy their marginals instead of aliasing them. Ported in the upstream-sync Task 8: the
+  sentinel fix and NaN/Inf guard in `archimedean_copula.hpp` (plus per-family NaN/Inf guards in
+  `amh_copula.hpp`/`frank_copula.hpp`/`normal_copula.hpp`/`student_t_copula.hpp`), and
+  `clone_marginal` in `bivariate_copula.hpp` called from all seven concrete `Clone()` overrides. See
+  `fixtures/distributions/copulas/*.json`'s new `parameters_valid_*` cases (re-pinned from an
+  implicit `false` to `true` for Clayton/Gumbel/Joe's valid-theta case, confirmed reproducible
+  against the real C# library by `verify_oracles.py`) and `core/tests/test_copula_clone.cpp` (the
+  Clone()-identity/deep-copy half, which does not fit the declarative fixture shape -- see that
+  file's header).
+- **Evidence (reproduced against the real C# library):** pre-fix, `new
+  ClaytonCopula(2.0).ParametersValid` returned `false` even though `theta_minimum = -1`,
+  `theta_maximum = +inf`, and `2.0` is well within range; `ValidateParameter(2.0,
+  false).Message` was `"Parameter is valid (Parameter 'Theta')"` -- a non-null object. `new
+  NormalCopula(0.5).ParametersValid` correctly returned `true` for the equivalent in-range case,
+  confirming the divergence was specific to `ArchimedeanCopula.ValidateParameter`, not a design
+  choice shared by all copulas. Post-fix (v2.1.4 / Task 8), `new ClaytonCopula(2.0).ParametersValid`
+  returns `true`, confirmed reproducible via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully. `archimedean_copula.hpp`'s
+  `validate_parameter` returned a non-nullopt "Parameter is valid" message in the final branch
+  (affecting `clayton_copula.hpp`/`gumbel_copula.hpp`/`joe_copula.hpp`, which do not override it),
+  while `amh_copula.hpp`/`frank_copula.hpp` each carried their own correct override (`return
+  std::nullopt;` in range), matching their C# counterparts. No fixture asserted `parameters_valid`
+  on any Archimedean copula, since the value was not independently informative once the bug (and
+  which copulas it did/didn't affect) was known.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** change
+  `ArchimedeanCopula.ValidateParameter`'s final branch to `return null;`, matching
+  `NormalCopula`/`StudentTCopula`/`AMHCopula`/`FrankCopula`. Upstream did not delete the
+  now-redundant `AMHCopula`/`FrankCopula` overrides (they remain, textually equivalent to the fixed
+  base), which is harmless.
 
 ---
 
@@ -333,7 +433,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   "why does CompetingRisks build a MultivariateNormal but never call its CDF" doesn't need to
   re-derive the overload-resolution chain from scratch.
 
-## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1
+## ROBUSTNESS — JointProbabilityHPCM's `cdf < 1e-300` underflow guard is commented out in cycle 1 (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Statistics/Probability.cs`, `JointProbabilityHPCM`.
 - **What:** the "First cycle" block computes `cdf = Normal.StandardCDF(z1);` and then has a
@@ -345,20 +445,72 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   lines apart — looks like an accidental omission (e.g. a guard added later to fix a NaN/Infinity
   seen only in the multi-cycle case, never back-ported to cycle 1) rather than an intentional
   design choice.
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) named the guard `minimumCdf` and activated it
+  in the "First cycle" block too, matching "Remaining cycles". Ported in the upstream-sync T1
+  task: `joint_probability_hpcm` in `probability.hpp` now applies the shared `kMinimumCdf`
+  constant in both places. See `fixtures/special_functions/probability.json`'s
+  `extreme_probabilities_*` cases (adapted from the new
+  `Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite`), confirmed reproducible against
+  the real C# Probability class — though note the companion finding directly below, which this
+  new coverage surfaced as a genuine prerequisite.
 - **Evidence:** direct inspection of `Probability.cs`; not hit by any CompetingRisks fixture
   (`R[0,0] = Normal.StandardZ(probabilities[0])` is never so extreme that
   `Normal.StandardCDF(R[0,0])` underflows below `1e-300` for any component/x combination the
   fixtures exercise — the two closest CompetingRisks fixture cases keep `z1` well within a few
   standard deviations of the median).
-- **Port handling:** mirrored faithfully (`joint_probability_hpcm` in `probability.hpp` leaves the
-  guard commented out in the analogous "First cycle" block, applies it in "Remaining cycles"),
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`joint_probability_hpcm` in
+  `probability.hpp` left the guard commented out in the analogous "First cycle" block, applied it
+  in "Remaining cycles"),
   documented in-header at both the file comment and the function itself.
 - **Suggested C# fix:** either add the matching `if (cdf < 1e-300) cdf = 1e-300;` guard to the
   first cycle (for consistency and to avoid a potential `A = pdf / 0` -> `Infinity`/`NaN` if `z1`
   is extreme enough), or confirm the omission is deliberate (e.g. cycle 1's `cdf` is provably
   bounded away from zero by some invariant not obvious from the code) and document why.
 
-## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only)
+## BUG (C++ port only, unrelated to any C# diff) — `Normal::standard_cdf` used an unguarded erf formula, diverging from C#'s `Normal.StandardCDF` at extreme |z| (FIXED in the upstream-sync T1 task)
+
+- **Where:** `core/include/corehydro/numerics/distributions/normal.hpp`, `standard_cdf(double z)`
+  (the static helper mirroring `Normal.StandardCDF(Z)`; NOT the instance `cdf(x)` method, which
+  correctly mirrors C#'s own separate, equally-unguarded `Normal.CDF(x)` — see below).
+- **What:** discovered while curating the `Probability.hpcm_joint`/`hpcm_conditional_at` fixture
+  cases for the JointProbabilityHPCM `minimumCdf` guard fix above. `standard_cdf` computed
+  `Phi(z) = 0.5 * (1.0 + std::erf(z / sqrt(2)))` directly. For `z <~ -6`, `erf(z/sqrt2)` is so
+  close to `-1` that `1.0 + erf(...)` suffers catastrophic cancellation and rounds to EXACTLY
+  `0.0` in double precision — e.g. `standard_cdf(-9)` returned `0.0` instead of the true
+  `~1.13E-19` — silently wrong, not merely imprecise. The real C# `Normal.StandardCDF(Z)` does
+  NOT hit this: per `Numerics/Distributions/Univariate/Normal.cs`, it delegates to
+  `MultivariateNormal.MVNPHI(Z)`, a Chebyshev-series algorithm (Schonfelder 1978) accurate to
+  1E-15 across the whole range — the SAME algorithm this port's own
+  `MultivariateNormal::mvnphi` already mirrors faithfully for the bivariate-CDF machinery, but
+  calling it from `normal.hpp` isn't practical (`multivariate_normal.hpp` already depends on
+  `normal.hpp`, so the reverse include would be circular). Note this affects ONLY the static
+  `Normal.StandardCDF`/`standard_cdf` helper: the instance `Normal.CDF(x)`/`Normal::cdf(x)` (used
+  by an actual `Normal(mu, sigma)` distribution instance) has its OWN separate erf-based formula
+  in C# too (`0.5d * (1.0d + Erf.Function((x - Mu) / (Sigma * Tools.Sqrt2)))`), so that method's
+  matching imprecision at extreme tails is a faithful mirror, not a divergence — left unchanged.
+- **Evidence:** discovered because `JointProbabilityHPCM`'s z-values are clamped to `[-9, 9]`
+  before every `Normal.StandardCDF`/`standard_cdf` call, so the new `Test_JointProbabilityHPCM_
+  ExtremeProbabilitiesRemainFinite` inputs (probabilities `0` and `1E-320`) drive `z` to exactly
+  that boundary. Comparing this port's (buggy) output against `tools/oracle_emitter --dump`
+  showed a stark mismatch (this port: `joint = 0`, `cond = [0, 1, 0]`; real C#: `joint =
+  1.71146...E-26`, `cond = [1.1286...E-19, 1.5176...E-7, 0.99927...]`) that couldn't be explained
+  by the `minimumCdf` guard itself (both old and new C++ agreed with each other, since the
+  guard's effect saturates against the same downstream `[0,1]` clamp either way).
+- **Port handling:** fixed via the standard numerically-stable identity `Phi(z) =
+  0.5 * erfc(-z/sqrt2)` (mathematically identical to the erf form since `erfc(x) = 1 - erf(x)`,
+  but `erfc` doesn't lose precision as its argument grows, so it never cancels down to exactly
+  0/1). Verified to reproduce the real C# MVNPHI-based value at `z=-9` to ~1E-15 RELATIVE
+  precision (`1.1285884059538425E-19` here vs. `1.128588405953841E-19` from `oracle_emitter
+  --dump`) — the two differ by ~6 ULP, NOT bit-for-bit, since C#'s MVNPHI is itself only a
+  ~1E-15-accurate Chebyshev-series approximation (per its own doc comment) while this `erfc`
+  form is the more accurate of the two — comfortably within the fixture's 1E-8 relative
+  tolerance. Agrees with the old erf formula to ~1E-16 for every ordinary `z` any other
+  existing fixture exercises — confirmed by the full `verify_oracles.py` gate (same 10
+  pre-existing failures, zero new ones) and the full C++/R/Python suites (all green) after the
+  change.
+- **Suggested C# fix:** none — this is a C++-port-only bug with no C# analog to fix.
+
+## CONSISTENCY — CompetingRisks.CreateMultivariateNormal() zeroes the public CorrelationMatrix as a side effect (PerfectlyNegative only) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/CompetingRisks.cs`, `CreateMultivariateNormal()`.
 - **What:** in the `PerfectlyNegative` branch, the method does `CorrelationMatrix = new double[D,
@@ -369,19 +521,34 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   `PerfectlyNegative` mode — not the rho matrix the MVN's `.Covariance` actually holds. This looks
   like a leftover from refactoring (the zero matrix was probably meant to be a scratch buffer, not
   assigned to the public property) rather than intentional API design.
-- **Evidence:** direct inspection; not exercised by any fixture assertion (no fixture reads
-  `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call — the fixtures only check
-  CDF/PDF/moments values, which are unaffected since the MVN itself uses the correct local
-  `sigma`).
-- **Port handling:** mirrored faithfully (`create_multivariate_normal()` in `competing_risks.hpp`
-  likewise overwrites the mutable `correlation_matrix_` field with zeros in the `PerfectlyNegative`
-  branch), documented in-header.
-- **Suggested C# fix:** use a local scratch array (e.g. `var scratchCorr = new double[D, D];`)
-  instead of assigning through the public `CorrelationMatrix` property, so
-  `CorrelationMatrix` retains whatever the caller last set (or `null`) rather than being
-  silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) deleted the `CorrelationMatrix = new double[D,
+  D];` line entirely -- the `PerfectlyNegative` branch now builds its synthetic rho matrix purely
+  into the local `sigma` array, leaving the public `CorrelationMatrix` untouched. The same commit
+  also gave `Dependency` a side-effecting setter (invalidates the cached MVN when the mode
+  actually changes) and made `SetParameters`/`ValidateParameters` throw/honor `throwException` for
+  an empty `Distributions` list. Ported in the upstream-sync Task 9: `create_multivariate_normal()`
+  in `competing_risks.hpp` no longer assigns to `correlation_matrix_` in the `PerfectlyNegative`
+  branch; `dependency` became a private field with `dependency()`/`set_dependency()` accessors
+  (invalidating `mvn_created_` on an actual change) in place of the plain public field the prior
+  no-side-effect property justified; `set_parameters()` throws `std::invalid_argument` on a
+  flattened-length mismatch; and a new `validate_parameters(parameters, throw_exception)` mirrors
+  the throwException contract for the empty-Distributions case. See
+  `fixtures/distributions/univariate/competing_risks.json`'s `dependency_change_cdf_before` /
+  `dependency_change_correlation_preserved` / `dependency_change_cdf_after` (adapted from the new
+  `Test_DependencyChangeInvalidatesMvnWithoutMutatingCorrelation`), all reproduced against the real
+  C# library.
+- **Evidence:** direct inspection; not exercised by any fixture assertion pre-v2.1.4 (no fixture
+  read `CorrelationMatrix` back after a `PerfectlyNegative` CDF/PDF call). Confirmed reproducible
+  post-fix via `tools/verify_oracles.py`.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (`create_multivariate_normal()`
+  in `competing_risks.hpp` likewise overwrote the mutable `correlation_matrix_` field with zeros in
+  the `PerfectlyNegative` branch), documented in-header.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** use a local scratch array
+  (e.g. `var scratchCorr = new double[D, D];`) instead of assigning through the public
+  `CorrelationMatrix` property, so `CorrelationMatrix` retains whatever the caller last set (or
+  `null`) rather than being silently zeroed by a `PerfectlyNegative`-mode CDF/PDF evaluation.
 
-## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code
+## BUG — Histogram.AddData's out-of-range "auto-adapt" branches are unreachable dead code (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Statistics/Histogram.cs`, `AddData(double data)`.
 - **What:** the XML doc comment promises "If the data value falls outside the range of the
@@ -395,21 +562,24 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   branches are only reachable at an **exact boundary match** (`data == LowerBound` or
   `data == UpperBound`), where the "expansion" is a no-op (each sets a bound to the value it
   already equals).
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) moved the `GetBinIndexOf` call into an `else`
+  branch reached only for genuinely interior values, and split each boundary branch into "exact
+  match" (no-op) vs. "beyond the boundary" (now actually widens `LowerBound`/`UpperBound` and the
+  endpoint bin). Ported in the upstream-sync T1 task, including one upstream asymmetry
+  transcribed verbatim (the lower-extend branch marks the bins stale for re-sort, the
+  upper-extend branch does not — harmless, since widening an endpoint never changes bin order).
+  See `fixtures/special_functions/histogram.json`'s `adapt_*` cases (adapted from the new
+  `Test_AddData_AdaptsEndpointBins`), confirmed reproducible against the real C# Histogram class.
 - **Evidence:** direct inspection of the method body's statement order (`SortBins(); int index =
   GetBinIndexOf(data); if (data <= LowerBound) {...}`); confirmed by tracing `GetBinIndexOf`'s own
   guard (`if (value < _bins.First().LowerBound || value > _bins.Last().UpperBound) throw ...`).
   Not exercised by any Test_Histogram.cs test (none call `AddData` a second time with an
   out-of-range point after construction).
-- **Port handling:** mirrored faithfully — `histogram.hpp`'s `add_data(double)` calls
-  `get_bin_index_of()` first and lets it throw, exactly like the C#; documented in the file
-  header and at the call site.
-- **Suggested C# fix:** reorder the method to check `data <= LowerBound` / `data >= UpperBound`
-  **before** calling `GetBinIndexOf`, so the intended auto-adapt behavior is reachable; or, if the
-  auto-adapt behavior was never actually intended (a histogram's bins are usually meant to be
-  fixed once constructed), update the doc comment and let `AddData` throw for genuinely
-  out-of-range points instead of silently documenting a promise it can't keep.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully — `histogram.hpp`'s
+  `add_data(double)` called `get_bin_index_of()` first and let it throw, exactly like the C#;
+  documented in the file header and at the call site.
 
-## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator)
+## BUG — Search.Bisection always returns `start` in descending order (dead-branch comparator) (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Data/Interpolation/Support/Search.cs`, `Bisection(double x, IList<double>
   values, int start, SortOrder order)` (all three overloads share the same loop body).
@@ -422,22 +592,31 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   always `false`, so the whole condition is always `false` regardless of `x` — the loop only ever
   shrinks `xhi`, `xlo` never advances past `start`, and `Bisection` returns `start` unconditionally
   instead of the correct bracketing index.
+- **Status:** RESOLVED. Numerics 33dc1af (v2.1.4) split the loop into separate ascending
+  (`x >= values[xm]`) / descending (`x < values[xm]`) branches rather than adopting the
+  equality-test phrasing Interpolater/Hunt already used, but the effect is the same: descending
+  bisection now correctly narrows `xlo` toward the bracketing index. Ported in the upstream-sync
+  T1 task's `search.hpp`. See `fixtures/special_functions/search.json`'s `*_descending_*` cases
+  (adapted from the new `Test_Search.cs`), confirmed reproducible against the real C# Search
+  class, including two cases that genuinely distinguish old (`start`) from new (correct index)
+  behavior.
 - **Evidence:** direct inspection of the loop body; reproduced independently in a standalone
   Python re-implementation of the exact algorithm during the P3.3 port (a 5-element descending
   array bisected for a midrange value returns `start` regardless of where the value actually
   falls, while `Search.Sequential` on the same inputs returns the correct index).
-- **Port handling:** mirrored faithfully (verbatim, not "fixed") — `search.hpp`'s `bisection()`
-  keeps the same `&&`-against-`SortOrder::Ascending` condition; documented at length in the file
-  header, including a warning that it's dead code for every current caller (Histogram and SNIS
-  both only ever call with the default `Ascending` order) but a live bug if a future caller passes
-  `Descending`.
-- **Suggested C# fix:** change the condition to `(x >= values[xm]) == (order ==
-  SortOrder.Ascending)`, matching `Interpolater.BisectionSearch`'s already-correct phrasing of the
-  same test.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully (verbatim, not "fixed") —
+  `search.hpp`'s `bisection()` kept the same `&&`-against-`SortOrder::Ascending` condition;
+  documented at length in the file header, including a warning that it was dead code for every
+  current caller (Histogram and SNIS both only ever call with the default `Ascending` order) but
+  a live bug if a future caller passed `Descending`.
+- **Originally suggested C# fix (superseded by the actual v2.1.4 fix above):** change the
+  condition to `(x >= values[xm]) == (order == SortOrder.Ascending)`, matching
+  `Interpolater.BisectionSearch`'s already-correct phrasing of the same test. Upstream instead
+  split the loop into two branches (see Status above) — a different but equally correct fix.
 
 ---
 
-## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization
+## CONSISTENCY — MCMCSampler.MAP.Fitness is on a different scale than every other chain-state fitness after a successful MAP initialization (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch
   (`MAP = DE.BestParameterSet.Clone();`) versus `Sample()`'s output-phase MAP tracking
@@ -453,27 +632,28 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   is thereby nearly always false, so `MAP` is effectively frozen at the DE estimate for the
   rest of `Sample()` -- the output-phase MAP-tracking loop is live code but practically
   never fires after a successful MAP initialization.
-- **Evidence (reproduced against the real C# library):** the `normal_rstan` MCMC fixture case
-  (`fixtures/sampling/mcmc/rwmh.json`, `Initialize = MAP`) shows `MCMCResults.MAP.Fitness ==
-  473.558...` (positive) while every per-draw chain fitness recorded in the same run is in the
-  `[-478, -473]` range (negative) -- confirming the comparison never re-triggers once MAP is
-  seeded from `DifferentialEvolution`. A `Randomize`-initialized run (no `DifferentialEvolution`
-  in the picture, `MAP` starts at `double.NegativeInfinity` and accumulates normally) does NOT
-  exhibit this: its `MAP.Fitness` (`normal_short_exact` case) is a normal, properly-tracked
-  negative log-likelihood value.
-- **Port handling:** mirrored faithfully -- `mcmc_sampler.hpp`'s `sample()` has the identical
-  `chain_states_[j].fitness > map_.fitness` comparison, and `initialize_chains()`'s MAP branch
-  copies `de.best_parameter_set()` (also on DE's scaled-fitness convention) into `map_`
-  unmodified. Both are documented in-header at the call site; the `normal_rstan` fixture case
-  asserts `map_fitness` at its (buggy, positive) value specifically to lock this behavior in,
-  not to celebrate it.
-- **Suggested C# fix:** either re-scale `DE.BestParameterSet.Fitness` back to the unscaled
-  log-likelihood convention when copying it into `MAP` (`MAP = new
-  ParameterSet(DE.BestParameterSet.Values, LogLikelihoodFunction(DE.BestParameterSet.Values));`
-  recomputes it cleanly), or track a separate scaled/unscaled flag on `ParameterSet` so the
-  output-phase comparison in `Sample()` can normalize before comparing. Either fix changes the
-  observable `MAP.Fitness` value for every successful-MAP-init run -- coordinate with any
-  downstream consumer (`RMC.BestFit`'s Bayesian analysis) that reads it before shipping.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed the `MAP` branch to `MAP = new
+  ParameterSet((double[])DE.BestParameterSet.Values.Clone(), -DE.BestParameterSet.Fitness);` --
+  negating `DE`'s scaled fitness back onto the sampler's own unscaled log-likelihood convention
+  before storing it. Ported in the upstream-sync Task 10:
+  `initialize_chains()`/`InitializeChains` in `mcmc_sampler.hpp` now constructs `map_` the same
+  way (`ParameterSet(de.best_parameter_set().values, -de.best_parameter_set().fitness)`), so the
+  output-phase `chain_states_[j].fitness > map_.fitness` comparison is now meaningful again (a
+  later-sampled chain state CAN re-trigger and overtake the initial MAP estimate). The
+  `normal_rstan` MCMC fixture case (`fixtures/sampling/mcmc/rwmh.json`) re-pins `map_fitness` from
+  its old (buggy) `473.558...` (positive) to `-473.558...` (negative, matching every per-draw
+  chain fitness in the same run), reproduced against the real C# library.
+- **Evidence:** `tools/verify_oracles.py` confirms the re-pinned `map_fitness` value reproduces
+  against the real C# library post-fix.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully -- `mcmc_sampler.hpp`'s
+  `sample()` had the identical `chain_states_[j].fitness > map_.fitness` comparison, and
+  `initialize_chains()`'s MAP branch copied `de.best_parameter_set()` (also on DE's
+  scaled-fitness convention) into `map_` unmodified; the `normal_rstan` fixture case asserted
+  `map_fitness` at its (buggy, positive) value specifically to lock this behavior in, not to
+  celebrate it.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** re-scale
+  `DE.BestParameterSet.Fitness` back to the unscaled log-likelihood convention when copying it
+  into `MAP`.
 
 ## CONSISTENCY/API — an all-zero RWMH proposal covariance is only safe under `Initialize = MAP`
 
@@ -513,7 +693,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   future MCMC-sampler port (ARWMH/DEMCz/DEMCzs/HMC/NUTS/Gibbs/SNIS) doesn't rediscover this the
   hard way when authoring a `Randomize`-initialized fixture case with a degenerate proposal.
 
-## COSMETIC — MCMCSampler.InitializeChains computes an unused midpoint vector in its MAP branch
+## COSMETIC — MCMCSampler.InitializeChains computes an unused midpoint vector in its MAP branch (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/Base/MCMCSampler.cs`, `InitializeChains()`'s `MAP` branch:
   `var inititals = lowerBounds.Add(upperBounds).Divide(2d);` (note the typo: `inititals`, not
@@ -528,8 +708,12 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   the equivalent location explaining the omission (this port has no `Vector::divide`, since no
   other ported call site needs one; adding it solely to reproduce dead code was judged not
   worthwhile).
-- **Suggested C# fix:** delete the unused `inititals` line (and fix the typo if a future
-  version does end up needing this midpoint vector for something).
+- **Status:** RESOLVED. The `inititals` line is gone at `2a0357a` (present at `a2c4dbf` line 387,
+  absent from the whole file at the new pin); the only `initials` identifier left is the
+  `ParameterSet[]` the method actually returns. No port change was needed, since the C++ never
+  reproduced the dead line.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** delete the unused
+  `inititals` line.
 
 ## CONSISTENCY — SNIS sorts its resampling list by `Fitness`, not the `Weight` the surrounding comment/CDF describe; tied `-Infinity` fitness makes the sort order itself unstable across runtimes
 
@@ -593,7 +777,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   document that `Output`'s specific draw-to-plotting-position mapping is order-nondeterministic
   whenever tied fitness values occur.
 
-## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2`
+## CONSISTENCY — Gibbs's conjugate Normal-posterior-mean formula has a `mu0 / 2` term instead of the textbook `mu0 / sigma0^2` (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/Test_Gibbs.cs`, `Test_Gibbs_NormalDist_RStan`'s local
   `proposal` closure: `double mun = (n * mu + mu0 / 2) / (n + 1 / (sigma0 * sigma0));` (the test's
@@ -616,18 +800,37 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   therefore unverified/unverifiable from the test alone whether it's a genuine library bug or an
   intentional simplification for this specific (`mu0 = 0`) worked example -- flagged as
   CONSISTENCY rather than BUG for that reason.
-- **Port handling:** transcribed verbatim into `model_registry.hpp`'s `"normal_conjugate_gibbs"`
-  proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 / (sigma0 * sigma0));`) -- this
-  is the oracle-governing rule (C# source, including this specific test's inline formula, governs
-  over what a textbook derivation "should" say), and the `gibbs.json` fixture's curated
-  `chain_value` digests (draws 0-4, including the mutated-prior-path draws >= 1) reproduce this
-  exact formula bit-for-bit against the real C# library at `rel: 1e-12`.
-- **Suggested action:** if a future caller of this conjugate-Gibbs pattern uses a non-zero
-  `mu0`, re-derive/re-verify the formula against the textbook conjugate-Normal update before
-  reusing this test's `proposal` closure as a template -- the `mu0 / 2` coefficient will NOT
-  degenerate away in that case and would materially bias the posterior mean draws.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) reworked `Test_Gibbs_NormalDist_RStan`'s
+  conjugate math into two extracted, independently-tested helpers -- `ConditionalMeanParameters`
+  (the textbook `posteriorVariance = 1 / (n / likelihoodVariance + 1 / priorVariance);
+  posteriorMean = posteriorVariance * (n * sampleMean / likelihoodVariance + priorMean /
+  priorVariance);`, i.e. the correct `mu0 / sigma0^2` term) and `ConditionalVarianceParameters`
+  (algebraically unchanged from the old inline formula) -- plus a new
+  `Test_ConditionalParameters_InformativePrior` unit test that exercises both helpers directly
+  against a nonzero-`mu0` case, closing the "unverified/unverifiable" gap above. The rework also
+  splits the single `muPrior`/`sigmaPrior` pair into a `muInitializationPrior`/
+  `sigmaInitializationPrior` pair (seeds sampler feasibility bounds only) and a separate
+  `conditionalMean`/`conditionalVariance` pair (default-constructed, mutated by the proposal
+  closure only, no longer aliased with the initialization priors). Ported in the upstream-sync
+  Task 10: `model_registry.hpp`'s `"normal_conjugate_gibbs"` proposal closure now
+  computes `posterior_variance`/`posterior_mean` with the corrected formula (and the matching
+  `mu_initialization_prior`/`sigma_initialization_prior` vs. `conditional_mean`/
+  `conditional_variance` split), and the `gibbs.json` fixture's curated `chain_value` digests
+  (draws 0-4, 99, plus `map_value`/`map_fitness`) are re-pinned and reproduced against the real
+  C# library at `rel: 1e-12`.
+- **Evidence:** `tools/verify_oracles.py` confirms the re-pinned `gibbs.json` digests reproduce
+  against the real C# library post-fix.
+- **Port handling (historical, pre-v2.1.4):** transcribed verbatim into `model_registry.hpp`'s
+  `"normal_conjugate_gibbs"` proposal closure (`double mun = (n * mu + mu0 / 2.0) / (n + 1.0 /
+  (sigma0 * sigma0));`) -- this was the oracle-governing rule at the time (C# source, including
+  this specific test's inline formula, governs over what a textbook derivation "should" say), and
+  the pre-fix `gibbs.json` fixture's curated `chain_value` digests reproduced this exact formula
+  bit-for-bit against the real C# library.
+- **Originally suggested action (this is exactly what v2.1.4 did):** re-derive/re-verify the
+  formula against the textbook conjugate-Normal update and add regression coverage for a
+  nonzero-`mu0` case.
 
-## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction`
+## CONSISTENCY — NUTS's step-size heuristic bypasses a caller-supplied custom `GradientFunction` (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Sampling/MCMC/NUTS.cs`, `LeapfrogInPlace` (called only by
   `FindReasonableEpsilon`/`TrySingleStepLogAcceptance`, i.e. the Hoffman & Gelman 2014 Algorithm 4
@@ -644,14 +847,25 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   sampled trajectory (the step size is just a tuning heuristic, not part of the target
   distribution), but it is a surprising, easy-to-miss asymmetry between two call sites that both
   claim to leapfrog-integrate "the" gradient.
-- **Evidence:** direct code reading; both call sites are reproduced verbatim in this port's
-  `nuts.hpp` (`leapfrog_in_place()` calls `diff::gradient(...)` directly, `leapfrog()` calls
-  `gradient_function_(...)`) -- see that file's header comment. Unexercised by any fixture (every
-  `nuts.json`/`hmc.json` case uses the default finite-difference gradient, so the two code paths
-  are numerically identical in every case actually tested here).
-- **Port handling:** mirrored faithfully -- both C++ call sites reproduce the C# asymmetry exactly.
-- **Suggested C# fix:** route `LeapfrogInPlace` through `GradientFunction` too, so a custom gradient
-  is honored everywhere the class claims to use "the" gradient function.
+- **Status:** RESOLVED. Numerics 2a0357a (v2.1.4) changed both `LeapfrogInPlace` half-step
+  momentum updates from `NumericalDerivative.Gradient((y) => SafeLogLikelihood(y), theta,
+  _lowerBounds, _upperBounds)` to `GradientFunction(theta).Array`, so the step-size heuristic now
+  honors whatever `GradientFunction` the caller supplied, matching `Leapfrog`/`BuildTree`. Because
+  the DEFAULT `GradientFunction` (no custom gradient supplied at construction) performs EXACTLY
+  the same bound-aware finite-difference computation the old hardcoded call did, every seeded NUTS
+  fixture (all of which use the default gradient) reproduces bit-for-bit unchanged by this fix.
+  Ported in the upstream-sync Task 10: both `leapfrog_in_place()` half-step momentum updates in
+  `nuts.hpp` now call `gradient_function_(theta).to_array()` instead of `diff::gradient(...)`
+  directly; the existing seeded `nuts.json`/`hmc.json` fixtures pass unchanged post-port,
+  confirming stream stability.
+- **Evidence:** direct code reading; `ctest`/`verify_oracles.py` confirm every seeded NUTS/HMC
+  fixture reproduces bit-for-bit unchanged post-fix.
+- **Port handling (historical, pre-v2.1.4):** mirrored faithfully -- both C++ call sites
+  reproduced the C# asymmetry exactly (`leapfrog_in_place()` called `diff::gradient(...)`
+  directly, `leapfrog()` called `gradient_function_(...)`).
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** route `LeapfrogInPlace`
+  through `GradientFunction` too, so a custom gradient is honored everywhere the class claims to
+  use "the" gradient function.
 
 ## CONSISTENCY — `NextDoubles(length, dimension)` draws each column from its own fresh sub-`MersenneTwister`, not the caller's stream
 
@@ -725,7 +939,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
-## BUG — CS0104 ambiguous `YeoJohnsonLink` blocks the entire `RMC.BestFit` assembly from compiling
+## BUG — CS0104 ambiguous `YeoJohnsonLink` blocks the entire `RMC.BestFit` assembly from compiling (RESOLVED in RMC.BestFit v2.0.0 / c2e6192)
 
 - **Where:** `Analyses/Univariate/Bulletin17CAnalysis.cs` (~lines 2132, 2144).
 - **What:** both `RMC.BestFit.Models.LinkFunctions.YeoJohnsonLink` and `Numerics.Functions.
@@ -756,6 +970,14 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   CS0246; not on any dumped-oracle path). In the C++ port there is no ambiguity because the
   LinkedMVN / pivot-bootstrap path that constructs `YeoJohnsonLink` is not ported (deferred to a
   later phase), so the port never sees the two conflicting namespaces at one call site.
+- **Status:** RESOLVED. BestFit v2.0.0 deleted its duplicate
+  `src/RMC.BestFit/Models/LinkFunctions/YeoJohnsonLink.cs` outright (no file of that name exists
+  anywhere in the repo at `c2e6192`) and routes `BestFitLinkFunctionFactory`'s YeoJohnson case to
+  the Numerics link, which removes the ambiguity at the source. The upstream-sync Task 0 deleted
+  the emitter's local patched copy and the two `<Compile Remove>` / `<Compile Include>` lines, so
+  the emitter now compiles the real upstream `Bulletin17CAnalysis.cs`; Task 17 deleted the C++
+  `models/link_functions/yeo_johnson_link.hpp` and re-pointed the factory, after confirming the
+  two `DLink` implementations agree.
 
 ## BUG — thinned DEMCzs population-sampler stream diverges C#-vs-C++ (surfaced tightening the UnivariateAnalysis analysis oracle)
 
@@ -811,7 +1033,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   is a design goal, replace the `Parallel.For`/`ParallelAdd` reduction with a deterministic-order
   accumulation, matching the suggested fix for the BCa finding above.
 
-## BUG (latent, untested) — UnivariateDistribution's Jeffreys-scale prior indexes `GetParameters[1]`, which throws for single-parameter families
+## BUG (latent, untested) — UnivariateDistribution's Jeffreys-scale prior indexes `GetParameters[1]`, which throws for single-parameter families (RESOLVED in RMC.BestFit v2.0.0 / c2e6192)
 
 - **Where:** `Numerics/Distributions/Univariate/Base/UnivariateDistribution.cs`,
   `Prior_LogLikelihood` (~1822-1843), under `UseJeffreysRuleForScale`.
@@ -827,16 +1049,21 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   (`UnivariateDistributionModel::prior_log_likelihood`, `core/include/corehydro/models/
   univariate_distribution_model.hpp`); not independently reproduced against the real C# library
   (no fixture exercises a 1-parameter family under MAP/Bayesian).
-- **Port handling:** **intentional divergence** -- the C++ port's `scale_parameter_index()`
-  returns 1 for these families same as C#, but the caller guards `scale_index < p.size()` and
-  silently skips the Jeffreys term instead of indexing out of range (see the code comment at that
-  guard). No crash, no oracle case exists either way.
-- **Suggested C# fix:** guard `GetParameters[1]` (e.g. `if (GetParameters.Length > 1)`) and skip
-  the Jeffreys scale term for one-parameter families, matching the C++ port's behavior; add a
-  regression test constructing MAP/Bayesian against Poisson/Bernoulli/Geometric/Deterministic
-  with `UseJeffreysRuleForScale = true`.
+- **Status:** RESOLVED, and the divergence is retired. BestFit v2.0.0 replaced the raw index with
+  bounds-checked `TryGetJeffreysScaleParameter` overloads on `UnivariateDistributionModelBase`
+  (scale index 0 for Gamma/Weibull, 1 otherwise), so both the prior-likelihood and the
+  validation call sites now read `if (UseJeffreysRuleForScale && TryGetJeffreysScaleParameter(
+  model, out ...))` and single-parameter components are skipped instead of throwing. The same
+  pattern was applied to MixtureModel and CompetingRisksModel, plus a `-Inf` short-circuit.
+  Ported in the upstream-sync Task 14; the C++ now carries upstream's helper rather than its own
+  inline guard.
+- **Port handling (historical):** intentional divergence -- the C++ port's
+  `scale_parameter_index()` returned 1 for these families same as C#, but the caller guarded
+  `scale_index < p.size()` and silently skipped the Jeffreys term.
+- **Originally suggested C# fix (this is what v2.0.0 did):** guard the index and skip the Jeffreys
+  scale term for one-parameter families.
 
-## BUG — MixtureModel.Clone() strips the cloned Mixture's zero-inflation while the cloned model still reports IsZeroInflated
+## BUG — MixtureModel.Clone() strips the cloned Mixture's zero-inflation while the cloned model still reports IsZeroInflated (RESOLVED in RMC.BestFit v2.0.0 / c2e6192)
 
 - **Where:** `RMC.BestFit/Models/UnivariateDistribution/MixtureModel.cs`, `Clone()` (~line 1276),
   interacting with the `Mixture` property setter (~line 242), the `IsZeroInflated` property
@@ -856,16 +1083,17 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Evidence:** static inspection of the three members during Task M10 (the setter/field-write
   ordering is unambiguous from the source); no upstream `MixtureModelTests` method clones a
   zero-inflated model and asserts the distribution's state, so no C# test observes it.
-- **Port handling:** **intentional divergence** -- `mixture_model.hpp`'s `clone()` re-syncs the
-  cloned mixture's zero-inflation state from the original after the field writes, so the clone
-  ends in the same effective state as the original. Documented in the file header and pinned by
-  the extra checks in `test_clone_preserves_is_zero_inflated`.
-- **Suggested C# fix:** re-apply the zero-inflation to the cloned `Mixture` after the initializer
-  (or assign through the public `IsZeroInflated` property rather than the `_isZeroInflated`
-  field, minding its side effects); add a regression test that clones a zero-inflated model and
-  asserts the cloned distribution's `IsZeroInflated`/`ZeroWeight`.
+- **Status:** RESOLVED, and the divergence is retired. BestFit v2.0.0's `MixtureModel.Clone()`
+  now writes the zero-inflation back onto the cloned distribution after the object initializer
+  (`result.Mixture!.IsZeroInflated = result._isZeroInflated;` followed by the matching
+  `ZeroWeight` assignment), which is behaviorally what the C++ divergence already did. Ported in
+  the upstream-sync Task 14, so the C++ re-sync is now a faithful mirror rather than a divergence.
+- **Port handling (historical):** intentional divergence -- `mixture_model.hpp`'s `clone()`
+  re-synced the cloned mixture's zero-inflation state from the original after the field writes.
+- **Originally suggested C# fix (this is what v2.0.0 did):** re-apply the zero-inflation to the
+  cloned `Mixture` after the initializer.
 
-## ROBUSTNESS — DataFrame.ProcessThresholdSeries is destructive and not idempotent when explicit points exactly cover a threshold window
+## ROBUSTNESS — DataFrame.ProcessThresholdSeries is destructive and not idempotent when explicit points exactly cover a threshold window (RESOLVED in BestFit v2.0.0 / c2e6192)
 
 - **Where:** `RMC.BestFit/Models/DataFrame/DataFrame.cs`, `ProcessThresholdSeries()` (~line 618).
 - **What:** the method reads the STORED `thresholdData.NumberAbove`, computes `nBelow = Duration
@@ -881,19 +1109,39 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   calls it unconditionally as its first step (~lines 1142-1144) -- so in the exact-coverage edge
   case any later mutation or a repeated plotting-positions call silently corrupts the threshold
   likelihood counts.
+- **Status:** RESOLVED. BestFit c2e6192 (v2.0.0) split `ThresholdData.NumberAbove` into a
+  user-supplied `_sourceNumberAbove` (updated only by the public `NumberAbove` setter) and the
+  effective `_numberAbove`/`_numberBelow` (updated only by the new `internal SetProcessedCounts`).
+  `ProcessThresholdSeries` now reads `SourceNumberAbove` -- the STABLE original input -- on every
+  pass instead of the possibly-already-reduced effective value, so repeated calls (or a call after
+  further series mutation) always reproduce the correct effective state; the destructive
+  one-way-ratchet described above cannot happen anymore. `Validate()` and `Clone()` were updated to
+  key off `SourceNumberAbove` too (Clone: `NumberAbove = SourceNumberAbove` then a
+  `SetProcessedCounts` replay of the effective state). Ported in the upstream-sync Task 12:
+  `threshold_data.hpp` gained the matching `source_number_above()`/`set_processed_counts()` split;
+  `data_frame.hpp`'s `process_threshold_series()` now reads `source_number_above()` and writes
+  through `set_processed_counts()`. See `core/tests/test_data_types.cpp`'s
+  `test_threshold_processed_counts_clone_preserves_source_and_effective`/
+  `test_threshold_validate_uses_source_number_above` and `core/tests/test_data_frame.cpp`'s
+  `test_data_frame_process_threshold_series_is_idempotent` (calls `process_threshold_series()`
+  twice, then a third time after removing the overlapping data, and asserts the effective counts
+  are exactly reproduced/restored each time) -- new C++-only regression coverage, since
+  `ProcessThresholdSeries` has no existing C# unit test for this sequence and no ported fixture
+  exercises it either (the same "not tested by the current corpus" gap this finding originally
+  noted).
 - **Evidence:** static inspection of the read-modify-write during Task M4 (report concern #1);
   no upstream test hits the exact-coverage-then-rerun sequence, and no ported fixture exercises
-  the edge either.
-- **Port handling:** mirrored faithfully -- `data_frame.hpp`'s `process_threshold_series()` is
-  the same read-modify-write, and `calculate_plotting_positions()` calls it first exactly like
-  the C#. The C++ replaces the INPC auto-trigger with the documented explicit "call once after
-  mutations" cadence (see the file-header invalidation strategy), which matches the C#
-  once-per-mutation event cadence.
-- **Suggested C# fix:** make the pass idempotent by recomputing from immutable inputs -- retain
-  the originally supplied `NumberAbove` (e.g. a private `_originalNumberAbove` set on
-  construction/assignment) and derive both published counts from it on every pass; add a
-  regression test that processes a fully covered threshold window twice and asserts stable
-  counts.
+  the edge either. Confirmed the fix's idempotency directly via the new C++-only ctests above and
+  indirectly via the full oracle gate reaching 0 failures for the first time this sync (Task 12).
+- **Port handling (historical, pre-v2.0.0):** mirrored faithfully -- `data_frame.hpp`'s
+  `process_threshold_series()` was the same read-modify-write, and `calculate_plotting_positions()`
+  called it first exactly like the C#. The C++ replaced the INPC auto-trigger with the documented
+  explicit "call once after mutations" cadence (see the file-header invalidation strategy), which
+  matched the C# once-per-mutation event cadence.
+- **Originally suggested C# fix (this is essentially what v2.0.0 did):** make the pass idempotent
+  by recomputing from immutable inputs -- retain the originally supplied `NumberAbove` and derive
+  both published counts from it on every pass; add a regression test that processes a fully
+  covered threshold window twice and asserts stable counts.
 
 ---
 
@@ -927,7 +1175,7 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 
 ---
 
-## BUG — GammaDistribution.PartialKp's near-zero-skew branch returns the frequency factor, not its derivative
+## BUG — GammaDistribution.PartialKp's near-zero-skew branch returns the frequency factor, not its derivative (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Distributions/Univariate/GammaDistribution.cs`, `PartialKp(skewness,
   probability)` @ a2c4dbf (~line 698).
@@ -945,15 +1193,17 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 - **Evidence:** static inspection of the method during the B4 moment-machinery port; the two closest
   fixture/ctest cases keep `|skew|` well above `1e-4`, so no oracle exercises the branch (the B4
   `partial_kp` vs finite-difference-of-`FrequencyFactorKp` check runs at skew 0.2, on the CF branch).
-- **Port handling:** mirrored faithfully -- `partial_kp` in `gamma_distribution.hpp` returns
-  `Normal::standard_z(probability)` in the `abs_c < 1e-4` branch, identical to C#; documented at the
-  call site. Consumers computing a quantile gradient for a near-normal LP3/PT3 fit inherit the
-  discontinuity.
-- **Suggested C# fix:** return `(U*U - 1d) / 6d` (with `U = Normal.StandardZ(probability)`) in the
-  near-zero branch to give the correct derivative limit and remove the discontinuity; add a
-  regression test asserting `PartialKp` is continuous across `skew = 1e-4`.
+- **Status:** RESOLVED. Numerics v2.1.4's `PartialKp` near-zero branch now reads
+  `double z = Normal.StandardZ(probability); return (z * z - 1.0d) / 6.0d;` under the comment
+  "Use the Cornish-Fisher derivative limit at zero skew", which removes the discontinuity.
+  Ported in the upstream-sync Task 5, with a `partial_kp` dispatch added across all four runners
+  so the branch is oracle-covered.
+- **Port handling (historical):** mirrored faithfully -- `partial_kp` returned
+  `Normal::standard_z(probability)` in the `abs_c < 1e-4` branch, identical to the old C#.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** return `(U*U - 1d) / 6d` in
+  the near-zero branch.
 
-## COSMETIC — BrentSearch.Bracket declares an expansion factor `k` it never applies
+## COSMETIC — BrentSearch.Bracket declares an expansion factor `k` it never applies (RESOLVED in Numerics v2.1.4 / 2a0357a)
 
 - **Where:** `Numerics/Mathematics/Optimization/Local/BrentSearch.cs`, `Bracket(double s = 1E-2,
   double k = 2d)` @ a2c4dbf (~line 162).
@@ -964,13 +1214,16 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   the parameter is dead.
 - **Evidence:** direct source reading during the B6 Powell/MLSL optimizer port (Powell's line
   minimization is the only caller, and it always uses the defaults).
-- **Port handling:** mirrored faithfully -- `brent_search.hpp`'s `bracket(double s = 1e-2, double k
-  = 2.0)` casts `(void)k;` with a comment noting the parameter is declared-but-unused upstream and
-  the step expands linearly.
-- **Suggested C# fix:** either apply `k` (e.g. `s *= k;` inside the loop for geometric expansion) or
-  drop the parameter from the signature if the linear step is intentional.
+- **Status:** RESOLVED. Numerics v2.1.4's `Bracket` applies `s *= k;` at the end of each expansion
+  iteration, and the method also gained input validation (finite nonzero `s`, finite `k > 1`),
+  non-finite objective and coordinate guards that set `OptimizationStatus.Failure`, and a bounded
+  iteration count. Ported in the upstream-sync Task 11; the `(void)k` cast is gone.
+- **Port handling (historical):** mirrored faithfully -- `bracket(double s = 1e-2, double k = 2.0)`
+  cast `(void)k;` with a comment noting the parameter was declared-but-unused upstream.
+- **Originally suggested C# fix (this is exactly what v2.1.4 did):** apply `k` inside the loop for
+  geometric expansion.
 
-## CONSISTENCY — GMM's iterative loop overshoots GMMIterations by one on exhaustion, and ConvergedWithinTolerance is off-by-one at the boundary
+## CONSISTENCY — GMM's iterative loop overshoots GMMIterations by one on exhaustion, and ConvergedWithinTolerance is off-by-one at the boundary (RESOLVED in BestFit v2.0.0 / 5e1877f)
 
 - **Where:** `RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs`, `EstimateIterative` @ fc28c0c
   (~line 2253, `for (GMMIterations = 2; GMMIterations <= MaxGMMIterations; GMMIterations++)`) and the
@@ -983,20 +1236,43 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
      A fit that converges on exactly the last permitted iteration (`GMMIterations ==
      MaxGMMIterations`) therefore reports `ConvergedWithinTolerance == false` even though it did
      converge within the budget.
+- **Status:** RESOLVED. BestFit v2.0.0 (5e1877f..b43943c, Task T13) fixed both: `EstimateIterative`
+  now clamps `GMMIterations` back to `MaxGMMIterations` on exhaustion (`if (GMMIterations >
+  MaxGMMIterations) GMMIterations = MaxGMMIterations;`) instead of leaving the for-loop's final
+  overshoot, and `ConvergedWithinTolerance` now reads a tracked `_convergedWithinTolerance` flag
+  set ONLY on the loop's own tolerance-convergence branch (true even on the LAST permitted
+  iteration, fixing the strict-`<` boundary) rather than deriving from the iteration count at all;
+  the flag stays false for `OneStep`/`TwoStep` (no comparison pass) and for exhaustion. Ported in
+  the upstream-sync Task 13: `generalized_method_of_moments.hpp`'s `estimate_iterative` mirrors the
+  clamp verbatim and `converged_within_tolerance_` mirrors the tracked flag, retiring the
+  preserve-the-bug note below. New coverage: `fixtures/estimation/gmm_bulletin17c_smoke.json` gained
+  `gmm_iterations`/`converged_within_tolerance`/`optimizer_fallback_count` assertions on the
+  existing case plus two new cases (`lp3_exact_one_step_bfgs`, OneStep's no-comparison-pass path;
+  `lp3_exact_iterative_max_gmm_iterations_1`, an Iterative run capped before the loop's first
+  comparison pass), all reproduced against the real C# library. The exhaustion-clamp path itself
+  (an Iterative run that runs the loop repeatedly and never converges) stays untested by any
+  fixture -- no B17C data drives that many passes without converging -- but is covered by
+  `core/tests/test_gmm.cpp` PART 3's `test_iteration_exhaustion_clamps_count_and_reports_not_converged`
+  via a `max_gmm_iterations = 1` toy problem (the loop body never runs at all, so this exercises the
+  "no comparison pass" side of the fix rather than a many-iteration exhaustion; both sides clamp to
+  the same `GMMIterations == MaxGMMIterations` outcome by construction).
 - **Evidence:** static inspection during the B8 GMM port; not reachable through the ported B17C
-  fixtures (a just-identified B17C GMM converges in one or two iterations, far below the cap), so no
-  oracle exercises the exhaustion boundary.
-- **Port handling:** mirrored faithfully -- `generalized_method_of_moments.hpp`'s
-  `estimate_iterative` preserves the `gmm_iterations_ == max_gmm_iterations_ + 1` exhaustion value
+  fixtures pre-T13 (a just-identified B17C GMM converges in one or two iterations, far below the
+  cap), so no oracle exercised the exhaustion boundary before this fix landed.
+- **Port handling (historical, pre-T13):** mirrored faithfully -- `generalized_method_of_moments.hpp`'s
+  `estimate_iterative` preserved the `gmm_iterations_ == max_gmm_iterations_ + 1` exhaustion value
   and the same strict-`<` `converged_within_tolerance()` boundary, documented at the call site.
-- **Suggested C# fix:** report the true count on exhaustion (e.g. clamp `GMMIterations` to
-  `MaxGMMIterations`, or count iterations actually executed) and relax `ConvergedWithinTolerance` to
-  `GMMIterations <= MaxGMMIterations` so a last-iteration convergence is reported honestly; add a
-  regression test that exhausts the iteration budget and asserts both the reported count and the flag.
+  Retired in Task 13 -- the fixed loop no longer overshoots or under-reports on this port's
+  fixture-exercised inputs.
+- **Originally suggested C# fix (this is exactly what v2.0.0 did):** report the true count on
+  exhaustion (e.g. clamp `GMMIterations` to `MaxGMMIterations`, or count iterations actually
+  executed) and relax `ConvergedWithinTolerance` to `GMMIterations <= MaxGMMIterations` so a
+  last-iteration convergence is reported honestly; add a regression test that exhausts the
+  iteration budget and asserts both the reported count and the flag.
 
 ---
 
-## CONSISTENCY — BivariateDistribution model-level PseudoLikelihood MLE returns `Estimate()==false` because plotting positions are never calculated on the shared build path
+## CONSISTENCY — BivariateDistribution model-level PseudoLikelihood MLE returns `Estimate()==false` because plotting positions are never calculated on the shared build path (RESOLVED in RMC.BestFit v2.0.0 / c2e6192)
 
 - **Where:** `RMC.BestFit/Models/BivariateDistribution.cs`, `SetSampleData` /
   `DataLogLikelihood` (the PseudoLikelihood branch) @ fc28c0c, reached via
@@ -1020,11 +1296,19 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   guard exists but the estimate path does not reject on it the way the C# lifecycle does), so the
   two languages diverge on this one method+config. No fixture exercises it; the divergence is
   documented at the call site and in the P4 report.
-- **Suggested C# fix:** either have the model's `SetSampleData` (or the shared build path) call
-  `CalculatePlottingPositions()` before a PseudoLikelihood fit, or make the copula bounds fall back
-  to a valid interior default when plotting positions have not been computed, so a PseudoLikelihood
-  model-level MLE can succeed. Reconcile the C++ estimate path to honor the same validation once the
-  C# lifecycle is settled.
+- **Status:** RESOLVED, and the divergence is retired. BestFit v2.0.0's PseudoLikelihood path
+  validates the pseudo observations on the open interval (0,1) and auto-runs
+  `dataFrameX.CalculatePlottingPositions()` / `dataFrameY.CalculatePlottingPositions()` when they
+  are missing, caching the result against each marginal's `PlottingPositionVersion`. Ported in the
+  upstream-sync Task 15 (`GetEligibleExactData` / `AddPairedSampleData(AndValidate)` plus a
+  per-marginal validated cache keyed on `plotting_position_version()`), and a real
+  PseudoLikelihood oracle case was added to `fixtures/estimation/bivariate_smoke.json`. Task 15
+  also fixed a genuine undefined-behavior risk it surfaced (`SetSampleData` dereferencing a
+  possibly-empty `DataFrame` optional) and recorded one remaining gap: a bare
+  `ExactData.PlottingPosition` mutation bumps the C# cache version but not this port's, because
+  the port has no XML/INPC layer to raise it.
+- **Originally suggested C# fix (this is what v2.0.0 did):** have the shared build path call
+  `CalculatePlottingPositions()` before a PseudoLikelihood fit.
 
 ## CONSISTENCY — StudentT bivariate copula degrees-of-freedom clamps to the upper bound 30 (the Gaussian limit) under a strong dependence
 
@@ -1247,7 +1531,125 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
   accessors on the ensemble CI (`analysis_results_`) plus a chaotic-sensitivity check on that band
   before pinning it, the same treatment applied to the seeded analysis curves.
 
+## FIDELITY (T19b) — Interval-censored B17C bootstrap: GMM stopping-rule knife edge, not a BFGS port divergence
+
+- **Where:** `RMC.BestFit/Estimation/GeneralizedMethodOfMoments.cs` `EstimateIterative` (@ c2e6192)
+  driving `Numerics/Mathematics/Optimization/Local/BFGS.cs` (@ 2a0357a), reached through
+  `Bulletin17CAnalysis.GetParameterSetsFromParametricBootstrap`'s warm-start arm
+  (`cloneWithDataFrame == true`). Ported at
+  `core/include/corehydro/estimation/generalized_method_of_moments.hpp` and
+  `core/include/corehydro/numerics/math/optimization/bfgs.hpp`.
+- **Symptom:** for the `lp3_bootstrap_warm_start` fixture configuration (20 exact peaks + 1
+  interval-censored observation, B = 50, seed 12345) the C++ core reports
+  `boot_total_retries = 2` where the real C# reports `0`. Two replicates (idx 17 and 32) exhaust
+  the 2000-evaluation BFGS budget and are retried. The resulting ensemble `mean_curve` differs
+  from C# by ~1.4e-4 relative, so it is not pinned.
+- **What was ruled out.** The BFGS transcription is faithful: `BFGS.cs`, `Optimizer.cs`,
+  `NumericalDerivative.Gradient`, and `Tools.SumProduct`/`Sqr`/`Distance` were compared
+  line-for-line against the 2a0357a pin with no difference. Decisively, the **real C# BFGS
+  reproduces the stall**: driven through the emitter at the same near-stationary warm start on the
+  same replicate surface (idx 32, the pass-2 point, same analytic GMM gradient, same bounds, same
+  2000-evaluation cap and 1e-8 tolerances) it terminates `MaximumFunctionEvaluationsReached` after
+  95 outer iterations and 2000 evaluations, moving Q only from 5.386e-16 to 5.113e-16. The
+  per-iteration cost matches the C++ core exactly (~21 evaluations: one trial step plus 20 failed
+  Zoom bisections), i.e. both runtimes enter the same non-progressing outer loop. The bootstrap
+  resamples themselves are identical across runtimes to ~1e-13, so the divergence is not in the
+  seeded resampling path either.
+- **Actual mechanism.** The divergence is upstream of BFGS, in whether a **third** iterative-GMM
+  refinement pass runs at all. `EstimateIterative` compares consecutive passes with
+  `Tools.Distance(newValues, oldValues) < AbsoluteTolerance` (1e-8) — and that is the only test
+  that can stop the loop here, since the companion `relChange` test is pinned well above its
+  tolerance by the `1e-15` floor in its denominator. The C++ and C# pass-1 fits land ~1.8e-6 apart
+  and the two runs then straddle the distance threshold: **1.23e-8 in C++** (a third pass runs,
+  starts at a stationary point, stalls, and the replicate is retried) versus **3.3e-11 in C#**
+  (converged at pass 2, no third pass).
+- **Why the residual is inherent, by direct measurement (T19b).** This is NOT a flat-objective
+  story — at the converged idx=17 solution Q is 2.35e-17, and displacing the skew by 1.8e-6 raises
+  it to 1.32e-12 (dQ/Q ~ 5.6e4), so the surface is well curved at that scale. It is extreme
+  *conditioning* of the censored resample fit. Perturbing a SINGLE resampled exact value on
+  replicate idx=32 by a relative **1e-13** displaces the converged fit by **2.4e-5**
+  (amplification ~**2.4e8**) and flips the third pass from stalling to succeeding
+  (`MaximumFunctionEvaluationsReached`/4292 evaluations -> `Success`/351); the same perturbation at
+  relative **1e-15** leaves the fit **bit-identical** (same parameters, same status, same 4292
+  evaluations). Meanwhile the UNRESAMPLED parent fit on the same censored frame reproduces
+  C++-vs-C# to **3.0e-14 relative** on the location parameter (3.3e-12 relative worst-case across
+  the three parameters, 7.6e-13 Euclidean) — so there is no upstream divergence in the GMM
+  weighting, the moment conditions, or the T18 clone/ROS defaults. The ~1e-13 ULP differences that
+  are unavoidable between two runtimes sit exactly in the band where this fit's conditioning turns
+  them into an O(1e-5) parameter displacement and a different pass count.
+- **Upstream weakness this exposes.** `EstimateIterative`'s convergence test is an ABSOLUTE
+  parameter distance against a tolerance that is also handed to the optimizer as a RELATIVE
+  function tolerance. Whenever the objective's resolution in some parameter direction is coarser
+  than `AbsoluteTolerance`, the pass-to-pass distance is dominated by optimizer stopping noise and
+  the number of GMM passes becomes runtime-dependent. Additionally, BFGS has no stagnation exit:
+  when a line search returns the starting point, `xi` and `dg` both become zero, the inverse-Hessian
+  update is skipped, the search direction is unchanged, and the outer loop repeats identically until
+  the evaluation cap. The Numerical Recipes `dfpmin` this is derived from guards exactly that case
+  with a `TOLX` parameter-change test — `TOLX` is declared in `BFGS.Optimize` but never used.
+- **What the fixtures assert:** per the binding rule, the retry counters and the ensemble
+  `mean_curve` for `lp3_bootstrap_warm_start` are **not pinned** — no `oracle_skip`, no loosened
+  tolerance. The deterministic quantities that DO reproduce (the parent GMM `parameter`, the
+  replicate/valid/failed counts, zero Mahalanobis rejections) stay pinned to real C#. Same-language
+  completeness is covered by `core/tests/test_bulletin17c_analysis.cpp`
+  `test_run_bootstrap_warm_start_structural`.
+- **Suggested action:** none required for correctness — the port is faithful and both runtimes
+  produce equally converged fits. If cross-language retry parity is wanted later, the fix belongs
+  upstream: give `EstimateIterative` a scale-relative parameter-convergence test (or a separate
+  parameter tolerance), and/or restore the `dfpmin` `TOLX` stagnation exit in `BFGS.Optimize` so a
+  stationary warm start returns immediately instead of burning the evaluation budget. Either change
+  would alter oracle values and must be paired with a re-pin.
+
 ---
+
+---
+
+## Reconciliation pass, July 2026 upstream sync (a2c4dbf/fc28c0c to 2a0357a/c2e6192)
+
+Every entry above was re-checked against the shipped source at the new pins. This is the summary;
+the per-entry detail is in each entry's **Status:** bullet.
+
+**Fixed upstream and now ported: 29 entries, plus 1 partly fixed.** In Numerics v2.1.4 (23 full, 1
+partial): StudentT PDF Jacobian,
+StudentT InverseCDF tail transform, Beta / GeneralizedBeta Mode, GeneralizedLogistic κ=0
+L-moments, LogPearsonTypeIII forward Stirling branch, PT3 / LP3 signed T3, the VonMises factory
+case, the SetParameters assign-then-validate ordering, GammaDistribution.PartialKp, the
+BrentSearch.Bracket expansion factor, the unused MCMC `inititals` midpoint, the NoncentralT `TT`
+dead variable, BivariateEmpirical's stale Bilinear cache, the Linear / Bilinear log10 split, the
+Histogram AddData dead branches, the Search descending comparators, the HPCM underflow guard, the
+MultivariateNormal COVSRT permutation region, MVNDNT's dead return, the ArchimedeanCopula
+ValidateParameter sentinel, CompetingRisks' CorrelationMatrix side effect, the MAP fitness scale,
+NUTS's ignored custom gradient, and the Gibbs conjugate-mean formula. The dead-variable entry is
+the partial one: `NoncentralT.TT` is gone, the Interpolater `deltaStart` line is not. In
+RMC.BestFit v2.0.0 (6): the
+CS0104 YeoJohnsonLink ambiguity, the Jeffreys single-parameter crash, MixtureModel.Clone's lost
+zero-inflation, BivariateDistribution PseudoLikelihood, ProcessThresholdSeries idempotency, and
+the GMM ConvergedWithinTolerance off-by-one.
+
+**Intentional C++ divergences retired**, because upstream adopted the behavior: the
+GeneralizedLogistic κ→0 limits, the LogPearsonTypeIII large-α Stirling branch,
+MixtureModel.Clone's zero-inflation re-sync, the MultivariateNormal COVSRT bounds guard, the
+UnivariateDistribution Jeffreys single-parameter guard, and the BivariateDistribution
+PseudoLikelihood estimate path. In the first two cases upstream's formulation is richer than ours
+was (a truncated series and explicit correction terms), so the C++ converged onto upstream's exact
+expressions rather than keeping its own.
+
+**Still open on the port side**, unrelated to any upstream change: the thinned DEMCzs
+population-sampler stream divergence (`thinning_interval > 1` is not oracle-guaranteed; every
+shipped Bayesian fixture uses thin=1), the empty-ModelParameter-name collapse in
+PriorInfluenceDiagnostics, and the documented chaotic-sensitivity fidelity notes on the
+seeded short-chain analysis curves.
+
+**Re-checked and unchanged upstream:** the CentralMoments(int) / CentralMoments(double) overload
+pair, the Interpolater `deltaStart` heuristic, JoeCopula's missing SetThetaFromTau, the SNIS
+Fitness-vs-Weight sort key, `NextDoubles(length, dimension)` drawing from per-column sub-PRNGs, the
+StudentT copula's ν upper bound of 30, and the parallel-reduction ordering in
+`Bootstrap.ComputeAccelerationConstants` and `BayesianAnalysis.ComputeDIC` / `ComputeWAIC` /
+`ComputePSISLOO`. On the last of these, v2.1.4 did harden `Tools.ParallelAdd` itself (signed-zero
+and NaN handling in the compare-and-swap, plus a separate retry helper), but the reduction ORDER is
+still unfixed, so the run-to-run non-reproducibility the entries describe stands. The entries that
+ask for no upstream action at all (the CompetingRisks / MVN.CDF overload chain, the all-zero RWMH
+proposal covariance, NoncentralT's numerically integrated moments, and the just-identified B17C
+J-statistic) are unchanged and still correct as written.
 
 ## How to work this list later
 
@@ -1256,5 +1658,8 @@ Each entry: what, where, evidence, how the port handled it, suggested fix.
 2. For each confirmed bug, decide: patch upstream (PR to USACE-RMC) vs. keep the intentional C++
    divergence documented. Any upstream fix that changes an oracle value must be paired with updated
    test literals and a re-run of `tools/verify_oracles.py`.
-3. The two intentional C++ divergences already in place (GeneralizedLogistic κ→0, LogPearsonTypeIII
-   large-α) become non-divergences once/if the C# is fixed — revisit their in-header notes then.
+3. When a new upstream release lands, run the reconciliation pass described in
+   `docs/upstream-sync.md`: check every open entry against the shipped source at the new tag,
+   append a **Status:** bullet for anything fixed, and retire the matching C++ divergence note.
+   Verify each claimed resolution by reading the source at the tag, not by trusting a release note
+   or commit message.

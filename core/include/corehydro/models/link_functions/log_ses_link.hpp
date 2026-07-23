@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/LogSESLink.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/LogSESLink.cs @ c2e6192
 //
 // Asymmetric heavy-tailed link on log(sigma) using the Skew-Exponential-Sinh (SES) map:
 //   r(eta) = (1/a) * exp(lambda*eta) * sinh(a*eta), where r = log(sigma/sigma0),

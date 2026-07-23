@@ -1,4 +1,4 @@
-// ported from: Numerics/Utilities/Tools.cs @ a2c4dbf
+// ported from: Numerics/Utilities/Tools.cs @ 2a0357a
 // Shared numerical constants (+ Tools.Log10, the one Tools.cs function this port needs).
 // P3.3 adds is_finite (Tools.IsFinite) and is_power_of_two (Tools.IsPowerOfTwo), needed by
 // Fourier::fft (power-of-two length guard) and NumericalDerivative::gradient/hessian
@@ -9,6 +9,20 @@
 // (Tools.NormalizedDistance, Tools.cs:267), whose caller is MLSL (arrives in B6). B8 adds
 // distance (Tools.Distance IList overload, Tools.cs:246), needed by the GMM iterative
 // convergence check.
+//
+// v2.1.4 sync (Numerics 33dc1af): Tools.Log10's near-zero guard changed from
+// `x < 1E-16 && Math.Sign(x) != -1` to `x < 1E-16 && x >= 0d` -- a C#-only fix (the old
+// `Math.Sign(x)` throws `ArithmeticException` for `x = NaN`, so `Log10(NaN)` used to throw;
+// the new `x >= 0d` comparison is false for NaN, so the guard is skipped and
+// `Math.Log10(NaN)` returns NaN instead of throwing). `clamped_log10` below already used the
+// NaN-safe `x >= 0.0` phrasing from the start (C++'s `<`/`>=` operators never throw for NaN,
+// unlike `Math.Sign`), so no code change was needed here -- this port was already ahead of
+// the C# fix; see fixtures/special_functions/tools.json's `nan_propagates` case for the
+// regression pin. Also in 33dc1af: `Tools.ParallelAdd`'s interlocked-CAS retry loop gained a
+// signed-zero/bit-pattern fix for lock-free parallel reductions -- NOT ported, matching this
+// file's own header note above ("Tools.cs function this port needs"): this port always
+// performs serial reductions by design (no `Parallel.For`/interlocked accumulation
+// anywhere in the C++ core), so `ParallelAdd` has no caller and stays out of scope.
 #pragma once
 #include <cmath>
 #include <cstddef>

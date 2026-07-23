@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/LogNormal.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/LogNormal.cs @ 2a0357a
 //
 // The Log-Normal distribution (base 10) with location µ (mean of log) and scale σ (std dev of log).
 // Logic mirrors the C# source method-for-method. The base is fixed at 10 (the C# default);

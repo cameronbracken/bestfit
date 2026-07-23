@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Interpolation/Linear.cs @ a2c4dbf
+// ported from: Numerics/Data/Interpolation/Linear.cs @ 2a0357a
 //
 // 1D linear interpolation with optional log10/normal-z transforms on x and/or y before
 // interpolating (and the inverse transform applied to the result). Designed to be
@@ -6,10 +6,11 @@
 // Center), per the C# source.
 //
 // BaseInterpolate/Extrapolate use the clamped corehydro::numerics::clamped_log10 (ported
-// from Tools.Log10); Bilinear (bilinear.hpp) instead uses plain std::log10 for its own
-// transforms -- that split exists in the C# source itself (Linear.cs calls Tools.Log10,
-// Bilinear.cs calls Math.Log10 directly) and is preserved here rather than "fixed". See
-// docs/upstream-csharp-issues.md.
+// from Tools.Log10). Bilinear (bilinear.hpp) used to call plain std::log10 for its own
+// transforms instead -- a real divergence between the two classes, fixed upstream in
+// v2.1.4 (Numerics 33dc1af switched Bilinear.cs to Tools.Log10 too) and mirrored here:
+// Bilinear now also calls clamped_log10, so both classes are consistent again. See
+// docs/upstream-csharp-issues.md (marked RESOLVED).
 #pragma once
 #include <cmath>
 #include <limits>

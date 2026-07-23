@@ -14,6 +14,7 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "corehydro/numerics/distributions/competing_risks.hpp"
 #include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
 #include "corehydro/numerics/distributions/kernel_density.hpp"
 #include "corehydro/numerics/distributions/mixture.hpp"
 #include "corehydro/numerics/distributions/truncated_distribution.hpp"
@@ -80,6 +81,14 @@ doubles ch_dist_linear_moments_(std::string target, doubles params) {
     auto* lm = dynamic_cast<dist::ILinearMomentEstimation*>(d.get());
     if (lm == nullptr) stop("distribution '%s' has no L-moments", target.c_str());
     return writable::doubles(lm->linear_moments_from_parameters(d->get_parameters()));
+}
+
+// GammaDistribution::partial_kp is a static utility (not tied to any distribution
+// instance's own parameters) used by the fixture runner to pin the v2.1.4
+// near-zero-skew derivative-limit fix; not otherwise part of the public API.
+[[cpp11::register]]
+double ch_dist_gamma_partial_kp_(double skewness, double probability) {
+    return dist::GammaDistribution::partial_kp(skewness, probability);
 }
 
 // --- Public-API additions (consumed by R/distribution.R) ----------------------------
@@ -194,21 +203,25 @@ bool ch_trunc_valid_(std::string base_target, doubles base_params, double lo, do
 }
 
 // --- Composite glue: EmpiricalDistribution ------------------------------------------
-// Accepts (x, p, p_transform) and exposes the full distribution surface.
-// p_transform: "NormalZ" (default) or "None".
+// Accepts (x, p, p_transform, p_descending) and exposes the full distribution surface.
+// p_transform: "NormalZ" (default) or "None". p_descending (v2.1.4): DECLARES the
+// probability order (mirrors C#'s explicit `probabilityOrder` argument -- NOT auto-detected
+// from the data; see empirical_distribution.hpp's header note) -- false (the ordinary
+// ascending-CDF case) unless the fixture opts into the descending survival-function encoding.
 
 static dist::EmpiricalDistribution make_empirical(doubles x_vals, doubles p_vals,
-                                                   std::string p_transform) {
+                                                   std::string p_transform, bool p_descending) {
     std::vector<double> xv(x_vals.begin(), x_vals.end());
     std::vector<double> pv(p_vals.begin(), p_vals.end());
     dist::EmpiricalTransform pt = dist::EmpiricalTransform::NormalZ;
     if (p_transform == "None") pt = dist::EmpiricalTransform::None;
-    return dist::EmpiricalDistribution(std::move(xv), std::move(pv), pt);
+    return dist::EmpiricalDistribution(std::move(xv), std::move(pv), pt, p_descending);
 }
 
 [[cpp11::register]]
-doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform) {
-    auto d = make_empirical(x_vals, p_vals, p_transform);
+doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform,
+                        bool p_descending) {
+    auto d = make_empirical(x_vals, p_vals, p_transform, p_descending);
     writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
                            d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
     out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
@@ -216,23 +229,26 @@ doubles ch_emp_moments_(doubles x_vals, doubles p_vals, std::string p_transform)
 }
 
 [[cpp11::register]]
-double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
-    return make_empirical(x_vals, p_vals, p_transform).pdf(x);
+double ch_emp_pdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending,
+                   double x) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).pdf(x);
 }
 
 [[cpp11::register]]
-double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, double x) {
-    return make_empirical(x_vals, p_vals, p_transform).cdf(x);
+double ch_emp_cdf_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending,
+                   double x) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).cdf(x);
 }
 
 [[cpp11::register]]
-double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform, double prob) {
-    return make_empirical(x_vals, p_vals, p_transform).inverse_cdf(prob);
+double ch_emp_quantile_(doubles x_vals, doubles p_vals, std::string p_transform,
+                        bool p_descending, double prob) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).inverse_cdf(prob);
 }
 
 [[cpp11::register]]
-bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform) {
-    return make_empirical(x_vals, p_vals, p_transform).parameters_valid();
+bool ch_emp_valid_(doubles x_vals, doubles p_vals, std::string p_transform, bool p_descending) {
+    return make_empirical(x_vals, p_vals, p_transform, p_descending).parameters_valid();
 }
 
 // --- Composite glue: KernelDensity --------------------------------------------------
@@ -292,13 +308,18 @@ bool ch_kde_valid_(doubles data, std::string kernel, double bandwidth, bool boun
 }
 
 // --- Composite glue: Mixture --------------------------------------------------------
-// Accepts (component_targets, component_params_list, weights) and exposes the full
-// distribution surface. component_params_list is a list-of-doubles R list.
+// Accepts (component_targets, component_params_list, weights, zero_inflated, zero_weight)
+// and exposes the full distribution surface. component_params_list is a list-of-doubles R
+// list. zero_inflated/zero_weight mirror the v2.1.4 IsZeroInflated/ZeroWeight setters
+// (default FALSE/0.0 at the R call sites below); set in that order since the setters
+// renormalize component weights as a side effect (mixture.hpp's header note).
 // Mirrors the ch_trunc_* and ch_kde_* pattern; R fixture runner dispatches by target.
 
 static dist::Mixture make_mixture(strings comp_targets,
                                   list comp_params_list,
-                                  doubles weights) {
+                                  doubles weights,
+                                  bool zero_inflated,
+                                  double zero_weight) {
     int K = static_cast<int>(comp_targets.size());
     std::vector<double> wts(weights.begin(), weights.end());
     std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
@@ -309,12 +330,16 @@ static dist::Mixture make_mixture(strings comp_targets,
         d->set_parameters(std::vector<double>(p.begin(), p.end()));
         comps.push_back(std::move(d));
     }
-    return dist::Mixture(std::move(wts), std::move(comps));
+    dist::Mixture mix(std::move(wts), std::move(comps));
+    mix.set_is_zero_inflated(zero_inflated);
+    mix.set_zero_weight(zero_weight);
+    return mix;
 }
 
 [[cpp11::register]]
-doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights) {
-    auto d = make_mixture(comp_targets, comp_params_list, weights);
+doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles weights,
+                        bool zero_inflated, double zero_weight) {
+    auto d = make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight);
     writable::doubles out({d.mean(), d.median(), d.mode(), d.standard_deviation(),
                            d.skewness(), d.kurtosis(), d.minimum(), d.maximum()});
     out.names() = {"mean", "median", "mode", "sd", "skewness", "kurtosis", "minimum", "maximum"};
@@ -322,23 +347,42 @@ doubles ch_mix_moments_(strings comp_targets, list comp_params_list, doubles wei
 }
 
 [[cpp11::register]]
-double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
-    return make_mixture(comp_targets, comp_params_list, weights).pdf(x);
+double ch_mix_pdf_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight).pdf(x);
 }
 
 [[cpp11::register]]
-double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights, double x) {
-    return make_mixture(comp_targets, comp_params_list, weights).cdf(x);
+double ch_mix_cdf_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight, double x) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight).cdf(x);
 }
 
 [[cpp11::register]]
-double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights, double prob) {
-    return make_mixture(comp_targets, comp_params_list, weights).inverse_cdf(prob);
+double ch_mix_quantile_(strings comp_targets, list comp_params_list, doubles weights,
+                        bool zero_inflated, double zero_weight, double prob) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+        .inverse_cdf(prob);
 }
 
 [[cpp11::register]]
-bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights) {
-    return make_mixture(comp_targets, comp_params_list, weights).parameters_valid();
+bool ch_mix_valid_(strings comp_targets, list comp_params_list, doubles weights,
+                   bool zero_inflated, double zero_weight) {
+    return make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight)
+        .parameters_valid();
+}
+
+// GetParameters() as a flat vector: [w0, ..., wK-1, component0 params..., ...] -- the
+// composite-target analogue of the generic "param" dispatch (which reads straight off the
+// already-known `construct.params`; Mixture's weights are recomputed inside C++ by the
+// zero-inflation setters, so unlike TruncatedDistribution's "param" case, this needs an
+// actual round trip through the real object rather than a client-side reconstruction).
+[[cpp11::register]]
+doubles ch_mix_params_(strings comp_targets, list comp_params_list, doubles weights,
+                       bool zero_inflated, double zero_weight) {
+    auto d = make_mixture(comp_targets, comp_params_list, weights, zero_inflated, zero_weight);
+    auto p = d.get_parameters();
+    return writable::doubles(p.begin(), p.end());
 }
 
 // --- Composite glue: CompetingRisks -------------------------------------------------
@@ -376,8 +420,14 @@ static dist::CompetingRisks make_competing_risks(strings comp_targets,
     }
     dist::CompetingRisks cr(std::move(comps));
     cr.minimum_of_random_variables = minimum_of_rv;
-    cr.dependency = parse_dependency(dependency);
-    if (dependency == "CorrelationMatrix") {
+    cr.set_dependency(parse_dependency(dependency));
+    // Unconditional on `dependency` (matches test_fixtures.cpp's build_composite and the
+    // dotnet emitter's BuildComposite) -- a caller may set CorrelationMatrix up front and
+    // only later switch Dependency to CorrelationMatrix (the v2.1.4
+    // dependency_change fixture), so gating this on `dependency == "CorrelationMatrix"`
+    // left correlation_matrix_ empty for any OTHER initial dependency, an
+    // out-of-bounds read waiting to happen the first time a fixture read it back.
+    if (correlation.size() > 0) {
         corehydro::numerics::data::probability::Matrix2D corr;
         corr.reserve(correlation.size());
         for (R_xlen_t i = 0; i < correlation.size(); ++i) {
@@ -433,4 +483,25 @@ bool ch_cr_valid_(strings comp_targets, list comp_params_list, bool minimum_of_r
                    std::string dependency, list correlation) {
     return make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency,
                                  correlation).parameters_valid();
+}
+
+// v2.1.4: verifies the Dependency setter fix (changing Dependency mid-lifetime invalidates
+// the cached MVN) and that PerfectlyNegative no longer zeroes the public CorrelationMatrix.
+// ONE self-contained call (R has no persistent object across fixture assertions): CDF
+// under the FIRST dependency, read CorrelationMatrix[i, j] back, then switch to
+// `dependency2` and CDF again -- returns the value the fixture asked for via `field`
+// ("cdf1", "correlation", "cdf2").
+[[cpp11::register]]
+double ch_cr_dependency_change_(strings comp_targets, list comp_params_list, bool minimum_of_rv,
+                                 std::string dependency, std::string dependency2, list correlation,
+                                 double x, std::string field, int i, int j) {
+    auto cr = make_competing_risks(comp_targets, comp_params_list, minimum_of_rv, dependency, correlation);
+    double cdf1 = cr.cdf(x);
+    double corr_ij = cr.correlation_matrix()[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+    cr.set_dependency(parse_dependency(dependency2));
+    double cdf2 = cr.cdf(x);
+    if (field == "cdf1") return cdf1;
+    if (field == "correlation") return corr_ij;
+    if (field == "cdf2") return cdf2;
+    stop("unknown ch_cr_dependency_change_ field '%s'", field.c_str());
 }

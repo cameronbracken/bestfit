@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Gamma.function",
   "source": "Numerics/Mathematics/Special Functions/Gamma.cs",
-  "reference": "Numerics @ a2c4dbf; Cephes Gamma.Function",
+  "reference": "Numerics @ 2a0357a; Cephes Gamma.Function",
   "cases": [
     {
       "name": "gamma_half",

@@ -361,6 +361,28 @@ void register_estimation(py::module_& m) {
         },
         py::arg("model_json"), py::arg("dataset"));
 
+    // --- Validate (Task 16) -------------------------------------------------------------
+    //
+    // The estimator-less `Validate` target: builds the model through the shared spec builder
+    // and calls `ModelBase::validate()` ONCE (a pure function of the constructed model, so a
+    // rebuild is fine -- the `bic`/DataFrame lazy-rebuild precedent). Returns `is_valid` + the
+    // flat message list; test_fixtures.py's `is_valid`/`validation_message_contains` dispatch
+    // arms read it. Added for the TimeSeries transform-lambda-failure fixtures (BestFit
+    // v2.0.0): the failure is only oracle-visible through Validate(), not through any numeric
+    // estimator surface.
+    m.def(
+        "model_validate",
+        [](const std::string& model_json, const std::vector<double>& dataset) {
+            std::unique_ptr<models::ModelBase> model =
+                models::spec::build_model_from_json(model_json, dataset);
+            models::ValidationResult result = model->validate();
+            py::dict out;
+            out["is_valid"] = result.is_valid;
+            out["messages"] = result.validation_messages;
+            return out;
+        },
+        py::arg("model_json"), py::arg("dataset"));
+
     // --- Simulation (M13) -------------------------------------------------------------
     //
     // The estimator-less `Simulation` target: builds the model through the shared spec
@@ -427,6 +449,11 @@ void register_estimation(py::module_& m) {
             out["correlation"] = correlation;
             out["j_stat"] = gmm->jstat();
             out["j_stat_pval"] = gmm->jstat_pval();
+            // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+            // OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+            out["gmm_iterations"] = gmm->gmm_iterations();
+            out["converged_within_tolerance"] = gmm->converged_within_tolerance();
+            out["optimizer_fallback_count"] = gmm->optimizer_fallback_count();
 
             if (sample_size > 0) {
                 model->set_parameter_values(gmm->best_parameter_set().values);

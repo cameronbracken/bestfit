@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Integration/Integration.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Integration/Integration.cs @ 2a0357a
 //
 // Static numerical-integration methods. Only `GaussLegendre20` (C# line 62) is ported in
 // this slice (M8) -- it is what the uncertain-data (measurement-error) branch of the

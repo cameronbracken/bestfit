@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/Support/TrendModelType.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/Support/TrendModelType.cs @ c2e6192
 //
 // Enumeration of supported trend model types used to represent how distribution
 // parameters vary with time. Member names and order mirror the C# enum exactly.

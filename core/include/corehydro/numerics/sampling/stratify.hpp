@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/Stratify.cs @ a2c4dbf
+// ported from: Numerics/Sampling/Stratify.cs @ 2a0357a
 //
 // Stratifies the x-axis into a list of StratificationBin objects on a linear or log10 scale,
 // per a StratificationOptions description. Feeds the profile-likelihood confidence-interval

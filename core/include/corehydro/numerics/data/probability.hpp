@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/Probability.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/Probability.cs @ 2a0357a
 //
 // NARROW port. `Probability` is a large static utility class (basic two-event rules,
 // joint-probability dispatch, unions, exclusive-combination enumeration, and three
@@ -249,11 +249,14 @@ inline double negative_joint_probability(const std::vector<double>& probabilitie
 
 // Computes the joint probability of multiple events with dependency, using Haden Smith's
 // modification of Pandey's method for the Product of Conditional Marginals (PCM).
-// Mirrors Probability.JointProbabilityHPCM verbatim, INCLUDING the asymmetric guard: the
-// "First cycle" below leaves `//if (cdf < 1e-300) cdf = 1e-300;` commented out (matching
-// the C# source exactly), while the "Remaining cycles" loop (only reached for n >= 3)
-// keeps that guard active. This looks like an oversight in the C# source (see
-// docs/upstream-csharp-issues.md) but is preserved for bit-for-bit fidelity.
+// Mirrors Probability.JointProbabilityHPCM. v2.1.4 sync (Numerics 33dc1af): FIXED, not
+// mirrored -- the "First cycle" block below used to leave its `cdf < 1e-300` underflow
+// guard commented out (`//if (cdf < 1e-300) cdf = 1e-300;`) while the structurally
+// identical "Remaining cycles" loop (only reached for n >= 3) kept the same guard active
+// three lines apart -- an asymmetry that looked like an accidental omission (see
+// docs/upstream-csharp-issues.md, marked RESOLVED). Upstream now applies the guard (named
+// `minimumCdf` there) in both places; this port does too, via the shared kMinimumCdf
+// constant below.
 inline double joint_probability_hpcm(const std::vector<double>& probabilities,
                                       const std::vector<int>& indicators,
                                       const Matrix2D& correlation_matrix,
@@ -270,6 +273,7 @@ inline double joint_probability_hpcm(const std::vector<double>& probabilities,
             "correlation matrix must be square with dimensions equal to the length of probabilities");
 
     constexpr double zMin = -9.0, zMax = 9.0;
+    constexpr double kMinimumCdf = 1e-300;
     Matrix2D R = correlation_matrix;  // mirrors `Array.Copy(correlationMatrix, R, ...)`
 
     for (int i = 0; i < n; ++i) {
@@ -284,7 +288,7 @@ inline double joint_probability_hpcm(const std::vector<double>& probabilities,
     double z1 = R[0][0];
     double pdf = distributions::Normal::standard_pdf(z1);
     double cdf = distributions::Normal::standard_cdf(z1);
-    // (guard intentionally NOT applied here -- see header comment above)
+    if (cdf < kMinimumCdf) cdf = kMinimumCdf;
     double A = pdf / cdf;
     double B = A * (z1 + A);
     for (int k = 1; k < n; ++k) {
@@ -312,7 +316,7 @@ inline double joint_probability_hpcm(const std::vector<double>& probabilities,
         z1 = R[jj][jj - 1];
         pdf = distributions::Normal::standard_pdf(z1);
         cdf = distributions::Normal::standard_cdf(z1);
-        if (cdf < 1e-300) cdf = 1e-300;
+        if (cdf < kMinimumCdf) cdf = kMinimumCdf;
         A = pdf / cdf;
         B = A * (z1 + A);
         for (int k = j + 1; k < n; ++k) {

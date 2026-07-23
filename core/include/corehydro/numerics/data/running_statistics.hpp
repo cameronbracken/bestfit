@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Statistics/RunningStatistics.cs @ a2c4dbf
+// ported from: Numerics/Data/Statistics/RunningStatistics.cs @ 2a0357a
 //
 // Welford's online algorithm for the first four central moments (mean, variance,
 // skewness, kurtosis), ported verbatim -- including the exact operator-precedence
@@ -13,7 +13,17 @@
 // `minimum()`, `maximum()`, `mean()`, `variance()`, `population_variance()`,
 // `standard_deviation()`, `population_standard_deviation()`, `coefficient_of_variation()`,
 // `skewness()`, `population_skewness()`, `kurtosis()`, `population_kurtosis()`,
-// `push(double)`, `push(vector<double>)`, static `combine()`, `operator+`.
+// `push(double)`, `push(vector<double>)`, `clone()`, static `combine()`, `operator+`.
+//
+// v2.1.4 sync (Numerics 41f78b4): ADDITIVE, not a fix -- C# added a public `Clone()` method
+// and changed `Combine(a, b)` to return `b.Clone()`/`a.Clone()` (rather than the bare `b`/
+// `a` reference) when the other operand is empty, so a caller mutating the returned
+// instance can no longer accidentally mutate one of the two inputs. This was never
+// observable in this C++ port: `combine()`'s `return b;`/`return a;` already returned an
+// independent copy (C++ value semantics -- there is no reference to alias, unlike a C#
+// class instance), so no behavior changed here. `clone()` is added below purely for API
+// parity with the new C# method, and `combine()` now calls it explicitly (mirroring the C#
+// line-for-line) even though `return *this;` was already equivalent.
 #pragma once
 #include <cmath>
 #include <cstdint>
@@ -140,11 +150,17 @@ class RunningStatistics {
         for (double value : values) push(value);
     }
 
+    // Creates a copy of the running statistics, independent of the original (mirrors
+    // RunningStatistics.Clone(), added in v2.1.4; see the file header -- the C++ value-type
+    // port already gives an independent copy via the implicit copy constructor, so this
+    // exists purely for API parity with the C# class).
+    RunningStatistics clone() const { return *this; }
+
     // Create a new running statistics over the combined samples of two existing running
     // statistics.
     static RunningStatistics combine(const RunningStatistics& a, const RunningStatistics& b) {
-        if (a.n_ == 0) return b;
-        if (b.n_ == 0) return a;
+        if (a.n_ == 0) return b.clone();
+        if (b.n_ == 0) return a.clone();
 
         std::int64_t n = a.n_ + b.n_;
         double an = static_cast<double>(a.n_);

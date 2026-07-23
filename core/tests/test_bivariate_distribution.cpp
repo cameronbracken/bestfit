@@ -22,10 +22,17 @@
 //   - the exact MLE-recovered copula parameter(s) under IFM (Normal 1-param + StudentT 2-param)
 //     and the seeded ISimulatable<Matrix2D> draw are oracle-verified cross-language against the
 //     real C# in bivariate_smoke.json / bivariate_sim.json.
-// PseudoLikelihood DEFERRED (upstream finding, see the P4 report): the real C# model-level MLE
-//   returns Estimate()=false under PseudoLikelihood because the marginal plotting positions are
-//   never calculated on the shared builder path (the C++ port instead returns a degenerate
-//   ~0.5 without validating) -- reconciling that lifecycle divergence is a P5 follow-up.
+// T15 (BestFit v2.0.0) landed: SetSampleData now validates PseudoLikelihood's pseudo
+//   observations strictly inside (0, 1) and auto-runs CalculatePlottingPositions() once per
+//   distinct marginal DataFrame when invalid -- RETIRING the P4/P5 finding above (a
+//   PseudoLikelihood model-level MLE fit previously could never succeed in EITHER language,
+//   since the shared builder path never triggered plotting-position calculation). The
+//   `test_pseudo_likelihood_*` / `test_ifm_does_not_recalculate_*` tests below transcribe
+//   BivariateDistributionTests.cs's two new v2.0.0 regression methods
+//   (Test_SetSampleData_PseudoLikelihoodInitializesMissingPlottingPositions /
+//   ...InferenceFromMarginsDoesNotRecalculatePlottingPositions); the exact MLE-recovered
+//   PseudoLikelihood copula parameter is oracle-verified cross-language in
+//   bivariate_smoke.json's new pseudo-likelihood case.
 //
 // SKIPPED C# test methods (with reason):
 //   - Test_ToXElement_ContainsRequiredAttributes / Test_FromXElement_RestoresModel
@@ -67,6 +74,7 @@ using corehydro::numerics::distributions::Gumbel;
 using corehydro::numerics::distributions::Normal;
 using corehydro::numerics::distributions::UnivariateDistributionBase;
 using corehydro::numerics::distributions::UnivariateDistributionType;
+using corehydro::numerics::distributions::copulas::CopulaEstimationMethod;
 using corehydro::numerics::distributions::copulas::CopulaType;
 using corehydro::numerics::distributions::copulas::NormalCopula;
 using corehydro::numerics::distributions::copulas::StudentTCopula;
@@ -250,6 +258,95 @@ void test_validate_valid_model() {
     BivariateDistribution model(mx, my, CopulaType::Normal);
 
     CHECK_TRUE(model.validate().is_valid);
+}
+
+// ==================== BivariateDistributionTests.cs (v2.0.0 sample-setup regression) =====
+
+// Test_SetSampleData_PseudoLikelihoodInitializesMissingPlottingPositions: a freshly-built
+// marginal's exact data carries the un-computed default plotting position (0.0 -> complement
+// 1.0, NOT interior to (0,1)); selecting PseudoLikelihood must auto-run
+// CalculatePlottingPositions() once per marginal so every pseudo observation becomes interior.
+//
+// ADAPTED (second half): the C# test re-invalidates by directly writing a single
+// `ExactData.PlottingPosition`, relying on the INPC handler that also bumps
+// DataFrame.PlottingPositionVersion on a bare property write -- ported as WPF/GUI-adjacent
+// plumbing and NOT reproduced here (see data_frame.hpp's plotting_position_version() accessor
+// comment and this file's cache-field comment for the documented gap). This port's
+// `Data::set_plotting_position()` has no back-pointer to bump its owning DataFrame's counter,
+// so a bare mutation would NOT invalidate the cache here; the equivalent, contract-compliant
+// re-invalidation is an explicit calculate_plotting_positions() call (the documented trigger
+// every DataFrame consumer in this port must use), asserting the SAME property the C# test
+// checks: SetSampleData picks up the version bump and rebuilds a fully-interior sample.
+void test_pseudo_likelihood_initializes_missing_plotting_positions() {
+    UnivariateDistributionModel mx = build_configured_normal_marginal(20);
+    UnivariateDistributionModel my = build_configured_gumbel_marginal(20);
+
+    auto all_interior = [](UnivariateDistributionModel& m) {
+        for (std::size_t i = 0; i < m.data_frame().exact_series().count(); ++i) {
+            double c = m.data_frame().exact_series()[i].plotting_position_complement();
+            if (!(c > 0.0 && c < 1.0)) return false;
+        }
+        return true;
+    };
+
+    BivariateDistribution model(mx, my, CopulaType::Normal);
+    model.set_copula_estimation_method(CopulaEstimationMethod::PseudoLikelihood);
+
+    CHECK_TRUE(all_interior(mx));
+    CHECK_TRUE(all_interior(my));
+
+    // Re-invalidate via the documented trigger (see comment above) and re-run SetSampleData
+    // explicitly -- the plotting_position_version() cache must detect the change.
+    mx.data_frame().calculate_plotting_positions();
+    model.set_sample_data();
+
+    CHECK_TRUE(all_interior(mx));
+
+    std::vector<double> p = current_parameters(model);
+    CHECK_TRUE(std::isfinite(model.data_log_likelihood(p)));
+}
+
+// Test_SetSampleData_InferenceFromMarginsDoesNotRecalculatePlottingPositions: IFM sample setup
+// must leave marginal plotting positions untouched (the auto-plotting path is gated on
+// PseudoLikelihood only).
+void test_ifm_does_not_recalculate_plotting_positions() {
+    UnivariateDistributionModel mx = build_configured_normal_marginal(20);
+    UnivariateDistributionModel my = build_configured_gumbel_marginal(20);
+
+    for (std::size_t i = 0; i < mx.data_frame().exact_series().count(); ++i)
+        mx.data_frame().exact_series()[i].set_plotting_position(0.11 + 0.01 * static_cast<double>(i));
+    for (std::size_t i = 0; i < my.data_frame().exact_series().count(); ++i)
+        my.data_frame().exact_series()[i].set_plotting_position(0.21 + 0.01 * static_cast<double>(i));
+
+    std::vector<double> expected_x, expected_y;
+    for (std::size_t i = 0; i < mx.data_frame().exact_series().count(); ++i)
+        expected_x.push_back(mx.data_frame().exact_series()[i].plotting_position());
+    for (std::size_t i = 0; i < my.data_frame().exact_series().count(); ++i)
+        expected_y.push_back(my.data_frame().exact_series()[i].plotting_position());
+
+    BivariateDistribution model(mx, my, CopulaType::Normal);
+    model.set_copula_estimation_method(CopulaEstimationMethod::InferenceFromMargins);
+    model.set_sample_data();
+
+    for (std::size_t i = 0; i < mx.data_frame().exact_series().count(); ++i)
+        CHECK_NEAR(mx.data_frame().exact_series()[i].plotting_position(), expected_x[i], 1e-15);
+    for (std::size_t i = 0; i < my.data_frame().exact_series().count(); ++i)
+        CHECK_NEAR(my.data_frame().exact_series()[i].plotting_position(), expected_y[i], 1e-15);
+}
+
+// Regression (Task 15 finding, no C# counterpart -- the real C# would NRE here instead): a
+// marginal with no DataFrame attached must not crash SetSampleData under PseudoLikelihood.
+// `data_frame()` is an unguarded dereference of a possibly-absent optional; validate() safely
+// reports invalid without ever touching it, so SetSampleData must gate on validate() BEFORE
+// fetching the DataFrame identity/version-cache pointers.
+void test_pseudo_likelihood_marginal_without_data_frame_does_not_crash() {
+    UnivariateDistributionModel mx;  // parameterless ctor -- no DataFrame attached.
+    UnivariateDistributionModel my = build_configured_gumbel_marginal(20);
+
+    BivariateDistribution model(mx, my, CopulaType::Normal);
+    model.set_copula_estimation_method(CopulaEstimationMethod::PseudoLikelihood);
+
+    CHECK_TRUE(!model.validate().is_valid);
 }
 
 // ================= BivariateDistributionMarginalInterfaceTests.cs ======================
@@ -494,6 +591,10 @@ int main() {
     test_pointwise_sums_to_total();
     test_pointwise_components_count();
     test_validate_valid_model();
+
+    test_pseudo_likelihood_initializes_missing_plotting_positions();
+    test_ifm_does_not_recalculate_plotting_positions();
+    test_pseudo_likelihood_marginal_without_data_frame_does_not_crash();
 
     test_mixture_interface_distribution_routes();
     test_point_process_interface_distribution_routes();

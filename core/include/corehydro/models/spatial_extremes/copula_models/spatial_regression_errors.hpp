@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/SpatialRegressionErrors.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/CopulaModels/SpatialRegressionErrors.cs @ c2e6192
 //
 // Spatial regression errors using the Gaussian-Process (GP) framework (Renard BHM). Models
 // spatially correlated errors ε ~ MVN(0, Σ) with Σ_ij = σ²·ρ(h_ij). Parameter layout is

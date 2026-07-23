@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/DEMCz.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/DEMCz.cs @ 2a0357a
 //
 // Differential Evolution Markov Chain (DE-MCz): a POPULATION sampler (`IsPopulationSampler =
 // true`, requiring >= 3 chains). Instead of proposing from a per-chain distribution centered

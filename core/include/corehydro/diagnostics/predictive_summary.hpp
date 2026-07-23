@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PredictiveSummary.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PredictiveSummary.cs @ c2e6192
 //
 // Summary statistics for a predictive distribution (prior or posterior). A small result DTO
 // holding quantile arrays [2.5%, 25%, 50%, 75%, 97.5%] for the mean/SD/min/max statistics

@@ -1,4 +1,4 @@
-// ported from: Numerics/Functions/Link Functions/LogLink.cs @ a2c4dbf
+// ported from: Numerics/Functions/Link Functions/LogLink.cs @ 2a0357a
 //
 // Log link function mapping positive reals to the unconstrained real line.
 // Domain: x > 0. h(x) = log(x), h^-1(eta) = exp(eta), h'(x) = 1/x.

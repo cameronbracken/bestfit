@@ -1,4 +1,17 @@
-// ported from: Numerics/Distributions/Univariate/NoncentralT.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/NoncentralT.cs @ 2a0357a
+//
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: (1)
+// ValidateParameters now rejects NaN/Infinity in `v` explicitly -- the old `v < 1.0d` check
+// is false for both NaN and +Infinity, so a non-finite degrees-of-freedom could silently
+// read as valid; validate() below adds the missing isnan/isinf short-circuit (a genuine
+// behavior fix, not just a header/provenance bump). (2) SetParameters' assign-then-validate
+// ordering was already correct in this port (nu_/lambda_ assigned directly, single validate
+// call at the end) -- no change there. (3) C# also renamed NCT_CDF/NCTDist/NCT_INV to
+// EvaluateCdfWithFallback/EvaluateCdfSeries/InverseCdf and de-gotoed NCTDist's internal
+// control flow (dead labels/variables renamed for readability) -- per the task brief this
+// refactor is behavior-preserving and is deliberately NOT mirrored cosmetically here; only
+// the validation fix above is ported. Confirmed the existing oracle fixture values are
+// unchanged (same AS 243 math, just renamed locals/goto-free control flow in C#).
 //
 // The Noncentral t probability distribution with parameters ν (degrees of freedom) and
 // μ (noncentrality). CDF via the twin-series algorithm AS 243 (Guenther 1978 / Lenth 1989).
@@ -151,9 +164,11 @@ class NoncentralT : public UnivariateDistributionBase {
     }
 
    private:
-    // --- Validate parameters: nu >= 1 and mu finite ---
+    // --- Validate parameters: nu >= 1 (and finite) and mu finite ---
     static bool validate(double v, double mu) {
-        if (v < 1.0) return false;
+        // `v < 1.0` alone is false for both NaN and +Infinity, so the explicit isnan/isinf
+        // check is required -- this is the v2.1.4 fix (see file header).
+        if (std::isnan(v) || std::isinf(v) || v < 1.0) return false;
         if (std::isnan(mu) || std::isinf(mu)) return false;
         return true;
     }

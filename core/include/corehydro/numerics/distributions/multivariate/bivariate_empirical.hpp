@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Multivariate/BivariateEmpirical.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/BivariateEmpirical.cs @ 2a0357a
 //
 // A bivariate empirical CDF defined on a rectangular X1 x X2 grid of cumulative
 // probabilities, evaluated via 2D (bilinear) interpolation with independent optional
@@ -9,11 +9,15 @@
 // this better"); ported verbatim as a stub, not a numerical-differentiation
 // approximation.
 //
-// Divergence note: set_parameters() does not invalidate an already-built Bilinear cache
-// (mirrors the C# `bilinear` field, which is only (re)built on the first cdf() call via
-// a null check) -- calling set_parameters() again after a cdf() call keeps interpolating
-// against the OLD grid, in both the C# source and this port. See
-// docs/upstream-csharp-issues.md.
+// v2.1.4 (RESOLVED -- see docs/upstream-csharp-issues.md for the pre-fix history):
+// set_parameters() now nulls the cached Bilinear interpolator (mirrors the new C#
+// `bilinear = null;` at the end of `SetParameters`), so a second set_parameters() call
+// after a cdf() call correctly rebuilds against the NEW grid instead of continuing to
+// interpolate against the stale one. validate_parameters() also gained finite-value
+// checks on x1/x2/p (NaN/Inf), checked immediately before each ascending-order/range
+// check, in the same relative position as the new C# guards -- a NaN previously slipped
+// through the ascending-order comparisons undetected (NaN compares false in both
+// directions) and reported `parameters_valid() == true`.
 #pragma once
 #include <cstddef>
 #include <limits>
@@ -79,9 +83,13 @@ class BivariateEmpirical : public MultivariateDistribution {
         if (x2_values.size() < 2) return "There must be at least 2 secondary values.";
 
         // Check if X1 and X2 are in ascending order
+        for (double v : x1_values)
+            if (!std::isfinite(v)) return "Primary values must be finite.";
         for (std::size_t i = 1; i < x1_values.size(); ++i)
             if (x1_values[i] <= x1_values[i - 1])
                 return "Primary values must be in ascending order.";
+        for (double v : x2_values)
+            if (!std::isfinite(v)) return "Secondary values must be finite.";
         for (std::size_t i = 1; i < x2_values.size(); ++i)
             if (x2_values[i] <= x2_values[i - 1])
                 return "Secondary values must be in ascending order.";
@@ -97,19 +105,22 @@ class BivariateEmpirical : public MultivariateDistribution {
         }
         for (const auto& row : p_values)
             for (double v : row)
-                if (v < 0.0 || v > 1.0)
+                if (!std::isfinite(v) || v < 0.0 || v > 1.0)
                     return "Probability values must be equal to or between 0 and 1.";
 
         return "";
     }
 
-    // Set the distribution parameters.
+    // Set the distribution parameters. v2.1.4: nulls the cached bilinear interpolator
+    // (mirrors the new C# `bilinear = null;`) so a subsequent cdf() rebuilds against the
+    // NEW grid rather than continuing to interpolate against a stale cache.
     void set_parameters(std::vector<double> x1_values, std::vector<double> x2_values,
                          std::vector<std::vector<double>> p_values) {
         parameters_valid_ = validate_parameters(x1_values, x2_values, p_values).empty();
         x1_values_ = std::move(x1_values);
         x2_values_ = std::move(x2_values);
         p_values_ = std::move(p_values);
+        bilinear_.reset();
     }
 
     // --- Distribution functions ---

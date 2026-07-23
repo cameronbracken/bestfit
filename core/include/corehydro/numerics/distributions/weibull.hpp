@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Weibull.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Weibull.cs @ 2a0357a
 //
 // Weibull distribution with scale λ (lambda) and shape κ (kappa). Logic mirrors the C#
 // source method-for-method. The WPF helpers, IBootstrappable, and IStandardError

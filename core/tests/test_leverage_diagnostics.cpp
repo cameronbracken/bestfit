@@ -1,7 +1,7 @@
 // Standalone C++-only ctest for corehydro::diagnostics::LeverageDiagnostics (Phase 9a, Task D3).
 //
 // Oracle for behavior is the C# source itself
-// (upstream/RMC-BestFit/src/RMC.BestFit/Diagnostics/LeverageDiagnostics.cs @ fc28c0c) and its
+// (upstream/RMC-BestFit/src/RMC.BestFit/Diagnostics/LeverageDiagnostics.cs @ c2e6192) and its
 // unit-test transcription
 // (upstream/RMC-BestFit/src/RMC.BestFit.Tests/Diagnostics/LeverageDiagnosticsTests.cs). Per the
 // validation model, internal-support types get C++-only ctests transcribing the upstream test

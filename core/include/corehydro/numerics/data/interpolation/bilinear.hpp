@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Interpolation/Bilinear.cs @ a2c4dbf
+// ported from: Numerics/Data/Interpolation/Bilinear.cs @ 2a0357a
 //
 // 2D interpolation via repeated 1D linear interpolation, with independent optional
 // transforms (None/Logarithmic/NormalZ) on x1, x2, and y. Designed to be compatible with
@@ -11,11 +11,18 @@
 // y_values() are identical -- this mirrors the C# source's reuse pattern exactly,
 // including reading X2LI.YValues (not XValues) for the x2 range below.
 //
-// Divergence note: unlike Linear::base_interpolate (which uses the clamped
-// corehydro::numerics::clamped_log10), this class's own Logarithmic transform calls plain
-// std::log10 with no clamping -- that split exists in the C# source itself (Linear.cs
-// calls Tools.Log10, Bilinear.cs calls Math.Log10 directly) and is preserved here rather
-// than "fixed". See docs/upstream-csharp-issues.md.
+// v2.1.4 sync (Numerics 33dc1af): FIXED, not mirrored -- every `Math.Log10` call in this
+// class's Logarithmic-transform branches now calls the guarded `Tools.Log10` instead
+// (matching what Linear.cs already did). Previously this class's Logarithmic transform
+// used plain, unguarded log10 while Linear::base_interpolate/extrapolate used the clamped
+// corehydro::numerics::clamped_log10 -- a real divergence between the two interpolation
+// classes (see docs/upstream-csharp-issues.md, marked RESOLVED) that could produce NaN for
+// a grid coordinate/ordinate at or near zero (log10(0) = -inf, and -inf - -inf = NaN once
+// the interpolation formula subtracts two such transformed values). This class now calls
+// `corehydro::numerics::clamped_log10` at every one of the twelve log10 call sites below,
+// exactly like Linear does; see fixtures/special_functions/bilinear.json's
+// `log_floor_*` cases (ported from the new v2.1.4
+// Test_LogarithmicFloorMatchesLinearInterpolation) for the regression pin.
 #pragma once
 #include <cmath>
 #include <stdexcept>
@@ -25,6 +32,7 @@
 #include "corehydro/numerics/data/interpolation/sort_order.hpp"
 #include "corehydro/numerics/data/interpolation/transform.hpp"
 #include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/tools.hpp"
 
 namespace corehydro::numerics::data {
 
@@ -98,11 +106,11 @@ class Bilinear {
         x1lb = x1_values_[0];
         x1ub = x1_values_[i1_last];
         if (x1_transform == Transform::Logarithmic) {
-            x1 = std::log10(x1);
-            x1i = std::log10(x1i);
-            x1ii = std::log10(x1ii);
-            x1lb = std::log10(x1lb);
-            x1ub = std::log10(x1ub);
+            x1 = clamped_log10(x1);
+            x1i = clamped_log10(x1i);
+            x1ii = clamped_log10(x1ii);
+            x1lb = clamped_log10(x1lb);
+            x1ub = clamped_log10(x1ub);
         } else if (x1_transform == Transform::NormalZ) {
             x1 = distributions::Normal::standard_z(x1);
             x1i = distributions::Normal::standard_z(x1i);
@@ -118,11 +126,11 @@ class Bilinear {
         x2lb = x2_values_[0];
         x2ub = x2_values_[i2_last];
         if (x2_transform == Transform::Logarithmic) {
-            x2 = std::log10(x2);
-            x2j = std::log10(x2j);
-            x2jj = std::log10(x2jj);
-            x2lb = std::log10(x2lb);
-            x2ub = std::log10(x2ub);
+            x2 = clamped_log10(x2);
+            x2j = clamped_log10(x2j);
+            x2jj = clamped_log10(x2jj);
+            x2lb = clamped_log10(x2lb);
+            x2ub = clamped_log10(x2ub);
         } else if (x2_transform == Transform::NormalZ) {
             x2 = distributions::Normal::standard_z(x2);
             x2j = distributions::Normal::standard_z(x2j);
@@ -137,10 +145,10 @@ class Bilinear {
         yiijj = y_values_[ui + 1][uj + 1];
         yijj = y_values_[ui][uj + 1];
         if (y_transform == Transform::Logarithmic) {
-            yij = std::log10(yij);
-            yiij = std::log10(yiij);
-            yiijj = std::log10(yiijj);
-            yijj = std::log10(yijj);
+            yij = clamped_log10(yij);
+            yiij = clamped_log10(yiij);
+            yiijj = clamped_log10(yiijj);
+            yijj = clamped_log10(yijj);
         } else if (y_transform == Transform::NormalZ) {
             yij = distributions::Normal::standard_z(yij);
             yiij = distributions::Normal::standard_z(yiij);

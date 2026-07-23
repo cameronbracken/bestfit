@@ -2,7 +2,7 @@
 //
 // Oracle for behavior is the C# source itself:
 //   - upstream/RMC-BestFit/src/RMC.BestFit/Models/UnivariateDistribution/
-//     PointProcessModel.cs @ fc28c0c, and its base UnivariateDistributionModelBase.cs
+//     PointProcessModel.cs @ c2e6192, and its base UnivariateDistributionModelBase.cs
 //     @ fc28c0c;
 //   - a transcription of the upstream test class
 //     RMC.BestFit.Tests/Univariate/PointProcessModelTests.cs @ fc28c0c. Skipped methods

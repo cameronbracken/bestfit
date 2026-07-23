@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/RatingCurve/RatingCurve.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/RatingCurve/RatingCurve.cs @ c2e6192
 //
 // Stage-discharge rating curve model using the BaRatin matrix-of-controls framework in ADDITION
 // mode (controls accumulate as stage rises), on top of ModelBase (the shared likelihood surface
@@ -40,6 +40,21 @@
 //     vector; the C# null-guard is vacuous for a const std::vector& (no null), so the base body is
 //     inherited unchanged.
 //   - The RatingCurveAnalysis wrapper is a separate class, NOT in R1 scope.
+//   - GetDataAlignmentCounts (v2.0.0 addition, C#:611): a GUI-only diagnostic (reports the stage
+//     / discharge / date-aligned-pair counts for a properties panel), never consumed by the
+//     likelihood/estimation surface. Not ported (matching the BivariateDistribution
+//     GetSampleDataAlignmentCounts precedent in bivariate_distribution.hpp).
+//
+// Default-prior widening (v2.0.0, this class's only behavior change since fc28c0c): the per-
+// segment coefficient's Uniform prior/bounds widened -5..5 -> -10..10; the exponent's LOWER
+// bound narrowed 0.5 -> 0 (Uniform(0, 5), the ModelParameter IsPositive flag removed) so the
+// exponent may sit at/near zero. The stage location/span (minH/rangeH) and the log-space sigma
+// upper bound are now built by three extracted helpers (GetDefaultPriorStageScale ->
+// GetDefaultPriorStageValues, GetDefaultPriorSigmaUpperBound -> GetDefaultPriorLogDischarges)
+// that prefer date-ALIGNED (stage, discharge>0) pairs over the raw StageData/DischargeData
+// series (falling back to the raw series when no pair aligns yet) -- a genuine calibration
+// change, though numerically inert whenever every stage/discharge observation is itself
+// aligned and positive (the common case, and the one every current fixture exercises).
 //
 // RNG deviation (documented): the seeded Predict(parameters, stage, seed) overload (C#:915) draws
 // its stochastic noise from System.Random (a .NET LCG with no ported equivalent); this port
@@ -59,6 +74,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "corehydro/models/support/data_component.hpp"
@@ -158,29 +174,13 @@ class RatingCurve : public ModelBase, public ISimulatable<std::vector<double>> {
         return v;
     }
 
-    // --- SetDefaultParameters (C#:290). ---
+    // --- SetDefaultParameters (C#:297, v2.0.0). ---
     void set_default_parameters() override {
-        // Get stage constraints.
-        double min_h = 0, max_h = 10, range_h = 10;
-        if (stage_data_ && stage_data_->count() > 0) {
-            min_h = stage_data_->min_value();
-            max_h = max_value(*stage_data_);
-            range_h = max_h - min_h;
-        }
-
-        // Get discharge constraints for the log-space standard deviation.
-        double sigma_ub = 2.0;  // default for log-space errors
-        if (discharge_data_ && discharge_data_->count() > 0) {
-            std::vector<double> log_q;
-            for (int i = 0; i < discharge_data_->count(); ++i) {
-                double v = (*discharge_data_)[i].value();
-                if (v > 0) log_q.push_back(std::log10(v));
-            }
-            if (log_q.size() > 1) {
-                double std_dev_log_q = numerics::data::standard_deviation(log_q);
-                sigma_ub = std::ceil(std_dev_log_q * 3);  // 3x std dev for the upper bound
-            }
-        }
+        // Stage location/span and the log-space sigma upper bound, both via the extracted
+        // helpers below (v2.0.0): date-aligned (stage, discharge>0) pairs are preferred over
+        // raw StageData/DischargeData, since the likelihood only ever sees paired observations.
+        auto [min_h, range_h] = get_default_prior_stage_scale();
+        double sigma_ub = get_default_prior_sigma_upper_bound();
 
         // Zero-flow stage bounds for segment 1 (h1, the main-channel cease-to-flow stage).
         double h1_min = min_h - range_h;
@@ -194,15 +194,17 @@ class RatingCurve : public ModelBase, public ISimulatable<std::vector<double>> {
             /*value=*/min_h - 0.1 * range_h, /*lower_bound=*/h1_min, /*upper_bound=*/h1_max,
             std::make_unique<numerics::distributions::Uniform>(h1_min, h1_max));
 
-        // Segment 1 coefficient log10(alpha1) and exponent beta1.
+        // Segment 1 coefficient log10(alpha1) and exponent beta1. v2.0.0 widened both: the
+        // coefficient's bounds -5..5 -> -10..10; the exponent's LOWER bound 0.5 -> 0 (Uniform(0,
+        // 5), IsPositive removed -- the exponent may now sit exactly at/near zero).
         parameters_.emplace_back(
             /*owner_name=*/"", /*name=*/std::string("Coefficient (\xCE\xB1") + to_subscript(1) + ")",
-            /*value=*/0.0, /*lower_bound=*/-5.0, /*upper_bound=*/5.0,
-            std::make_unique<numerics::distributions::Uniform>(-5.0, 5.0));
+            /*value=*/0.0, /*lower_bound=*/-10.0, /*upper_bound=*/10.0,
+            std::make_unique<numerics::distributions::Uniform>(-10.0, 10.0));
         parameters_.emplace_back(
             /*owner_name=*/"", /*name=*/std::string("Exponent (\xCE\xB2") + to_subscript(1) + ")",
-            /*value=*/2.0, /*lower_bound=*/0.5, /*upper_bound=*/5.0,
-            std::make_unique<numerics::distributions::Uniform>(0.5, 5.0), /*is_positive=*/true);
+            /*value=*/2.0, /*lower_bound=*/0.0, /*upper_bound=*/5.0,
+            std::make_unique<numerics::distributions::Uniform>(0.0, 5.0));
 
         if (number_of_segments_ >= 2) {
             double h2_min = min_h + 0.2 * range_h;
@@ -217,18 +219,22 @@ class RatingCurve : public ModelBase, public ISimulatable<std::vector<double>> {
             parameters_.emplace_back(
                 /*owner_name=*/"",
                 /*name=*/std::string("Coefficient (\xCE\xB1") + to_subscript(2) + ")",
-                /*value=*/0.0, /*lower_bound=*/-5.0, /*upper_bound=*/5.0,
-                std::make_unique<numerics::distributions::Uniform>(-5.0, 5.0));
+                /*value=*/0.0, /*lower_bound=*/-10.0, /*upper_bound=*/10.0,
+                std::make_unique<numerics::distributions::Uniform>(-10.0, 10.0));
             parameters_.emplace_back(
                 /*owner_name=*/"",
                 /*name=*/std::string("Exponent (\xCE\xB2") + to_subscript(2) + ")",
-                /*value=*/2.0, /*lower_bound=*/0.5, /*upper_bound=*/5.0,
-                std::make_unique<numerics::distributions::Uniform>(0.5, 5.0), /*is_positive=*/true);
+                /*value=*/2.0, /*lower_bound=*/0.0, /*upper_bound=*/5.0,
+                std::make_unique<numerics::distributions::Uniform>(0.0, 5.0));
         }
 
         if (number_of_segments_ >= 3) {
             double h3_min = min_h + 0.5 * range_h;
-            double h3_max = max_h;
+            // v2.0.0: recomputed as `minH + rangeH` (was the raw `maxH`) -- equal to maxH
+            // whenever rangeH == maxH - minH exactly (the ordinary case), but tracks the new
+            // helper's floored/finite-guarded span in the degenerate case where maxH - minH
+            // would otherwise be < 1.0 or non-finite.
+            double h3_max = min_h + range_h;
             double h3_default = min_h + 0.75 * range_h;
 
             parameters_.emplace_back(
@@ -239,13 +245,13 @@ class RatingCurve : public ModelBase, public ISimulatable<std::vector<double>> {
             parameters_.emplace_back(
                 /*owner_name=*/"",
                 /*name=*/std::string("Coefficient (\xCE\xB1") + to_subscript(3) + ")",
-                /*value=*/0.0, /*lower_bound=*/-5.0, /*upper_bound=*/5.0,
-                std::make_unique<numerics::distributions::Uniform>(-5.0, 5.0));
+                /*value=*/0.0, /*lower_bound=*/-10.0, /*upper_bound=*/10.0,
+                std::make_unique<numerics::distributions::Uniform>(-10.0, 10.0));
             parameters_.emplace_back(
                 /*owner_name=*/"",
                 /*name=*/std::string("Exponent (\xCE\xB2") + to_subscript(3) + ")",
-                /*value=*/2.0, /*lower_bound=*/0.5, /*upper_bound=*/5.0,
-                std::make_unique<numerics::distributions::Uniform>(0.5, 5.0), /*is_positive=*/true);
+                /*value=*/2.0, /*lower_bound=*/0.0, /*upper_bound=*/5.0,
+                std::make_unique<numerics::distributions::Uniform>(0.0, 5.0));
         }
 
         // Scale parameter (log-space standard deviation).
@@ -700,15 +706,87 @@ class RatingCurve : public ModelBase, public ISimulatable<std::vector<double>> {
         return true;
     }
 
-    // Max value skipping NaN (C# TimeSeries.MaxValue; the ported adapter omits it, so compute it
-    // locally here -- SetDefaultParameters is the only consumer).
-    static double max_value(const TimeSeries& series) {
-        double max = std::numeric_limits<double>::lowest();
-        for (int i = 0; i < series.count(); ++i) {
-            double v = series[i].value();
-            if (!std::isnan(v) && v > max) max = v;
+    // --- GetDefaultPriorStageScale (C#:441, v2.0.0). --------------------------------------
+    // The stage location and span used to build the weakly-informative default priors in
+    // SetDefaultParameters. Date-aligned (stage, discharge>0) pairs are preferred (the
+    // likelihood only ever sees paired observations); falls back to all finite stage
+    // observations so default construction stays robust while StageData exists but
+    // DischargeData is not yet set (or no pair aligns).
+    std::pair<double, double> get_default_prior_stage_scale() const {
+        std::vector<double> stages = get_default_prior_stage_values();
+        if (stages.empty()) return {0.0, 10.0};
+
+        double min_stage = stages[0];
+        double max_stage = stages[0];
+        for (double s : stages) {
+            if (s < min_stage) min_stage = s;
+            if (s > max_stage) max_stage = s;
         }
-        return max;
+        double span = max_stage - min_stage;
+
+        if (!std::isfinite(min_stage)) min_stage = 0.0;
+        if (!std::isfinite(span) || span < 1.0) span = 1.0;
+
+        return {min_stage, span};
+    }
+
+    // --- GetDefaultPriorStageValues (C#:467, v2.0.0). --------------------------------------
+    std::vector<double> get_default_prior_stage_values() const {
+        std::vector<double> result;
+        if (stage_data_ && discharge_data_) {
+            for (const auto& obs : get_aligned_observations())
+                if (std::isfinite(obs.stage) && std::isfinite(obs.discharge) && obs.discharge > 0)
+                    result.push_back(obs.stage);
+            if (!result.empty()) return result;
+        }
+
+        if (!stage_data_) return result;
+        for (int i = 0; i < stage_data_->count(); ++i) {
+            double v = (*stage_data_)[i].value();
+            if (std::isfinite(v)) result.push_back(v);
+        }
+        return result;
+    }
+
+    // --- GetDefaultPriorSigmaUpperBound (C#:498, v2.0.0). ----------------------------------
+    // Upper bound for the log-space residual-scale prior: 3 standard deviations of log10
+    // discharge (aligned pairs preferred, see GetDefaultPriorLogDischarges), rounded up;
+    // falls back to the constant default when there is not enough data to estimate a spread.
+    double get_default_prior_sigma_upper_bound() const {
+        constexpr double kDefaultSigmaUpperBound = 2.0;
+
+        std::vector<double> log_q = get_default_prior_log_discharges();
+        if (log_q.size() > 1) {
+            double std_dev_log_q = numerics::data::standard_deviation(log_q);
+            double sigma_upper_bound = std::ceil(std_dev_log_q * 3.0);
+            if (std::isfinite(sigma_upper_bound) &&
+                sigma_upper_bound > numerics::kDoubleMachineEpsilon)
+                return sigma_upper_bound;
+        }
+        return kDefaultSigmaUpperBound;
+    }
+
+    // --- GetDefaultPriorLogDischarges (C#:522, v2.0.0). ------------------------------------
+    std::vector<double> get_default_prior_log_discharges() const {
+        std::vector<double> result;
+        if (stage_data_ && discharge_data_) {
+            for (const auto& obs : get_aligned_observations()) {
+                if (!(std::isfinite(obs.stage) && std::isfinite(obs.discharge) && obs.discharge > 0))
+                    continue;
+                double log_q = std::log10(obs.discharge);
+                if (std::isfinite(log_q)) result.push_back(log_q);
+            }
+            if (!result.empty()) return result;
+        }
+
+        if (!discharge_data_) return result;
+        for (int i = 0; i < discharge_data_->count(); ++i) {
+            double v = (*discharge_data_)[i].value();
+            if (!(std::isfinite(v) && v > 0)) continue;
+            double log_q = std::log10(v);
+            if (std::isfinite(log_q)) result.push_back(log_q);
+        }
+        return result;
     }
 
     // Approximates C#'s $"Stage={stage:F2}" (fixed 2-decimal; not oracle-checked).

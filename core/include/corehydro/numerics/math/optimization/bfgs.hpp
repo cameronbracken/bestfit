@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Local/BFGS.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Local/BFGS.cs @ 2a0357a
 //
 // The Broyden-Fletcher-Goldfarb-Shanno (BFGS) local optimizer: an iterative method for
 // unconstrained nonlinear optimization that gradually improves an approximation to the

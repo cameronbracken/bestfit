@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Time Series/TimeSeries.cs @ a2c4dbf
+// ported from: Numerics/Data/Time Series/TimeSeries.cs @ 2a0357a
 //
 // A THIN adapter over the Numerics `TimeSeries : Series<DateTime,double>` (2,334 lines). Only
 // the surface the ported ModelBase families consume is ported -- the AR/MA/ARIMA/ARIMAX

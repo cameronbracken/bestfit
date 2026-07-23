@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Regression/LinearRegression.cs @ a2c4dbf
+// ported from: Numerics/Data/Regression/LinearRegression.cs @ 2a0357a
 //
 // Linear regression Y = alpha + beta*X + e, e ~ N(0, sigma), fitted by singular value
 // decomposition (SVD). Ported with Task B9 because DataFrame.GetNonparametricMomentsROS

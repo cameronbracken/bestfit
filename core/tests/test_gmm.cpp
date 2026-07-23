@@ -679,6 +679,11 @@ void test_clear_results_resets_state() {
     CHECK_TRUE(gmm.status() == OptimizationStatus::None);
     CHECK_EQ(gmm.gmm_iterations(), 0);
     CHECK_EQ(gmm.total_function_evaluations(), 0);
+    // T13: clear_results() also resets the tracked convergence flag and fallback bookkeeping
+    // (upstream (Expanded) ClearResults_ResetsStatusBestParameterSetAndConvergence, minus the
+    // XML round-trip this port doesn't have -- see the file header SKIPPED note).
+    CHECK_TRUE(!gmm.converged_within_tolerance());
+    CHECK_EQ(gmm.optimizer_fallback_count(), 0);
     CHECK_TRUE(std::isnan(gmm.jstat()));
     CHECK_TRUE(std::isnan(gmm.jstat_pval()));
     CHECK_TRUE(!gmm.w().has_value());
@@ -836,6 +841,242 @@ void test_tools_distance() {
     CHECK_NEAR(corehydro::numerics::distance({1.0}, {1.0}), 0.0, 1e-15);
 }
 
+// ======================================================================================
+// PART 3 -- T13 SUPPLEMENT (BestFit v2.0.0): non-failure acceptance, sticky NelderMead
+// fallback, ConvergedWithinTolerance fix, TryGetCovariance
+// ======================================================================================
+//
+// The upstream v2.0.0 GMM/B17C oracle fixture converges cleanly in both directions (no
+// BFGS failure, no iteration exhaustion -- see the census note in the design doc), so
+// none of this task's semantics is reachable from the B17C fixture path. These
+// C++-only tests construct delegate-based toy problems that DO exercise them, following
+// the same "no oracle, closed-form/engineered problem" precedent as PART 2 above.
+
+// REVIEW FINDING (fix note): the first version of this trap was POSITION-based (threw
+// for theta0 past a threshold reachable only via an amplified first BFGS step). An
+// empirical counterfactual (patch the sticky latch out of minimize_with_fallback so
+// pass 2 always retries the configured optimizer_method_) proved that trap did NOT
+// discriminate sticky-vs-non-sticky behavior: pass 2's fresh BFGS attempt starts from
+// pass 1's CONVERGED point (~(5,3)), where the moment residual g -- and hence the
+// analytic gradient, amplified or not -- is ~0, so a non-sticky pass 2 converges
+// trivially without ever re-entering the trap zone, and the test passed either way.
+//
+// FIX: key the trap on WHICH OPTIMIZER IS ASKING rather than on parameter position.
+// Only BFGS ever requests the analytic Jacobian (via GetGradient); NelderMead evaluates
+// Q directly and never touches it. An UNCONDITIONALLY throwing Jacobian therefore fails
+// BFGS deterministically on ITS VERY FIRST gradient request, every time BFGS is
+// attempted, regardless of the current parameter values -- while NelderMead (which
+// never calls it) is completely unaffected. This makes "was BFGS attempted this pass"
+// directly observable via a call counter, independent of position:
+//   - WITH stickiness: pass 2 of an Iterative run goes straight to NelderMead (no
+//     Jacobian call) -> g_jacobian_calls stays at 1, optimizer_fallback_count() stays 1.
+//   - WITHOUT stickiness (verified via the same counterfactual patch above): pass 2
+//     retries BFGS -> the Jacobian throws again -> g_jacobian_calls == 2,
+//     optimizer_fallback_count() == 2. Confirmed empirically: with the sticky latch
+//     patched out, test_fallback_is_sticky_across_iterative_passes below FAILS on
+//     exactly these two assertions (2 != 1); restoring the real header makes it PASS.
+int g_jacobian_calls = 0;
+
+Matrix2D always_throwing_jacobian(const std::vector<double>& /*theta*/) {
+    ++g_jacobian_calls;
+    throw std::runtime_error("always_throwing_jacobian: BFGS gradient request rejected");
+}
+
+// Plain (non-throwing) moment conditions -- reuses the PART 2 toy problem's closed form
+// (g = theta - c, S = toy_s()) unmodified; only the Jacobian is adversarial here.
+GeneralizedMethodOfMoments make_bfgs_always_fails_gmm() {
+    return GeneralizedMethodOfMoments(toy_moments, 2, 2, kToyN, {2.0, 8.0}, {0.0, 0.0},
+                                      {10.0, 10.0}, std::nullopt, always_throwing_jacobian);
+}
+
+// A BFGS pass that fails (the Jacobian throws unconditionally) triggers the NelderMead
+// fallback exactly once, and the fallback still recovers the true optimum (NelderMead
+// never touches the poisoned Jacobian).
+void test_fallback_triggers_on_bfgs_failure_and_recovers_optimum() {
+    g_jacobian_calls = 0;
+    auto gmm = make_bfgs_always_fails_gmm();
+    gmm.set_estimation_strategy(GMMEstimationStrategy::OneStep);
+
+    CHECK_TRUE(gmm.estimate());
+    CHECK_TRUE(gmm.is_estimated());
+    CHECK_EQ(gmm.optimizer_fallback_count(), 1);
+    CHECK_EQ(g_jacobian_calls, 1);
+    CHECK_NEAR(gmm.best_parameter_set().values[0], kC1, 1e-4);
+    CHECK_NEAR(gmm.best_parameter_set().values[1], kC2, 1e-4);
+}
+
+// The BFGS->NelderMead fallback is STICKY across an Iterative run: the Jacobian throws
+// only ONCE (on the very first pass) even though the iterative loop runs a second pass
+// to confirm convergence -- optimizer_fallback_count() and g_jacobian_calls both stay at
+// 1, not 2, because the second pass goes straight to NelderMead instead of re-trying
+// (and re-failing) BFGS. See the header note above for the empirical counterfactual that
+// proves these two assertions genuinely discriminate sticky vs. non-sticky behavior
+// (unlike the position-based trap this replaced).
+void test_fallback_is_sticky_across_iterative_passes() {
+    g_jacobian_calls = 0;
+    auto gmm = make_bfgs_always_fails_gmm();
+    gmm.set_estimation_strategy(GMMEstimationStrategy::Iterative);
+
+    CHECK_TRUE(gmm.estimate());
+    CHECK_TRUE(gmm.is_estimated());
+    CHECK_TRUE(gmm.gmm_iterations() >= 2);
+    CHECK_EQ(gmm.optimizer_fallback_count(), 1);  // sticky discriminator
+    CHECK_EQ(g_jacobian_calls, 1);                // sticky discriminator
+    CHECK_TRUE(gmm.converged_within_tolerance());
+    CHECK_NEAR(gmm.best_parameter_set().values[0], kC1, 1e-4);
+    CHECK_NEAR(gmm.best_parameter_set().values[1], kC2, 1e-4);
+}
+
+// A well-behaved BFGS run never triggers the fallback (fallback_count stays 0).
+void test_fallback_count_zero_when_bfgs_succeeds() {
+    auto gmm = make_toy_gmm_analytic_jacobian();
+    CHECK_TRUE(gmm.estimate());
+    CHECK_EQ(gmm.optimizer_fallback_count(), 0);
+}
+
+// ConvergedWithinTolerance (T13 off-by-one fix): OneStep and TwoStep have no comparison
+// pass and always report false even though the fit itself succeeds.
+void test_converged_within_tolerance_false_for_one_step_and_two_step() {
+    for (auto strategy : {GMMEstimationStrategy::OneStep, GMMEstimationStrategy::TwoStep}) {
+        auto gmm = make_toy_gmm_analytic_jacobian();
+        gmm.set_estimation_strategy(strategy);
+        CHECK_TRUE(gmm.estimate());
+        CHECK_TRUE(gmm.is_estimated());
+        CHECK_TRUE(!gmm.converged_within_tolerance());
+    }
+}
+
+// ConvergedWithinTolerance / GMMIterations (T13 off-by-one fix): an Iterative run capped
+// at max_gmm_iterations = 1 never reaches the loop's comparison pass (the loop starts at
+// 2), so it reports the FIRST pass's result with gmm_iterations() == 1 (clamped, not left
+// at the old pre-fix overshoot) and converged_within_tolerance() == false, even though
+// is_estimated() is true. This is the DEGENERATE (zero-loop-iterations) half of the
+// exhaustion clamp; see test_iteration_exhaustion_over_multiple_passes_clamps_count
+// below for the genuine multi-pass half.
+void test_iteration_exhaustion_clamps_count_and_reports_not_converged() {
+    auto gmm = make_toy_gmm_analytic_jacobian();
+    gmm.set_estimation_strategy(GMMEstimationStrategy::Iterative);
+    gmm.set_max_gmm_iterations(1);
+
+    CHECK_TRUE(gmm.estimate());
+    CHECK_TRUE(gmm.is_estimated());
+    CHECK_EQ(gmm.gmm_iterations(), 1);
+    CHECK_TRUE(!gmm.converged_within_tolerance());
+}
+
+// Over-identified (q=2, p=1) toy problem: g(theta) = (theta - 5, theta - 7), S = diag(1,
+// 4) (unequal weights). Reviewer finding 3 -- unlike the just-identified toy problem used
+// everywhere else in this file (whose g(theta*) = 0 fixed point is, BY CONSTRUCTION,
+// independent of the weighting matrix W, so every pass converges to the exact same point
+// and a zero-tolerance trick can't force genuine non-convergence: the inter-pass
+// parameter distance ends up bit-identically 0), an OVER-identified problem's argmin
+// genuinely DEPENDS on W: with W = I the minimizer of (theta-5)^2 + (theta-7)^2 is the
+// simple average 6; with W = S^-1 = diag(1, 0.25) the minimizer of the reweighted
+// quadratic is 5.4 -- a REAL, non-noise parameter shift between the pre-loop pass (W = I)
+// and the first loop pass (W = S^-1), verified empirically to reproduce exactly these two
+// values. Capping max_gmm_iterations at 2 lets the for-loop actually EXECUTE (unlike the
+// max_gmm_iterations = 1 case above, which never enters the loop body at all) for exactly
+// one real pass without ever reaching a confirming comparison pass, exercising the T13
+// clamp on a genuine multi-pass exhaustion instead of the degenerate zero-pass case.
+Matrix over_identified_s() {
+    Matrix s(2, 2);
+    s(0, 0) = 1.0;
+    s(1, 1) = 4.0;
+    return s;
+}
+
+MomentConditionResult over_identified_moments(const std::vector<double>& theta) {
+    Vector g(2);
+    g[0] = theta[0] - 5.0;
+    g[1] = theta[0] - 7.0;
+    return {g, over_identified_s()};
+}
+
+void test_iteration_exhaustion_over_multiple_passes_clamps_count() {
+    GeneralizedMethodOfMoments gmm(over_identified_moments, 1, 2, kToyN, {6.0}, {0.0}, {10.0});
+    gmm.set_estimation_strategy(GMMEstimationStrategy::Iterative);
+    gmm.set_max_gmm_iterations(2);
+
+    CHECK_TRUE(gmm.estimate());
+    CHECK_TRUE(gmm.is_estimated());
+    // Pre-loop pass converges to the W=I average (6); the single loop pass (W=S^-1)
+    // converges to the reweighted 5.4 -- a real, non-negligible shift.
+    CHECK_NEAR(gmm.best_parameter_set().values[0], 5.4, 1e-6);
+    CHECK_EQ(gmm.gmm_iterations(), 2);  // clamped from the for-loop's post-increment 3
+    CHECK_TRUE(!gmm.converged_within_tolerance());
+    CHECK_EQ(static_cast<int>(gmm.convergence_history().size()), 2);
+}
+
+// Non-failure acceptance: BFGS terminating via MaximumFunctionEvaluationsReached (not
+// Success, not Failure) with a finite best point is accepted DIRECTLY -- no fallback
+// triggered. A mismatched analytic Jacobian (rows swapped relative to the true residual)
+// gives BFGS a direction that is never a genuine descent direction for the real Q, so its
+// line search burns evaluations without improving and reliably exhausts a small
+// max_function_evaluations budget (verified empirically: total_function_evaluations()
+// lands exactly at the configured cap). Asserts the status EXACTLY -- not an OR over
+// Success/MaximumIterationsReached, which would pass whether or not this arm is actually
+// exercised (the review finding this replaces). Counterfactual evidence (reverting to the
+// pre-T13 strict-Status==Success gate on a scratch copy of the header): the SAME
+// construction there instead falls through to the NelderMead fallback, which succeeds
+// cleanly (status Success, optimizer_fallback_count 1, parameters recover the true
+// optimum) -- i.e. the pre-T13 gate produces OBSERVABLY DIFFERENT results
+// (status/fallback_count) for this exact scenario, confirming these assertions
+// discriminate the T13 change.
+Matrix2D mismatched_jacobian(const std::vector<double>& /*theta*/) {
+    return {{0.0, 5.0}, {5.0, 0.0}};
+}
+
+void test_max_function_evaluations_reached_is_accepted_without_fallback() {
+    GeneralizedMethodOfMoments gmm(toy_moments, 2, 2, kToyN, {2.0, 8.0}, {0.0, 0.0}, {10.0, 10.0},
+                                   std::nullopt, mismatched_jacobian);
+    gmm.set_estimation_strategy(GMMEstimationStrategy::OneStep);
+    gmm.set_max_function_evaluations(15);  // Optimizer::validate() floors this at 10.
+
+    CHECK_TRUE(gmm.estimate());
+    CHECK_TRUE(gmm.is_estimated());
+    CHECK_TRUE(gmm.status() == OptimizationStatus::MaximumFunctionEvaluationsReached);
+    CHECK_EQ(gmm.total_function_evaluations(), 15);
+    CHECK_TRUE(std::isfinite(gmm.best_parameter_set().values[0]));
+    CHECK_TRUE(std::isfinite(gmm.best_parameter_set().values[1]));
+    CHECK_EQ(gmm.optimizer_fallback_count(), 0);
+}
+
+// try_get_covariance (T13): a well-estimated toy problem returns true with a finite,
+// positive-diagonal covariance matching the plain get_covariance result.
+void test_try_get_covariance_succeeds_for_good_fit() {
+    auto gmm = make_toy_gmm_analytic_jacobian();
+    CHECK_TRUE(gmm.estimate());
+    gmm.post_process();
+
+    Matrix expected = gmm.get_covariance_matrix();
+    Matrix covariance(2, 2);
+    bool ok = gmm.try_get_covariance(gmm.best_parameter_set().values, true, covariance);
+
+    CHECK_TRUE(ok);
+    CHECK_NEAR(covariance(0, 0), expected(0, 0), 1e-9);
+    CHECK_NEAR(covariance(1, 1), expected(1, 1), 1e-9);
+    CHECK_TRUE(covariance(0, 0) > 0.0);
+    CHECK_TRUE(covariance(1, 1) > 0.0);
+}
+
+// try_get_covariance (T13): a throwing moment-condition function returns false with a
+// zero matrix, mirroring get_covariance's own silent guard (plain get_covariance already
+// returns a zero matrix here; try_get_covariance's job is to surface that as `false`
+// rather than making the caller inspect the matrix for degeneracy).
+void test_try_get_covariance_fails_for_throwing_moments() {
+    auto throwing_moments = [](const std::vector<double>&) -> MomentConditionResult {
+        throw std::runtime_error("boom");
+    };
+    GeneralizedMethodOfMoments bad(throwing_moments, 2, 2, 10, {0.5, 0.5}, {0.0, 0.0}, {1.0, 1.0});
+
+    Matrix covariance(2, 2);
+    bool ok = bad.try_get_covariance({0.5, 0.5}, true, covariance);
+
+    CHECK_TRUE(!ok);
+    CHECK_EQ(covariance(0, 0), 0.0);
+    CHECK_EQ(covariance(1, 1), 0.0);
+}
+
 }  // namespace
 
 int main() {
@@ -896,6 +1137,18 @@ int main() {
     test_eigenvalue_decomposition();
     test_matrix_regularization_regularize();
     test_tools_distance();
+
+    // PART 3: T13 supplement (non-failure acceptance, sticky fallback, ConvergedWithinTolerance
+    // fix, TryGetCovariance).
+    test_fallback_triggers_on_bfgs_failure_and_recovers_optimum();
+    test_fallback_is_sticky_across_iterative_passes();
+    test_fallback_count_zero_when_bfgs_succeeds();
+    test_converged_within_tolerance_false_for_one_step_and_two_step();
+    test_iteration_exhaustion_clamps_count_and_reports_not_converged();
+    test_iteration_exhaustion_over_multiple_passes_clamps_count();
+    test_max_function_evaluations_reached_is_accepted_without_fallback();
+    test_try_get_covariance_succeeds_for_good_fit();
+    test_try_get_covariance_fails_for_throwing_moments();
 
     return chtest::summary("gmm");
 }

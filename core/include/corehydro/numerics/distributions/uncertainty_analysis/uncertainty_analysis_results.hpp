@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/UncertaintyAnalysisResults.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Uncertainty Analysis/UncertaintyAnalysisResults.cs @ 2a0357a
 //
 // Result container every univariate uncertainty analysis assembles: the mode/point-estimate
 // curve, the mean (predictive) curve, the confidence-interval band, the recorded parameter sets,

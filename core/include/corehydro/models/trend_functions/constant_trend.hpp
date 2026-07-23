@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ConstantTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ConstantTrend.cs @ c2e6192
 //
 // Trend model that is constant in time: y(t) = alpha.
 // The XElement constructor is deliberately not ported (XML out of scope).

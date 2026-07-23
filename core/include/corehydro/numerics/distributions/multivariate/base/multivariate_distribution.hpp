@@ -1,5 +1,5 @@
-// ported from: Numerics/Distributions/Multivariate/Base/IMultivariateDistribution.cs @ a2c4dbf
-//           +  Numerics/Distributions/Multivariate/Base/MultivariateDistribution.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/Base/IMultivariateDistribution.cs @ 2a0357a
+//           +  Numerics/Distributions/Multivariate/Base/MultivariateDistribution.cs @ 2a0357a
 //
 // Abstract base for every multivariate distribution. Folds IMultivariateDistribution's
 // members directly into the base -- the Phase 1 pattern (interfaces fold into the

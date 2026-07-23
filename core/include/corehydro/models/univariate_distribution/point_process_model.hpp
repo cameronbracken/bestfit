@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Models/UnivariateDistribution/PointProcessModel.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Models/UnivariateDistribution/PointProcessModel.cs @ c2e6192
 //
 // Point-process model for peaks-over-threshold (POT) data: an underlying Poisson process for
 // exceedance times and GEV (or seasonal two-GEV) models for magnitudes, wrapped around the
@@ -398,7 +398,7 @@ class PointProcessModel : public UnivariateDistributionModelBase,
 
         auto dist = std::make_unique<CompetingRisks>(std::move(components));
         dist->minimum_of_random_variables = false;
-        dist->dependency = numerics::data::probability::DependencyType::Independent;
+        dist->set_dependency(numerics::data::probability::DependencyType::Independent);
         distribution_ = std::move(dist);
     }
 

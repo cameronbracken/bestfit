@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/ASinHLink.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/LinkFunctions/ASinHLink.cs @ c2e6192
 //
 // A centered sinh-arcsinh link function for unbounded parameters, with optional
 // asymmetry (epsilon) and tail-shape (delta) control (Jones-Pewsey sinh-arcsinh form

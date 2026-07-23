@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IUnivariateAnalysis.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Analyses/Support/IUnivariateAnalysis.cs @ c2e6192
 //
 // Capability interface for univariate distribution analyses. Sits at the base of the interface
 // diamond -- IUnivariateAnalysis -> IBayesianAnalysis -> IAnalysis (virtual) and IUnivariateAnalysis

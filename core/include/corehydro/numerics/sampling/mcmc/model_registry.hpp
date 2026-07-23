@@ -10,20 +10,22 @@
 // construction logic isn't duplicated four times (C++/R/Python/C#).
 //
 // Registry (now two entries): "uniform_constraints" (P3.5) and "normal_conjugate_gibbs" (this
-// task) -- a conjugate Normal-InverseGamma model transcribed VERBATIM from
-// Test_Gibbs_NormalDist_RStan, whose `McmcModel` also carries a Gibbs `Proposal` closure (the
-// third `McmcModel` member the P3.5 header comment anticipated). The closure captures the
-// SAME `shared_ptr<Normal>`/`shared_ptr<InverseGamma>` objects also held (as
-// `UnivariateDistributionBase` pointers) in `priors` -- mirroring the C# source's reference-
-// type aliasing (`muPrior`/`sigmaPrior` are the literal same objects the proposal closure and
-// the sampler's `PriorDistributions` list both point at; `SetParameters` inside the closure
-// mutates the SAME instance the sampler consults for feasibility/initialization). A closure
-// that instead captured a COPY of the prior state (e.g. by value-capturing a dereferenced
-// `Normal`/`InverseGamma`, or by re-looking-up a distribution via the factory) would diverge
-// silently at draw >= 1, once the mutation has actually happened once -- this is why
-// `McmcModel::priors` and the registry's own local prior variables are `shared_ptr`, not
-// `unique_ptr`: only `shared_ptr` lets both the sampler and the closure alias the same
-// mutable object.
+// task) -- a conjugate Normal-InverseGamma model transcribed from Test_Gibbs_NormalDist_RStan
+// (v2.1.4 rework: ConditionalMeanParameters/ConditionalVarianceParameters), whose `McmcModel`
+// also carries a Gibbs `Proposal` closure (the third `McmcModel` member the P3.5 header
+// comment anticipated).
+//
+// v2.1.4 SPLIT (superseding the pre-v2.1.4 note this replaced): the two distributions held in
+// `priors` below (`mu_initialization_prior`/`sigma_initialization_prior`, used ONLY to seed
+// the sampler's feasibility bounds / initial draws) are now DISTINCT objects from the two the
+// proposal closure mutates every Gibbs step (`conditional_mean`/`conditional_variance`,
+// default-constructed and captured only by the closure) -- mirroring the C# rework's
+// `muInitializationPrior`/`sigmaInitializationPrior` versus the freshly constructed
+// `conditionalMean`/`conditionalVariance` locals. Pre-v2.1.4, a single `mu_prior`/
+// `sigma_prior` pair served BOTH roles (aliased into `priors` AND mutated by the closure); the
+// `shared_ptr` choice below is retained for `conditional_mean`/`conditional_variance` purely
+// so the same object persists (and is mutated in place) across repeated closure
+// invocations -- there is no aliasing with `priors` to preserve anymore.
 #pragma once
 #include <cmath>
 #include <memory>
@@ -90,7 +92,8 @@ inline McmcModel build_model(const std::string& name, const std::string& family,
         return McmcModel{std::move(priors), std::move(log_likelihood), Gibbs::Proposal{}};
     }
     if (name == "normal_conjugate_gibbs") {
-        // Transcribed from Test_Gibbs_NormalDist_RStan VERBATIM. `family`/the factory are
+        // Transcribed from Test_Gibbs_NormalDist_RStan (v2.1.4 rework:
+        // ConditionalMeanParameters/ConditionalVarianceParameters). `family`/the factory are
         // unused here (the conjugate math below is Normal-InverseGamma-specific, unlike
         // "uniform_constraints"'s family-generic closure) -- guarded defensively.
         if (family != "Normal")
@@ -100,48 +103,63 @@ inline McmcModel build_model(const std::string& name, const std::string& family,
         int n = static_cast<int>(data.size());
         double mu = corehydro::numerics::data::mean(data);
         double mu0 = 0.0, sigma0 = 5e5;
-        auto mu_prior = std::make_shared<distributions::Normal>(mu0, sigma0);
-        double alpha0 = 2.0, beta0 = 0.001;
-        // InverseGamma(scale, shape) -- C# `new InverseGamma(beta0, alpha0)`; see
-        // inverse_gamma.hpp's ctor doc for the (scale, shape) = (beta, alpha) argument order.
-        auto sigma_prior = std::make_shared<distributions::InverseGamma>(beta0, alpha0);
+        // The conditional-variance update's own prior is the limiting non-informative
+        // inverse-gamma (shape = scale = 0) -- see the proposal closure below. DISTINCT from
+        // `initialization_shape`/`initialization_scale`, which only seed
+        // `sigma_initialization_prior`'s feasibility bounds.
+        double variance_prior_shape = 0.0, variance_prior_scale = 0.0;
+        // Proper distributions used SOLELY to initialize the sampler state (feasibility
+        // bounds / initial draws) -- see the file header's v2.1.4 split note.
+        double initialization_shape = 2.0, initialization_scale = 0.001;
+        auto mu_initialization_prior = std::make_shared<distributions::Normal>(mu0, sigma0);
+        // InverseGamma(scale, shape) -- C# `new InverseGamma(initializationScale,
+        // initializationShape)`; see inverse_gamma.hpp's ctor doc for the (scale, shape)
+        // argument order.
+        auto sigma_initialization_prior =
+            std::make_shared<distributions::InverseGamma>(initialization_scale, initialization_shape);
 
-        std::vector<std::shared_ptr<distributions::UnivariateDistributionBase>> priors{mu_prior, sigma_prior};
+        std::vector<std::shared_ptr<distributions::UnivariateDistributionBase>> priors{
+            mu_initialization_prior, sigma_initialization_prior};
 
         LogLikelihood log_likelihood = [data](const std::vector<double>& params) {
             distributions::Normal dist(params[0], params[1]);
             return dist.log_likelihood(data);
         };
 
-        // The conjugate proposal closure. Captures `mu_prior`/`sigma_prior` BY VALUE as
-        // `shared_ptr` copies -- copying a `shared_ptr` copies the pointer, not the
-        // pointee, so the closure aliases the SAME underlying Normal/InverseGamma instances
-        // also held in `priors` above (see the file header's prior-aliasing note). Every
-        // `set_parameters` call below mutates that shared instance in place, exactly
-        // mirroring the C# closure's `muPrior.SetParameters(...)`/
-        // `sigmaPrior.SetParameters(...)` reference-type mutation.
-        Gibbs::Proposal proposal = [data, n, mu, mu0, sigma0, mu_prior, sigma_prior](
+        // The two full-conditional distributions the proposal closure below mutates every
+        // Gibbs step (`set_parameters` then `inverse_cdf`) -- default-constructed and owned
+        // solely by this closure, NOT aliased with `priors` above; see the file header's
+        // v2.1.4 split note.
+        auto conditional_mean = std::make_shared<distributions::Normal>();
+        auto conditional_variance = std::make_shared<distributions::InverseGamma>();
+
+        Gibbs::Proposal proposal = [data, n, mu, mu0, sigma0, variance_prior_shape, variance_prior_scale,
+                                     conditional_mean, conditional_variance](
                                         const std::vector<double>& x,
                                         sampling::MersenneTwister& random) -> std::vector<double> {
-            // Sample mu. Transcribed verbatim from Test_Gibbs.cs, INCLUDING the `mu0 / 2.0`
-            // term -- the textbook conjugate-Normal posterior mean has `mu0 / sigma0^2` there
-            // instead, and this line's own numerator/denominator otherwise omit the `/ sigma^2`
-            // scaling the companion `sigma2` line below correctly applies. Unobservable in this
-            // registry entry's `mu0 = 0` test data (the term vanishes) -- see the CONSISTENCY
-            // finding in docs/upstream-csharp-issues.md before reusing this formula with a
-            // non-zero mu0.
-            double mun = (n * mu + mu0 / 2.0) / (n + 1.0 / (sigma0 * sigma0));
-            double sigma2 = (x[1] * x[1]) / (n + (x[1] * x[1]) / (sigma0 * sigma0));
-            mu_prior->set_parameters({mun, std::sqrt(sigma2)});
-            double mup = mu_prior->inverse_cdf(random.next_double());
+            // Sample the conditional mean given the current standard deviation
+            // (ConditionalMeanParameters): the corrected conjugate-Normal posterior
+            // mean/variance, replacing the pre-v2.1.4 `mu0 / 2.0` bug (see
+            // docs/upstream-csharp-issues.md for the retired CONSISTENCY finding).
+            double likelihood_variance = x[1] * x[1];
+            double prior_variance = sigma0 * sigma0;
+            double posterior_variance = 1.0 / (n / likelihood_variance + 1.0 / prior_variance);
+            double posterior_mean = posterior_variance * (n * mu / likelihood_variance + mu0 / prior_variance);
+            conditional_mean->set_parameters({posterior_mean, std::sqrt(posterior_variance)});
+            double mup = conditional_mean->inverse_cdf(random.next_double());
 
-            // Sample sigma.
-            double alpha1 = n / 2.0;
-            double sse = 0.0;
-            for (double v : data) sse += (v - mup) * (v - mup);
-            double beta1 = sse / 2.0;
-            sigma_prior->set_parameters({beta1, alpha1});
-            double sig2p = sigma_prior->inverse_cdf(random.next_double());
+            // Sample the conditional variance (ConditionalVarianceParameters), then return
+            // its square root as sigma. Algebraically unchanged from the pre-v2.1.4 formula
+            // (only the mean update above was buggy) -- see the file header.
+            double sum_of_squared_errors = 0.0;
+            for (double v : data) {
+                double residual = v - mup;
+                sum_of_squared_errors += residual * residual;
+            }
+            double scale = variance_prior_scale + sum_of_squared_errors / 2.0;
+            double shape = variance_prior_shape + static_cast<double>(n) / 2.0;
+            conditional_variance->set_parameters({scale, shape});
+            double sig2p = conditional_variance->inverse_cdf(random.next_double());
 
             // Return the proposal vector.
             return {mup, std::sqrt(sig2p)};

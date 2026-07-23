@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Support/LocalMethod.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Support/LocalMethod.cs @ 2a0357a
 //
 // The enumeration of local optimization methods for use in global optimizers. All five
 // C# members are ported in the C# declaration order; MLSL's GetLocalOptimizer only

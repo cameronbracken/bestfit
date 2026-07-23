@@ -1,4 +1,4 @@
-// ported from: Numerics/Sampling/MCMC/HMC.cs @ a2c4dbf
+// ported from: Numerics/Sampling/MCMC/HMC.cs @ 2a0357a
 //
 // Hamiltonian Monte Carlo (HMC): a gradient-based sampler. Each ChainIteration jitters the
 // leapfrog step size/step count, draws a momentum vector phi ~ N(0, Mass), simulates

@@ -9,7 +9,7 @@
       "assertions": [
         { "method": "mean",     "args": [],     "expected": 0.21105527638190955, "mode": "abs", "tol": 1e-4 },
         { "method": "median",   "args": [],     "expected": 0.11577706212908731, "mode": "abs", "tol": 1e-4 },
-        { "method": "mode",     "args": [],     "expected": 57.999999999999957,  "mode": "abs", "tol": 1e-4 },
+        { "method": "mode",     "args": [],     "expected": 0.0,                 "mode": "equal" },
         { "method": "sd",       "args": [],     "expected": 0.23598576615025,    "mode": "abs", "tol": 1e-4 },
         { "method": "pdf",      "args": [0.27], "expected": 0.94644031936694828, "mode": "abs", "tol": 1e-4 },
         { "method": "cdf",      "args": [0.27], "expected": 0.69358638272337991, "mode": "abs", "tol": 1e-4 },
@@ -19,6 +19,41 @@
         { "method": "param",    "args": [2],    "expected": 0.0,                 "mode": "abs", "tol": 1e-12 },
         { "method": "param",    "args": [3],    "expected": 1.0,                 "mode": "abs", "tol": 1e-12 },
         { "method": "parameters_valid", "args": [], "expected": true,            "mode": "bool" }
+      ]
+    },
+    {
+      "name": "mode_boundary_decreasing",
+      "construct": { "params": [0.42, 1.57, -10.0, 20.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": -10.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_boundary_increasing",
+      "construct": { "params": [1.57, 0.42, -10.0, 20.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 20.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_boundary_lower",
+      "construct": { "params": [0.5, 1.0, -10.0, 20.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": -10.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_boundary_upper",
+      "construct": { "params": [1.0, 0.5, -10.0, 20.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 20.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_boundary_u_shaped",
+      "construct": { "params": [0.5, 0.5, -10.0, 20.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 5.0, "mode": "equal" }
       ]
     },
     {

@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Linear Algebra/Support/Matrix.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Linear Algebra/Support/Matrix.cs @ 2a0357a
 //
 // Phase 0 shipped a minimal dense square-matrix inverse (Gauss-Jordan with partial
 // pivoting) as free-standing `Matrix2D`/`inverse()`; GEV still depends on those exactly

@@ -1,9 +1,18 @@
-// ported from: Numerics/Distributions/Univariate/Binomial.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/Binomial.cs @ 2a0357a
 //
 // The Binomial distribution with parameters p (probability of success) and n (number of trials).
 // Discrete; PMF via binomial_coefficient; CDF via regularized incomplete beta (Beta.Incomplete).
 // InverseCDF via integer walk 0..n. No estimation interfaces upstream.
 // Logic mirrors the C# source method-for-method.
+// Re-audited against v2.1.4's "Harden distribution parameter validation" wave: C#'s
+// SetParameters now assigns the backing fields directly (bypassing the ProbabilityOfSuccess/
+// NumberOfTrials property setters) before validating once from the full, final parameter
+// pair; ValidateParameters already rejected NaN/Infinity in both parameters (unchanged by
+// this wave). set_parameters below already matched the ordering; the only change is
+// guarding n_'s truncating cast (`static_cast<int>` of a non-finite double is undefined
+// behavior in C++) and validating the RAW params[1] for NaN/Infinity rather than the
+// truncated int, so a non-finite trial count is rejected regardless of what garbage the
+// (now-skipped) truncation would otherwise have produced.
 #pragma once
 #include <string>
 #include <cmath>
@@ -44,8 +53,11 @@ class Binomial : public UnivariateDistributionBase {
 
     void set_parameters(const std::vector<double>& params) override {
         p_ = params[0];
-        n_ = static_cast<int>(params[1]);
-        parameters_valid_ = validate(p_, n_);
+        // Guard the truncating cast: static_cast<int> of a non-finite double is undefined
+        // behavior. Leave n_ unchanged when params[1] is non-finite (parameters_valid_
+        // below will be false either way, so the stale value is never consulted).
+        n_ = std::isfinite(params[1]) ? static_cast<int>(params[1]) : n_;
+        parameters_valid_ = validate(p_, params[1]);
     }
 
     // --- Moments / support ---
@@ -133,9 +145,17 @@ class Binomial : public UnivariateDistributionBase {
     }
 
    private:
-    static bool validate(double p, int n) {
+    // `n_raw` is the UNTRUNCATED trial count (mirrors C#'s ValidateParameters, which checks
+    // parameters[1] directly rather than the rounded NumberOfTrials) -- consulted here only
+    // for its NaN/Infinity status, which this wave adds. The `<= 0` bound below still checks
+    // the TRUNCATED count, a pre-existing (unchanged by this wave, out of this task's scope)
+    // divergence from C#'s own `n_raw <= 0.0d` check: a fractional n_raw in (0, 1) reads as
+    // valid in C# (0.5 > 0) but invalid here (truncates to 0). No fixture exercises that
+    // corner (a non-integer trial count).
+    static bool validate(double p, double n_raw) {
         if (std::isnan(p) || std::isinf(p) || p < 0.0 || p > 1.0) return false;
-        if (n <= 0) return false;
+        if (std::isnan(n_raw) || std::isinf(n_raw)) return false;
+        if (static_cast<int>(n_raw) <= 0) return false;
         return true;
     }
 

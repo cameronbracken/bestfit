@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ExponentialTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/ExponentialTrend.cs @ c2e6192
 //
 // Exponential trend model: y(t) = alpha * exp(beta * (t - StartIndex)).
 // The XElement constructor is deliberately not ported (XML out of scope). See

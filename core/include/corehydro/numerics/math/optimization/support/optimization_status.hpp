@@ -1,4 +1,4 @@
-// ported from: Numerics/Mathematics/Optimization/Support/OptimizationStatus.cs @ a2c4dbf
+// ported from: Numerics/Mathematics/Optimization/Support/OptimizationStatus.cs @ 2a0357a
 //
 // Enumeration of optimization statuses. Verbatim port; member order mirrors the C# source.
 #pragma once

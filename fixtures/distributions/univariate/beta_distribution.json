@@ -79,6 +79,34 @@
       "assertions": [
         { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
       ]
+    },
+    {
+      "name": "mode_boundary_lower",
+      "construct": { "params": [0.5, 1.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 0.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_boundary_upper",
+      "construct": { "params": [1.0, 0.5] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 1.0, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_u_shaped",
+      "construct": { "params": [0.5, 0.5] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 0.5, "mode": "equal" }
+      ]
+    },
+    {
+      "name": "mode_interior",
+      "construct": { "params": [2.0, 5.0] },
+      "assertions": [
+        { "method": "mode", "args": [], "expected": 0.2, "mode": "abs", "tol": 1e-14 }
+      ]
     }
   ]
 }

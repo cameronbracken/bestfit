@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Multivariate/Multinomial.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Multivariate/Multinomial.cs @ 2a0357a
 //
 // The Multinomial distribution: outcome counts across K categories over N trials with
 // fixed per-category probabilities p_1..p_K (sum p_i = 1).

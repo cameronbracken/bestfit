@@ -49,6 +49,7 @@
 #include "corehydro/numerics/data/correlation.hpp"
 #include "corehydro/numerics/data/goodness_of_fit.hpp"
 #include "corehydro/numerics/data/histogram.hpp"
+#include "corehydro/numerics/data/interpolation/bilinear.hpp"
 #include "corehydro/numerics/data/interpolation/search.hpp"
 #include "corehydro/numerics/data/multiple_grubbs_beck_test.hpp"
 #include "corehydro/numerics/data/plotting_positions.hpp"
@@ -102,6 +103,7 @@
 #include "corehydro/numerics/sampling/mcmc/support/mcmc_diagnostics.hpp"
 #include "corehydro/numerics/sampling/mcmc/support/mcmc_results.hpp"
 #include "corehydro/numerics/sampling/mersenne_twister.hpp"
+#include "corehydro/numerics/tools.hpp"
 #include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 #include "third_party/json.hpp"
@@ -293,6 +295,15 @@ static bfdata::RunningStatistics running_statistics_combined(const std::vector<d
     return bfdata::RunningStatistics(sample1) + bfdata::RunningStatistics(sample2);
 }
 
+// RunningStatistics.clone_* fixture args convention (fixtures/special_functions/running_statistics.json):
+// args = the flat sample (same convention as the plain per-property targets above); builds
+// RunningStatistics(sample).clone() and reads one property off the CLONE. Exercises the new
+// v2.1.4 Clone() method (see running_statistics.hpp's file header) -- in particular
+// clone_skewness/clone_kurtosis would surface a clone() that forgot to copy m3_/m4_.
+static bfdata::RunningStatistics running_statistics_clone(const std::vector<double>& a) {
+    return bfdata::RunningStatistics(a).clone();
+}
+
 // Fourier fixture args conventions (fixtures/special_functions/fourier.json):
 //  - Fourier.fft_at / Fourier.real_fft_at: args = [data..., inverse (0/1), index] -- n =
 //    len(args) - 2; runs fft()/real_fft() in place on a copy of `data`, returns data[index].
@@ -448,6 +459,74 @@ static bfdata::Histogram histogram_build(const std::vector<double>& a, std::size
     std::vector<double> data(a.begin() + 1, a.end() - static_cast<std::ptrdiff_t>(trailing));
     if (explicit_bins > 0) return bfdata::Histogram(data, explicit_bins);
     return bfdata::Histogram(data);
+}
+
+// Histogram.adapt_* fixture args convention (fixtures/special_functions/histogram.json):
+// args = [explicit_bins, num_adds, data..., adds(num_adds)...] -- builds the histogram via
+// the same explicit_bins/data convention as histogram_build() above, then replays each of
+// `adds` through a scalar add_data(double) call, in order. Exercises the v2.1.4
+// AddData-endpoint-adapt fix (see histogram.hpp's file header): before the fix, an add
+// value strictly outside the current bounds threw instead of widening the endpoint bin.
+static bfdata::Histogram histogram_build_adapt(const std::vector<double>& a) {
+    int explicit_bins = static_cast<int>(a[0]);
+    int num_adds = static_cast<int>(a[1]);
+    std::vector<double> data(a.begin() + 2, a.end() - static_cast<std::ptrdiff_t>(num_adds));
+    bfdata::Histogram h = explicit_bins > 0 ? bfdata::Histogram(data, explicit_bins) : bfdata::Histogram(data);
+    for (auto it = a.end() - static_cast<std::ptrdiff_t>(num_adds); it != a.end(); ++it) h.add_data(*it);
+    return h;
+}
+
+// Bilinear.log_floor_* fixture args convention (fixtures/special_functions/bilinear.json):
+// args = [x1_query, x2_query] against a FIXED 3x3 identity grid ({0, 1E-15, 1} on both
+// axes, y[i][j] = x1_values[i] for every j) with X1/X2/Y all Transform::Logarithmic -- the
+// exact grid the new v2.1.4 Test_LogarithmicFloorMatchesLinearInterpolation uses to prove
+// Bilinear's guarded log10 floor now matches Linear's (see bilinear.hpp's file header).
+static double bilinear_log_floor_value(const std::vector<double>& a) {
+    std::vector<double> coords = {0.0, 1e-15, 1.0};
+    std::vector<std::vector<double>> y = {{0.0, 0.0, 0.0}, {1e-15, 1e-15, 1e-15}, {1.0, 1.0, 1.0}};
+    bfdata::Bilinear bilin(coords, coords, y);
+    bilin.x1_transform = bfdata::Transform::Logarithmic;
+    bilin.x2_transform = bfdata::Transform::Logarithmic;
+    bilin.y_transform = bfdata::Transform::Logarithmic;
+    return bilin.interpolate(a[0], a[1]);
+}
+
+// Probability.hpcm_* fixture args convention (fixtures/special_functions/probability.json):
+// args = [p_0..p_(n-1), ind_0..ind_(n-1), corr(n*n flattened row-major)] for hpcm_joint; n is
+// inferred as the unique n solving 2n + n^2 = len(args). hpcm_conditional_at appends one
+// trailing 0-based component index (so its own args length is one more). Exercises the
+// v2.1.4 minimumCdf-guard fix in joint_probability_hpcm's "First cycle" (see probability.hpp's
+// file header) with the new Test_JointProbabilityHPCM_ExtremeProbabilitiesRemainFinite inputs
+// (a probability of exactly 0 and a subnormal 1E-320), which previously could divide by a
+// near-zero standard-normal CDF in that unguarded first cycle.
+static int probability_hpcm_n(std::size_t len) {
+    for (int n = 1; n <= 20; ++n)
+        if (static_cast<std::size_t>(2 * n + n * n) == len) return n;
+    throw std::runtime_error("cannot infer n for Probability.hpcm args");
+}
+
+static double probability_hpcm_joint(const std::vector<double>& a, std::vector<double>* conditional = nullptr) {
+    int n = probability_hpcm_n(a.size());
+    std::vector<double> probabilities(a.begin(), a.begin() + n);
+    std::vector<int> indicators(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i)
+        indicators[static_cast<std::size_t>(i)] = static_cast<int>(a[static_cast<std::size_t>(n + i)]);
+    prob::Matrix2D corr(static_cast<std::size_t>(n), std::vector<double>(static_cast<std::size_t>(n)));
+    std::size_t base = static_cast<std::size_t>(2 * n);
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < n; ++j)
+            corr[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                a[base + static_cast<std::size_t>(i * n + j)];
+    return prob::joint_probability_hpcm(probabilities, indicators, corr, conditional);
+}
+
+static double probability_hpcm_conditional_at(const std::vector<double>& a) {
+    int idx = static_cast<int>(a.back());
+    std::vector<double> body(a.begin(), a.end() - 1);
+    int n = probability_hpcm_n(body.size());
+    std::vector<double> cond(static_cast<std::size_t>(n));
+    probability_hpcm_joint(body, &cond);
+    return cond[static_cast<std::size_t>(idx)];
 }
 
 // Dispatch table: maps "Module.method" → a free function of (vector<double>) → double.
@@ -679,6 +758,20 @@ special_function_table() {
         {"RunningStatistics.combined_coefficient_of_variation", [](const std::vector<double>& a) { return running_statistics_combined(a).coefficient_of_variation(); }},
         {"RunningStatistics.combined_skewness", [](const std::vector<double>& a) { return running_statistics_combined(a).skewness(); }},
         {"RunningStatistics.combined_kurtosis", [](const std::vector<double>& a) { return running_statistics_combined(a).kurtosis(); }},
+        {"RunningStatistics.combined_count", [](const std::vector<double>& a) {
+            return static_cast<double>(running_statistics_combined(a).count());
+        }},
+        // RunningStatistics.clone_* family (args: the flat sample -- see
+        // running_statistics_clone() above and fixtures/special_functions/running_statistics.json)
+        {"RunningStatistics.clone_mean", [](const std::vector<double>& a) { return running_statistics_clone(a).mean(); }},
+        {"RunningStatistics.clone_variance", [](const std::vector<double>& a) { return running_statistics_clone(a).variance(); }},
+        {"RunningStatistics.clone_skewness", [](const std::vector<double>& a) { return running_statistics_clone(a).skewness(); }},
+        {"RunningStatistics.clone_kurtosis", [](const std::vector<double>& a) { return running_statistics_clone(a).kurtosis(); }},
+        {"RunningStatistics.clone_minimum", [](const std::vector<double>& a) { return running_statistics_clone(a).minimum(); }},
+        {"RunningStatistics.clone_maximum", [](const std::vector<double>& a) { return running_statistics_clone(a).maximum(); }},
+        {"RunningStatistics.clone_count", [](const std::vector<double>& a) {
+            return static_cast<double>(running_statistics_clone(a).count());
+        }},
         // Fourier family (see fourier_*_at() above for the args conventions)
         {"Fourier.fft_at", fourier_fft_at},
         {"Fourier.real_fft_at", fourier_real_fft_at},
@@ -730,6 +823,33 @@ special_function_table() {
         {"Histogram.get_bin_index_of", [](const std::vector<double>& a) {
             return static_cast<double>(histogram_build(a, 1).get_bin_index_of(a.back()));
         }},
+        // Histogram.adapt_* family (args: [explicit_bins, num_adds, data..., adds...] -- see
+        // histogram_build_adapt() above and fixtures/special_functions/histogram.json)
+        {"Histogram.adapt_lower_bound", [](const std::vector<double>& a) {
+            return histogram_build_adapt(a).lower_bound();
+        }},
+        {"Histogram.adapt_upper_bound", [](const std::vector<double>& a) {
+            return histogram_build_adapt(a).upper_bound();
+        }},
+        {"Histogram.adapt_bin_first_lower_bound", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return h.bin(0).lower_bound;
+        }},
+        {"Histogram.adapt_bin_last_upper_bound", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return h.bin(h.number_of_bins() - 1).upper_bound;
+        }},
+        {"Histogram.adapt_bin_first_frequency", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return static_cast<double>(h.bin(0).frequency);
+        }},
+        {"Histogram.adapt_bin_last_frequency", [](const std::vector<double>& a) {
+            auto h = histogram_build_adapt(a);
+            return static_cast<double>(h.bin(h.number_of_bins() - 1).frequency);
+        }},
+        {"Histogram.adapt_data_count", [](const std::vector<double>& a) {
+            return static_cast<double>(histogram_build_adapt(a).data_count());
+        }},
         // PlottingPositions family (args: [N, alpha, i] for function_at; [N, i] for
         // weibull_at -- see fixtures/special_functions/plotting_positions.json)
         {"PlottingPositions.function_at", [](const std::vector<double>& a) {
@@ -754,12 +874,38 @@ special_function_table() {
             return static_cast<double>(
                 bfdata::search::bisection(a[n], values, static_cast<int>(a[n + 1])));
         }},
+        // Search.*_descending family (args: [values..., x, start], same convention as
+        // Search.sequential/bisection above but with SortOrder::Descending -- v2.1.4 fixed
+        // bisection()'s descending branch, previously dead code that always returned
+        // `start`; see search.hpp's file header)
+        {"Search.sequential_descending", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(bfdata::search::sequential(
+                a[n], values, static_cast<int>(a[n + 1]), bfdata::SortOrder::Descending));
+        }},
+        {"Search.bisection_descending", [](const std::vector<double>& a) {
+            std::size_t n = a.size() - 2;
+            std::vector<double> values(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n));
+            return static_cast<double>(bfdata::search::bisection(
+                a[n], values, static_cast<int>(a[n + 1]), bfdata::SortOrder::Descending));
+        }},
         // MCMCDiagnostics.MinimumSampleSize (args: [quantile, tolerance, probability] --
         // see fixtures/special_functions/mcmc_diagnostics.json)
         {"MCMCDiagnostics.minimum_sample_size", [](const std::vector<double>& a) {
             return static_cast<double>(
                 corehydro::numerics::sampling::mcmc::minimum_sample_size(a[0], a[1], a[2]));
         }},
+        // Bilinear.log_floor_* family (args: [x1_query, x2_query] -- see
+        // bilinear_log_floor_value() above and fixtures/special_functions/bilinear.json)
+        {"Bilinear.log_floor_value", bilinear_log_floor_value},
+        // Probability.hpcm_* family (args: see probability_hpcm_joint()/
+        // probability_hpcm_conditional_at() above and
+        // fixtures/special_functions/probability.json)
+        {"Probability.hpcm_joint", [](const std::vector<double>& a) { return probability_hpcm_joint(a); }},
+        {"Probability.hpcm_conditional_at", probability_hpcm_conditional_at},
+        // Tools.log10 (args: [x] -- see fixtures/special_functions/tools.json)
+        {"Tools.log10", [](const std::vector<double>& a) { return corehydro::numerics::clamped_log10(a[0]); }},
     };
     return t;
 }
@@ -872,7 +1018,12 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
             else if (t == "NormalZ") pt = dist::EmpiricalTransform::NormalZ;
             else throw std::runtime_error("unknown p_transform: " + t);
         }
-        return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt);
+        // v2.1.4: p_descending DECLARES the probability order (mirrors C#'s explicit
+        // `probabilityOrder` argument -- NOT auto-detected from the data); default false
+        // matches the ordinary ascending-CDF case.
+        bool p_descending = construct.value("p_descending", false);
+        return std::make_unique<dist::EmpiricalDistribution>(std::move(xv), std::move(pv), pt,
+                                                              p_descending);
     }
     if (target == "KernelDensity") {
         const auto& ds_name = construct["data"].get<std::string>();
@@ -888,8 +1039,11 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         else throw std::runtime_error("unknown kernel type: " + kernel_str);
         std::unique_ptr<dist::KernelDensity> kde;
         if (construct.contains("bandwidth"))
+            // parse_num (not .get<double>()) so a "nan"/"inf" string literal (the v2.1.4
+            // Bandwidth NaN/Infinity-rejection case) parses instead of throwing a JSON
+            // type_error.
             kde = std::make_unique<dist::KernelDensity>(std::move(data), kt,
-                                                        construct["bandwidth"].get<double>());
+                                                        parse_num(construct["bandwidth"]));
         else
             kde = std::make_unique<dist::KernelDensity>(std::move(data), kt);
         if (construct.contains("bounded_by_data"))
@@ -903,7 +1057,17 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
         for (const auto& w : wts_json) wts.push_back(w.get<double>());
         for (const auto& c : comps_json) comps.push_back(build_component(c, datasets));
-        return std::make_unique<dist::Mixture>(std::move(wts), std::move(comps));
+        auto mix = std::make_unique<dist::Mixture>(std::move(wts), std::move(comps));
+        // Optional zero-inflation (v2.1.4): "zero_inflated" (default false) and "zero_weight"
+        // (default 0.0). Mirrors the C# Clone()/CompositeAnalysis call-site order --
+        // IsZeroInflated before ZeroWeight, since the setters renormalize component weights.
+        bool zero_inflated = construct.contains("zero_inflated")
+            ? construct["zero_inflated"].get<bool>() : false;
+        double zero_weight = construct.contains("zero_weight")
+            ? parse_num(construct["zero_weight"]) : 0.0;
+        mix->set_is_zero_inflated(zero_inflated);
+        mix->set_zero_weight(zero_weight);
+        return mix;
     }
     if (target == "CompetingRisks") {
         const auto& comps_json = construct["components"];
@@ -913,7 +1077,7 @@ static std::unique_ptr<dist::UnivariateDistributionBase> build_composite(const s
         if (construct.contains("minimum_of_random_variables"))
             cr->minimum_of_random_variables = construct["minimum_of_random_variables"].get<bool>();
         if (construct.contains("dependency"))
-            cr->dependency = parse_dependency(construct["dependency"].get<std::string>());
+            cr->set_dependency(parse_dependency(construct["dependency"].get<std::string>()));
         if (construct.contains("correlation")) {
             prob::Matrix2D corr;
             for (const auto& row : construct["correlation"]) {
@@ -933,8 +1097,48 @@ static bool is_composite_target(const std::string& target) {
         || target == "KernelDensity" || target == "Mixture" || target == "CompetingRisks";
 }
 
-static double dispatch_generic(const dist::UnivariateDistributionBase& d, const std::string& m,
+// Non-const: "set_parameters" (below) mutates `d` in place. Every other branch only calls
+// const accessors, so this is a pure widening of what the reference can do, not a behavior
+// change for any existing caller (the sole call site in run_generic already holds `d` via a
+// non-const std::unique_ptr).
+static double dispatch_generic(dist::UnivariateDistributionBase& d, const std::string& m,
                                const json& a) {
+    // Mutates the already-built `d` in place with a new flat parameter vector, mirroring the
+    // C# SetParameters entry point -- lets a case exercise a "construct valid -> SetParameters
+    // invalid -> recheck -> SetParameters valid -> recheck" sequence on ONE persistent object
+    // (needed for TruncatedDistribution's parameter-validity fixture; the flat, non-composite
+    // targets in this same validation wave don't need it -- their construct+params already IS
+    // a fresh-construct-then-SetParameters call, see gumbel.json/etc.). Returns a dummy value;
+    // pair with a mode:"equal", expected:0 assertion and check the resulting state with a
+    // separate "parameters_valid"/"param" assertion right after.
+    if (m == "set_parameters") {
+        std::vector<double> p;
+        for (const auto& v : a) p.push_back(parse_num(v));
+        d.set_parameters(p);
+        return 0.0;
+    }
+    // CompetingRisks-only: verifies the v2.1.4 Dependency setter fix (changing Dependency
+    // mid-lifetime invalidates the cached MVN) and that PerfectlyNegative no longer zeroes
+    // the public CorrelationMatrix. ONE self-contained call (mirrors BivariateEmpirical's
+    // cdf_xy_after_set_parameters -- works identically whether a runner holds the
+    // persistent `d` across a case's assertions, like this one, or rebuilds fresh per
+    // dispatch, like R/Python): CDF under the CURRENT dependency, read back
+    // correlation_matrix()[i, j], switch to `dependency2`, CDF again -- returns the value
+    // named by `field` ("cdf1"/"correlation"/"cdf2"). args = [x, dependency2, i, j, field].
+    if (m == "dependency_change") {
+        auto& cr = dynamic_cast<dist::CompetingRisks&>(d);
+        double x = a[0].get<double>();
+        double cdf1 = cr.cdf(x);
+        double corr_ij = cr.correlation_matrix()[static_cast<std::size_t>(a[2].get<int>())]
+                                                  [static_cast<std::size_t>(a[3].get<int>())];
+        cr.set_dependency(parse_dependency(a[1].get<std::string>()));
+        double cdf2 = cr.cdf(x);
+        std::string field = a[4].get<std::string>();
+        if (field == "cdf1") return cdf1;
+        if (field == "correlation") return corr_ij;
+        if (field == "cdf2") return cdf2;
+        throw std::runtime_error("unknown dependency_change field: " + field);
+    }
     if (m == "mean") return d.mean();
     if (m == "median") return d.median();
     if (m == "mode") return d.mode();
@@ -957,6 +1161,11 @@ static double dispatch_generic(const dist::UnivariateDistributionBase& d, const 
         if (lm == nullptr) throw std::runtime_error("distribution has no L-moments");
         return lm->linear_moments_from_parameters(d.get_parameters())[a[0].get<int>()];
     }
+    // Static GammaDistribution utility, not tied to `d`'s own parameters -- args:
+    // [skewness, probability]. Only meaningful for target "GammaDistribution", but the
+    // call itself doesn't touch `d` at all (mirrors the emitter's Dispatch "partial_kp").
+    if (m == "partial_kp")
+        return dist::GammaDistribution::partial_kp(a[0].get<double>(), a[1].get<double>());
     throw std::runtime_error("unknown fixture method: " + m);
 }
 
@@ -1071,8 +1280,10 @@ static void run_data_utility(const json& spec) {
             for (const auto& v : c["args"]) args.push_back(parse_num(v));
         std::vector<double> data;
         if (c.contains("dataset"))
-            for (const auto& v : datasets[c["dataset"].get<std::string>()])
-                data.push_back(v.get<double>());
+            // parse_num (not v.get<double>()) so a "nan"/"inf"/"-inf" string literal inside
+            // a dataset (the v2.1.4 FitLambda invalid-sample cases) parses instead of
+            // throwing a JSON type_error.
+            for (const auto& v : datasets[c["dataset"].get<std::string>()]) data.push_back(parse_num(v));
         double actual = dispatch_data_utility(fn, args, data);
         for (const auto& as : c["assertions"]) {
             std::string where = "data_utility/" + name;
@@ -1093,6 +1304,12 @@ static void run_data_utility(const json& spec) {
 static std::vector<double> parse_num_vec(const json& arr) {
     std::vector<double> v;
     for (const auto& e : arr) v.push_back(parse_num(e));
+    return v;
+}
+
+static std::vector<int> parse_int_vec(const json& arr) {
+    std::vector<int> v;
+    for (const auto& e : arr) v.push_back(e.get<int>());
     return v;
 }
 
@@ -1164,7 +1381,13 @@ static double lhs_value_at(const Dist& d, const json& a) {
     return sample[static_cast<std::size_t>(a[2].get<int>())][static_cast<std::size_t>(a[3].get<int>())];
 }
 
-static double dispatch_multivariate(const dist::MultivariateDistribution& d, const std::string& target,
+// Non-const: BivariateEmpirical's "set_parameters" (below) mutates `d` in place, mirroring
+// dispatch_generic's own "set_parameters" precedent -- lets a case exercise the v2.1.4
+// stale-cache fix ("construct -> cdf -> set_parameters (new grid) -> cdf again") on ONE
+// persistent object. Every other branch only calls const accessors, so this is a pure
+// widening of what the reference can do (the sole call site in run_multivariate already
+// holds `d` via a non-const std::unique_ptr).
+static double dispatch_multivariate(dist::MultivariateDistribution& d, const std::string& target,
                                     const std::string& m, const json& a) {
     if (m == "dimension") return d.dimension();
     if (m == "pdf") return d.pdf(parse_num_vec(a[0]));
@@ -1189,8 +1412,24 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
         if (m == "covariance") return mm.covariance(a[0].get<int>(), a[1].get<int>());
         if (m == "random_value") return random_value_at(mm, a);
     } else if (target == "BivariateEmpirical") {
-        const auto& bb = dynamic_cast<const dist::BivariateEmpirical&>(d);
+        auto& bb = dynamic_cast<dist::BivariateEmpirical&>(d);
         if (m == "cdf_xy") return bb.cdf(a[0].get<double>(), a[1].get<double>());
+        // v2.1.4: verifies the stale-cache fix in ONE self-contained call (works
+        // identically whether a runner holds a persistent object across a case's
+        // assertions, like this one, or rebuilds fresh per dispatch, like R/Python) --
+        // cdf() once (forces the bilinear cache to build against the CURRENT grid),
+        // set_parameters() with a REPLACEMENT grid, then cdf() again; a stale cache would
+        // still reflect the OLD grid on the second call. args = [[x1_new...], [x2_new...],
+        // [[p_row0...], ...], x1_eval, x2_eval].
+        if (m == "cdf_xy_after_set_parameters") {
+            bb.cdf(a[3].get<double>(), a[4].get<double>());
+            std::vector<double> x1 = parse_num_vec(a[0]);
+            std::vector<double> x2 = parse_num_vec(a[1]);
+            std::vector<std::vector<double>> p;
+            for (const auto& row : a[2]) p.push_back(parse_num_vec(row));
+            bb.set_parameters(std::move(x1), std::move(x2), std::move(p));
+            return bb.cdf(a[3].get<double>(), a[4].get<double>());
+        }
     } else if (target == "MultivariateNormal") {
         const auto& nn = dynamic_cast<const dist::MultivariateNormal&>(d);
         if (m == "mean") return nn.mean()[static_cast<std::size_t>(a[0].get<int>())];
@@ -1220,6 +1459,47 @@ static double dispatch_multivariate(const dist::MultivariateDistribution& d, con
             nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
             return value;
         }
+        if (m == "mvndst_inform" || m == "mvndst_error") {
+            // Same args shape as "mvndst" above -- a separate method since dispatch_multivariate
+            // returns one double per call and the v2.1.4 status-code cases assert INFORM/ERROR.
+            int n = a[0].get<int>();
+            std::vector<double> lower = parse_num_vec(a[1]);
+            std::vector<double> upper = parse_num_vec(a[2]);
+            std::vector<int> infin;
+            for (const auto& v : a[3]) infin.push_back(v.get<int>());
+            std::vector<double> correl = parse_num_vec(a[4]);
+            int maxpts = a[5].get<int>();
+            double abseps = a[6].get<double>();
+            double releps = a[7].get<double>();
+            double error = 0, value = 0;
+            int inform = 0;
+            nn.mvndst(n, lower, upper, infin, correl, maxpts, abseps, releps, error, value, inform);
+            return m == "mvndst_inform" ? inform : error;
+        }
+        if (m == "is_density_valid") return nn.is_density_valid() ? 1.0 : 0.0;
+        if (m == "marginal_mean") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.mean()[static_cast<std::size_t>(a[1].get<int>())];
+        }
+        if (m == "marginal_covariance") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.covariance(a[1].get<int>(), a[2].get<int>());
+        }
+        if (m == "marginal_log_pdf") {
+            auto marginal = nn.marginal(parse_int_vec(a[0]));
+            return marginal.log_pdf(parse_num_vec(a[1]));
+        }
+        if (m == "marginal_dimension") return nn.marginal(parse_int_vec(a[0])).dimension();
+        if (m == "conditional_mean") {
+            auto conditional = nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1]));
+            return conditional.mean()[static_cast<std::size_t>(a[2].get<int>())];
+        }
+        if (m == "conditional_covariance") {
+            auto conditional = nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1]));
+            return conditional.covariance(a[2].get<int>(), a[3].get<int>());
+        }
+        if (m == "conditional_dimension")
+            return nn.conditional(parse_int_vec(a[0]), parse_num_vec(a[1])).dimension();
     } else if (target == "MultivariateStudentT") {
         const auto& tt = dynamic_cast<const dist::MultivariateStudentT&>(d);
         if (m == "degrees_of_freedom") return tt.degrees_of_freedom();
@@ -1768,6 +2048,12 @@ static EstimationCase build_and_run_estimation(const std::string& target, const 
                                                   construct.value("seed", -1));
         return EstimationCase{std::move(model), std::monostate{}, std::move(draws)};
     }
+    // Validate (Task 16): builds the model and stops -- no estimator, no seeded draw. Lets a
+    // case assert `is_valid`/`validation_message_contains` (below) against ModelBase::validate()
+    // without needing to fit or simulate, e.g. the TimeSeries transform-lambda-failure cases.
+    if (target == "Validate") {
+        return EstimationCase{std::move(model), std::monostate{}, {}};
+    }
     if (target == "MaximumLikelihood" || target == "MaximumAPosteriori") {
         auto method = construct.contains("optimizer")
                           ? parse_optimization_method(construct["optimizer"].get<std::string>())
@@ -1853,6 +2139,26 @@ static double dispatch_model_data_frame(corehydro::models::ModelBase& model, con
     throw std::runtime_error("unknown plotting_position series kind: " + kind);
 }
 
+// The Validate surface (Task 16): works under ANY target (it reads the model, not the
+// estimator), mirroring the M14 DataFrame surface. `is_valid` returns ModelBase::validate()'s
+// bool as 1.0/0.0 (the `converged_within_tolerance` boolean-as-double precedent);
+// `validation_message_contains [substring]` returns 1.0 if any validation message contains the
+// given substring, else 0.0 -- a structural check (not a byte-exact C# message pin), since the
+// fixture-checkable contract here is "the failure is captured as a message", not the message's
+// literal text (the C++ message text itself is hand-verified against C# in the model headers).
+static double dispatch_model_validate(corehydro::models::ModelBase& model, const std::string& m,
+                                      const json& a) {
+    auto result = model.validate();
+    if (m == "is_valid") return result.is_valid ? 1.0 : 0.0;
+    if (m == "validation_message_contains") {
+        std::string needle = a[0].get<std::string>();
+        for (const auto& msg : result.validation_messages)
+            if (msg.find(needle) != std::string::npos) return 1.0;
+        return 0.0;
+    }
+    throw std::runtime_error("unknown validate fixture method: " + m);
+}
+
 // GMM shares an accessor family with ML/MAP but its accessors are non-const (they cache Sigma
 // on demand), so dispatch takes a non-const EstimationCase& (the caller's `ec` is a non-const
 // local). quantile_variance lives on the B17C MODEL, not the estimator, so its arm recovers the
@@ -1865,11 +2171,13 @@ static double dispatch_estimation(EstimationCase& ec, const std::string& m, cons
     // The M14 DataFrame surface works under any target (it reads the model, not the estimator).
     if (m == "plotting_position" || m == "number_of_low_outliers" || m == "low_outlier_threshold")
         return dispatch_model_data_frame(*ec.model, m, a);
+    if (m == "is_valid" || m == "validation_message_contains")
+        return dispatch_model_validate(*ec.model, m, a);
     return std::visit(
         [&](auto& est) -> double {
             using Held = std::decay_t<decltype(est)>;
             if constexpr (std::is_same_v<Held, std::monostate>) {
-                throw std::runtime_error("unknown Simulation fixture method: " + m);
+                throw std::runtime_error("unknown Simulation/Validate fixture method: " + m);
             } else {
                 using Estimator = std::decay_t<decltype(*est)>;
                 if constexpr (std::is_same_v<Estimator,
@@ -1884,6 +2192,12 @@ static double dispatch_estimation(EstimationCase& ec, const std::string& m, cons
                         return est->get_correlation_matrix()(static_cast<int>(idx(0)), static_cast<int>(idx(1)));
                     if (m == "j_stat") return est->jstat();
                     if (m == "j_stat_pval") return est->jstat_pval();
+                    // T13: GMMIterations/ConvergedWithinTolerance (off-by-one fix) and
+                    // OptimizerFallbackCount (sticky BFGS->NelderMead fallback).
+                    if (m == "gmm_iterations") return est->gmm_iterations();
+                    if (m == "converged_within_tolerance")
+                        return est->converged_within_tolerance() ? 1.0 : 0.0;
+                    if (m == "optimizer_fallback_count") return est->optimizer_fallback_count();
                     if (m == "quantile_variance") {
                         // args[0] is the annual EXCEEDANCE probability (AEP); the C#
                         // QuantileVariance takes a NON-exceedance probability, so pass 1 - AEP.
@@ -1996,6 +2310,29 @@ struct AnalysisResult {
     // --- X11 extended-analysis slice (the five new analyses + bootstrap + predictive checks).
     // Populated only by the run_extended_analysis targets; every other target leaves it empty. ---
     corehydro::analyses::support::ExtendedAnalysisResult ext;
+
+    // --- T19: BootstrapDiagnostics slice (target == "Bulletin17CAnalysis" with
+    // uncertainty_method "Bootstrap"/"BiasCorrectedBootstrap"). Populated from
+    // Bulletin17CAnalysis::bootstrap_results() when non-null; every other uncertainty_method
+    // leaves these at their defaults. ---
+    bool boot_has_results = false;
+    int boot_total_replicates = 0;
+    int boot_attempted_replicates = 0;
+    int boot_failed_replicates = 0;
+    int boot_valid_replicates = 0;
+    int boot_retained_replicates = 0;
+    double boot_failure_rate = std::numeric_limits<double>::quiet_NaN();
+    int boot_total_retries = 0;
+    double boot_average_retries = std::numeric_limits<double>::quiet_NaN();
+    int boot_pivot_rejections = 0;
+    int boot_mahalanobis_rejections = 0;
+    int boot_transform_failures = 0;
+    int boot_status_success_count = 0;
+    int boot_status_max_iterations_count = 0;
+    int boot_status_max_function_evaluations_count = 0;
+    int boot_status_failure_count = 0;
+    int boot_status_none_count = 0;
+    int boot_optimizer_fallbacks = 0;
 };
 
 // Applies the shared Bayesian MCMC knobs from a construct object (D5; mirrors the R/Python
@@ -2219,7 +2556,13 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
     }
 
     const json& model_spec = construct["model"];
-    std::vector<double> data = resolve_dataset(model_spec["dataset"].get<std::string>());
+    // T19: an inline `data_frame` (mixed exact/interval/threshold/uncertain series) is valid
+    // without a `dataset` reference -- mirrors build_and_run_estimation's guard so a
+    // Bulletin17CAnalysis case can force low outliers / censored data onto the parent frame
+    // (e.g. to exercise the parametric-bootstrap clone_with_data_frame warm-start condition).
+    std::vector<double> data;
+    if (model_spec.contains("dataset"))
+        data = resolve_dataset(model_spec["dataset"].get<std::string>());
 
     if (target == "UnivariateAnalysis") {
         auto base = corehydro::models::spec::build_model_from_json(model_spec.dump(), data);
@@ -2334,6 +2677,39 @@ static AnalysisResult build_and_run_analysis(const std::string& target, const js
         }
         if (analysis.gmm() != nullptr && analysis.gmm()->is_estimated())
             r.parameters = analysis.gmm()->best_parameter_set().values;
+        // T19: the genuinely ensemble-derived UncertaintyAnalysisResults surface (distinct from
+        // the RNG-free Cohn CI above) -- MeanCurve is built from the ACTUAL sampled parameter
+        // sets (BayesianAnalysis.Results.Output), so unlike the Cohn CI it DOES depend on which
+        // bootstrap replicates were drawn (hence on the parametric-bootstrap warm-start path).
+        // Reuses the generic mode_curve/mean_curve dispatch every other analysis target already
+        // shares -- no new fixture method needed.
+        if (analysis.analysis_results() != nullptr) {
+            r.mode_curve = analysis.analysis_results()->mode_curve;
+            r.mean_curve = analysis.analysis_results()->mean_curve;
+        }
+        // T19: BootstrapDiagnostics slice, populated when the uncertainty method actually ran a
+        // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+        if (const auto* boot = analysis.bootstrap_results(); boot != nullptr) {
+            r.boot_has_results = true;
+            r.boot_total_replicates = boot->total_replicates();
+            r.boot_attempted_replicates = boot->attempted_replicates();
+            r.boot_failed_replicates = boot->failed_replicates();
+            r.boot_valid_replicates = boot->valid_replicates();
+            r.boot_retained_replicates = boot->retained_replicates();
+            r.boot_failure_rate = boot->failure_rate();
+            r.boot_total_retries = boot->total_retries();
+            r.boot_average_retries = boot->average_retries();
+            r.boot_pivot_rejections = boot->pivot_rejections();
+            r.boot_mahalanobis_rejections = boot->mahalanobis_rejections();
+            r.boot_transform_failures = boot->transform_failures();
+            r.boot_status_success_count = boot->status_success_count();
+            r.boot_status_max_iterations_count = boot->status_maximum_iterations_count();
+            r.boot_status_max_function_evaluations_count =
+                boot->status_maximum_function_evaluations_count();
+            r.boot_status_failure_count = boot->status_failure_count();
+            r.boot_status_none_count = boot->status_none_count();
+            r.boot_optimizer_fallbacks = boot->optimizer_fallbacks();
+        }
         return r;
     }
 
@@ -2415,6 +2791,27 @@ static double dispatch_analysis(const AnalysisResult& r, const std::string& m, c
     if (m == "summary_sd_quantile") return r.ext.summary_sd_quantiles.at(idx(0));
     if (m == "summary_min_quantile") return r.ext.summary_min_quantiles.at(idx(0));
     if (m == "summary_max_quantile") return r.ext.summary_max_quantiles.at(idx(0));
+    // T19: BootstrapDiagnostics dispatch (Bulletin17CAnalysis, Bootstrap/BiasCorrectedBootstrap).
+    if (m == "boot_has_results") return r.boot_has_results ? 1.0 : 0.0;
+    if (m == "boot_total_replicates") return static_cast<double>(r.boot_total_replicates);
+    if (m == "boot_attempted_replicates") return static_cast<double>(r.boot_attempted_replicates);
+    if (m == "boot_failed_replicates") return static_cast<double>(r.boot_failed_replicates);
+    if (m == "boot_valid_replicates") return static_cast<double>(r.boot_valid_replicates);
+    if (m == "boot_retained_replicates") return static_cast<double>(r.boot_retained_replicates);
+    if (m == "boot_failure_rate") return r.boot_failure_rate;
+    if (m == "boot_total_retries") return static_cast<double>(r.boot_total_retries);
+    if (m == "boot_average_retries") return r.boot_average_retries;
+    if (m == "boot_pivot_rejections") return static_cast<double>(r.boot_pivot_rejections);
+    if (m == "boot_mahalanobis_rejections") return static_cast<double>(r.boot_mahalanobis_rejections);
+    if (m == "boot_transform_failures") return static_cast<double>(r.boot_transform_failures);
+    if (m == "boot_status_success_count") return static_cast<double>(r.boot_status_success_count);
+    if (m == "boot_status_max_iterations_count")
+        return static_cast<double>(r.boot_status_max_iterations_count);
+    if (m == "boot_status_max_function_evaluations_count")
+        return static_cast<double>(r.boot_status_max_function_evaluations_count);
+    if (m == "boot_status_failure_count") return static_cast<double>(r.boot_status_failure_count);
+    if (m == "boot_status_none_count") return static_cast<double>(r.boot_status_none_count);
+    if (m == "boot_optimizer_fallbacks") return static_cast<double>(r.boot_optimizer_fallbacks);
     throw std::runtime_error("unknown analysis fixture method: " + m);
 }
 

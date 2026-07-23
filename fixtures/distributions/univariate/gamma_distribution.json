@@ -115,6 +115,18 @@
         { "method": "random_value", "args": [50, 123, 2], "expected": 10.59559719594355, "mode": "rel", "tol": 1e-11 },
         { "method": "random_value", "args": [50, 123, 49], "expected": 14.262927458637133, "mode": "rel", "tol": 1e-11 }
       ]
+    },
+    {
+      "name": "partial_kp_zero_skew_limit_and_continuity",
+      "comment": "Mirrors Test_PartialKp_ZeroSkewLimitAndContinuity (v2.1.4): PartialKp is documented as a DERIVATIVE, so its near-zero-skew branch must return the Cornish-Fisher derivative limit (z*z-1)/6, not the frequency factor itself (the pre-2.1.4 value, StandardZ(p)). construct.params is an arbitrary valid GammaDistribution instance -- partial_kp is a static utility independent of it.",
+      "construct": { "params": [10.0, 2.0] },
+      "assertions": [
+        { "method": "partial_kp", "args": [0.0, 0.9],      "expected": 0.10706240252496946, "mode": "abs", "tol": 1e-15 },
+        { "method": "partial_kp", "args": [9.9e-5, 0.9],   "expected": 0.10706240252496946, "mode": "abs", "tol": 1e-15 },
+        { "method": "partial_kp", "args": [-9.9e-5, 0.9],  "expected": 0.10706240252496946, "mode": "abs", "tol": 1e-15 },
+        { "method": "partial_kp", "args": [1.01e-4, 0.9],  "expected": 0.10705277093275629, "mode": "abs", "tol": 1e-4 },
+        { "method": "partial_kp", "args": [-1.01e-4, 0.9], "expected": 0.10707203408328507, "mode": "abs", "tol": 1e-4 }
+      ]
     }
   ]
 }

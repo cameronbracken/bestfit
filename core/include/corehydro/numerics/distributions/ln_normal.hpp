@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/LnNormal.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/LnNormal.cs @ 2a0357a
 //
 // The Ln-Normal (Galton) distribution. Parameters are the real-space mean and standard deviation;
 // internally the distribution stores the natural-log-space parameters mu_ and sigma_.

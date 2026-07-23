@@ -7,6 +7,7 @@ content.
 """
 
 import json
+import math
 from importlib.resources import files
 from pathlib import Path
 
@@ -54,7 +55,13 @@ def test_public_stats_reproduce_data_utility_oracles():
         a = case["assertions"][0]
         expected = float(a["expected"])
         if a["mode"] == "equal":
-            assert actual == expected
+            # v2.1.4 FitLambda hardening added NaN-expected cases (box_cox_lambda /
+            # yeo_johnson_lambda on invalid/degenerate samples); NaN != NaN under plain
+            # equality, so mirror test_fixtures.py's _check special case.
+            if math.isnan(expected):
+                assert math.isnan(actual)
+            else:
+                assert actual == expected
         elif a["mode"] == "abs":
             assert abs(actual - expected) <= a["tol"]
         else:

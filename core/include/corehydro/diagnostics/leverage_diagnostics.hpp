@@ -1,4 +1,4 @@
-// ported from: src/RMC.BestFit/Diagnostics/LeverageDiagnostics.cs @ fc28c0c
+// ported from: src/RMC.BestFit/Diagnostics/LeverageDiagnostics.cs @ c2e6192
 //
 // Provides influence diagnostics that decompose each observation's and prior's impact at the
 // MAP estimate into two dimensions: fit influence (Cook's Distance) and variance influence

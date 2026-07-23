@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/PoweredExponential.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/SpatialExtremes/SpatialCorrelation/PoweredExponential.cs @ c2e6192
 //
 // Powered exponential (Gaussian) spatial correlation function: rho(h) = exp(-(h/phi)^nu).
 // Two parameters, Range and Smoothness. The exponential (nu=1) and Gaussian (nu=2) are special

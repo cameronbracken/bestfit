@@ -1,4 +1,4 @@
-// ported from: Numerics/Distributions/Univariate/CompetingRisks.cs @ a2c4dbf
+// ported from: Numerics/Distributions/Univariate/CompetingRisks.cs @ 2a0357a
 //
 // Competing risks (series / parallel system) distribution.
 // Constructor: CompetingRisks(vector of component unique_ptrs).
@@ -39,13 +39,25 @@
 // type() returns UnivariateDistributionType::CompetingRisks (mirrors C#).
 // Not wired into the flat factory (composite-only, like Mixture).
 //
-// X5 ADDITIVE PORT (CompetingRisks.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ a2c4dbf):
+// X5 ADDITIVE PORT (CompetingRisks.cs XTransform/ProbabilityTransform/CreateEmpiricalCDF @ 2a0357a):
 // the CompositeAnalysis aggregation builds a CompetingRisks per posterior realisation, sets
 // XTransform = Logarithmic / ProbabilityTransform = NormalZ, and calls CreateEmpiricalCDF() so the
 // InverseCDF the UncertaintyAnalysisResults reads is the fast piecewise empirical curve. These are
 // NEW methods/fields only -- existing behaviour and all existing fixtures stay byte-green because
 // empirical_cdf_created_ defaults false (the pre-existing root-find/bisection path is unchanged
 // until CreateEmpiricalCDF() is explicitly called).
+//
+// v2.1.4 (this task): `Dependency` gained a side-effecting setter (invalidates the cached
+// MVN when the dependency mode actually changes) -- `dependency` is now a private field
+// with `dependency()`/`set_dependency()` accessors instead of the plain public field the
+// prior (no-side-effect) C# auto-property justified. `PerfectlyNegative`'s
+// create_multivariate_normal() branch no longer zeroes the public correlation_matrix() as
+// a side effect (RESOLVED, see docs/upstream-csharp-issues.md). The flat set_parameters()
+// now throws on a flattened-length mismatch (mirrors the new C# `ArgumentException`) and a
+// new public validate_parameters(parameters, throw_exception) mirrors C#
+// ValidateParameters's throwException contract for the empty-Distributions case (not
+// reachable via any current call site, since this class always holds >= 1 component once
+// constructed -- ported for structural fidelity per the task brief).
 #pragma once
 #include <string>
 #include <algorithm>
@@ -54,6 +66,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -98,10 +111,17 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     // Mirrors C# MinimumOfRandomVariables property.
     bool minimum_of_random_variables = true;
 
-    // The dependency between the marginal distributions. Mirrors C# Dependency property
-    // (a plain auto-property with no side effects, hence the plain public field, same
-    // convention as minimum_of_random_variables above).
-    prob::DependencyType dependency = prob::DependencyType::Independent;
+    // The dependency between the marginal distributions. v2.1.4: Dependency gained a
+    // side-effecting setter (changing the mode invalidates the cached MVN), so this is now
+    // a private field with accessors rather than the plain public field the prior
+    // no-side-effect C# auto-property justified. Mirrors C# `Dependency { get; set; }`.
+    prob::DependencyType dependency() const { return dependency_; }
+    void set_dependency(prob::DependencyType value) {
+        if (dependency_ != value) {
+            dependency_ = value;
+            mvn_created_ = false;
+        }
+    }
 
     // X5: the x-value / probability transforms the empirical CDF interpolates in (mirrors C#
     // XTransform / ProbabilityTransform; defaults None / NormalZ). Plain public fields, matching
@@ -144,8 +164,18 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         return result;
     }
 
-    // Mirrors C# SetParameters(IList<double>): distribute flat array to components in order.
+    // Mirrors C# SetParameters(IList<double>): distribute flat array to components in
+    // order. v2.1.4: throws on a flattened-length mismatch (mirrors the new C#
+    // `ArgumentException`); an empty component list marks parameters invalid without
+    // throwing (mirrors C#'s early `_parametersValid = false; return;`).
     void set_parameters(const std::vector<double>& parameters) override {
+        if (components_.empty()) {
+            parameters_valid_ = false;
+            return;
+        }
+        if (parameters.size() != static_cast<std::size_t>(number_of_parameters())) {
+            throw std::invalid_argument("The length of the parameter array is invalid.");
+        }
         int t = 0;
         for (const auto& c : components_) {
             int n = c->number_of_parameters();
@@ -156,6 +186,28 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         parameters_valid_ = validate_components();
         moments_computed_ = false;
         mvn_created_ = false;
+    }
+
+    // Validates the flat parameter vector: returns nullopt if valid, else an error
+    // message. Mirrors C# `ValidateParameters(IList<double>, bool throwException)` --
+    // note the `parameters` argument itself is not consulted beyond its role in the
+    // caller's length check (matches C#: only Distributions.Count and each component's
+    // ParametersValid matter here). Not reachable via any current call site (this class
+    // always holds >= 1 component once constructed), ported for structural fidelity.
+    std::optional<std::string> validate_parameters(const std::vector<double>& /*parameters*/,
+                                                     bool throw_exception) const {
+        if (components_.empty()) {
+            if (throw_exception) throw std::out_of_range("There must be at least 1 distribution.");
+            return "There must be at least 1 distribution.";
+        }
+        for (const auto& c : components_) {
+            if (!c->parameters_valid()) {
+                if (throw_exception)
+                    throw std::out_of_range("One of the distributions have invalid parameters.");
+                return "One of the distributions have invalid parameters.";
+            }
+        }
+        return std::nullopt;
     }
 
     // --- Moments / support ---
@@ -211,7 +263,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     double pdf(double x) const override {
         if (components_.size() == 1) return components_[0]->pdf(x);
         double f;
-        if (dependency == prob::DependencyType::Independent) {
+        if (dependency_ == prob::DependencyType::Independent) {
             f = minimum_of_random_variables ? pdf_min_independent(x) : pdf_max_independent(x);
         } else {
             f = numerical_derivative(x);
@@ -223,7 +275,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
     // back to log(numerical derivative of cdf()) for every other dependency mode.
     double log_pdf(double x) const override {
         if (components_.size() == 1) return components_[0]->log_pdf(x);
-        if (dependency == prob::DependencyType::Independent) {
+        if (dependency_ == prob::DependencyType::Independent) {
             return minimum_of_random_variables ? log_pdf_min_independent(x)
                                                 : log_pdf_max_independent(x);
         }
@@ -246,8 +298,8 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         std::vector<double> cdf_vals(n);
         for (std::size_t i = 0; i < n; ++i) cdf_vals[i] = components_[i]->cdf(x);
 
-        bool correlated = dependency == prob::DependencyType::PerfectlyNegative ||
-                           dependency == prob::DependencyType::CorrelationMatrix;
+        bool correlated = dependency_ == prob::DependencyType::PerfectlyNegative ||
+                           dependency_ == prob::DependencyType::CorrelationMatrix;
         double p;
         if (minimum_of_random_variables) {
             if (correlated) {
@@ -255,7 +307,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
                 prob::Matrix2D cov = mvn_->covariance();
                 p = prob::union_pcm(cdf_vals, cov);
             } else {
-                p = prob::union_probability(cdf_vals, dependency);
+                p = prob::union_probability(cdf_vals, dependency_);
             }
         } else {
             if (correlated) {
@@ -263,7 +315,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
                 prob::Matrix2D cov = mvn_->covariance();
                 p = prob::joint_probability(cdf_vals, ind, &cov);
             } else {
-                p = prob::joint_probability(cdf_vals, dependency);
+                p = prob::joint_probability(cdf_vals, dependency_);
             }
         }
         return p < 0.0 ? 0.0 : p > 1.0 ? 1.0 : p;
@@ -444,7 +496,7 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
         for (const auto& c : components_) cloned.push_back(c->clone());
         auto cr = std::make_unique<CompetingRisks>(std::move(cloned));
         cr->minimum_of_random_variables = minimum_of_random_variables;
-        cr->dependency = dependency;
+        cr->set_dependency(dependency_);
         cr->x_transform = x_transform;
         cr->probability_transform = probability_transform;
         // Mirrors C# Clone(): `if (CorrelationMatrix != null) cr.CorrelationMatrix = ...`.
@@ -454,6 +506,9 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
 
    private:
     std::vector<std::unique_ptr<UnivariateDistributionBase>> components_;
+
+    // Backing field for dependency()/set_dependency() (v2.1.4 -- see the accessor comment).
+    prob::DependencyType dependency_ = prob::DependencyType::Independent;
 
     // X5: lazily-built empirical CDF backing (mirrors C# _empiricalCDF / _empiricalCDFCreated).
     std::unique_ptr<EmpiricalDistribution> empirical_cdf_;
@@ -490,27 +545,24 @@ class CompetingRisks : public UnivariateDistributionBase, public IEstimation {
 
     // Lazily builds the MultivariateNormal instance used to hold the correlation matrix
     // for PerfectlyNegative/CorrelationMatrix dependency. Mirrors C#
-    // CreateMultivariateNormal() verbatim, INCLUDING a C# quirk: in the PerfectlyNegative
-    // branch, `CorrelationMatrix = new double[D, D];` overwrites the (public,
-    // user-visible) correlation matrix with a fresh all-zero D x D matrix, while the
-    // ACTUAL rho matrix passed to the MVN is built separately into the local `sigma`
-    // array below -- so after this call, correlation_matrix() reads back zeros, not the
-    // rho matrix the MVN's covariance actually holds. Faithful to observable C# behavior
-    // (not exercised by any fixture assertion); see docs/upstream-csharp-issues.md.
+    // CreateMultivariateNormal(). v2.1.4 (RESOLVED, see docs/upstream-csharp-issues.md):
+    // the PerfectlyNegative branch no longer overwrites the public correlation_matrix()
+    // with a fresh all-zero D x D matrix as a side effect -- the synthetic rho matrix
+    // passed to the MVN is built entirely into the local `sigma` array below, and
+    // correlation_matrix() now reads back whatever the caller last set (or empty),
+    // unmutated by a CDF/PDF evaluation.
     void create_multivariate_normal() const {
         int D = component_count();
         std::vector<double> mu(static_cast<std::size_t>(D), 0.0);
         prob::Matrix2D sigma(static_cast<std::size_t>(D), std::vector<double>(static_cast<std::size_t>(D), 0.0));
-        if (dependency == prob::DependencyType::PerfectlyNegative) {
-            correlation_matrix_.assign(static_cast<std::size_t>(D),
-                                        std::vector<double>(static_cast<std::size_t>(D), 0.0));
+        if (dependency_ == prob::DependencyType::PerfectlyNegative) {
             double rho = -1.0 / (D - 1.0) + std::sqrt(kDoubleMachineEpsilon);
             for (int i = 0; i < D; ++i)
                 for (int j = 0; j < D; ++j)
                     sigma[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = (i == j) ? 1.0 : rho;
         } else {
             // Divergence note: C#'s equivalent loop indexes `CorrelationMatrix[i, j]`
-            // directly. If a caller sets `dependency = CorrelationMatrix` without ever
+            // directly. If a caller sets dependency = CorrelationMatrix without ever
             // calling the `CorrelationMatrix` setter (the field defaults to null), C#
             // throws a catchable `NullReferenceException` on first access; if a caller
             // supplies a matrix sized for a different component count, C# throws

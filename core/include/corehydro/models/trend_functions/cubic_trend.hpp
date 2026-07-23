@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/CubicTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/CubicTrend.cs @ c2e6192
 //
 // Cubic trend model:
 //   y(t) = alpha + beta * (t - StartIndex) + gamma * (t - StartIndex)^2

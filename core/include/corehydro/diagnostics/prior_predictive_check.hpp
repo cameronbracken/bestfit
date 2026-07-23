@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Diagnostics/PriorPredictiveCheck.cs @ c2e6192
 //
 // Prior predictive checking for Bayesian models: draw parameter sets from the priors, generate
 // simulated datasets from those draws, and summarize the resulting predictive distribution.

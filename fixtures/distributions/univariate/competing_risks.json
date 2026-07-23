@@ -184,6 +184,54 @@
         { "method": "log_pdf", "args": [-1.0], "expected": "-inf", "mode": "equal",
           "source": "transcribed from Test_CompetingRisks.cs Test_LogPDF_DependentInvalidSupport_ReturnsNegativeInfinity" }
       ]
+    },
+    {
+      "name": "dependency_change_cdf_before",
+      "note": "Test_DependencyChangeInvalidatesMvnWithoutMutatingCorrelation (v2.1.4), field=cdf1: CDF under the ORIGINAL PerfectlyNegative dependency (builds the MVN off a SYNTHETIC rho). Split into its own case (rather than one of several assertions against a shared object) because dependency_change's internal sequence -- CDF, read CorrelationMatrix, switch dependency, CDF again -- mutates dependency for good on whichever object it runs against; a fresh per-case build keeps every `field` variant observing the SAME originally-configured PerfectlyNegative starting point, which matters for R/Python's stateless-per-call composite dispatch (see fixtures/README.md).",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0.0, 1.0]},
+          {"target": "Normal", "params": [0.0, 1.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyNegative",
+        "correlation": [[1.0, 0.5], [0.5, 1.0]]
+      },
+      "assertions": [
+        { "method": "dependency_change", "args": [0.0, "CorrelationMatrix", 0, 1, "cdf1"], "expected": 1.0, "mode": "abs", "tol": 5e-5 }
+      ]
+    },
+    {
+      "name": "dependency_change_correlation_preserved",
+      "note": "Test_DependencyChangeInvalidatesMvnWithoutMutatingCorrelation (v2.1.4), field=correlation: CorrelationMatrix[0,1] reads back the user's original 0.5 (RESOLVED -- v2.1.4 no longer zeroes it as a PerfectlyNegative CDF side effect).",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0.0, 1.0]},
+          {"target": "Normal", "params": [0.0, 1.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyNegative",
+        "correlation": [[1.0, 0.5], [0.5, 1.0]]
+      },
+      "assertions": [
+        { "method": "dependency_change", "args": [0.0, "CorrelationMatrix", 0, 1, "correlation"], "expected": 0.5, "mode": "abs", "tol": 0 }
+      ]
+    },
+    {
+      "name": "dependency_change_cdf_after",
+      "note": "Test_DependencyChangeInvalidatesMvnWithoutMutatingCorrelation (v2.1.4), field=cdf2: switching Dependency to CorrelationMatrix mid-lifetime correctly rebuilds the MVN off the user's own correlation matrix (0.75 - asin(0.5)/(2*pi) = 2/3), not a stale PerfectlyNegative cache -- the Dependency setter's invalidation fix.",
+      "construct": {
+        "components": [
+          {"target": "Normal", "params": [0.0, 1.0]},
+          {"target": "Normal", "params": [0.0, 1.0]}
+        ],
+        "minimum_of_random_variables": true,
+        "dependency": "PerfectlyNegative",
+        "correlation": [[1.0, 0.5], [0.5, 1.0]]
+      },
+      "assertions": [
+        { "method": "dependency_change", "args": [0.0, "CorrelationMatrix", 0, 1, "cdf2"], "expected": 0.6666666666666666, "mode": "abs", "tol": 1e-7 }
+      ]
     }
   ]
 }

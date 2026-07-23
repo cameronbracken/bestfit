@@ -16,6 +16,7 @@
 #include "corehydro/numerics/distributions/base/univariate_distribution_factory.hpp"
 #include "corehydro/numerics/distributions/competing_risks.hpp"
 #include "corehydro/numerics/distributions/empirical_distribution.hpp"
+#include "corehydro/numerics/distributions/gamma_distribution.hpp"
 #include "corehydro/numerics/distributions/kernel_density.hpp"
 #include "corehydro/numerics/distributions/mixture.hpp"
 #include "corehydro/numerics/distributions/truncated_distribution.hpp"
@@ -75,6 +76,12 @@ void register_distributions(py::module_& m) {
         auto* lm = dynamic_cast<dist::ILinearMomentEstimation*>(d.get());
         if (lm == nullptr) throw py::value_error("distribution '" + t + "' has no L-moments");
         return lm->linear_moments_from_parameters(d->get_parameters());
+    });
+    // GammaDistribution::partial_kp is a static utility (not tied to any distribution
+    // instance's own parameters) used by the fixture runner to pin the v2.1.4
+    // near-zero-skew derivative-limit fix; not otherwise part of the public API.
+    m.def("dist_gamma_partial_kp", [](double skewness, double probability) {
+        return dist::GammaDistribution::partial_kp(skewness, probability);
     });
 
     // --- Public-API additions (consumed by corehydropy.distributions) --------------------
@@ -166,8 +173,12 @@ void register_distributions(py::module_& m) {
     });
 
     // --- Composite glue: EmpiricalDistribution -----------------------------------------
-    // Accepts (x_vals, p_vals, p_transform) and exposes the full distribution surface.
-    // p_transform: "NormalZ" (default) or "None".
+    // Accepts (x_vals, p_vals, p_transform, p_descending) and exposes the full distribution
+    // surface. p_transform: "NormalZ" (default) or "None". p_descending (v2.1.4): DECLARES
+    // the probability order (mirrors C#'s explicit `probabilityOrder` argument -- NOT
+    // auto-detected from the data; see empirical_distribution.hpp's header note) -- false
+    // (the ordinary ascending-CDF case) unless the fixture opts into the descending
+    // survival-function encoding.
 
     auto parse_emp_transform = [](const std::string& s) {
         if (s == "None") return dist::EmpiricalTransform::None;
@@ -178,8 +189,8 @@ void register_distributions(py::module_& m) {
 
     m.def("emp_moments", [parse_emp_transform](const std::vector<double>& xv,
                                                 const std::vector<double>& pv,
-                                                const std::string& pt_str) {
-        dist::EmpiricalDistribution d(xv, pv, parse_emp_transform(pt_str));
+                                                const std::string& pt_str, bool p_descending) {
+        dist::EmpiricalDistribution d(xv, pv, parse_emp_transform(pt_str), p_descending);
         return std::map<std::string, double>{
             {"mean", d.mean()},         {"median", d.median()},
             {"mode", d.mode()},         {"sd", d.standard_deviation()},
@@ -188,23 +199,30 @@ void register_distributions(py::module_& m) {
     });
     m.def("emp_pdf", [parse_emp_transform](const std::vector<double>& xv,
                                             const std::vector<double>& pv,
-                                            const std::string& pt_str, double x) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).pdf(x);
+                                            const std::string& pt_str, bool p_descending,
+                                            double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .pdf(x);
     });
     m.def("emp_cdf", [parse_emp_transform](const std::vector<double>& xv,
                                             const std::vector<double>& pv,
-                                            const std::string& pt_str, double x) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).cdf(x);
+                                            const std::string& pt_str, bool p_descending,
+                                            double x) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .cdf(x);
     });
     m.def("emp_quantile", [parse_emp_transform](const std::vector<double>& xv,
                                                  const std::vector<double>& pv,
-                                                 const std::string& pt_str, double prob) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).inverse_cdf(prob);
+                                                 const std::string& pt_str, bool p_descending,
+                                                 double prob) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .inverse_cdf(prob);
     });
     m.def("emp_valid", [parse_emp_transform](const std::vector<double>& xv,
                                               const std::vector<double>& pv,
-                                              const std::string& pt_str) {
-        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str)).parameters_valid();
+                                              const std::string& pt_str, bool p_descending) {
+        return dist::EmpiricalDistribution(xv, pv, parse_emp_transform(pt_str), p_descending)
+            .parameters_valid();
     });
 
     // --- Composite glue: KernelDensity -------------------------------------------------
@@ -260,12 +278,17 @@ void register_distributions(py::module_& m) {
     });
 
     // --- Composite glue: Mixture -------------------------------------------------------
-    // Accepts (comp_targets, comp_params, weights) where comp_params is a list of param
-    // vectors (one per component). Exposes the full distribution surface.
+    // Accepts (comp_targets, comp_params, weights, zero_inflated, zero_weight) where
+    // comp_params is a list of param vectors (one per component). Exposes the full
+    // distribution surface. zero_inflated/zero_weight mirror the v2.1.4 IsZeroInflated/
+    // ZeroWeight setters (default False/0.0 at the Python call sites); set in that order
+    // since the setters renormalize component weights as a side effect (mixture.hpp's
+    // header note).
 
     auto make_mixture = [](const std::vector<std::string>& comp_targets,
                             const std::vector<std::vector<double>>& comp_params,
-                            const std::vector<double>& weights) {
+                            const std::vector<double>& weights, bool zero_inflated,
+                            double zero_weight) {
         int K = static_cast<int>(comp_targets.size());
         std::vector<std::unique_ptr<dist::UnivariateDistributionBase>> comps;
         comps.reserve(K);
@@ -274,13 +297,16 @@ void register_distributions(py::module_& m) {
             d->set_parameters(comp_params[i]);
             comps.push_back(std::move(d));
         }
-        return dist::Mixture(weights, std::move(comps));
+        dist::Mixture mix(weights, std::move(comps));
+        mix.set_is_zero_inflated(zero_inflated);
+        mix.set_zero_weight(zero_weight);
+        return mix;
     };
 
     m.def("mix_moments", [make_mixture](const std::vector<std::string>& ct,
                                          const std::vector<std::vector<double>>& cp,
-                                         const std::vector<double>& wts) {
-        auto d = make_mixture(ct, cp, wts);
+                                         const std::vector<double>& wts, bool zi, double zw) {
+        auto d = make_mixture(ct, cp, wts, zi, zw);
         return std::map<std::string, double>{
             {"mean", d.mean()},         {"median", d.median()},
             {"mode", d.mode()},         {"sd", d.standard_deviation()},
@@ -289,23 +315,35 @@ void register_distributions(py::module_& m) {
     });
     m.def("mix_pdf", [make_mixture](const std::vector<std::string>& ct,
                                      const std::vector<std::vector<double>>& cp,
-                                     const std::vector<double>& wts, double x) {
-        return make_mixture(ct, cp, wts).pdf(x);
+                                     const std::vector<double>& wts, bool zi, double zw,
+                                     double x) {
+        return make_mixture(ct, cp, wts, zi, zw).pdf(x);
     });
     m.def("mix_cdf", [make_mixture](const std::vector<std::string>& ct,
                                      const std::vector<std::vector<double>>& cp,
-                                     const std::vector<double>& wts, double x) {
-        return make_mixture(ct, cp, wts).cdf(x);
+                                     const std::vector<double>& wts, bool zi, double zw,
+                                     double x) {
+        return make_mixture(ct, cp, wts, zi, zw).cdf(x);
     });
     m.def("mix_quantile", [make_mixture](const std::vector<std::string>& ct,
                                           const std::vector<std::vector<double>>& cp,
-                                          const std::vector<double>& wts, double prob) {
-        return make_mixture(ct, cp, wts).inverse_cdf(prob);
+                                          const std::vector<double>& wts, bool zi, double zw,
+                                          double prob) {
+        return make_mixture(ct, cp, wts, zi, zw).inverse_cdf(prob);
     });
     m.def("mix_valid", [make_mixture](const std::vector<std::string>& ct,
                                        const std::vector<std::vector<double>>& cp,
-                                       const std::vector<double>& wts) {
-        return make_mixture(ct, cp, wts).parameters_valid();
+                                       const std::vector<double>& wts, bool zi, double zw) {
+        return make_mixture(ct, cp, wts, zi, zw).parameters_valid();
+    });
+    // GetParameters() as a flat vector: [w0, ..., wK-1, component0 params..., ...] -- the
+    // composite-target analogue of the generic "param" dispatch; needed because Mixture's
+    // weights are recomputed inside C++ by the zero-inflation setters (unlike
+    // TruncatedDistribution's "param", which reads straight off the known construct params).
+    m.def("mix_params", [make_mixture](const std::vector<std::string>& ct,
+                                        const std::vector<std::vector<double>>& cp,
+                                        const std::vector<double>& wts, bool zi, double zw) {
+        return make_mixture(ct, cp, wts, zi, zw).get_parameters();
     });
 
     // --- Composite glue: CompetingRisks -----------------------------------------------
@@ -340,8 +378,14 @@ void register_distributions(py::module_& m) {
         }
         dist::CompetingRisks cr(std::move(comps));
         cr.minimum_of_random_variables = minimum_of_rv;
-        cr.dependency = parse_dependency(dependency);
-        if (dependency == "CorrelationMatrix") cr.set_correlation_matrix(correlation);
+        cr.set_dependency(parse_dependency(dependency));
+        // Unconditional on `dependency` (matches test_fixtures.cpp's build_composite and
+        // the dotnet emitter's BuildComposite) -- a caller may set CorrelationMatrix up
+        // front and only later switch Dependency to CorrelationMatrix (the v2.1.4
+        // dependency_change fixture), so gating this on `dependency == "CorrelationMatrix"`
+        // left correlation_matrix_ empty for any OTHER initial dependency, an
+        // out-of-bounds read waiting to happen the first time a fixture read it back.
+        if (!correlation.empty()) cr.set_correlation_matrix(correlation);
         return cr;
     };
 
@@ -389,5 +433,27 @@ void register_distributions(py::module_& m) {
                                               bool minimum_of_rv, const std::string& dependency,
                                               const std::vector<std::vector<double>>& correlation) {
         return make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation).parameters_valid();
+    });
+    // v2.1.4: verifies the Dependency setter fix (changing Dependency mid-lifetime
+    // invalidates the cached MVN) and that PerfectlyNegative no longer zeroes the public
+    // CorrelationMatrix. ONE self-contained call (Python has no persistent object across
+    // fixture assertions): CDF under the FIRST dependency, read CorrelationMatrix[i, j]
+    // back, then switch to `dependency2` and CDF again -- returns the value the fixture
+    // asked for via `field` ("cdf1", "correlation", "cdf2").
+    m.def("cr_dependency_change", [make_competing_risks, parse_dependency](
+                                       const std::vector<std::string>& ct,
+                                       const std::vector<std::vector<double>>& cp, bool minimum_of_rv,
+                                       const std::string& dependency, const std::string& dependency2,
+                                       const std::vector<std::vector<double>>& correlation, double x,
+                                       const std::string& field, int i, int j) {
+        auto cr = make_competing_risks(ct, cp, minimum_of_rv, dependency, correlation);
+        double cdf1 = cr.cdf(x);
+        double corr_ij = cr.correlation_matrix()[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)];
+        cr.set_dependency(parse_dependency(dependency2));
+        double cdf2 = cr.cdf(x);
+        if (field == "cdf1") return cdf1;
+        if (field == "correlation") return corr_ij;
+        if (field == "cdf2") return cdf2;
+        throw py::value_error("unknown cr_dependency_change field: " + field);
     });
 }

@@ -7,6 +7,72 @@ the `corehydropy` Python package) are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
+Upstream sync. corehydro is now validated against **Numerics v2.1.4** and **RMC.BestFit v2.0.0**
+(previously Numerics `a2c4dbf` and RMC.BestFit v2.0-beta.5). Both upstream releases include fixes
+RMC made in response to corehydro's own port audit, so a number of results change: where the port
+faithfully mirrored an upstream bug, it now mirrors the fix.
+
+### Changed
+
+Values that change for existing code:
+
+- **Student-t density** now includes the `1/sigma` Jacobian. Any `dist_pdf` on a Student-t with
+  `sigma != 1` changes by a factor of `1/sigma`; the old values did not integrate to 1. The
+  extreme-tail quantile path also now applies the location and scale transform.
+- **Pearson type III and log-Pearson type III L-skewness** carries the sign of the skew. Negative
+  skew fits return a negative L-skewness where they previously returned a positive one.
+- **Beta and generalized Beta mode** returns a point inside the support for U- and J-shaped cases.
+  The old formula could return a value far outside the support.
+- **Plotting positions for censored and threshold data** are a faithful port of peakFQ's
+  ARRANGE2/PPLOT2/PLPOS. Frames mixing exact, interval, threshold, and uncertain data get
+  different positions than before, duplicates are spread deterministically, and invalid frames
+  now raise instead of returning a value.
+- **Zero-inflated mixtures** renormalize component weights to `1 - zero_weight` when zero
+  inflation is set, rather than leaving them unnormalized.
+- **Generalized logistic and log-Pearson type III L-moments** near the degenerate parameter values
+  use upstream's series expansions, replacing corehydro's own limit branches.
+- **Bulletin 17C** uncertainty quantification reworked: retry and acceptance behavior, an adaptive
+  Mahalanobis threshold, warm-started replicates for censored and threshold data, and a reworked
+  pivotal path with a guarded Yeo-Johnson link. Diagnostics report attempted versus retained
+  replicates.
+- **Generalized method of moments** accepts an estimate on any non-failure optimizer termination
+  with a finite best point, and falls back to Nelder-Mead after a BFGS failure.
+- **Rating curve default priors** widened: coefficient bounds from -5..5 to -10..10, exponent
+  lower bound from 0.5 to 0.
+
+### Added
+
+- `try_create_distribution`, and on the multivariate normal `try_set_parameters`,
+  `try_set_covariance`, `is_density_valid`, `marginal`, and `conditional`.
+- Empirical distributions accept duplicate ordinates and validate ascending order.
+- Bivariate distribution pseudo-likelihood fitting works: it computes the plotting positions it
+  needs instead of failing.
+- Time-series models handle a Box-Cox or Yeo-Johnson lambda-fit failure with a validation message
+  instead of a crash.
+- `docs/upstream-sync.md`, the repeatable process for absorbing the next RMC release.
+
+### Fixed
+
+- Multivariate normal CDF over rank-deficient or perfectly correlated covariance matrices. The old
+  code silently returned wrong collapsed-CDF values whenever the redundant dimension did not sort
+  to the first pivot.
+- Archimedean copulas (Clayton, Gumbel, Joe) report `parameters_valid` correctly, copula clones
+  deep-copy their marginals, and non-finite parameters are rejected.
+- Descending-order search, guarded log10 in bilinear interpolation, out-of-range histogram
+  binning, and an underflow guard in the joint-probability calculation.
+- Normal distribution CDF in the far tails, which previously cancelled to exactly 0 or 1 for
+  `|z|` beyond about 6. This one was a corehydro bug, not an upstream change.
+- Jeffreys scale priors no longer fail for single-parameter families, and model clones keep their
+  zero-inflation state.
+- Threshold-series processing is idempotent.
+
+### Validation
+
+ctest 78/78; oracle gate 4497 values reproduced against the real C# libraries, 0 failed, 11
+skipped (the documented generalized extreme value standard-error set); testthat 4253; pytest 789.
+
 ## [0.1.0] - 2026-07-11
 
 First tagged release. Everything below is new.
@@ -53,5 +119,6 @@ First tagged release. Everything below is new.
   (`corehydror`/`corehydropy`), reflecting the goal of carrying code from both
   USACE-RMC and HEC libraries in one package family.
 
-[Unreleased]: https://github.com/cameronbracken/corehydro/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cameronbracken/corehydro/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cameronbracken/corehydro/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cameronbracken/corehydro/releases/tag/v0.1.0

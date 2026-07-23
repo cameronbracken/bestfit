@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/OptimizationMethod.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Estimation/OptimizationMethod.cs @ c2e6192
 //
 // Enumeration of optimization methods available to the BestFit MLE/MAP estimators.
 // Verbatim port; member order mirrors the C# source. This header only defines the

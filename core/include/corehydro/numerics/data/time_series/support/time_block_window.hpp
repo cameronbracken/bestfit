@@ -1,4 +1,4 @@
-// ported from: Numerics/Data/Time Series/Support/TimeBlockWindow.cs @ a2c4dbf
+// ported from: Numerics/Data/Time Series/Support/TimeBlockWindow.cs @ 2a0357a
 //
 // Enumeration of time block window options. Ported for PointProcessModel's TimeBlock
 // property (M12); the TimeSeries container that consumes it upstream (CreateBlockSeries)

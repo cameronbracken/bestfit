@@ -261,6 +261,53 @@ list ch_analysis_b17c_run_(std::string model_json, doubles dataset, std::string 
             for (int j = 0; j < p; ++j) covariance[i * p + j] = cov(i, j);
     }
 
+    // T20: the ensemble frequency curves off AnalysisResults -- the ONLY B17C output that depends
+    // on the uncertainty method (the Cohn surface above is computed off the RNG-free GMM point
+    // estimate alone), so the pivotal-bootstrap fixture needs them here. Empty when the ensemble
+    // was not published (an aborted / degraded uncertainty run).
+    writable::doubles mode_curve, mean_curve;
+    if (analysis.analysis_results() != nullptr) {
+        const auto& ar = *analysis.analysis_results();
+        mode_curve = writable::doubles(ar.mode_curve.begin(), ar.mode_curve.end());
+        mean_curve = writable::doubles(ar.mean_curve.begin(), ar.mean_curve.end());
+    }
+
+    // T19: BootstrapDiagnostics, populated only when the uncertainty method actually ran a
+    // bootstrap arm (Bootstrap / BiasCorrectedBootstrap).
+    const auto* boot = analysis.bootstrap_results();
+    writable::list bootstrap = writable::list({
+        "has_results"_nm = writable::logicals({cpp11::r_bool(boot != nullptr)}),
+        "total_replicates"_nm = writable::integers({boot != nullptr ? boot->total_replicates() : 0}),
+        "attempted_replicates"_nm =
+            writable::integers({boot != nullptr ? boot->attempted_replicates() : 0}),
+        "failed_replicates"_nm = writable::integers({boot != nullptr ? boot->failed_replicates() : 0}),
+        "valid_replicates"_nm = writable::integers({boot != nullptr ? boot->valid_replicates() : 0}),
+        "retained_replicates"_nm =
+            writable::integers({boot != nullptr ? boot->retained_replicates() : 0}),
+        "failure_rate"_nm = writable::doubles({boot != nullptr ? boot->failure_rate() : NA_REAL}),
+        "total_retries"_nm = writable::integers({boot != nullptr ? boot->total_retries() : 0}),
+        "average_retries"_nm =
+            writable::doubles({boot != nullptr ? boot->average_retries() : NA_REAL}),
+        "pivot_rejections"_nm =
+            writable::integers({boot != nullptr ? boot->pivot_rejections() : 0}),
+        "mahalanobis_rejections"_nm =
+            writable::integers({boot != nullptr ? boot->mahalanobis_rejections() : 0}),
+        "transform_failures"_nm =
+            writable::integers({boot != nullptr ? boot->transform_failures() : 0}),
+        "status_success_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_success_count() : 0}),
+        "status_max_iterations_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_maximum_iterations_count() : 0}),
+        "status_max_function_evaluations_count"_nm = writable::integers(
+            {boot != nullptr ? boot->status_maximum_function_evaluations_count() : 0}),
+        "status_failure_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_failure_count() : 0}),
+        "status_none_count"_nm =
+            writable::integers({boot != nullptr ? boot->status_none_count() : 0}),
+        "optimizer_fallbacks"_nm =
+            writable::integers({boot != nullptr ? boot->optimizer_fallbacks() : 0}),
+    });
+
     return writable::list({
         "exceedance_probabilities"_nm = exceedance,
         "point_estimates"_nm = point_estimates,
@@ -273,6 +320,9 @@ list ch_analysis_b17c_run_(std::string model_json, doubles dataset, std::string 
         "parameters"_nm = parameters,
         "covariance"_nm = covariance,
         "covariance_dim"_nm = writable::integers({cov_dim}),
+        "mode_curve"_nm = mode_curve,
+        "mean_curve"_nm = mean_curve,
+        "bootstrap"_nm = bootstrap,
     });
 }
 

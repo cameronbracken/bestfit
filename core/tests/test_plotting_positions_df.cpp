@@ -1,24 +1,45 @@
 // Standalone tests for DataFrame::calculate_plotting_positions() (M5): the
 // Hirsch-Stedinger censored plotting positions (Bulletin 17C Appendix 5).
 //
-// Oracle is the upstream C# test class @ fc28c0c:
+// Oracle is the upstream C# test class @ c2e6192 (BestFit v2.0.0):
 //   upstream/RMC-BestFit/src/RMC.BestFit.Tests/DataFrame/PlottingPositionTests.cs
 // transcribed method-for-method below (same order), values unaltered. The two B17C
 // examples validate the full censored machinery (exact + interval + perception
 // thresholds); the six named-formula tests validate the uncensored path against the
 // ported Numerics PlottingPositions formulas using the bit-exact seeded Mersenne
-// Twister random stream (`GenerateRandomValues(30, 12345)`).
+// Twister random stream (`GenerateRandomValues(30, 12345)`). Notably, none of these
+// eight cases needed re-pinning for the v2.0.0 ARRANGE2/PPLOT2/PLPOS rewrite (T12) --
+// they reproduce byte-identical to their pre-rewrite values, confirming the rewrite
+// preserves the formula shape for single-threshold/no-threshold, non-degenerate frames
+// (see data_frame_plotting.hpp's file header).
 //
 // One extra test (not in the C# class) covers ApplyLangbeinConversion, which lives in
 // the same ported region but has no upstream unit test; it checks the direct formula
 // PP' = 1 - exp(-lambda * PP) on every series.
+//
+// BestFit v2.0.0 additions (T12, still transcribed from PlottingPositionTests.cs): the
+// bootstrap-edge/tie-separation regressions (Test_PlottingPositions_
+// Example5BootstrapEdge_RemainsStrictWithoutChangingSample /
+// ...Example5BootstrapSample_TiesAreSeparated -- these two exercise
+// EnsureDistinctPlottingPositions, the load-bearing new duplicate-position-spreading
+// logic), the three small ARRANGE2 classification cases already covered cross-language
+// via fixtures/estimation/plotting_position.json (Test_PlottingPositions_
+// ValueBelowOwnThreshold_UsesCensoredBranch / ...AggregateThresholdCounts_AffectRanks /
+// ...OutsideThresholdWindow_IsDetected -- re-verified here too, C++-only, as a fast
+// sanity check independent of the fixture harness), Test_PlottingPositions_
+// InvalidInputs_Throw (the DataFrame-level half; the PlottingParameter setter's own
+// eager validation is covered by test_data_frame_set_plotting_parameter_rejects_out_of_
+// range in test_data_frame.cpp), and a plotting_position_version() bump check (no
+// upstream unit test -- PlottingPositionVersion has no dedicated C# test either).
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "corehydro/models/data_frame/data_frame.hpp"
 #include "corehydro/numerics/data/plotting_positions.hpp"
 #include "corehydro/numerics/distributions/normal.hpp"
+#include "corehydro/numerics/utilities/extension_methods.hpp"
 #include "check.hpp"
 
 using corehydro::models::DataFrame;
@@ -250,6 +271,224 @@ static void test_apply_langbein_conversion() {
     }
 }
 
+// ===========================================================================================
+// BestFit v2.0.0: ARRANGE2/PPLOT2/PLPOS rewrite regressions (T12)
+// ===========================================================================================
+
+// C# Test_PlottingPositions_ValueBelowOwnThreshold_UsesCensoredBranch: one detection and
+// one censored observation at a common threshold give Weibull-style 0.25/0.75 exceedance
+// (also cross-language-verified via fixtures/estimation/plotting_position.json).
+static void test_plotting_positions_value_below_own_threshold_uses_censored_branch() {
+    DataFrame df;
+    df.exact_series().add(ExactData(0, 50.0));
+    df.exact_series().add(ExactData(1, 200.0));
+    df.threshold_series().add(ThresholdData(0, 1, 100.0));
+
+    df.calculate_plotting_positions();
+
+    CHECK_NEAR(df.exact_series()[0].plotting_position(), 0.75, 1E-12);
+    CHECK_NEAR(df.exact_series()[1].plotting_position(), 0.25, 1E-12);
+    CHECK_NEAR(df.exact_series()[0].value(), 50.0, 0.0);
+    CHECK_NEAR(df.exact_series()[1].value(), 200.0, 0.0);
+}
+
+// C# Test_PlottingPositions_AggregateThresholdCounts_AffectRanks: three left-censored
+// placeholders, one finite detection, one right-censored placeholder give a detection
+// probability of 2/(2+3); the finite detection ranks before the right-censored placeholder.
+static void test_plotting_positions_aggregate_threshold_counts_affect_ranks() {
+    DataFrame df;
+    df.exact_series().add(ExactData(2, 150.0));
+    ThresholdData threshold(0, 4, 100.0);
+    threshold.set_number_above(1);
+    df.threshold_series().add(threshold);
+
+    df.calculate_plotting_positions();
+
+    CHECK_NEAR(df.exact_series()[0].plotting_position(), 4.0 / 15.0, 1E-12);
+    CHECK_EQ(df.threshold_series()[0].number_below(), 3);
+    CHECK_EQ(df.threshold_series()[0].number_above(), 1);
+}
+
+// C# Test_PlottingPositions_OutsideThresholdWindow_IsDetected: an observation outside
+// every perception window is detected regardless of magnitude vs. an unrelated finite
+// threshold (the synthetic negative-infinity threshold ARRANGE2 uses).
+static void test_plotting_positions_outside_threshold_window_is_detected() {
+    DataFrame df;
+    df.exact_series().add(ExactData(10, 50.0));
+    df.threshold_series().add(ThresholdData(0, 1, 100.0));
+
+    df.calculate_plotting_positions();
+
+    CHECK_NEAR(df.exact_series()[0].plotting_position(), 0.5, 1E-12);
+}
+
+// C# Test_PlottingPositions_InvalidInputs_Throw (the DataFrame-level half; the
+// PlottingParameter setter's own eager validation is
+// test_data_frame_set_plotting_parameter_rejects_out_of_range in test_data_frame.cpp).
+static void test_plotting_positions_invalid_inputs_throw() {
+    // Processed counts that cannot fit the threshold's own duration.
+    DataFrame infeasible;
+    ThresholdData infeasible_threshold(0, 0, 100.0);  // Duration 1
+    infeasible_threshold.set_number_above(2);         // 2 > Duration: infeasible once processed
+    infeasible.threshold_series().add(infeasible_threshold);
+    CHECK_THROWS(infeasible.calculate_plotting_positions());
+
+    // Overlapping threshold windows ([0, 2] and [2, 4] share index 2).
+    DataFrame overlapping;
+    overlapping.threshold_series().add(ThresholdData(0, 2, 100.0));
+    overlapping.threshold_series().add(ThresholdData(2, 4, 200.0));
+    CHECK_THROWS(overlapping.calculate_plotting_positions());
+}
+
+// C# Test_PlottingPositions_Example5BootstrapEdge_RemainsStrictWithoutChangingSample:
+// verifies a bootstrap-derived arranged-count edge case (the former K=43/K=6 condition
+// that made the prior recurrence calculate Q=1 at the 743-cfs level) keeps every
+// resampled value unchanged and assigns only strict open-interval plotting positions.
+// Two observations fall below their own perception thresholds and are classified as
+// censored only for plotting; they remain exact observations with their original values.
+static void test_plotting_positions_example5_bootstrap_edge_remains_strict() {
+    std::vector<double> values(50);
+    for (int i = 0; i < 8; i++)
+        values[static_cast<std::size_t>(i)] = (i == 7) ? 1000.0 : 2000.0 + i;
+    for (int i = 8; i < 44; i++) values[static_cast<std::size_t>(i)] = 3000.0 + i;
+    for (int i = 44; i < 49; i++)
+        values[static_cast<std::size_t>(i)] = 800.0 + (10.0 * (i - 44));
+    values[49] = 500.0;
+
+    DataFrame df;
+    for (std::size_t i = 0; i < values.size(); i++)
+        df.exact_series().add(ExactData(1965 + static_cast<int>(i), values[i]));
+
+    df.threshold_series().add(ThresholdData(1965, 1972, 1180.0));
+    df.threshold_series().add(ThresholdData(1973, 1991, 705.0));
+    df.threshold_series().add(ThresholdData(1992, 2001, 714.0));
+    df.threshold_series().add(ThresholdData(2002, 2002, 743.0));
+    df.threshold_series().add(ThresholdData(2003, 2003, 560.0));
+    df.threshold_series().add(ThresholdData(2004, 2005, 700.0));
+    df.threshold_series().add(ThresholdData(2006, 2009, 710.0));
+    df.threshold_series().add(ThresholdData(2010, 2012, 661.0));
+    df.threshold_series().add(ThresholdData(2013, 2014, 700.0));
+
+    std::vector<double> original_values(df.exact_series().count());
+    for (std::size_t i = 0; i < df.exact_series().count(); i++)
+        original_values[i] = df.exact_series()[i].value();
+
+    df.set_plotting_parameter(0.4);
+    df.calculate_plotting_positions();
+
+    for (std::size_t i = 0; i < df.exact_series().count(); i++)
+        CHECK_NEAR(df.exact_series()[i].value(), original_values[i], 0.0);
+    CHECK_EQ(df.exact_series().count(), std::size_t{50});
+
+    bool any_above_0_98 = false;
+    for (std::size_t i = 0; i < df.exact_series().count(); i++) {
+        double position = df.exact_series()[i].plotting_position();
+        CHECK_TRUE(std::isfinite(position) && position > 0.0 && position < 1.0);
+        if (position > 0.98) any_above_0_98 = true;
+    }
+    CHECK_TRUE(any_above_0_98);
+}
+
+// C# Test_PlottingPositions_Example5BootstrapSample_TiesAreSeparated: a frozen bootstrap
+// sample that previously assigned the EXACT same probability to the events at indexes
+// 1975 and 1998 -- the EnsureDistinctPlottingPositions regression this rewrite adds.
+static void test_plotting_positions_example5_bootstrap_sample_ties_are_separated() {
+    const std::vector<int> years = {
+        1965, 1966, 1967, 1968, 1969, 1970, 1971, 1972, 1973, 1974,
+        1975, 1976, 1977, 1978, 1979, 1980, 1981, 1982, 1983, 1984,
+        1985, 1986, 1987, 1988, 1989, 1990, 1991, 1992, 1993, 1994,
+        1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+        2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014};
+    const std::vector<double> values = {
+        1398.5976334510967, 966.59552180918161,  1974.3223495966256, 2891.8338540508757,
+        2505.9334402560103, 1885.0116761582647,  1680.6543191030453, 3847.0027056032231,
+        930.55140459080849, 2460.2531376046609,  564.28401727153459, 1396.8182016011826,
+        1591.5650583425017, 4578.067551996458,   2582.6599531978427, 2497.8881953825239,
+        1491.8593917890207, 2380.1796316909777,  2654.2379192321528, 2646.1646459149301,
+        3905.9886563585524, 899.41749596844386,  1138.9218977761075, 1753.1788985139399,
+        2995.6252828849888, 1166.0571810678148,  2978.705067413357,  1557.4501735296865,
+        3102.3195776956154, 3424.0748502645079,  2213.4043771087458, 2695.8435706029095,
+        2637.9755363911408, 429.59797890129613,  4654.4548499288721, 3030.215825029497,
+        3272.014817282608,  763.26237263475105,  2099.7317325275308, 2128.9063276074667,
+        1465.0224395732935, 4738.3332968838067,  2611.3950878331016, 1765.2295530597592,
+        1889.0450114112809, 2561.4319968329551,  2567.6539372706479, 1989.7098547510266,
+        1387.028035261912,  1679.0903337032385};
+
+    DataFrame source;
+    source.set_low_outlier_threshold(1200.0);
+    source.set_plotting_parameter(0.4);
+    for (std::size_t i = 0; i < years.size(); i++)
+        source.exact_series().add(ExactData(years[i], values[i]));
+
+    source.threshold_series().add(ThresholdData(1965, 1972, 1180.0));
+    source.threshold_series().add(ThresholdData(1973, 1991, 705.0));
+    source.threshold_series().add(ThresholdData(1992, 2001, 714.0));
+    source.threshold_series().add(ThresholdData(2002, 2002, 743.0));
+    source.threshold_series().add(ThresholdData(2003, 2003, 560.0));
+    source.threshold_series().add(ThresholdData(2004, 2005, 700.0));
+    source.threshold_series().add(ThresholdData(2006, 2009, 710.0));
+    source.threshold_series().add(ThresholdData(2010, 2012, 661.0));
+    source.threshold_series().add(ThresholdData(2013, 2014, 700.0));
+
+    source.calculate_plotting_positions();
+
+    std::vector<double> positions;
+    positions.reserve(source.exact_series().count());
+    for (std::size_t i = 0; i < source.exact_series().count(); i++)
+        positions.push_back(source.exact_series()[i].plotting_position());
+    std::sort(positions.begin(), positions.end());
+
+    const int higher_value_index = 1975;
+    const int lower_value_index = 1998;
+    const double expected_center = 0.97714285714285709;
+
+    const ExactData* higher_value_event = nullptr;
+    const ExactData* lower_value_event = nullptr;
+    for (std::size_t i = 0; i < source.exact_series().count(); i++) {
+        if (source.exact_series()[i].index() == higher_value_index)
+            higher_value_event = &source.exact_series()[i];
+        if (source.exact_series()[i].index() == lower_value_index)
+            lower_value_event = &source.exact_series()[i];
+    }
+    CHECK_TRUE(higher_value_event != nullptr);
+    CHECK_TRUE(lower_value_event != nullptr);
+
+    CHECK_TRUE(higher_value_event->value() > lower_value_event->value());
+    CHECK_TRUE(higher_value_event->plotting_position() < lower_value_event->plotting_position());
+    CHECK_NEAR((higher_value_event->plotting_position() + lower_value_event->plotting_position()) / 2.0,
+              expected_center, 1E-15);
+
+    for (std::size_t i = 1; i < positions.size(); i++) {
+        CHECK_TRUE(!corehydro::numerics::utilities::almost_equals(positions[i - 1], positions[i]));
+    }
+
+    // Positions must remain distinct even at the app's six-decimal display precision.
+    std::vector<double> rounded;
+    rounded.reserve(positions.size());
+    for (double position : positions) rounded.push_back(std::round(position * 1e6) / 1e6);
+    std::sort(rounded.begin(), rounded.end());
+    std::size_t distinct_count =
+        static_cast<std::size_t>(std::unique(rounded.begin(), rounded.end()) - rounded.begin());
+    CHECK_EQ(distinct_count, positions.size());
+}
+
+// No dedicated C# unit test (PlottingPositionVersion has none either); confirms the
+// monotonically increasing version counter Task 15's BivariateDistribution cache
+// consumes bumps on every calculate_plotting_positions() call.
+static void test_plotting_position_version_increments_on_calculate() {
+    DataFrame df;
+    df.exact_series().add(ExactData(0, 10.0));
+    df.exact_series().add(ExactData(1, 20.0));
+
+    std::int64_t before = df.plotting_position_version();
+    df.calculate_plotting_positions();
+    std::int64_t after_first = df.plotting_position_version();
+    CHECK_TRUE(after_first > before);
+
+    df.calculate_plotting_positions();
+    CHECK_TRUE(df.plotting_position_version() > after_first);
+}
+
 int main() {
     test_plotting_positions_b17c_ex4();
     test_plotting_positions_b17c_ex7();
@@ -260,5 +499,12 @@ int main() {
     test_median();
     test_weibull();
     test_apply_langbein_conversion();
+    test_plotting_positions_value_below_own_threshold_uses_censored_branch();
+    test_plotting_positions_aggregate_threshold_counts_affect_ranks();
+    test_plotting_positions_outside_threshold_window_is_detected();
+    test_plotting_positions_invalid_inputs_throw();
+    test_plotting_positions_example5_bootstrap_edge_remains_strict();
+    test_plotting_positions_example5_bootstrap_sample_ties_are_separated();
+    test_plotting_position_version_increments_on_calculate();
     return chtest::summary("plotting_positions_df");
 }

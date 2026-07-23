@@ -1,4 +1,4 @@
-// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/QuadraticTrend.cs @ fc28c0c
+// ported from: RMC-BestFit/src/RMC.BestFit/Models/TrendFunctions/QuadraticTrend.cs @ c2e6192
 //
 // Quadratic trend model: y(t) = alpha + beta * (t - StartIndex) + gamma * (t - StartIndex)^2.
 // The XElement constructor is deliberately not ported (XML out of scope). See

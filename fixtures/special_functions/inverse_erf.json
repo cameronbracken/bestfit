@@ -2,7 +2,7 @@
   "kind": "special_function",
   "target": "Erf.inverse_erf",
   "source": "Numerics/Mathematics/Special Functions/Erf.cs",
-  "reference": "Numerics @ a2c4dbf; Normal.StandardZ(0.5*y + 0.5) * sqrt(2) / 2",
+  "reference": "Numerics @ 2a0357a; Normal.StandardZ(0.5*y + 0.5) * sqrt(2) / 2",
   "cases": [
     {
       "name": "inv_erf_zero",

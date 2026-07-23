@@ -1,4 +1,24 @@
-// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Models/TimeSeries/ARIMAX.cs @ fc28c0c
+// ported from: upstream/RMC-BestFit/src/RMC.BestFit/Models/TimeSeries/ARIMAX.cs @ c2e6192
+//
+// v2.0.0 (upstream-sync Task 16, f140c4d + 0d6821d): SetTrainingData's BoxCox/YeoJohnson
+// branches (Step 1, transforming the whole raw series) now guard against a non-finite fitted
+// lambda (Task 2's hardened fit_lambda already returns NaN instead of throwing for a
+// degenerate/unsupported sample -- see box_cox.hpp / yeo_johnson.hpp). On failure:
+// lambda_/log_jacobian_ reset to 0, transformed_time_series_/diff_series_/training_time_series_
+// ALL replaced with an empty series, transform_fit_validation_message_ set to the C#-exact
+// message text, and the branch returns early (Steps 2-4 -- differencing, the training-series
+// slice, and the raw-value log-jacobian -- never run). Validate appends that message (and flips
+// is_valid false) as the LAST check, mirroring the C# ordering. Deliberately NOT ported: the C#
+// `catch (ArithmeticException)` branch around FitLambda (with its "Solver message: ..." suffix)
+// has no C++ analog -- the ported fit_lambda never throws, it always returns a double (possibly
+// NaN), so only the C# `!double.IsFinite(_lambda)` branch (the plain message, no solver-text
+// suffix) is reachable here. Also SKIPPED (XML/GUI-only, no oracle-visible C++ surface, not in
+// this task's scope): the XElement ctor's TrainingTimeSteps/UseDefaultTrainingSteps attribute
+// restoration + explicit SetTrainingData() call. Task 21 CLOSED the three v2.0.0 deltas this note
+// previously deferred -- ResetDefaultTrainingStepsForNewTimeSeries (the TimeSeries-setter
+// training-window reset), the TimeInterval.Irregular Validate guard, and the InferSeasonalPeriod
+// OneYear cycle-length change (1 -> 10, ARIMAX.cs:880) -- all three are model-layer library
+// surface reachable from the public setters, not GUI/XML, and all three are ported below.
 //
 // AutoRegressive Integrated Moving Average with eXogenous variables (ARIMAX). The richest
 // TimeSeries ModelBase family: it extends the ARIMA (T2) differenced + transformed mean with
@@ -141,8 +161,8 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     void set_time_series(const TimeSeries& value) {
         // C# unsubscribes/subscribes CollectionChanged here -> no-op in this port.
         time_series_ = value;
-        seasonal_period_ = infer_seasonal_period();
-        if (use_default_training_steps_) set_default_training_steps();
+        seasonal_period_ = infer_seasonal_period();  // C# UpdateSeasonalPeriod().
+        reset_default_training_steps_for_new_time_series();
         set_training_data();
         // RaisePropertyChange -> no-op.
         if (use_default_flat_priors()) set_default_parameters();
@@ -314,8 +334,28 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
 
             range = max - min;
 
-            // Trend parameter scales (ARIMAX.cs:814).
-            int last_idx = std::min(training_time_steps_ - 1, diff_series_->count() - 1);
+            // Trend parameter scales (ARIMAX.cs:929).
+            //
+            // The `std::max(0, ...)` clamp is a C++-only memory-safety guard with NO effect on
+            // any path where the C# expression is itself well-defined. C# evaluates
+            // `_diffSeries[Math.Min(TrainingTimeSteps - 1, _diffSeries.Count - 1)]` unguarded;
+            // when TrainingTimeSteps is 0 the index is -1 and C# raises
+            // IndexOutOfRangeException. `TimeSeries::operator[]` here is UNCHECKED (see
+            // time_series.hpp), so the same -1 would index `ordinates_[SIZE_MAX]` -- undefined
+            // behavior, not an exception. Documented-divergence precedent: the guarded
+            // truncating casts at chi_squared.hpp / binomial.hpp / inverse_chi_squared.hpp.
+            //
+            // Reachability: TrainingTimeSteps is 0 while `diff_series_` is non-empty exactly when
+            // an EMPTY series is attached over a model that already had one --
+            // reset_default_training_steps_for_new_time_series() zeroes the window while
+            // set_training_data() returns early and leaves the previous differenced series in
+            // place. On that path the clamped read feeds `delta1 = (d[0] - d.first()) / 0`, i.e.
+            // NaN deltas, which are consumed only by add_trend_param's bounds -- and the model is
+            // already invalid (validate() rejects a null/short series), so no fit or likelihood
+            // can consume them. The divergence is therefore "C# throws where this port continues
+            // with a degenerate, unusable parameter set", never a differing NUMBER on any path a
+            // fit can reach.
+            int last_idx = std::max(0, std::min(training_time_steps_ - 1, diff_series_->count() - 1));
             delta1 = ((*diff_series_)[last_idx].value() - diff_series_->first().value()) / n_steps;
             delta2 = delta1 / n_steps;
             delta3 = delta2 / n_steps;
@@ -1009,6 +1049,12 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             result.validation_messages.push_back(
                 "Error: Time series must have at least 10 observations.");
         }
+        if (time_series_->time_interval() == numerics::data::TimeInterval::Irregular) {
+            result.is_valid = false;
+            result.validation_messages.push_back(
+                "Error: Time series analysis requires a regular time interval. Resample or "
+                "convert the series to a regular interval before estimating.");
+        }
         if (training_time_steps_ < number_of_parameters()) {
             result.is_valid = false;
             result.validation_messages.push_back(
@@ -1119,6 +1165,10 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
                         "characteristic equation roots.");
             }
         }
+        if (transform_fit_validation_message_) {
+            result.is_valid = false;
+            result.validation_messages.push_back(*transform_fit_validation_message_);
+        }
         return result;
     }
 
@@ -1213,12 +1263,39 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             case numerics::data::TimeInterval::SevenDay: return 52;
             case numerics::data::TimeInterval::OneMonth: return 12;
             case numerics::data::TimeInterval::OneQuarter: return 4;
-            case numerics::data::TimeInterval::OneYear: return 1;
+            // v2.0.0 (ARIMAX.cs:880): annual records infer a DECADAL cycle. Was 1, which
+            // collapsed the Fourier pair (sin(2*pi*t) == 0, cos(2*pi*t) == 1 at integer t).
+            case numerics::data::TimeInterval::OneYear: return 10;
             default: return 12;
         }
     }
 
     // --- SetDefaultTrainingSteps (C#:569): 80% of data, min 30 or parameter count. ---
+    // --- ResetDefaultTrainingStepsForNewTimeSeries (ARIMAX.cs:591) -----------------------------------
+    //
+    // v2.0.0: attaching a DIFFERENT response series is a new calibration problem, so the setter
+    // discards any manual training-window edit and restores the default split. An empty series
+    // zeroes the window (the C# `TimeSeries = null` arm -- this port holds the series BY VALUE in
+    // a std::optional, so "no usable series" is the empty series, never a null reference).
+    // C# RaisePropertyChange calls -> no-ops here.
+    //
+    // Divergence, unavoidable and inert for this port: C# short-circuits the whole setter on
+    // `ReferenceEquals(_timeSeries, value)`, so re-assigning the SAME object preserves a manual
+    // window. Value semantics have no object identity to test, so re-assigning an equal series
+    // here resets. The public surface never re-assigns the same series (the fixture/binding
+    // builders assign once at construction), and C#'s companion CollectionChanged hook -- which
+    // preserves the manual window when the ATTACHED series is edited in place -- has no analog
+    // either, since this port hands out the series by const reference and cannot be edited in
+    // place.
+    void reset_default_training_steps_for_new_time_series() {
+        use_default_training_steps_ = true;
+        if (!time_series_ || time_series_->count() == 0) {
+            training_time_steps_ = 0;
+            return;
+        }
+        set_default_training_steps();
+    }
+
     void set_default_training_steps() {
         if (!time_series_ || time_series_->count() == 0) return;
         int min_steps = std::max(30, static_cast<int>(parameters_.size()));
@@ -1230,6 +1307,7 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     //     via the P2 TimeSeries.Difference(1, d); training series is the first
     //     effectiveTrainingSteps of _diffSeries. Jacobian window: max(0, d + maxOrder) .. TTS-1. ---
     void set_training_data() {
+        transform_fit_validation_message_.reset();
         if (!time_series_ || training_time_steps_ == 0) return;
 
         int max_order = std::max(ar_order_p_, std::max(ma_order_q_, x_order_b_));
@@ -1248,6 +1326,17 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             }
         } else if (transform_type_ == Transform::BoxCox) {
             lambda_ = numerics::data::BoxCox::fit_lambda(time_series_->values_to_list());
+            if (!numerics::is_finite(lambda_)) {
+                lambda_ = 0;
+                log_jacobian_ = 0;
+                transformed_time_series_ = TimeSeries(time_series_->time_interval());
+                diff_series_ = TimeSeries(time_series_->time_interval());
+                training_time_series_ = TimeSeries(time_series_->time_interval());
+                transform_fit_validation_message_ =
+                    "Error: Box-Cox lambda estimation failed. Select a different transform or "
+                    "revise the time-series data.";
+                return;
+            }
             for (int i = 0; i < time_series_->count(); ++i) {
                 transformed.add((*time_series_)[i].clone());
                 transformed[i].set_value(
@@ -1255,6 +1344,17 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
             }
         } else if (transform_type_ == Transform::YeoJohnson) {
             lambda_ = numerics::data::YeoJohnson::fit_lambda(time_series_->values_to_list());
+            if (!numerics::is_finite(lambda_)) {
+                lambda_ = 0;
+                log_jacobian_ = 0;
+                transformed_time_series_ = TimeSeries(time_series_->time_interval());
+                diff_series_ = TimeSeries(time_series_->time_interval());
+                training_time_series_ = TimeSeries(time_series_->time_interval());
+                transform_fit_validation_message_ =
+                    "Error: Yeo-Johnson lambda estimation failed. Select a different transform "
+                    "or revise the time-series data.";
+                return;
+            }
             for (int i = 0; i < time_series_->count(); ++i) {
                 transformed.add((*time_series_)[i].clone());
                 transformed[i].set_value(
@@ -1318,6 +1418,9 @@ class ARIMAX : public ModelBase, public ISimulatable<std::vector<double>> {
     double lambda_ = 0;
     double lambda2_ = 0;
     double log_jacobian_ = 0;
+    // v2.0.0: set by set_training_data() when BoxCox/YeoJohnson FitLambda returns a non-finite
+    // lambda; surfaced by validate() (C# _transformFitValidationMessage).
+    std::optional<std::string> transform_fit_validation_message_;
     bool include_intercept_ = true;
     bool include_seasonality_ = false;
     int seasonal_period_ = 12;

@@ -56,6 +56,21 @@
       ]
     },
     {
+      "name": "invalid_nan_scale",
+      "note": "v2.1.4 setter-ordering wave: SetParameters([location, NaN]) must recompute _parametersValid from the FINAL (location, scale) pair, not a stale sibling read of the OLD scale via a property-setter side effect (the pre-2a0357a C# bug -- see the file header note in gumbel.hpp).",
+      "construct": { "params": [100.0, "nan"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
+      "name": "invalid_inf_scale",
+      "construct": { "params": [100.0, "inf"] },
+      "assertions": [
+        { "method": "parameters_valid", "args": [], "expected": false, "mode": "bool" }
+      ]
+    },
+    {
       "name": "mom_fit",
       "construct": { "fit": { "dataset": "sugar_creek", "method": "mom" } },
       "assertions": [

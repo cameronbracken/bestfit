@@ -341,6 +341,17 @@ inline numerics::data::TimeSeries build_time_series(const JsonValue& spec,
         spec.contains("time_interval") ? parse_time_interval(spec.at("time_interval").as_string())
                                        : numerics::data::TimeInterval::OneDay;
     long start = static_cast<long>(spec.value_or("start_index", 0));
+    // Irregular is rejected by the (interval, start, values) ctor in BOTH C# and this port (that
+    // ctor walks a REGULAR +1 step). Build it the way the C# regression tests do -- an empty
+    // series on the interval, then one Add per value. Index spacing is inert for every model
+    // here (the ARMA families index by POSITION), so a +1 walk keeps the C++/C# builders
+    // value-identical. Task 21: needed by the TimeInterval.Irregular Validate guard fixtures.
+    if (interval == numerics::data::TimeInterval::Irregular) {
+        numerics::data::TimeSeries ts(interval);
+        for (std::size_t i = 0; i < values.size(); ++i)
+            ts.add(numerics::data::TimeSeries::Ordinate(start + static_cast<long>(i), values[i]));
+        return ts;
+    }
     return numerics::data::TimeSeries(interval, start, values);
 }
 
